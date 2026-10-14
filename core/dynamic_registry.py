@@ -97,11 +97,99 @@ class DynamicSkill:
             return await asyncio.to_thread(func, **kwargs)
 
 
+class _ExternalSkillModule:
+    """Adapts a plain synchronous callable to the ``module.execute`` skill contract."""
+
+    def __init__(self, executor: Callable[..., Any]):
+        self._executor = executor
+
+    def execute(self, **kwargs) -> Any:
+        return self._executor(**kwargs)
+
+
 class DynamicToolRegistry:
     """Central registry for all hot-loaded features and synthetic Brahma skills."""
 
     _skills: Dict[str, DynamicSkill] = {}
+    # Externally-supplied tools (e.g. custom MCP servers). Kept in a separate
+    # overlay so that initialize()'s `_skills.clear()` cannot wipe them, and so
+    # they are never persisted to the filesystem skills tree.
+    _external_skills: Dict[str, DynamicSkill] = {}
     _initialized: bool = False
+
+    @classmethod
+    def register_external_tool(
+        cls,
+        name: str,
+        description: str = "",
+        parameters: Optional[Dict[str, Any]] = None,
+        executor: Optional[Callable[..., Any]] = None,
+        *,
+        version: str = "1.0.0",
+        active: bool = True,
+        source: str = "external",
+    ) -> "DynamicSkill":
+        """Registers a tool backed by an in-process synchronous callable.
+
+        Used by the custom MCP bridge to expose third-party MCP tools through
+        the exact same tool-declaration and execution paths as native features.
+
+        `executor` must be a plain synchronous callable taking **kwargs. It is
+        invoked from whichever thread the registry dispatches on, so it must
+        not assume it is running inside the caller's event loop.
+        """
+        if not name:
+            raise ValueError("External tool requires a non-empty name.")
+        if executor is None or not callable(executor):
+            raise ValueError(f"External tool '{name}' requires a callable executor.")
+
+        if parameters is None:
+            parameters = {"type": "OBJECT", "properties": {}}
+
+        manifest = {
+            "name": name,
+            "description": description or f"External tool {name}",
+            "parameters": parameters,
+            "active": bool(active),
+            "version": version,
+            "source": source,
+            "created_at": time.time(),
+        }
+        # A non-existent sentinel path: DynamicSkill only needs .parent/.stem,
+        # and the module is supplied directly so nothing is read from disk.
+        sentinel = get_user_data_dir() / "skills" / "external" / f"{name}.tool"
+        skill = DynamicSkill(sentinel, manifest, module=_ExternalSkillModule(executor))
+        cls._external_skills[name] = skill
+        logger.info(f"[Registry] Registered external tool '{name}' (source={source}).")
+        return skill
+
+    @classmethod
+    def unregister_external_tool(cls, name: str) -> bool:
+        """Removes a previously registered external tool. Returns True if present."""
+        if name in cls._external_skills:
+            del cls._external_skills[name]
+            logger.info(f"[Registry] Unregistered external tool '{name}'.")
+            return True
+        return False
+
+    @classmethod
+    def is_external_tool(cls, name: str) -> bool:
+        return name in cls._external_skills
+
+    @classmethod
+    def _all_skills(cls) -> Dict[str, DynamicSkill]:
+        """Merged view of filesystem skills and externally-registered tools.
+
+        Native skills win on name collision so an external registration can
+        never shadow a real feature.
+        """
+        if not cls._initialized:
+            cls.initialize()
+        if not cls._external_skills:
+            return cls._skills
+        merged = dict(cls._external_skills)
+        merged.update(cls._skills)
+        return merged
 
     @classmethod
     def get_skills_directory(cls) -> Path:
@@ -197,26 +285,27 @@ class DynamicToolRegistry:
         """Returns Gemini-compatible tool declarations for all active skills."""
         if not cls._initialized:
             cls.initialize()
-        return [skill.to_tool_declaration() for skill in cls._skills.values() if skill.active]
+        return [skill.to_tool_declaration() for skill in cls._all_skills().values() if skill.active]
 
     @classmethod
     def has_tool(cls, name: str) -> bool:
         if not cls._initialized:
             cls.initialize()
-        return name in cls._skills and cls._skills[name].active
+        skill = cls._all_skills().get(name)
+        return bool(skill and skill.active)
 
     @classmethod
     def get_skill(cls, name: str) -> Optional[DynamicSkill]:
         if not cls._initialized:
             cls.initialize()
-        return cls._skills.get(name)
+        return cls._all_skills().get(name)
 
     @classmethod
     def get_latest_skill(cls) -> Optional[DynamicSkill]:
         """Returns the most recently created active synthetic skill."""
         if not cls._initialized:
             cls.initialize()
-        active = [s for s in cls._skills.values() if s.active]
+        active = [s for s in cls._all_skills().values() if s.active]
         if not active:
             return None
         active.sort(key=lambda s: getattr(s, "created_at", 0), reverse=True)
@@ -390,7 +479,7 @@ class DynamicToolRegistry:
             cls.initialize()
         results = []
         seen = set()
-        for s in cls._skills.values():
+        for s in cls._all_skills().values():
             if id(s) in seen:
                 continue
             seen.add(id(s))
@@ -416,6 +505,10 @@ class DynamicToolRegistry:
         new_status = not skill.active if active is None else bool(active)
         skill.active = new_status
 
+        # External tools are not filesystem-backed: keep the flag in memory only.
+        if cls.is_external_tool(name):
+            return True
+
         manifest_path = skill.skill_dir / "manifest.json"
         try:
             skill.manifest["active"] = new_status
@@ -432,6 +525,10 @@ class DynamicToolRegistry:
         skill = cls.get_skill(name)
         if not skill:
             return False
+
+        # External tools are in-memory only: drop the overlay entry, never touch disk.
+        if cls.is_external_tool(name):
+            return cls.unregister_external_tool(name)
 
         try:
             if skill.skill_dir.exists():
