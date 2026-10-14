@@ -1,3 +1,4 @@
+
 from core.user_paths import get_user_data_dir
 import os
 
@@ -306,7 +307,23 @@ def _extract_gemini_text(response) -> str:
         return ""
 
 
-def _gemini_text_reply(prompt: str) -> str:
+def _injected_instructions(layer: str) -> str:
+    """Instruction text for a prompt layer, or "" when nothing applies.
+
+    Wrapped so every caller stays one line and no prompt path can be broken by
+    the injector. The `live` and `fallback` layers were declared but were never
+    composed, which is why Gemini Live reported receiving no avatar
+    instructions at all.
+    """
+    try:
+        from core import instruction_injector
+
+        return instruction_injector.compose(layer) or ""
+    except Exception:
+        return ""
+
+
+def _gemini_text_reply(prompt: str, layer: str = "fallback") -> str:
     client = genai.Client(
         api_key=_get_api_key(),
         http_options={"api_version": "v1beta"},
@@ -315,6 +332,9 @@ def _gemini_text_reply(prompt: str) -> str:
         "You are Brahma Evo, a concise, helpful desktop assistant. "
         "Reply naturally and briefly. Do not mention internal implementation details."
     )
+    extra = _injected_instructions(layer)
+    if extra:
+        system_prompt = f"{system_prompt}{extra}"
     response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=f"{system_prompt}\n\nUser: {prompt}",
@@ -549,6 +569,23 @@ def _wakeword_detected(text: str) -> bool:
     return any(word in {"brahma evo", "hey", "hi", "hello"} for word in words)
 
 
+def _standby_wakeword_detected(text: str) -> bool:
+    """Strict wake match for On Call standby.
+
+    _wakeword_detected() also fires on a bare "hey"/"hi"/"hello". That is
+    harmless in-session, where the socket is already up and the wake word only
+    serves to unmute. As a standby auto-connect trigger it is a false-positive
+    machine: the microphone is listening to an idle room, so any passing
+    "hi" would open a Gemini session and burn quota. Standby therefore
+    requires the product name.
+    """
+    t = re.sub(r"[^a-z0-9\s]+", " ", (text or "").lower())
+    words = [w for w in t.split() if w]
+    if not words:
+        return False
+    return "brahma" in words
+
+
 def _build_task_plan(text: str) -> list[str]:
     t = (text or "").lower()
     if any(word in t for word in ("presentation", "ppt", "slides", "deck")):
@@ -627,6 +664,17 @@ def _update_memory_async(user_text: str, brahma_text: str) -> None:
             print(f"[Memory] 🧠 Auto-learned: {list(learned.keys())}")
     except Exception as exc:
         print(f"[Memory] ⚠️ Auto-learn error: {exc}")
+
+    try:
+        # Background memory extraction toggle. This is the ONLY thing that gates
+        # extraction: it is deliberately NOT keyed on offline mode or the selected
+        # provider, because running locally is exactly when you still want the
+        # memory graph built. Extraction stays connected; the user decides whether
+        # to spend the CPU on it.
+        if not config_manager.load_settings().get("memory_extraction_enabled", True):
+            return
+    except Exception:
+        pass
 
     try:
         api_key = _get_api_key()
@@ -851,106 +899,106 @@ TOOL_DECLARATIONS = [
         }
     },
     {
-        "name": "instagram_reply",
-        "description": "Replies to a pending Instagram message or takes over the Instagram chat in auto-mode.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "action": {
-                    "type": "STRING",
-                    "description": "Must be 'take_over' to handle it automatically, or 'manual_reply' to send a specific text message."
-                },
-                "reply_text": {
-                    "type": "STRING",
-                    "description": "The exact message to send to the user if action is 'manual_reply'."
-                }
-            },
-            "required": ["action"]
-        }
+       "name": "instagram_reply",
+       "description": "Replies to a pending Instagram message or takes over the Instagram chat in auto-mode.",
+       "parameters": {
+           "type": "OBJECT",
+           "properties": {
+               "action": {
+                   "type": "STRING",
+                   "description": "Must be 'take_over' to handle it automatically, or 'manual_reply' to send a specific text message."
+               },
+               "reply_text": {
+                   "type": "STRING",
+                   "description": "The exact message to send to the user if action is 'manual_reply'."
+               }
+           },
+           "required": ["action"]
+       }
     },
     {
-        "name": "instagram_send_dm",
-        "description": "Sends an Instagram direct message to a username or conversation thread, and automatically opens the chat in your browser.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "recipient": {
-                    "type": "STRING",
-                    "description": "The Instagram username (e.g. 'john_doe') or numeric thread ID."
-                },
-                "message": {
-                    "type": "STRING",
-                    "description": "The message text to send."
-                },
-                "open_in_browser": {
-                    "type": "BOOLEAN",
-                    "description": "Whether to auto-open the chat thread in your browser (default: true)."
-                }
-            },
-            "required": ["recipient", "message"]
-        }
+       "name": "instagram_send_dm",
+       "description": "Sends an Instagram direct message to a username or conversation thread, and automatically opens the chat in your browser.",
+       "parameters": {
+           "type": "OBJECT",
+           "properties": {
+               "recipient": {
+                   "type": "STRING",
+                   "description": "The Instagram username (e.g. 'john_doe') or numeric thread ID."
+               },
+               "message": {
+                   "type": "STRING",
+                   "description": "The message text to send."
+               },
+               "open_in_browser": {
+                   "type": "BOOLEAN",
+                   "description": "Whether to auto-open the chat thread in your browser (default: true)."
+               }
+           },
+           "required": ["recipient", "message"]
+       }
     },
     {
-        "name": "instagram_post_photo",
-        "description": "Publishes a photo directly to your Instagram feed and automatically opens the live post in your browser.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "image_path": {
-                    "type": "STRING",
-                    "description": "Absolute path to the JPG or PNG image file to publish."
-                },
-                "caption": {
-                    "type": "STRING",
-                    "description": "The caption text with optional hashtags for the post."
-                },
-                "open_in_browser": {
-                    "type": "BOOLEAN",
-                    "description": "Whether to auto-open the published post in your browser (default: true)."
-                }
-            },
-            "required": ["image_path"]
-        }
+       "name": "instagram_post_photo",
+       "description": "Publishes a photo directly to your Instagram feed and automatically opens the live post in your browser.",
+       "parameters": {
+           "type": "OBJECT",
+           "properties": {
+               "image_path": {
+                   "type": "STRING",
+                   "description": "Absolute path to the JPG or PNG image file to publish."
+               },
+               "caption": {
+                   "type": "STRING",
+                   "description": "The caption text with optional hashtags for the post."
+               },
+               "open_in_browser": {
+                   "type": "BOOLEAN",
+                   "description": "Whether to auto-open the published post in your browser (default: true)."
+               }
+           },
+           "required": ["image_path"]
+       }
     },
     {
-        "name": "instagram_post_reel",
-        "description": "Publishes a video or Reel directly to your Instagram account and automatically opens the live Reel in your browser.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "video_path": {
-                    "type": "STRING",
-                    "description": "Absolute path to the MP4 video file to publish."
-                },
-                "caption": {
-                    "type": "STRING",
-                    "description": "The caption text with optional hashtags."
-                },
-                "thumbnail_path": {
-                    "type": "STRING",
-                    "description": "Optional path to cover image."
-                },
-                "open_in_browser": {
-                    "type": "BOOLEAN",
-                    "description": "Whether to auto-open the published Reel in your browser (default: true)."
-                }
-            },
-            "required": ["video_path"]
-        }
+       "name": "instagram_post_reel",
+       "description": "Publishes a video or Reel directly to your Instagram account and automatically opens the live Reel in your browser.",
+       "parameters": {
+           "type": "OBJECT",
+           "properties": {
+               "video_path": {
+                   "type": "STRING",
+                   "description": "Absolute path to the MP4 video file to publish."
+               },
+               "caption": {
+                   "type": "STRING",
+                   "description": "The caption text with optional hashtags."
+               },
+               "thumbnail_path": {
+                   "type": "STRING",
+                   "description": "Optional path to cover image."
+               },
+               "open_in_browser": {
+                   "type": "BOOLEAN",
+                   "description": "Whether to auto-open the published Reel in your browser (default: true)."
+               }
+           },
+           "required": ["video_path"]
+       }
     },
     {
-        "name": "instagram_get_user_info",
-        "description": "Looks up profile details, bio, follower count, following count, and verified badge for any Instagram handle.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "username": {
-                    "type": "STRING",
-                    "description": "The Instagram username to look up (e.g. 'natgeo' or 'openai')."
-                }
-            },
-            "required": ["username"]
-        }
+       "name": "instagram_get_user_info",
+       "description": "Looks up profile details, bio, follower count, following count, and verified badge for any Instagram handle.",
+       "parameters": {
+           "type": "OBJECT",
+           "properties": {
+               "username": {
+                   "type": "STRING",
+                   "description": "The Instagram username to look up (e.g. 'natgeo' or 'openai')."
+               }
+           },
+           "required": ["username"]
+       }
     },
     {
         "name": "open_app",
@@ -2030,6 +2078,33 @@ TOOL_DECLARATIONS = [
 ]
 
 
+def _pcm_block(indata):
+    """Convert one sounddevice block to (int16 PCM bytes, mean level).
+
+    Defensive on purpose. With sd.InputStream + dtype="int16" `indata` is a
+    numpy int16 array, but sounddevice promises nothing about that holding:
+    with RawInputStream it is a raw C buffer, and `.tobytes()` on it raises
+    AttributeError inside a cffi callback, where the exception is swallowed
+    ("Exception ignored from cffi callback") and the mic then goes permanently
+    silent with no visible cause. Every shape is handled here so one buffer
+    kind cannot silently break the voice path again. Module-level so it can be
+    tested directly rather than buried in a callback needing a live stream.
+    """
+    import numpy as np
+
+    if isinstance(indata, np.ndarray):
+        if indata.dtype == np.float32:
+            samples = (indata.reshape(-1) * 32767.0).astype(np.int16)
+        else:
+            samples = indata.astype(np.int16).reshape(-1)
+    else:
+        raw = indata if isinstance(indata, bytes) else bytes(indata)
+        samples = np.frombuffer(raw, dtype=np.int16)
+
+    level = float(np.abs(samples.astype(np.float32)).mean())
+    return samples.tobytes(), level
+
+
 class BrahmaLive:
 
     def __init__(self, ui: BrahmaUI, dashboard=None, dashboard_started: bool = False, enable_dashboard: bool = True):
@@ -2047,6 +2122,36 @@ class BrahmaLive:
         self._pending_reply_event: dict | None = None
         self._reply_mode = False
         self._attention_lock = threading.Lock()
+        self._last_user_text = ""
+        # --- Always On / On Call session control ---------------------------------
+        # _live_mode is the user's preference; _manual_call_active is the
+        # momentary "a live socket is wanted right now" gate. Both are written
+        # by Qt slots on the GUI thread and read by the async session loop, so
+        # every read/write pair goes through _control_lock.
+        self._live_mode = "always_on"       # "always_on" | "on_call"
+        self._manual_call_active = False
+        # An explicit Disconnect, honoured in BOTH modes until Connect is pressed
+        # again. Without this the Connect/Disconnect button was only meaningful in
+        # On Call: in Always On the session loop ignored the flag and reconnected
+        # five seconds later, so Disconnect looked broken. Mode and connection are
+        # separate axes; this flag is the connection axis.
+        self._live_suspended = False
+        self._disconnect_requested = False
+        self._control_lock = threading.Lock()
+        self._ui_loop = None                 # loop running run(); set once by it
+        self._connect_event = None           # asyncio.Event, built on that loop
+        self._session_task = None            # the live Gemini session task
+        self._wake_stop = None               # threading.Event that stops standby mic
+        self._wake_thread = None
+        # Wire the tool bridge's call_tool escape hatch back into this app's own
+        # dispatcher, so a tool the model discovered mid-session runs through
+        # exactly the same path as an advertised one.
+        try:
+            from core import tool_bridge
+
+            tool_bridge.configure(executor=self._execute_tool_via_bridge)
+        except Exception:
+            pass
         self._attention_monitor = AttentionMonitor(on_event=self._on_external_notification)
         try:
             set_speech_sink(self.speak)
@@ -2097,6 +2202,426 @@ class BrahmaLive:
         ]
         self._idle_speech_thread = threading.Thread(target=self._idle_speech_loop, daemon=True)
         self._idle_speech_thread.start()
+
+    # ------------------------------------------------------------------
+    # Always On / On Call session control.
+    #
+    # These are invoked from Qt slots on the GUI thread while the Gemini
+    # session lives on the asyncio loop inside run(). An asyncio.Event and a
+    # live Task are both loop-affine, so every handoff goes through
+    # call_soon_threadsafe -- touching them directly from the GUI thread
+    # loses wakeups with no error.
+    # ------------------------------------------------------------------
+    def set_live_mode(self, mode: str):
+        """Change ONLY the mode preference.
+
+        This used to also overwrite the connection gate, which made the mode
+        selector and the Connect/Disconnect button fight each other: selecting
+        Always On forced the gate open, and selecting On Call forced it shut.
+        Mode and connection are separate controls, so this touches only the mode
+        and then applies the transition the new mode implies.
+        """
+        mode = "on_call" if str(mode) == "on_call" else "always_on"
+        with self._control_lock:
+            was_on_call = self._live_mode == "on_call"
+            self._live_mode = mode
+            if mode == "on_call":
+                # On Call keeps no live socket unless a call is actually placed.
+                self._manual_call_active = False
+
+        if self._should_standby():
+            # Reflect the change immediately rather than waiting for the session
+            # teardown to reach the loop, so the indicator never sits on
+            # LISTENING while the socket is on its way down.
+            self.ui.set_state("STANDBY")
+            self._disconnect_live()
+        elif was_on_call:
+            self._stop_wakeword_listener()
+            self._request_connect()
+
+    def set_live_call(self, active: bool):
+        """Connect / Disconnect. Authoritative in BOTH modes."""
+        active = bool(active)
+        with self._control_lock:
+            self._manual_call_active = active
+            # Pressing Connect clears an earlier explicit Disconnect; pressing
+            # Disconnect latches it until Connect is pressed again.
+            self._live_suspended = not active
+        if active:
+            self._stop_wakeword_listener()
+            self._request_connect()
+        else:
+            self.ui.set_state("STANDBY")
+            self._disconnect_live()
+
+    def _should_standby(self) -> bool:
+        """True when the session loop must idle instead of holding a session.
+
+        Three independent inputs, deliberately separate:
+          _live_suspended   - an explicit Disconnect, honoured in any mode
+          _live_mode        - the Always On / On Call preference
+          _manual_call_active - a call placed through the Connect button
+        """
+        with self._control_lock:
+            if self._live_suspended:
+                return True
+            return self._live_mode == "on_call" and not self._manual_call_active
+
+    def _request_connect(self):
+        """Wake the standby wait. Safe to call before run() has started."""
+        loop, event = self._ui_loop, self._connect_event
+        if loop is None or event is None:
+            # run() has not reached the standby wait yet; it re-reads the
+            # flags on its next pass, so nothing is lost.
+            return
+        try:
+            loop.call_soon_threadsafe(event.set)
+        except RuntimeError:
+            pass  # loop already closed; nothing left to wake
+
+    def _disconnect_live(self):
+        """Drop the live session. No-op when nothing is connected."""
+        loop, task = self._ui_loop, self._session_task
+        with self._control_lock:
+            self._disconnect_requested = True
+        if loop is None or task is None or task.done():
+            return
+        try:
+            loop.call_soon_threadsafe(task.cancel)
+        except RuntimeError:
+            pass
+
+    def _clear_disconnect_request(self):
+        with self._control_lock:
+            self._disconnect_requested = False
+
+    def _take_disconnect_request(self) -> bool:
+        with self._control_lock:
+            requested, self._disconnect_requested = self._disconnect_requested, False
+            return requested
+
+    def _report_voice_status(self, live: bool, detail: str = ""):
+        """Tell the UI which voice backend is driving the session and its state.
+
+        The chat indicator previously only reflected the microphone, so a local
+        voice session, a Gemini socket and a custom endpoint were
+        indistinguishable. This is the single place that reports it, so both
+        backends cannot disagree.
+        """
+        label = "Local voice" if self._voice_backend() == "local_loop" else "Gemini Live"
+        try:
+            self.ui.set_voice_status(label, bool(live), detail)
+        except Exception:
+            pass
+
+    def _session_task_guard(self, coro):
+        """Register the running local session so _disconnect_live() can cancel it.
+
+        The Gemini path does this with asyncio.create_task for exactly this
+        reason: awaiting inline leaves no handle, and "Disconnect" would
+        silently do nothing. The local loop needs the same handle.
+        """
+        async def _runner():
+            try:
+                await coro
+            finally:
+                with self._control_lock:
+                    self._session_task = None
+
+        self._session_task = asyncio.ensure_future(_runner())
+        return self._session_task
+
+    def _voice_backend(self) -> str:
+        """Which engine drives the voice session: "gemini_live" or "local_loop".
+
+        This used to be decided by skipping the whole loop when Local was
+        selected, so with a local model the socket never opened and the mic
+        handler that pipes whisper STT into the local model never ran. The
+        controls (Always On / On Call / Connect / Disconnect) are therefore
+        inert for local models. Backend choice is now an axis of the session,
+        not a way of bypassing it.
+        """
+        try:
+            cfg = config_manager.load_settings()
+        except Exception:
+            cfg = {}
+        if cfg.get("offline_mode_enabled", False):
+            return "local_loop"
+        if str(cfg.get("default_ai_provider", "") or "").strip().lower() == "local":
+            return "local_loop"
+        return "gemini_live"
+
+    async def _run_local_voice_session(self):
+        """Voice session for a local provider: mic -> whisper STT -> local model -> TTS.
+
+        Honours the same connect/disconnect contract as the Gemini socket, so
+        Always On, On Call, Connect and Disconnect all mean the same thing
+        whichever provider is selected.
+        """
+        import numpy as np
+        import sounddevice as sd
+
+        self.session = None
+        self._loop = None
+        mic_name = config_manager.get_input_device()
+        mic_dev = audio_devices.resolve(mic_name, "input") if mic_name else None
+        available = audio_devices.list_devices("input")
+        if mic_dev is None and available:
+            mic_name = available[0]
+            mic_dev = audio_devices.resolve(mic_name, "input")
+        if mic_dev is None:
+            self.ui.write_log(
+                "SYS: No usable microphone at the configured sample rate. "
+                "Local voice is paused; text input still works."
+            )
+            while not self._take_disconnect_request():
+                await asyncio.sleep(1.0)
+            return
+
+        from core import speech_stt
+
+        engine = speech_stt.resolve_available()
+        self.ui.set_state("LISTENING")
+        self._report_voice_status(True, f"mic via {engine}")
+        self.ui.write_log(
+            f"SYS: Local voice active (STT: {engine}). "
+            "Always On / On Call / Connect / Disconnect apply as usual."
+        )
+        print(f"[BRAHMA EVO] 🎤 Local voice session started (STT={engine}).")
+
+        speech_buffer = bytearray()
+        silence_chunks = 0
+        speaking = {"on": False}
+
+        def _callback(indata, frames, time_info, status):
+            # A raise here is swallowed by cffi ("Exception ignored from cffi
+            # callback") and the stream then goes silent forever, which is what
+            # a bad buffer conversion looks like from the outside. Nothing in
+            # this callback is allowed to propagate.
+            try:
+                if self._take_disconnect_request():
+                    return
+                # sd.InputStream, NOT RawInputStream: with RawInputStream + dtype="int16"
+                # sounddevice hands the callback a raw C buffer, and `.tobytes()`
+                # raised AttributeError. Inside a cffi callback that exception is
+                # swallowed ("Exception ignored from cffi callback"), so the mic
+                # went permanently silent with no visible cause. InputStream
+                # converts to a numpy array - which is exactly what the working
+                # Gemini path already uses.
+                raw, level = _pcm_block(indata)
+                try:
+                    self.ui.set_audio_level(min(1.0, level / 1200.0))
+                except Exception:
+                    pass
+                if speaking["on"]:
+                    # While a reply is being spoken, ignore the mic so we do not
+                    # transcribe our own voice.
+                    speech_buffer.clear()
+                    silence_chunks = 0
+                    return
+                if level > 300.0:
+                    speech_buffer.extend(raw)
+                    silence_chunks = 0
+                elif speech_buffer:
+                    silence_chunks += 1
+                    if silence_chunks >= 3:
+                        captured = bytes(speech_buffer)
+                        speech_buffer.clear()
+                        silence_chunks = 0
+                        if len(captured) > (SEND_SAMPLE_RATE * 2 * 0.5):
+                            threading.Thread(
+                                target=self._local_voice_turn,
+                                args=(captured, speaking),
+                                daemon=True, name="local-voice-turn",
+                            ).start()
+            except Exception as exc:
+                # Keep this ASCII and guarded: an exception while reporting an
+                # exception is exactly what cffi cannot survive.
+                try:
+                    print(f"[BRAHMA EVO] Local mic callback error: {exc}")
+                except Exception:
+                    pass
+
+        try:
+            # InputStream (not RawInputStream) so `indata` is a numpy int16
+            # array and .tobytes() exists. The Gemini path has always used
+            # InputStream for this reason.
+            with sd.InputStream(
+                samplerate=SEND_SAMPLE_RATE,
+                blocksize=int(SEND_SAMPLE_RATE * 0.1),
+                device=mic_dev, dtype="int16", channels=1, callback=_callback,
+            ):
+                while not self._take_disconnect_request():
+                    await asyncio.sleep(0.1)
+        finally:
+            self.set_speaking(False)
+            self._report_voice_status(False)
+            try:
+                self.ui.set_audio_level(0.0)
+            except Exception:
+                pass
+            print("[BRAHMA EVO] Local voice session ended.")
+
+    def _local_voice_turn(self, pcm_bytes: bytes, speaking: dict):
+        """One local voice turn: transcribe, answer, speak. Runs off-loop."""
+        try:
+            from core import speech_stt
+
+            text = speech_stt.transcribe_pcm(pcm_bytes, SEND_SAMPLE_RATE)
+            if not text or len(text.strip()) <= 1:
+                return
+            print(f"[BRAHMA EVO] 🎙️ Heard: {text}")
+            if self.ui.muted and _wakeword_detected(text):
+                try:
+                    self.ui.set_muted_state(False, wakeword=True)
+                except Exception:
+                    pass
+            speaking["on"] = True
+            try:
+                self._on_text_command(text, source="mic")
+            finally:
+                speaking["on"] = False
+        except Exception as exc:
+            print(f"[BRAHMA EVO] ⚠️ Local voice turn failed: {exc}")
+
+    async def _wait_for_connect_request(self):
+        """Idle in On Call standby until the button or the wake word asks.
+
+        The Event is created here, on the loop that awaits it, so it is always
+        correctly bound. A request arriving between the caller reading the flag
+        and this Event existing would be lost, so the flags are re-checked right
+        after creation.
+        """
+        self._connect_event = asyncio.Event()
+        self.set_speaking(False)
+        self.ui.set_state("STANDBY")
+        self._start_wakeword_listener()
+        try:
+            if not self._should_standby():
+                return
+            self.ui.write_log("SYS: On Call standby - say 'Brahma Evo' or press Connect.")
+            await self._connect_event.wait()
+        finally:
+            self._connect_event = None
+            self._stop_wakeword_listener()
+
+    def _start_wakeword_listener(self):
+        if self._wake_thread is not None and self._wake_thread.is_alive():
+            return
+        self._wake_stop = threading.Event()
+        self._wake_thread = threading.Thread(
+            target=self._wakeword_loop, daemon=True, name="oncall-wakeword"
+        )
+        self._wake_thread.start()
+
+    def _stop_wakeword_listener(self):
+        stop, self._wake_stop = self._wake_stop, None
+        self._wake_thread = None
+        if stop is not None:
+            stop.set()
+
+    def _wakeword_loop(self):
+        """Local-only microphone listener used while On Call is in standby.
+
+        In standby the Gemini socket is down, so the in-session wake word in
+        _listen_audio can never fire -- this thread is the only path that can
+        bring the session back up. It owns the microphone exclusively while
+        disconnected, which is exactly when the live InputStream is not open,
+        so the two never contend for the device.
+        """
+        stop = self._wake_stop
+        try:
+            import speech_recognition as sr
+        except Exception:
+            try:
+                self.ui.write_log(
+                    "SYS: On Call wake word unavailable (pip install SpeechRecognition); "
+                    "use the Connect button."
+                )
+            except Exception:
+                pass
+            return
+
+        recognizer = sr.Recognizer()
+        recognizer.dynamic_response_threshold = False
+        print("[BRAHMA EVO] ON-CALL: wake word armed.")
+        while stop is not None and not stop.is_set():
+            try:
+                with sr.Microphone() as source:
+                    recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                    while stop is not None and not stop.is_set():
+                        audio = recognizer.listen(
+                            source, timeout=3.0, phrase_time_limit=2.5
+                        )
+                        transcript = self._transcribe_wakeword(recognizer, audio)
+                        if _standby_wakeword_detected(transcript):
+                            print("[BRAHMA EVO] ON-CALL: wake word heard - connecting.")
+                            self.set_live_call(True)
+                            return
+            except Exception as e:
+                if stop is None or stop.is_set():
+                    return
+                print(f"[BRAHMA EVO] ON-CALL: wake word listener retrying: {e}")
+                stop.wait(1.0)
+
+    @staticmethod
+    def _transcribe_wakeword(recognizer, audio) -> str:
+        # Capture still comes from SpeechRecognition (it owns the mic and the
+        # silence trimming); only the transcription is pluggable, so an offline
+        # machine can use faster-whisper for the wake word too.
+        try:
+            from core import speech_stt
+
+            return speech_stt.transcribe_pcm(
+                audio.get_raw_data(), audio.sample_rate or 16000
+            )
+        except Exception:
+            try:
+                return recognizer.recognize_google(audio) or ""
+            except Exception:
+                return ""
+
+    async def _serve_live_session(self, session):
+        """Hold one Gemini Live session open until it errors or is cancelled."""
+        async with asyncio.TaskGroup() as tg:
+            self.session        = session
+            self._loop          = asyncio.get_running_loop()
+            self.audio_in_queue = asyncio.Queue()
+            self.out_queue      = asyncio.Queue()  # Fix: removed maxsize=10 to prevent dropping packets
+
+            print("[BRAHMA EVO] ✅ Connected.")
+            try:
+                self.ui.boot_set_step_status("Connect AI backend", "done")
+                self.ui.boot_set_progress(75, "AI backend connected")
+            except Exception:
+                pass
+            self.ui.set_state("LISTENING")
+            self.ui.write_log("SYS: Brahma Evo online.")
+
+            tg.create_task(self._send_realtime())
+            tg.create_task(self._listen_audio())
+            tg.create_task(self._relay_phone_audio())
+            tg.create_task(self._receive_audio())
+            tg.create_task(self._play_audio())
+            if not self._startup_briefing_started:
+                self._startup_briefing_started = True
+                threading.Thread(
+                    target=_speak_daily_briefing,
+                    args=(self.ui, self.speak),
+                    daemon=True,
+                    name="daily-briefing",
+                ).start()
+            try:
+                self.ui.boot_set_step_status("Initialize audio", "done")
+                self.ui.boot_set_progress(92, "Audio subsystems online")
+            except Exception:
+                pass
+            # finalize
+            try:
+                self.ui.boot_set_step_status("Finalize startup", "done")
+                self.ui.boot_set_progress(100, "Startup complete")
+            except Exception:
+                pass
 
     def set_push_to_talk(self, enabled: bool) -> str:
         self._ptt_enabled = bool(enabled)
@@ -2162,7 +2687,7 @@ class BrahmaLive:
                         import asyncio
                         async def _send():
                             try:
-                                await self.session.send(input=prompt, end_of_turn=True)
+                                await self.session.send_client_content(turns={"parts": [{"text": prompt}]}, turn_complete=True)
                             except Exception as e:
                                 print(f"[Proactive] Error: {e}")
                         asyncio.run_coroutine_threadsafe(_send(), self._loop)
@@ -3660,6 +4185,16 @@ class BrahmaLive:
                 self._pending_attention = None
 
 
+    def _execute_tool_via_bridge(self, name: str, args: dict) -> str:
+        """Runs a tool on behalf of the tool bridge's `call_tool` meta-tool.
+
+        Reuses `_execute_tool_sync`, so a discovered-but-unadvertised tool goes
+        through the identical dispatch, UI feedback and speech path as a tool
+        that was in the setup frame. There is deliberately no second execution
+        path to keep in sync.
+        """
+        return self._execute_tool_sync(name, args, call_id=f"call_bridge_{name}")
+
     def _execute_tool_sync(self, name: str, args: dict, call_id: str = "call_local") -> str:
         class LocalFC:
             def __init__(self, n, a, cid):
@@ -3672,7 +4207,7 @@ class BrahmaLive:
         if self._loop and self._loop.is_running():
             try:
                 future = asyncio.run_coroutine_threadsafe(self._execute_tool(fc), self._loop)
-                fr = future.result(timeout=60)
+                fr = future.result(timeout=None)
                 res_obj = getattr(fr, "response", {})
                 return res_obj.get("result", str(res_obj))
             except Exception as e:
@@ -3684,6 +4219,25 @@ class BrahmaLive:
                 return res_obj.get("result", str(res_obj))
             except Exception as e:
                 return f"Tool execution failed: {e}"
+
+    @staticmethod
+    def _split_emotion_tag(text: str) -> tuple:
+        """Peel a leading [EMOTION] tag off a reply.
+
+        Returns (clean_text, emotion_or_empty). Tolerant by design: anything that
+        does not look like a single leading tag is returned untouched, because the
+        user may legitimately start a reply with brackets.
+        """
+        raw = (text or "").strip()
+        if not raw.startswith("["):
+            return raw, ""
+        end = raw.find("]")
+        if end < 0 or end > 40:
+            return raw, ""
+        tag = raw[1:end].strip()
+        if not tag or not re.fullmatch(r"[A-Za-z0-9 _\-]{2,32}", tag):
+            return raw, ""
+        return raw[end + 1:].strip(), tag.upper()
 
     def _fallback_reply(self, text: str, memory_ctx: str = ""):
         try:
@@ -3708,8 +4262,28 @@ class BrahmaLive:
             is_cloud_gemini = configured_provider in ("Gemini", "Google Gemini")
             is_cloud_openrouter = configured_provider == "OpenRouter"
 
+            # Vendor-agnostic failover order. Each link below is gated on being
+            # enabled, so a provider switched off in Settings is never called --
+            # that is what stops a background thread from silently walking the
+            # OpenRouter free-model pool on a CPU already busy with a local
+            # model. Logged so the active chain is visible when it misbehaves.
+            active_chain = ["gemini", "openrouter", "local", "custom"]
+            disabled = []
+            try:
+                from core import provider_router
+
+                active_chain = provider_router.chain()
+                disabled = [p["id"] for p in provider_router.all_providers() if not p["enabled"]]
+                if disabled:
+                    print(
+                        f"[BRAHMA EVO] Provider chain: {provider_router.describe()} "
+                        f"(disabled: {', '.join(disabled)})"
+                    )
+            except Exception:
+                pass
+
             # 1. If user explicitly selected Google Gemini, run Gemini FIRST
-            if is_cloud_gemini and not is_offline_mode:
+            if is_cloud_gemini and not is_offline_mode and "gemini" in active_chain:
                 try:
                     self.ui.update_task_workspace(
                         status="Thinking (Gemini)",
@@ -3724,7 +4298,7 @@ class BrahmaLive:
                         self._use_openrouter_first = True
 
             # 2. If user explicitly selected OpenRouter, run OpenRouter FIRST
-            elif is_cloud_openrouter and not is_offline_mode:
+            elif is_cloud_openrouter and not is_offline_mode and "openrouter" in active_chain:
                 try:
                     self.ui.update_task_workspace(
                         status="Thinking (OpenRouter)",
@@ -3736,6 +4310,7 @@ class BrahmaLive:
                         system=(
                             "You are Brahma Evo, a concise, helpful desktop assistant. "
                             "Reply naturally and briefly. Do not mention internal implementation details."
+                            + _injected_instructions("fallback")
                         ),
                     )
                     print("[BRAHMA EVO] 🌐 OpenRouter answered successfully!")
@@ -3743,7 +4318,10 @@ class BrahmaLive:
                     print(f"[BRAHMA EVO] ⚠️ OpenRouter failed: {e_or}")
 
             # 3. If user explicitly configured Local AI, is in Offline Mode, or cloud provider failed: run Local Brain
-            if not reply and (configured_provider == "Local" or is_offline_mode or not (is_cloud_gemini or is_cloud_openrouter)) and local_brain.is_available():
+            if (not reply
+                    and "local" in active_chain
+                    and (configured_provider == "Local" or is_offline_mode or not (is_cloud_gemini or is_cloud_openrouter))
+                    and local_brain.is_available()):
                 try:
                     self.ui.update_task_workspace(
                         status="Thinking (Local AI)",
@@ -3768,6 +4346,35 @@ class BrahmaLive:
                         "- Keep responses concise, direct, and conversational."
                     )
 
+                    # Local models get the same bounded, relevance-ranked tool
+                    # surface Gemini Live gets. This is what makes MCP tools
+                    # reachable here at all: the static TOOL_DECLARATIONS list
+                    # contains only native tools, and its size swamps a 3B
+                    # context window. Anything not advertised stays reachable
+                    # through the search_tools / call_tool meta-tools, and any
+                    # usage rules for the advertised groups arrive as JIT context.
+                    local_tools, local_skill_ctx = local_brain.resolve_tools(
+                        request_text, TOOL_DECLARATIONS
+                    )
+                    if local_skill_ctx:
+                        system_prompt = f"{system_prompt}\n\n{local_skill_ctx}"
+
+                    # Optional instruction blocks for this layer. Opt-in and
+                    # per-layer: a layer with nothing registered contributes an
+                    # empty string, so this is free when unused.
+                    try:
+                        from core import instruction_injector
+
+                        injected = instruction_injector.compose("local")
+                        if injected:
+                            system_prompt = f"{system_prompt}{injected}"
+                    except Exception:
+                        pass
+                    print(
+                        f"[BRAHMA EVO] 🧰 Local turn advertising {len(local_tools)} tool(s) "
+                        f"for {local_model_target}."
+                    )
+
                     messages = [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": request_text}
@@ -3776,7 +4383,7 @@ class BrahmaLive:
                     res = local_brain.chat_complete(
                         messages,
                         model=local_model_target,
-                        tools=TOOL_DECLARATIONS,
+                        tools=local_tools,
                         focus_core=True
                     )
                     msg = res.get("choices", [{}])[0].get("message", {})
@@ -3830,24 +4437,24 @@ class BrahmaLive:
 
             # 4. Fallback cascading: if primary cloud choice failed, try secondary cloud choice
             if not reply and not is_offline_mode:
-                if is_cloud_gemini and self._use_openrouter_first:
+                if is_cloud_gemini and self._use_openrouter_first and "openrouter" in active_chain:
                     try:
                         reply = openrouter_client.chat(request_text)
                     except Exception:
                         pass
-                elif is_cloud_openrouter:
+                elif is_cloud_openrouter and "gemini" in active_chain:
                     try:
                         reply = _gemini_text_reply(request_text)
                     except Exception:
                         pass
 
-            # 4. Ultimate offline safety net: Local Brain fallback
-            if not reply and local_brain.is_available():
+            # 4b. Ultimate offline safety net: Local Brain fallback
+            if not reply and "local" in active_chain and local_brain.is_available():
                 try:
                     res = local_brain.chat_complete([
                         {"role": "system", "content": "You are Brahma Evo, the autonomous desktop operating system. You control this PC. Never claim you cannot do automations."},
                         {"role": "user", "content": request_text}
-                    ], model=local_model_target, tools=TOOL_DECLARATIONS, focus_core=True)
+                    ], model=local_model_target, tools=None, focus_core=False)
                     msg_net = res.get("choices", [{}])[0].get("message", {})
                     tc_net = msg_net.get("tool_calls")
                     if tc_net:
@@ -3868,6 +4475,31 @@ class BrahmaLive:
                 except Exception as e_net:
                     print(f"[BRAHMA EVO] ⚠️ Offline Local Brain fallback failed: {e_net}")
             reply = (reply or "").strip()
+            # An emotion tag is an instruction-layer artefact, not speech. Strip
+            # it before logging and before TTS so "[SMILE]" is never vocalised,
+            # and hand the tag to the UI so a future avatar layer can consume it.
+            reply, emotion = self._split_emotion_tag(reply)
+            if emotion:
+                print(f"[BRAHMA EVO] 🎭 Emotion tag: {emotion}")
+                try:
+                    if hasattr(self.ui, "set_emotion_tag"):
+                        self.ui.set_emotion_tag(emotion)
+                except Exception:
+                    pass
+                # The avatar seam. The reply path knows nothing about which
+                # backend is selected; core.avatar_runtime decides whether the
+                # tag reaches a renderer, and never raises. Until a renderer
+                # exists this records the tag and returns - the pipeline can be
+                # exercised end to end without one.
+                try:
+                    from core import avatar_runtime
+
+                    record = avatar_runtime.handle_emotion_tag(emotion)
+                    if record.get("delivered"):
+                        print(f"[BRAHMA EVO] 🎭 Avatar: {record['tag']} -> "
+                              f"{record['backend']}")
+                except Exception:
+                    pass
             if not reply:
                 reply = "I’m ready, sir."
             self.ui.write_log(f"Brahma Evo: {reply}")
@@ -3941,7 +4573,7 @@ class BrahmaLive:
             async def _send():
                 try:
                     prompt = f"System Alert / Context: {text}\n\nPlease relay this information to me naturally now."
-                    await self.session.send(input=prompt, end_of_turn=True)
+                    await self.session.send_client_content(turns={"parts": [{"text": prompt}]}, turn_complete=True)
                 except Exception as e:
                     print(f"[BRAHMA EVO] Unified Speak (Charon) err: {e}")
                     def _fallback():
@@ -3956,12 +4588,16 @@ class BrahmaLive:
                     threading.Thread(target=_fallback, daemon=True).start()
             asyncio.run_coroutine_threadsafe(_send(), self._loop)
         else:
-            # Fallback when Gemini Live is disconnected or in offline mode
+            # No live Gemini session: this is the modular speech path, so the
+            # user-selectable engine applies. edge-tts stays the default and the
+            # pre-existing offline_mode -> SAPI routing is preserved inside
+            # speech_tts. The Gemini branch above is deliberately untouched.
             def _speak_thread():
                 try:
                     self.set_speaking(True)
-                    from actions.attention_monitor import _speak_edge_native
-                    _speak_edge_native(text)
+                    from core import speech_tts
+
+                    speech_tts.speak(text)
                 except Exception as exc:
                     print(f"[Brahma Speak] Unified TTS failed: {exc}")
                 finally:
@@ -4081,16 +4717,44 @@ class BrahmaLive:
             "Remain completely silent until the user speaks to you or asks a question."
         )
 
-        tool_declarations = list(TOOL_DECLARATIONS)
-        declared_names = {tool.get("name") for tool in tool_declarations}
+        # Optional instruction blocks for the LIVE layer. This is the only place
+        # Gemini Live's system instruction is assembled, so anything a voice
+        # session is meant to follow has to be composed here.
+        live_extra = _injected_instructions("live")
+        if live_extra:
+            print(f"[BRAHMA EVO] 💉 live prompt += {len(live_extra)} chars of instructions")
+            parts.append(live_extra.strip())
+
+        # --- Tool index: advertise a bounded, relevant tool surface ---------
+        # Every tool used to be sent on the setup frame. With Calyx + Synapse
+        # connected that was 173 declarations, past Gemini's hard 128 limit, and
+        # the handshake failed with 1007 / Invalid Argument. Gemini Live also
+        # cannot swap tools mid-session, so the surface must be small *and* the
+        # rest reachable through search_tools / call_tool.
+        last_intent = (getattr(self, "_last_user_text", "") or "")
         try:
-            from core.dynamic_registry import DynamicToolRegistry
-            for declaration in DynamicToolRegistry.get_tool_declarations():
-                if declaration.get("name") not in declared_names:
-                    tool_declarations.append(declaration)
-                    declared_names.add(declaration.get("name"))
+            from core import tool_bridge
+
+            payload = tool_bridge.build_session_payload(last_intent)
         except Exception as exc:
-            print(f"[SkillRegistry] Dynamic tools unavailable: {exc}")
+            print(f"[BRAHMA EVO] ⚠️ Tool index unavailable ({exc}); using legacy tool list.")
+            payload = {
+                "declarations": list(TOOL_DECLARATIONS),
+                "skill_context": "",
+                "deferred": 0,
+                "indexed": False,
+            }
+
+        tool_declarations = payload["declarations"]
+        if payload.get("skill_context"):
+            # Just-in-time context: usage rules for the tool groups actually
+            # advertised this session, and nothing else.
+            parts.append(payload["skill_context"])
+
+        print(
+            f"[BRAHMA EVO] 🧰 Advertising {len(tool_declarations)} tool(s); "
+            f"{payload.get('deferred', 0)} deferred and reachable via search_tools."
+        )
 
         return types.LiveConnectConfig(
             response_modalities=["AUDIO"],
@@ -4111,6 +4775,20 @@ class BrahmaLive:
     async def _execute_tool(self, fc) -> types.FunctionResponse:
         name = fc.name
         args = dict(fc.args or {})
+
+        # Discovery meta-tools are handled here, before the HUD/speech noise:
+        # they are plumbing the model uses to reach unadvertised capabilities,
+        # and narrating "working on search tools" to the user is just wrong.
+        try:
+            from core import tool_bridge
+
+            if tool_bridge.is_meta_tool(name):
+                call_id = getattr(fc, "id", None) or f"call_{name}"
+                text = await tool_bridge.execute_meta(name, args)
+                print(f"[BRAHMA EVO] 🧭 {name} -> {text[:200].replace(chr(10), ' ')}")
+                return types.FunctionResponse(name=name, id=call_id, response={"result": text})
+        except Exception as exc:
+            print(f"[BRAHMA EVO] ⚠️ Meta-tool '{name}' unavailable: {exc}")
 
         print(f"[BRAHMA EVO] 🔧 {name}  {args}")
         self.speak(f"Working on {name.replace('_', ' ')}...")
@@ -4921,10 +5599,15 @@ class BrahmaLive:
                                 if len(captured) > (SEND_SAMPLE_RATE * 2 * 0.5):
                                     def _process_local_speech(pcm_bytes):
                                         try:
-                                            import speech_recognition as sr
-                                            r = sr.Recognizer()
-                                            audio_data = sr.AudioData(pcm_bytes, SEND_SAMPLE_RATE, 2)
-                                            text_cmd = r.recognize_google(audio_data)
+                                            # Pluggable STT: cloud Google by
+                                            # default, faster-whisper when the
+                                            # user selects it. Same PCM in,
+                                            # same command string out.
+                                            from core import speech_stt
+
+                                            text_cmd = speech_stt.transcribe_pcm(
+                                                pcm_bytes, SEND_SAMPLE_RATE
+                                            )
                                             if text_cmd and len(text_cmd.strip()) > 1:
                                                 print(f"[Local AI Voice] 🎙️ Heard: {text_cmd}")
                                                 self._on_text_command(text_cmd, source="mic")
@@ -5006,6 +5689,9 @@ class BrahmaLive:
                                 except Exception:
                                     pass
                                 in_buf.append(txt)
+                                # Seed the next session's tool selection with what
+                                # the user is actually asking about.
+                                self._last_user_text = txt
                                 if self.ui.muted and _wakeword_detected(txt):
                                     try:
                                         self.ui.set_muted_state(False, wakeword=True)
@@ -5125,68 +5811,95 @@ class BrahmaLive:
             http_options={"api_version": "v1beta"}
         )
 
+        self._ui_loop = asyncio.get_running_loop()
+
         while True:
+            # --- DISCONNECT CONSTANT BACKGROUND CONNECTION TO GEMINI LIVE FOR OFFLINE MODE---
+            # Backend choice is an axis of the session, not a bypass of it: a local
+            # provider runs a local voice loop instead of the Gemini socket, so
+            # Always On / On Call / Connect / Disconnect keep working. Previously
+            # this `continue` meant the mic handler that pipes whisper STT into the
+            # local model never ran when Local was selected.
+            app_cfg = config_manager.load_settings()
+            backend = self._voice_backend()
+            if backend == "local_loop":
+                try:
+                    if self._should_standby():
+                        await self._wait_for_connect_request()
+                        continue
+                    self._clear_disconnect_request()
+                    await self._session_task_guard(
+                        self._run_local_voice_session()
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    print(f"[BRAHMA EVO] ⚠️ Local voice session error: {e}")
+                self.set_speaking(False)
+                self.ui.set_state("STANDBY" if self._should_standby() else "LISTENING")
+                if not self._should_standby():
+                    print("[BRAHMA EVO] 🔄 Re-attaching local mic in 5s...")
+                    await asyncio.sleep(5)
+                continue
+            # -------------------------
+
             try:
+                if self._should_standby():
+                    await self._wait_for_connect_request()
+                    continue
+
+                self._clear_disconnect_request()
                 print("[BRAHMA EVO] 🔌 Connecting...")
+                self._report_voice_status(False, "connecting")
                 self.ui.set_state("THINKING")
                 config = self._build_config()
 
                 connect_cm = client.aio.live.connect(model=LIVE_MODEL, config=config)
                 session = await asyncio.wait_for(connect_cm.__aenter__(), timeout=LIVE_CONNECT_TIMEOUT)
                 try:
-                    async with asyncio.TaskGroup() as tg:
-                        self.session        = session
-                        self._loop          = asyncio.get_event_loop()
-                        self.audio_in_queue = asyncio.Queue()
-                        self.out_queue      = asyncio.Queue()  # Fix: removed maxsize=10 to prevent dropping packets
-                        
-                        print("[BRAHMA EVO] ✅ Connected.")
-                        try:
-                            self.ui.boot_set_step_status("Connect AI backend", "done")
-                            self.ui.boot_set_progress(75, "AI backend connected")
-                        except Exception:
-                            pass
-                        self.ui.set_state("LISTENING")
-                        self.ui.write_log("SYS: Brahma Evo online.")
-
-                        tg.create_task(self._send_realtime())
-                        tg.create_task(self._listen_audio())
-                        tg.create_task(self._relay_phone_audio())
-                        tg.create_task(self._receive_audio())
-                        tg.create_task(self._play_audio())
-                        if not self._startup_briefing_started:
-                            self._startup_briefing_started = True
-                            threading.Thread(
-                                target=_speak_daily_briefing,
-                                args=(self.ui, self.speak),
-                                daemon=True,
-                                name="daily-briefing",
-                            ).start()
-                        try:
-                            self.ui.boot_set_step_status("Initialize audio", "done")
-                            self.ui.boot_set_progress(92, "Audio subsystems online")
-                        except Exception:
-                            pass
-                        # finalize
-                        try:
-                            self.ui.boot_set_step_status("Finalize startup", "done")
-                            self.ui.boot_set_progress(100, "Startup complete")
-                        except Exception:
-                            pass
+                    # The session runs as its own task so _disconnect_live() has
+                    # something to cancel. Awaiting it inline would leave no
+                    # handle at all and "End Call" would silently do nothing.
+                    self._session_task = asyncio.create_task(
+                        self._serve_live_session(session)
+                    )
+                    self._report_voice_status(True)
+                    try:
+                        await self._session_task
+                    except asyncio.CancelledError:
+                        # CancelledError is a BaseException, so `except Exception`
+                        # below cannot see it. Swallow it only when this was our
+                        # own On Call teardown; a real shutdown must still
+                        # propagate and end run().
+                        if not self._take_disconnect_request():
+                            raise
+                        print("[BRAHMA EVO] 📴 Session closed by On Call control.")
+                    finally:
+                        self._session_task = None
                 finally:
                     try:
                         await connect_cm.__aexit__(None, None, None)
                     except Exception:
                         pass
-                    
+
             except Exception as e:
                 print(f"[BRAHMA EVO] ⚠️ {e}")
                 traceback.print_exc()
                 if _is_gemini_limit_error(e):
                     self._use_openrouter_first = True
+                if "1008" in str(e):
+                    self._resume_handle = None
                 self.session = None
                 self._loop = None
             self.set_speaking(False)
+            if self._should_standby():
+                # No reconnect delay, and never a LISTENING flash on a UI that
+                # is no longer listening -- that flash is what made the status
+                # indicator look stuck.
+                self._report_voice_status(False, "standby")
+                self.ui.set_state("STANDBY")
+                continue
+            self._report_voice_status(False, "reconnecting")
             self.ui.set_state("LISTENING")
             print("[BRAHMA EVO] 🔄 Reconnecting in 5s...")
             await asyncio.sleep(5)
@@ -5201,6 +5914,64 @@ def main():
     except Exception as exc:
         _startup_log(f"GitHub update skipped: {exc}")
     _ensure_desktop_shortcut()
+
+    # Boot user-configured custom MCP servers in the background. Never fatal: a
+    # broken server must not stop Brahma from starting, so this is fully guarded
+    # and runs after the update check so a restart-on-update exits first.
+    def _start_custom_mcp_servers():
+        try:
+            from core.mcp_manager import MCPServerManager
+            MCPServerManager.start_servers()
+            _startup_log("custom MCP servers requested")
+            # MCP servers register their tools asynchronously, so the index must
+            # be refreshed once they land or those tools stay unreachable until
+            # the next restart. Wait briefly, then re-sync.
+            def _resync():
+                import time as _t
+                deadline = _t.time() + 30
+                seen = set()
+                while _t.time() < deadline:
+                    _t.sleep(2.0)
+                    try:
+                        status = MCPServerManager.status()
+                        names = {n for n, s in status.items() if s.get("tools")}
+                        if names == seen:
+                            continue
+                        seen = names
+                        from core import tool_bridge
+                        from core.dynamic_registry import DynamicToolRegistry
+                        tool_bridge.sync_all(TOOL_DECLARATIONS, DynamicToolRegistry)
+                        total = sum(len(s.get("tools") or []) for s in status.values())
+                        _startup_log(f"tool index refreshed after MCP connect: {total} MCP tool(s)")
+                    except Exception as exc:
+                        _startup_log(f"MCP index resync skipped: {exc}")
+
+            threading.Thread(target=_resync, daemon=True, name="mcp-index-resync").start()
+        except Exception as exc:
+            _startup_log(f"custom MCP startup skipped: {exc}")
+
+    threading.Thread(target=_start_custom_mcp_servers, daemon=True).start()
+
+    # Build the tool index before the first Live handshake. This is what keeps
+    # the advertised tool list inside Gemini's 128-declaration ceiling and keeps
+    # every other tool reachable through search_tools / call_tool. Runs before
+    # the UI so the settings panel can show real numbers at first paint.
+    try:
+        from core import tool_bridge
+        from core.dynamic_registry import DynamicToolRegistry
+        from memory import config_manager as _cfg
+
+        DynamicToolRegistry.initialize()
+        tool_bridge.configure(settings=_cfg.load_settings())
+        tool_bridge.prime(TOOL_DECLARATIONS, DynamicToolRegistry)
+        _ts = tool_bridge.snapshot()
+        _startup_log(
+            f"tool index ready: {_ts['tools']} tools, advertising {_ts['advertised']}, "
+            f"{_ts['deferred']} deferred, backends={','.join(_ts['backends']) or 'none'}"
+        )
+    except Exception as exc:
+        _startup_log(f"tool index unavailable: {exc}")
+
     ui = BrahmaUI(str(BASE_DIR / "assets" / "Brahma_Lite_Logo.png"), show_immediately=True)
     dashboard = None
     dashboard_enabled = DashboardServer is not None and not _is_port_in_use(8000)
@@ -5316,6 +6087,16 @@ def main():
             dashboard_started=dashboard is not None,
             enable_dashboard=dashboard_enabled,
         )
+        # These signals are declared on MainWindow and forwarded by BrahmaUI.
+        # They used to be connected inside a bare `except Exception: pass`,
+        # which hid an AttributeError and left the whole On Call feature
+        # dead -- buttons repainted, the session never changed. Surface it.
+        try:
+            ui.live_mode_changed.connect(brahma_evo.set_live_mode)
+            ui.live_call_toggled.connect(brahma_evo.set_live_call)
+            print("[BRAHMA EVO] ✅ On Call control wired.")
+        except Exception as exc:
+            _startup_log(f"On Call control NOT wired: {exc}")
 
         # Wire proactive voice to Sensorium
         def _proactive_sensorium_voice(alert_type: str, meta: dict):
@@ -5423,7 +6204,15 @@ def main():
 
     start_runner()
     ui.show_main()
-    ui.root.mainloop()
+    try:
+        ui.root.mainloop()
+    finally:
+        # Tear down MCP child processes so they cannot outlive the app.
+        try:
+            from core.mcp_manager import MCPServerManager
+            MCPServerManager.stop_all()
+        except Exception as exc:
+            _startup_log(f"custom MCP shutdown skipped: {exc}")
 
 
 if __name__ == "__main__":

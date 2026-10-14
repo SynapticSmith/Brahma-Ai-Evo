@@ -7,6 +7,14 @@ import html as html_lib
 import math
 import os
 
+# _quiet_run() spawns helper processes and the startup handler prints a
+# traceback. Both names were used in this module without ever being imported,
+# so every _quiet_run() caller raised NameError and the startup error handler
+# masked the real exception with its own.
+import subprocess
+import traceback
+from typing import Any
+
 # Hardware acceleration & WebGL flags for smooth 180fps+ rendering in Chromium
 os.environ.setdefault(
     "QTWEBENGINE_CHROMIUM_FLAGS",
@@ -27,7 +35,7 @@ if platform.system() == "Windows":
     import winreg
 
 from PyQt6.QtCore import (
-    QEasingCurve, QEvent, QPoint, QPointF, QRectF, QSize, Qt,
+    QEasingCurve, QEvent, QObject, QPoint, QPointF, QRectF, QSize, Qt,
     QTimer, QUrl, QPropertyAnimation, pyqtSignal, QCoreApplication,
 )
 from PyQt6.QtGui import (
@@ -221,14 +229,102 @@ class BackgroundWidget(QWidget):
                 self._fallback_pixmap = None
         self._web_view = None
 
+        # Honour the saved preference at construction, otherwise the toggle
+        # appeared not to persist across a restart: the page always booted with
+        # animation running regardless of what was saved.
+        _anim_on = True
+        try:
+            from memory import config_manager
+
+            _anim_on = bool(config_manager.get_setting("enable_3d_background", True))
+        except Exception:
+            _anim_on = True
+
         if WEB_ENGINE_AVAILABLE:
             self._init_web_engine()
+            if not _anim_on:
+                self.set_animation_enabled(False)
+        self._animation_enabled = _anim_on
+
+    def set_animation_enabled(self, enabled: bool, reason: str = "") -> dict:
+        """Start or stop the animated web background.
+
+        Returns a readback dict so the caller can report honestly rather than
+        assuming success: hiding the widget alone was NOT enough, because the
+        page kept requesting animation frames behind it. The page exposes
+        __pauseAnimation/__resumeAnimation for exactly this, so we drive that
+        first and treat it as the source of truth.
+
+        Also hides/shows the view, because a hidden QWebEngineView may still be
+        composited by the browser process on some Qt builds.
+        """
+        readback = {"engine_available": bool(WEB_ENGINE_AVAILABLE),
+                    "web_view": self._web_view is not None,
+                    "js_issued": False}
+        if not WEB_ENGINE_AVAILABLE:
+            return readback
+
+        if enabled:
+            if self._web_view is None:
+                self._init_web_engine()
+            if self._web_view is not None:
+                # Show BEFORE resuming: a hidden view may not run queued JS.
+                self._web_view.show()
+                self._web_view.raise_()
+                try:
+                    self._web_view.page().runJavaScript(
+                        "window.__resumeAnimation && window.__resumeAnimation();"
+                    )
+                    readback["js_issued"] = True
+                except Exception as exc:
+                    readback["js_error"] = str(exc)
+        else:
+            if self._web_view is not None:
+                try:
+                    self._web_view.page().runJavaScript(
+                        "window.__pauseAnimation && window.__pauseAnimation();"
+                    )
+                    readback["js_issued"] = True
+                except Exception as exc:
+                    readback["js_error"] = str(exc)
+                self._web_view.hide()
+            self.update()
+        return readback
+
+    def _avatar_page_path(self) -> str:
+        """Which avatar document to show. Falls back to the 3D background.
+
+        core owns which backend is selected; this only asks it for a path, so
+        that neither side has to know about the other's internals.
+        """
+        try:
+            from core import avatar_runtime
+
+            return avatar_runtime.active_page_path()
+        except Exception:
+            return str(BASE_DIR / "assets" / "web_background" / "index.html")
+
+    def _avatar_model_url(self) -> str:
+        try:
+            from core import avatar_runtime
+
+            return avatar_runtime.active_model_url()
+        except Exception:
+            return ""
+
+    def refresh_avatar_page(self) -> bool:
+        """Re-point the web view at the current backend's document."""
+        try:
+            return self.set_avatar_page(self._avatar_page_path(),
+                                        self._avatar_model_url())
+        except Exception:
+            return False
 
     def _init_web_engine(self):
         if self._web_view is not None:
             return
         try:
-            html_path = BASE_DIR / "assets" / "web_background" / "index.html"
+            html_path = Path(self._avatar_page_path())
             if not html_path.exists():
                 return
             self._web_view = QWebEngineView(self)
@@ -248,6 +344,10 @@ class BackgroundWidget(QWidget):
             self._web_view.loadFinished.connect(self._on_web_loaded)
 
             file_url = QUrl.fromLocalFile(str(html_path.resolve()))
+            model_url = self._avatar_model_url()
+            if model_url:
+                from urllib.parse import quote
+                file_url.setQuery("model=" + quote(model_url, safe=":/"))
             self._web_view.load(file_url)
 
             w = max(self.width(), 800)
@@ -266,9 +366,18 @@ class BackgroundWidget(QWidget):
                 self._web_view.lower()
             st = getattr(self, "_last_state", "IDLE") or "IDLE"
             self._do_set_ai_state(st)
+            # The page only exists from here on, so this is the first moment a
+            # mood emitted during boot can actually be rendered. Without it the
+            # first reply's emotion is silently lost on every launch.
+            try:
+                from core import avatar_runtime
+
+                avatar_runtime.flush_pending_mood()
+            except Exception:
+                pass
         elif not ok:
             print("[BackgroundWidget] Background WebEngine failed to load, retrying in 250ms...")
-            html_path = BASE_DIR / "assets" / "web_background" / "index.html"
+            html_path = Path(self._avatar_page_path())
             if html_path.exists() and self._web_view:
                 QTimer.singleShot(250, lambda: self._web_view.load(QUrl.fromLocalFile(str(html_path.resolve()))))
 
@@ -341,6 +450,54 @@ class BackgroundWidget(QWidget):
                     page.runJavaScript(f"if(window.setAudioLevel) window.setAudioLevel({lv:.3f});")
             except Exception:
                 pass
+
+    def set_avatar_page(self, page_path: str, model_url: str = "") -> bool:
+        """Point the web view at a different avatar document.
+
+        The avatar backends are separate pages that expose the same hooks, so
+        switching renderer is a URL swap rather than a mode flag. Done here
+        rather than in core, because QWebEngine is a Qt concern and core must
+        not import the UI.
+
+        Returns True when a reload was actually issued, so callers do not have
+        to assume it took.
+        """
+        if not page_path or not os.path.isfile(page_path):
+            return False
+        if self._web_view is None:
+            return False
+        try:
+            url = QUrl.fromLocalFile(str(Path(page_path).resolve()))
+            if model_url:
+                from urllib.parse import quote
+                url.setQuery("model=" + quote(str(model_url), safe=":/"))
+            self._web_view.load(url)
+            return True
+        except Exception:
+            return False
+
+    def set_avatar_emotion(self, tag: str, intensity: float = 1.0) -> bool:
+        """Push one emotion into the 3D background. Returns whether it went out.
+
+        The tag is interpolated with json.dumps, not string-concatenated: it
+        arrives as model-produced text, and this is a JS source string.
+        """
+        if self._web_view is None:
+            return False
+        try:
+            try:
+                iv = max(0.0, min(2.0, float(intensity)))
+            except (TypeError, ValueError):
+                iv = 1.0
+            js = (f"window.setAvatarEmotion && "
+                  f"window.setAvatarEmotion({json.dumps(str(tag or ''))}, {iv:.3f});")
+            page = self._web_view.page()
+            if page is None:
+                return False
+            page.runJavaScript(js)
+            return True
+        except Exception:
+            return False
 
     def set_pointer_norm(self, nx: float, ny: float) -> None:
         if self._web_view:
@@ -1446,6 +1603,38 @@ def _default_app_settings() -> dict:
         "check_updates_on_startup": True,
         "default_ai_provider": "Gemini",
         "auto_provider_switch": True,
+        "local_ai_url": "http://localhost:11434/v1",
+        "local_ai_model": "llama3.2",
+        "local_api_key": "",
+        "custom_ai_url": "",
+        "custom_ai_model": "",
+        "custom_api_key": "",
+        "custom_mcp_servers": [],
+        # Tool & Skill Index. Budget is the number of function declarations sent
+        # on the Gemini Live setup frame; the provider hard-caps this at 128, so
+        # the default stays far below. Everything else is reachable on demand
+        # through the search_tools / call_tool meta-tools.
+        "tool_index_enabled": True,
+        "tool_index_budget": 24,
+        # Per-provider kill switches for the failover chain (core/provider_router.py).
+        # All default True so behaviour is unchanged until someone toggles one.
+        # Switch OpenRouter off to guarantee zero cloud egress from background work.
+        "provider_enabled_gemini": True,
+        "provider_enabled_openrouter": True,
+        "provider_enabled_local": True,
+        "provider_enabled_custom": True,
+        # Background memory extraction. Deliberately independent of the selected
+        # provider: running locally is when you still want the memory graph built.
+        "memory_extraction_enabled": True,
+        # 3D background animation; costs GPU/CPU every frame, so it is switchable.
+        "enable_3d_background": True,
+        # Speech engines for the modular (non-Gemini) speech pipeline. Both
+        # default to the previous cloud behaviour so nothing changes until the
+        # user picks a local engine; see core/speech_stt.py and core/speech_tts.py.
+        "speech_stt_engine": "google",
+        "speech_whisper_model": "base.en",
+        "speech_tts_engine": "edge",
+        "speech_tts_voice": "",
         "attention_message_prompts": True,
         "attention_call_prompts": True,
         "developer_mode_enabled": False,
@@ -3978,7 +4167,29 @@ class InlineChatWorkspace(QFrame):
         self._history_btn.clicked.connect(lambda: self._set_tab(1))
         tabs.addWidget(self._chat_btn)
         tabs.addWidget(self._history_btn)
+
+        self._live_mode_btn = QPushButton("Mode: Always On")
+        self._live_mode_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._live_mode_btn.setFixedHeight(30)
+        self._live_mode_btn.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+        self._live_mode_btn.setStyleSheet("background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 0 10px;")
+
+        self._live_call_btn = QPushButton("📞 Connect")
+        self._live_call_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._live_call_btn.setFixedHeight(30)
+        self._live_call_btn.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        self._live_call_btn.setStyleSheet("background: rgba(0, 229, 255, 0.15); color: #00e5ff; border: 1px solid #00e5ff; border-radius: 8px; padding: 0 12px;")
+        self._live_call_btn.hide()
+
         tabs.addStretch(1)
+        tabs.addWidget(self._live_mode_btn)
+        tabs.addWidget(self._live_call_btn)
+
+        self._live_mode = "always_on"
+        self._call_active = False
+        self._live_mode_btn.clicked.connect(self._toggle_mode)
+        self._live_call_btn.clicked.connect(self._toggle_call)
+
         root.addLayout(tabs)
 
         self._stack = QStackedWidget()
@@ -3990,6 +4201,40 @@ class InlineChatWorkspace(QFrame):
         self._ensure_conversation()
         self._load_active_conversation()
         self._refresh_history()
+
+    def _toggle_mode(self):
+        if self._live_mode == "always_on":
+            self._live_mode = "on_call"
+            self._live_mode_btn.setText("Mode: On Call")
+            self._live_call_btn.show()
+        else:
+            self._live_mode = "always_on"
+            self._live_mode_btn.setText("Mode: Always On")
+            self._call_active = False
+            self._live_call_btn.setText("📞 Connect")
+            self._live_call_btn.setStyleSheet("background: rgba(0, 229, 255, 0.15); color: #00e5ff; border: 1px solid #00e5ff; border-radius: 8px; padding: 0 12px;")
+            self._live_call_btn.hide()
+
+        p = self.parentWidget()
+        while p and not hasattr(p, "live_mode_changed"):
+            p = p.parentWidget()
+        if p:
+            p.live_mode_changed.emit(self._live_mode)
+
+    def _toggle_call(self):
+        self._call_active = not self._call_active
+        if self._call_active:
+            self._live_call_btn.setText("🔴 End Call")
+            self._live_call_btn.setStyleSheet("background: rgba(255, 59, 48, 0.15); color: #ff3b30; border: 1px solid #ff3b30; border-radius: 8px; padding: 0 12px;")
+        else:
+            self._live_call_btn.setText("📞 Connect")
+            self._live_call_btn.setStyleSheet("background: rgba(0, 229, 255, 0.15); color: #00e5ff; border: 1px solid #00e5ff; border-radius: 8px; padding: 0 12px;")
+
+        p = self.parentWidget()
+        while p and not hasattr(p, "live_call_toggled"):
+            p = p.parentWidget()
+        if p:
+            p.live_call_toggled.emit(self._call_active)
 
     def _mk_tab(self, text: str, active: bool) -> QPushButton:
         btn = QPushButton(text)
@@ -4160,17 +4405,62 @@ class InlineChatWorkspace(QFrame):
     def set_audio_level(self, level: float):
         pass
 
+    def set_voice_status(self, backend: str = "", live: bool | None = None,
+                          detail: str = ""):
+        """Report which voice backend is driving the session, and whether it is up.
+
+        The chat/footer indicator used to only ever reflect the microphone, so a
+        local voice session, a Gemini Live socket and a custom endpoint all
+        looked identical - and "listening" could mean anything. Connectivity is
+        now stated explicitly and is independent of which backend is selected.
+        """
+        if backend:
+            self._voice_backend = str(backend).strip()
+        if live is not None:
+            self._voice_live = bool(live)
+            # A live/not-live report replaces the detail wholesale, otherwise a
+            # previous "standby"/"reconnecting" string keeps showing next to a
+            # session that is now connected.
+            self._voice_detail = str(detail or "").strip()
+        elif detail:
+            self._voice_detail = str(detail).strip()
+        try:
+            self._refresh_connectivity_indicator()
+        except Exception:
+            pass
+
+    def _connectivity_text(self) -> str:
+        backend = getattr(self, "_voice_backend", "") or ""
+        live = bool(getattr(self, "_voice_live", False))
+        detail = getattr(self, "_voice_detail", "") or ""
+        if not backend:
+            return detail or "no voice session"
+        if live:
+            return f"{backend} connected" + (f" - {detail}" if detail else "")
+        return f"{backend} not connected"
+
+    def _refresh_connectivity_indicator(self):
+        """Re-render the footer with the current state plus real connectivity."""
+        if not getattr(self, "_footer_status", None):
+            return
+        state = (getattr(self, "_state", "") or "").lower()
+        base = {
+            "listening": "Listening to your voice...",
+            "speaking": "Brahma Evo is speaking...",
+            "thinking": "Synthesizing response...",
+            "executing": "Executing task...",
+            "working": "Processing request...",
+            "muted": "Microphone muted",
+            # Not On-Call-specific any more: standby can be an explicit
+            # Disconnect in either mode, on either backend.
+            "standby": "Standby - no session",
+        }.get(state, "Brahma Evo is ready")
+        self._footer_status.setText(f"{base} - {self._connectivity_text()}")
+
     def set_state(self, state: str):
         if hasattr(self, "_footer_status") and self._footer_status:
-            status_text = {
-                "listening": "Listening to your voice...",
-                "speaking": "Brahma Evo is speaking...",
-                "thinking": "Synthesizing response...",
-                "executing": "Executing task...",
-                "working": "Processing request...",
-                "muted": "Microphone muted",
-            }.get((state or "").lower(), "Brahma Evo is ready")
-            self._footer_status.setText(status_text)
+            self._state = (state or "").strip().lower()
+            self._refresh_connectivity_indicator()
 
     def _build_history_tab(self) -> QWidget:
         page = QWidget()
@@ -4384,8 +4674,10 @@ class LauncherControlPanel(QDialog):
                  on_open_app=None,
                  on_show_icon=None,
                  on_open_dev=None,
+                 on_setting_toggle=None,
                  parent=None):
         super().__init__(parent)
+        self._on_setting_toggle = on_setting_toggle
         self._on_open = on_open
         self._on_close = on_close
         self._on_toggle_startup = on_toggle_startup
@@ -4486,7 +4778,74 @@ class LauncherControlPanel(QDialog):
         ):
             lay.addWidget(btn)
 
+        # --- Live toggles -------------------------------------------------- #
+        # These do NOT go through _invoke(), which closes the panel; flipping a
+        # provider off and having the panel vanish under the cursor is why the
+        # failover chain had no usable switch before.
+        self._add_toggle_section(lay, mk_btn)
+
         self.adjustSize()
+
+    def _add_toggle_section(self, lay, mk_btn):
+        """Provider kill switches plus the 3D / memory toggles."""
+        try:
+            from core import provider_router
+
+            providers = provider_router.all_providers()
+        except Exception:
+            providers = []
+
+        sep = QLabel("Providers & resources")
+        sep.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        sep.setStyleSheet("color: #7fe9ff; background: transparent;")
+        lay.addWidget(sep)
+
+        state: dict = {}
+        try:
+            from memory import config_manager
+
+            state = config_manager.load_settings()
+        except Exception:
+            state = {}
+
+        for spec in providers:
+            key = f"provider_enabled_{spec['id']}"
+            enabled = bool(spec["enabled"])
+            btn = mk_btn(f"Use {spec['label']}", checkable=True, checked=enabled)
+            btn.setToolTip(spec.get("hint", ""))
+            btn.toggled.connect(lambda checked, k=key: self._emit_setting(k, checked))
+            lay.addWidget(btn)
+
+        anim = mk_btn(
+            "3D Background Animation", checkable=True,
+            checked=bool(state.get("enable_3d_background", True)),
+        )
+        anim.setToolTip("Off saves GPU and CPU every frame.")
+        anim.toggled.connect(
+            lambda checked: self._emit_setting("enable_3d_background", checked)
+        )
+        lay.addWidget(anim)
+
+        mem = mk_btn(
+            "Background Memory Extraction", checkable=True,
+            checked=bool(state.get("memory_extraction_enabled", True)),
+        )
+        mem.setToolTip(
+            "Turn off to stop background analysis between messages. "
+            "Stays available in Local/Offline mode -- it is never forced off."
+        )
+        mem.toggled.connect(
+            lambda checked: self._emit_setting("memory_extraction_enabled", checked)
+        )
+        lay.addWidget(mem)
+
+    def _emit_setting(self, key: str, value: bool) -> None:
+        """Persist a toggle without closing the panel."""
+        if self._on_setting_toggle:
+            try:
+                self._on_setting_toggle(key, bool(value))
+            except Exception:
+                pass
 
     def _invoke(self, fn, *args):
         if fn:
@@ -6865,6 +7224,16 @@ class CommandBar(QWidget):
     def set_state(self, state: str):
         pass
 
+    def set_voice_status(self, backend: str = "", live: bool | None = None,
+                              detail: str = ""):
+        """Forward voice-backend connectivity to the real MainWindow."""
+        win = getattr(self, "_win", None)
+        if win is not None and hasattr(win, "set_voice_status"):
+            try:
+                win.set_voice_status(backend, live, detail)
+            except Exception:
+                pass
+
 
 class DeveloperModeDialog(QDialog):
     def __init__(self, parent=None, settings: dict | None = None):
@@ -8022,6 +8391,7 @@ class FloatingLauncher(QWidget):
         "processing": (0, 229, 255),   # Dynamic Ice Cyan
         "working": (0, 229, 255),      # Dynamic Ice Cyan
         "muted": (160, 160, 160),      # Cool Silver
+        "standby": (110, 122, 138),    # Dormant Slate - session down
         "error": (255, 82, 82),        # Alert Crimson
     }
 
@@ -8299,6 +8669,9 @@ class FloatingLauncher(QWidget):
             "executing": "Executing task...",
             "processing": "Processing...",
             "muted": "Muted",
+            # Not On-Call-specific: standby is also what an explicit Disconnect
+            # looks like in Always On, on either voice backend.
+            "standby": "Standby - no session",
             "error": "Error",
         }.get(self._state, "Ready")
 
@@ -8520,6 +8893,8 @@ class MainWindow(QMainWindow):
     _confirm_sig = pyqtSignal(str, str, str)
     _memory_overlay_sig = pyqtSignal(str)
     _audio_level_sig = pyqtSignal(float)
+    live_mode_changed = pyqtSignal(str)
+    live_call_toggled = pyqtSignal(bool)
 
     def _make_window_icon(self) -> QIcon:
         return _logo_icon()
@@ -8568,6 +8943,7 @@ class MainWindow(QMainWindow):
         central.setStyleSheet("background: transparent;")
         self._bg_widget = central
         self.setCentralWidget(central)
+        self._attach_avatar_renderer()
 
         root = QVBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
@@ -8689,8 +9065,28 @@ class MainWindow(QMainWindow):
         else:
             self.showFullScreen()
 
+    def _settings_file_stamp(self):
+        """Identity of the settings file as it is on disk right now."""
+        try:
+            if APP_SETTINGS_FILE.exists():
+                st = APP_SETTINGS_FILE.stat()
+                return (st.st_mtime_ns, st.st_size)
+        except Exception:
+            pass
+        return None
+
     def _load_app_settings(self) -> dict:
-        if self._app_settings_cache is not None:
+        # A plain cache is not safe here: core/provider_router.py and
+        # core/instruction_injector.py write this same file through
+        # memory.config_manager without knowing this cache exists. Serving the
+        # cached snapshot after such a write makes the UI believe the old value,
+        # and the next save writes that old value back - which is how disabling
+        # OpenRouter reverted after an unrelated save. Re-read whenever the file
+        # on disk has changed, so the two owners can never diverge.
+        stamp = self._settings_file_stamp()
+        if self._app_settings_cache is not None and stamp == getattr(
+            self, "_app_settings_cache_stamp", None
+        ):
             return dict(self._app_settings_cache)
         settings = _default_app_settings()
         if APP_SETTINGS_FILE.exists():
@@ -8701,12 +9097,37 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
         self._app_settings_cache = dict(settings)
+        self._app_settings_cache_stamp = self._settings_file_stamp()
         return dict(settings)
+
+    def _invalidate_app_settings_cache(self):
+        """Force the next load to re-read the file.
+
+        Settings have more than one owner. The cards write through here, but
+        core/provider_router.py and core/instruction_injector.py write the same
+        file through memory.config_manager and never touch this cache. Left
+        stale, the cache carries the OLD value and a later save writes it back,
+        silently reverting the other component's change. That is precisely how
+        disabling OpenRouter kept coming back after an unrelated save.
+        """
+        self._app_settings_cache = None
 
     def _save_app_settings(self, settings: dict):
         os.makedirs(CONFIG_DIR, exist_ok=True)
-        APP_SETTINGS_FILE.write_text(json.dumps(settings, indent=4), encoding="utf-8")
-        self._app_settings_cache = dict(settings)
+        # Merge over what is actually on disk instead of trusting the caller's
+        # snapshot: another component may have written a key since this dict
+        # was loaded, and a blind replace would revert it.
+        merged = dict(settings)
+        if APP_SETTINGS_FILE.exists():
+            try:
+                on_disk = json.loads(APP_SETTINGS_FILE.read_text(encoding="utf-8"))
+                if isinstance(on_disk, dict):
+                    merged = on_disk
+                    merged.update(settings)
+            except Exception:
+                pass
+        APP_SETTINGS_FILE.write_text(json.dumps(merged, indent=4), encoding="utf-8")
+        self._app_settings_cache = dict(merged)
 
     def _startup_animation_enabled(self) -> bool:
         if platform.system() != "Windows":
@@ -9673,6 +10094,49 @@ class MainWindow(QMainWindow):
             else:
                 self.restored.emit()
 
+    def _attach_avatar_renderer(self):
+        """Give core.avatar_runtime somewhere to send an emotion tag.
+
+        The registry never imports a widget - that would invert the dependency
+        for one renderer - so the UI offers a sink and the core fills it. Weak
+        reference, because the registry outliving the window must not keep the
+        window (and its WebGL context) alive.
+        """
+        try:
+            import weakref
+            from core import avatar_runtime
+
+            ref = weakref.ref(self)
+
+            def _sink(tag: str, intensity: float) -> bool:
+                win = ref()
+                if win is None:
+                    return False
+                bg = getattr(win, "_bg_widget", None)
+                fn = getattr(bg, "set_avatar_emotion", None)
+                if not callable(fn):
+                    return False
+                return bool(fn(tag, intensity))
+
+            avatar_runtime.set_webengine_sink(_sink)
+        except Exception:
+            pass
+
+    def refresh_avatar_renderer(self) -> bool:
+        """Re-point the background at whichever avatar document is now selected.
+
+        Called after the backend picker changes, because the two backends are
+        separate documents rather than one page with a mode flag.
+        """
+        try:
+            bg = getattr(self, "_bg_widget", None)
+            fn = getattr(bg, "refresh_avatar_page", None)
+            if not callable(fn):
+                return False
+            return bool(fn())
+        except Exception:
+            return False
+
     def _on_audio_level_sig(self, level: float):
         if hasattr(self, "_bg_widget") and hasattr(self._bg_widget, "set_audio_level"):
             self._bg_widget.set_audio_level(level)
@@ -9709,6 +10173,7 @@ class MainWindow(QMainWindow):
                 "WORKING":    ("⚡ WORKING",    "#7c4dff", "rgba(124, 77, 255, 0.45)","rgba(124, 77, 255, 0.08)"),
                 "MUTED":      ("⊗ MUTED",      "#ff3b30", "rgba(255, 59, 48, 0.45)", "rgba(255, 59, 48, 0.08)"),
                 "SCANNING":   ("◓ SCANNING",   "#37ff5f", "rgba(55, 255, 95, 0.45)", "rgba(55, 255, 95, 0.08)"),
+                "STANDBY":    ("◌ STANDBY",    "#6e7a8a", "rgba(110, 122, 138, 0.40)","rgba(110, 122, 138, 0.08)"),
             }
             lbl_txt, col, border, bg = badge_map.get(state, ("● ONLINE", "#00e5ff", "rgba(0, 229, 255, 0.25)", "rgba(12,14,18,220)"))
             self._status_badge.setText(lbl_txt)
@@ -9727,6 +10192,7 @@ class MainWindow(QMainWindow):
                 "WORKING": "Working on it...",
                 "MUTED": "Microphone muted — type command here...",
                 "SCANNING": "Scanning display...",
+                "STANDBY": "Standby - say \"Brahma Evo\" or press Connect...",
             }
             self._input.setPlaceholderText(ph_map.get(state, "Ask Brahma Evo anything..."))
 
@@ -9741,6 +10207,7 @@ class MainWindow(QMainWindow):
                 "WORKING": "● Working on task...",
                 "MUTED": "● Voice input muted",
                 "SCANNING": "● Vision system active",
+                "STANDBY": "● Standby - no session (say \"Brahma Evo\" or press Connect)",
             }
             self._inline_workspace._footer_status.setText(foot_map.get(state, "Brahma Evo is online"))
 
@@ -9749,9 +10216,10 @@ class MainWindow(QMainWindow):
                 "THINKING": "● WORKING",
                 "SPEAKING": "● SPEAKING",
                 "MUTED":    "● MUTED",
+                "STANDBY": "● STANDBY",
             }.get(state, "● ONLINE")
             self._status_chip.setText(chip_text)
-            color = C.PRI if state == "MUTED" else C.GREEN if state in ("LISTENING", "SPEAKING") else C.WHITE
+            color = C.PRI if state == "MUTED" else "#6e7a8a" if state == "STANDBY" else C.GREEN if state in ("LISTENING", "SPEAKING") else C.WHITE
             border = C.PRI if state in ("MUTED", "THINKING") else "rgba(255,255,255,0.12)"
             self._status_chip.setStyleSheet(
                 f"color: {color}; background: rgba(11,12,16,238); border: 1px solid {border}; border-radius: 999px; padding: 7px 14px;"
@@ -9761,10 +10229,11 @@ class MainWindow(QMainWindow):
                 "THINKING": "Working",
                 "SPEAKING": "Speaking",
                 "MUTED": "Muted",
+                "STANDBY": "On Call",
             }.get(state, "Online")
             self._time_status_lbl.setText(status_text)
             self._time_status_lbl.setStyleSheet(
-                f"color: {C.GREEN if state in ('LISTENING', 'SPEAKING') else C.RED if state == 'MUTED' else C.WHITE}; background: transparent;"
+                f"color: {C.GREEN if state in ('LISTENING', 'SPEAKING') else C.RED if state == 'MUTED' else '#6e7a8a' if state == 'STANDBY' else C.WHITE}; background: transparent;"
             )
         if hasattr(self, "_task_card"):
             if state in ("THINKING", "PROCESSING", "EXECUTING", "WORKING"):
@@ -9773,6 +10242,11 @@ class MainWindow(QMainWindow):
                 self._task_card.set_task("Responding...", "Brahma Evo is speaking now.", 100)
             elif state == "MUTED":
                 self._task_card.set_task("Microphone muted", "Voice input is paused.", 0)
+            elif state == "STANDBY":
+                self._task_card.set_task(
+                    "On Call standby",
+                    'Socket closed. Say "Brahma Evo" or press Connect.', 0
+                )
             else:
                 self._task_card.set_task("Ready", "Brahma Evo is idle and ready.", 0)
         if hasattr(self, "_result_card"):
@@ -9782,9 +10256,34 @@ class MainWindow(QMainWindow):
                 self._result_card.set_body("Speaking now")
             elif state == "MUTED":
                 self._result_card.set_body("Voice muted")
+            elif state == "STANDBY":
+                self._result_card.set_body("Waiting for wake word")
             else:
                 self._result_card.set_body("Action completed")
 
+    def set_voice_status(self, backend: str = "", live: bool | None = None,
+                          detail: str = ""):
+        """Report which voice backend is driving the session, and whether it is up.
+
+        The chat/footer indicator only ever reflected the microphone, so a local
+        voice session, a Gemini Live socket and a custom endpoint looked
+        identical. Connectivity is now stated explicitly and is independent of
+        which backend is selected.
+        """
+        for holder_name in ("_chat_workspace", "_command_bar"):
+            holder = getattr(self, holder_name, None)
+            if holder is not None and hasattr(holder, "set_voice_status"):
+                try:
+                    holder.set_voice_status(backend, live, detail)
+                except Exception:
+                    pass
+        # Keep a copy on the window so any later indicator can read it too.
+        if backend:
+            self._voice_backend = str(backend).strip()
+        if live is not None:
+            self._voice_live = bool(live)
+        if detail:
+            self._voice_detail = str(detail).strip()
     def _check_config(self) -> bool:
         if not API_FILE.exists(): return False
         try:
@@ -10490,6 +10989,28 @@ class SystemConnectivitySidebar(QFrame):
 
 
 
+class _ModelDiscoveryBridge(QObject):
+    """Runs OpenCode /v1/models discovery off the UI thread and signals results back.
+
+    Discovery performs a blocking HTTP request with a multi-second timeout; doing
+    it inline would freeze the whole settings page, so the work runs on a worker
+    thread and only this signal touches widgets (on the UI thread).
+    """
+
+    finished = pyqtSignal(list, str, str)  # models, resolved_url, error
+
+    def discover(self, url: str):
+        def _work():
+            try:
+                from llm_client import UnifiedAIClient
+                models = UnifiedAIClient.poll_opencode_models(url)
+                self.finished.emit(models, url, "" if models else f"No models returned by {url}")
+            except Exception as exc:
+                self.finished.emit([], url, str(exc))
+
+        threading.Thread(target=_work, daemon=True).start()
+
+
 class SettingsHubPage(QWidget):
     def __init__(self, navigation_callback, parent=None):
         super().__init__(parent)
@@ -10868,6 +11389,1181 @@ class SystemConnectivityPage(QWidget):
 
         return spotify_card
 
+    def _replace_app_settings(self, settings: dict):
+        """Persist a whole settings dict.
+
+        Named for what the caller intends; the write itself always merges over
+        the file so a key another owner changed is not reverted. The no-window
+        branch used to blind-write, which is how a card holding a stale dict
+        could clobber unrelated stored choices.
+        """
+        win = self._owner_window()
+        if win is not None and hasattr(win, "_save_app_settings"):
+            win._save_app_settings(settings)
+            return
+        try:
+            os.makedirs(CONFIG_DIR, exist_ok=True)
+            merged = dict(settings)
+            if APP_SETTINGS_FILE.exists():
+                try:
+                    on_disk = json.loads(APP_SETTINGS_FILE.read_text(encoding="utf-8"))
+                    if isinstance(on_disk, dict):
+                        merged = on_disk
+                        merged.update(settings)
+                except Exception:
+                    pass
+            APP_SETTINGS_FILE.write_text(json.dumps(merged, indent=4), encoding="utf-8")
+        except Exception:
+            pass
+
+    def _custom_mcp_servers(self) -> list:
+        raw = self._load_app_settings().get("custom_mcp_servers") or []
+        return [entry for entry in raw if isinstance(entry, dict)]
+
+    def _build_tool_index_card(self):
+        """Card controlling the tool & skill index (see core/tool_index.py).
+
+        The index is what keeps the Live handshake inside Gemini's
+        128-declaration ceiling while leaving every tool reachable through
+        search_tools / call_tool. Turning it off restores the old behaviour,
+        which sends every tool and will be rejected once enough MCP servers are
+        connected — so the card says so plainly rather than hiding the risk.
+        """
+        card = self._card(
+            "Tool & Skill Index",
+            "Decides which tools are sent to the AI each session. Keeps the connection "
+            "inside Gemini's 128-tool limit and cuts prompt size; every other tool stays "
+            "reachable on demand.",
+        )
+        lay = card.layout()
+
+        settings = self._load_app_settings()
+
+        # --- enable toggle ------------------------------------------------- #
+        enabled_box = QCheckBox("Enable the tool index (recommended)")
+        enabled_box.setChecked(bool(settings.get("tool_index_enabled", True)))
+        enabled_box.setStyleSheet(f"color: {C.TEXT};")
+        lay.addWidget(enabled_box)
+
+        # --- budget -------------------------------------------------------- #
+        budget_row = QHBoxLayout()
+        budget_label = QLabel("Tools sent per session")
+        budget_label.setStyleSheet(f"color: {C.TEXT}; font-size: 12px;")
+        budget_row.addWidget(budget_label)
+
+        # Presets rather than a free-form number: every value must stay well
+        # under the provider ceiling, and the ceiling differs by provider.
+        # The low tiers exist because a 0.8B-3B model on CPU spends much of its
+        # attention window on tool schemas; 4-12 keeps it usable there.
+        budget_box = QComboBox()
+        current = int(settings.get("tool_index_budget", 24) or 24)
+        for value in (4, 8, 12, 16, 24, 32, 48, 64):
+            budget_box.addItem(f"{value} tools", value)
+        found = budget_box.findData(current)
+        # Derive the default index rather than hardcoding it: the preset list grew
+        # a lower tier, so a literal index silently selected a different budget.
+        default_index = budget_box.findData(24)
+        if default_index < 0:
+            default_index = 0
+        budget_box.setCurrentIndex(found if found >= 0 else default_index)
+        budget_row.addWidget(budget_box)
+        budget_row.addStretch(1)
+        lay.addLayout(budget_row)
+
+        hint = QLabel(
+            "Fewer tools means a smaller prompt and faster routing. Anything above the "
+            "limit is sent lazily via search_tools, so raising this is optional."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
+        lay.addWidget(hint)
+
+        # --- routing test -------------------------------------------------- #
+        test_row = QHBoxLayout()
+        self._tool_index_probe = QLineEdit()
+        self._tool_index_probe.setPlaceholderText(
+            "Test routing for a request, e.g. \"dim the monitors\""
+        )
+        test_row.addWidget(self._tool_index_probe, 1)
+        btn_test = QPushButton("Test")
+        btn_test.setFixedWidth(70)
+        btn_test.clicked.connect(self._on_tool_index_test)
+        test_row.addWidget(btn_test)
+        lay.addLayout(test_row)
+
+        self._tool_index_result = QLabel("")
+        self._tool_index_result.setWordWrap(True)
+        self._tool_index_result.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self._tool_index_result.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
+        lay.addWidget(self._tool_index_result)
+
+        # --- status --------------------------------------------------------- #
+        self._tool_index_status = QLabel("")
+        self._tool_index_status.setWordWrap(True)
+        self._tool_index_status.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
+        lay.addWidget(self._tool_index_status)
+        self._refresh_tool_index_status()
+
+        # --- persistence ---------------------------------------------------- #
+        def _persist():
+            merged = self._load_app_settings()
+            merged["tool_index_enabled"] = bool(enabled_box.isChecked())
+            merged["tool_index_budget"] = int(budget_box.currentData() or 24)
+            self._replace_app_settings(merged)
+            try:
+                from core import tool_bridge
+
+                tool_bridge.configure(settings=merged)
+                self._refresh_tool_index_status()
+            except Exception as exc:
+                self._tool_index_status.setText(f"Saved, but the running index could not be updated: {exc}")
+
+        enabled_box.stateChanged.connect(lambda _s: _persist())
+        budget_box.currentIndexChanged.connect(lambda _i: _persist())
+
+        return card
+
+    def _refresh_tool_index_status(self):
+        """Renders live index numbers. Never raises: status text is informational."""
+        try:
+            from core import tool_bridge
+
+            snap = tool_bridge.snapshot()
+        except Exception as exc:
+            self._tool_index_status.setText(f"Tool index unavailable: {exc}")
+            return
+
+        backends = ", ".join(snap["backends"]) or "none active"
+        self._tool_index_status.setText(
+            f"{snap['tools']} tools indexed · sending {snap['advertised']} · "
+            f"{snap['deferred']} reachable on demand · backends: {backends} · "
+            f"~{snap['token_estimate']} tokens (was ~9,000 unscaled) · "
+            f"provider limit {snap['gemini_limit']}"
+        )
+
+    def _on_tool_index_test(self):
+        """Shows what a request would route to, without touching the AI session."""
+        query = self._tool_index_probe.text().strip()
+        if not query:
+            self._tool_index_result.setText("Type a request to test.")
+            return
+        try:
+            from core import tool_bridge
+
+            rows = tool_bridge.explain(query, k=6)
+        except Exception as exc:
+            self._tool_index_result.setText(f"Routing test failed: {exc}")
+            return
+
+        if not rows:
+            self._tool_index_result.setText(f"No tools matched {query!r}.")
+            return
+        lines = [f"<b>{query}</b> would route to:"]
+        for row in rows:
+            lines.append(
+                f"&nbsp;&nbsp;• {row['name']} <span style='color:{C.TEXT_DIM}'>"
+                f"[{row['source']}]</span>"
+            )
+        self._tool_index_result.setText("<br>".join(lines))
+
+    # ------------------------------------------------------------------
+    # Speech engines (core/speech_stt.py, core/speech_tts.py)
+    # ------------------------------------------------------------------
+    def _build_speech_card(self):
+        """Card selecting the STT/TTS engines for the modular speech pipeline.
+
+        This only affects the path where Brahma has to transcribe and speak
+        itself — i.e. no live Gemini session. While Gemini Live is connected the
+        unified native voice is used and nothing here has any effect, which is
+        why the subtitle says so: users should not think this changes the voice
+        they hear in a normal session.
+
+        Both engines default to the previous cloud behaviour. Selecting a local
+        engine that is not installed does not break anything — the engine falls
+        through to the next available one and the card says which is live.
+        """
+        card = self._card(
+            "Speech Engines",
+            "Transcription and speech for the offline / local-model path. A live "
+            "Gemini session always uses the unified voice and ignores these.",
+        )
+        lay = card.layout()
+        settings = self._load_app_settings()
+
+        try:
+            from core import speech_stt as _stt
+            from core import speech_tts as _tts
+        except Exception as exc:
+            err = QLabel(f"Speech engine modules unavailable: {exc}")
+            err.setWordWrap(True)
+            err.setStyleSheet(f"color: {C.RED if hasattr(C, 'RED') else '#ff3b30'}; font-size: 11px;")
+            lay.addWidget(err)
+            return card
+
+        # --- speech to text ---------------------------------------------- #
+        stt_title = QLabel("Transcription (speech → text)")
+        stt_title.setStyleSheet(f"color: {C.TEXT}; font-size: 12px; font-weight: 600;")
+        lay.addWidget(stt_title)
+
+        stt_box = QComboBox()
+        self._stt_engines = _stt.available_engines()
+        for eng in self._stt_engines:
+            mark = "" if eng["available"] else "  (not installed)"
+            stt_box.addItem(f"{eng['label']}{mark}", eng["id"])
+        current_stt = str(settings.get("speech_stt_engine", "google") or "google")
+        idx = stt_box.findData(current_stt)
+        stt_box.setCurrentIndex(idx if idx >= 0 else 0)
+        lay.addWidget(stt_box)
+
+        whisper_row = QHBoxLayout()
+        whisper_row.addWidget(QLabel("Whisper model"))
+        self._whisper_model = QLineEdit(
+            str(settings.get("speech_whisper_model", "base.en") or "base.en")
+        )
+        self._whisper_model.setPlaceholderText("base.en")
+        whisper_row.addWidget(self._whisper_model, 1)
+        lay.addLayout(whisper_row)
+
+        whisper_hint = QLabel(
+            "Used only by faster-whisper. tiny.en is fastest, base.en is more "
+            "accurate. The model downloads once, then works offline."
+        )
+        whisper_hint.setWordWrap(True)
+        whisper_hint.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
+        lay.addWidget(whisper_hint)
+
+        # --- text to speech ------------------------------------------------ #
+        tts_title = QLabel("Speech (text → voice)")
+        tts_title.setStyleSheet(f"color: {C.TEXT}; font-size: 12px; font-weight: 600;")
+        lay.addWidget(tts_title)
+
+        tts_box = QComboBox()
+        self._tts_engines = _tts.available_engines()
+        for eng in self._tts_engines:
+            mark = "" if eng["available"] else "  (not installed)"
+            tts_box.addItem(f"{eng['label']}{mark}", eng["id"])
+        current_tts = str(settings.get("speech_tts_engine", "edge") or "edge")
+        idx = tts_box.findData(current_tts)
+        tts_box.setCurrentIndex(idx if idx >= 0 else 0)
+        self._tts_box = tts_box
+        lay.addWidget(tts_box)
+
+        voice_row = QHBoxLayout()
+        voice_row.addWidget(QLabel("Voice file"))
+        self._tts_voice = QLineEdit(str(settings.get("speech_tts_voice", "") or ""))
+        self._tts_voice.setPlaceholderText(
+            r"Optional. Leave blank to auto-discover under %LOCALAPPDATA%\BrahmaAI\voices"
+        )
+        voice_row.addWidget(self._tts_voice, 1)
+        lay.addLayout(voice_row)
+
+        test_row = QHBoxLayout()
+        btn_speak = QPushButton("Speak test")
+        btn_speak.setFixedWidth(110)
+        btn_speak.clicked.connect(self._on_speech_test)
+        test_row.addWidget(btn_speak)
+        test_row.addStretch(1)
+        lay.addLayout(test_row)
+
+        # --- status --------------------------------------------------------- #
+        self._speech_status = QLabel("")
+        self._speech_status.setWordWrap(True)
+        self._speech_status.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
+        lay.addWidget(self._speech_status)
+        self._refresh_speech_status()
+
+        # --- persistence ----------------------------------------------------- #
+        def _persist():
+            merged = self._load_app_settings()
+            merged["speech_stt_engine"] = stt_box.currentData() or "google"
+            merged["speech_whisper_model"] = (self._whisper_model.text() or "base.en").strip()
+            merged["speech_tts_engine"] = tts_box.currentData() or "edge"
+            merged["speech_tts_voice"] = self._tts_voice.text().strip()
+            self._replace_app_settings(merged)
+            self._refresh_speech_status()
+
+        stt_box.currentIndexChanged.connect(lambda _i: _persist())
+        tts_box.currentIndexChanged.connect(lambda _i: _persist())
+        self._whisper_model.editingFinished.connect(lambda: _persist())
+        self._tts_voice.editingFinished.connect(lambda: _persist())
+
+        return card
+
+    # ------------------------------------------------------------------
+    # Providers & resources
+    # ------------------------------------------------------------------
+    def _build_avatar_card(self):
+        """Optional avatar instruction blocks, switched independently.
+
+        Two separate switches on purpose: emotion tags drive the visuals only,
+        tone steering changes how Brahma words things. They can be used alone or
+        together, and leaving both off injects nothing at all.
+
+        Availability follows the 3D background: with no avatar on screen there
+        is nothing for emotion tags to drive, so the switches are disabled until
+        the animation is on. The saved values are preserved either way, so
+        switching the background off and back on does not lose your choices.
+        """
+        card = self._card(
+            "Avatar Instructions",
+            "Optional instruction blocks for the avatar. Off by default; these are "
+            "what tell the model it may emit emotion tags or steer its tone.",
+        )
+        lay = card.layout()
+
+        try:
+            from core import instruction_injector as inj
+        except Exception as exc:
+            err = QLabel(f"Instruction injector unavailable: {exc}")
+            err.setWordWrap(True)
+            err.setStyleSheet("color: #ff3b30; font-size: 11px;")
+            lay.addWidget(err)
+            return card
+
+        settings = self._load_app_settings()
+        avatar_live = bool(settings.get("enable_3d_background", True))
+
+        gate = QLabel(
+            "3D background animation is ON — avatar instructions are available."
+            if avatar_live else
+            "3D background animation is OFF, so avatar instructions are unavailable. "
+            "Enable it above to switch these on; your existing choices are kept."
+        )
+        gate.setWordWrap(True)
+        gate.setStyleSheet(
+            f"color: {C.TEXT if avatar_live else '#ff9f43'}; font-size: 11px;"
+        )
+        lay.addWidget(gate)
+
+        hint = QLabel("")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
+        lay.addWidget(hint)
+
+        boxes = {}
+        for spec in inj.blocks():
+            box = QCheckBox(spec["label"])
+            box.setChecked(bool(spec["enabled"]))
+            box.setEnabled(avatar_live)
+            box.setStyleSheet(f"color: {C.TEXT};")
+            box.setToolTip(f"Applies to: {', '.join(spec['layers'])}")
+            lay.addWidget(box)
+            boxes[spec["name"]] = box
+
+        def _persist():
+            merged = self._load_app_settings()
+            for name, box in boxes.items():
+                inj.set_block_enabled(name, box.isChecked())
+                merged[f"instruction_block_{name}"] = bool(box.isChecked())
+            self._replace_app_settings(merged)
+            try:
+                stats = inj.stats()
+                active = ", ".join(stats["enabled"]) if stats["enabled"] else "nothing"
+                composing = ", ".join(
+                    layer for layer, row in stats["layers"].items()
+                    if row["injected_chars"]
+                ) or "none"
+                hint.setText(
+                    f"Active: {active} · reaching: {composing} · "
+                    f"3D background: {'on' if avatar_live else 'off'}"
+                )
+            except Exception:
+                pass
+
+        for box in boxes.values():
+            box.stateChanged.connect(lambda _s: _persist())
+        _persist()
+        lay.addWidget(self._build_avatar_backend_section())
+        return card
+
+    def _build_avatar_backend_section(self):
+        """Backend selection + asset paths for the avatar scaffold.
+
+        Deliberately separate from the instruction blocks above. The blocks decide
+        whether the model is *allowed* to emit a tag; this decides what consumes
+        one. Having the emotion block on with no backend chosen is a normal,
+        useful state while the renderers are still being built.
+        """
+        try:
+            from core import avatar_runtime as ar
+        except Exception as exc:
+            lbl = QLabel(f"Avatar backend registry unavailable: {exc}")
+            lbl.setWordWrap(True)
+            lbl.setStyleSheet(f"color: {C.RED}; font-size: 11px;")
+            return lbl
+
+        wrap = QWidget()
+        outer = QVBoxLayout(wrap)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        title = QLabel("Avatar backend — what consumes an emotion tag")
+        title.setStyleSheet(f"color: {C.TEXT}; font-weight: bold;")
+        outer.addWidget(title)
+
+        master = QCheckBox("Enable avatar rendering (master switch)")
+        master.setChecked(ar.is_enabled())
+        master.setStyleSheet(f"color: {C.TEXT};")
+        master.setToolTip("Off by default. Emotion tags are still parsed and "
+                          "recorded with this off, but nothing is rendered.")
+        outer.addWidget(master)
+
+        def _selected_id():
+            try:
+                from memory import config_manager
+
+                return str(config_manager.get_setting(ar.SETTING_ACTIVE, "") or "")
+            except Exception:
+                return ""
+
+        combo = QComboBox()
+        probes = ar.probe_all()
+        for info in probes:
+            mark = "ready" if info["available"] else "needs setup"
+            combo.addItem(f"{info['label']} — {mark}", info["id"])
+        idx = combo.findData(_selected_id())
+        combo.setCurrentIndex(idx if idx >= 0 else 0)
+        outer.addWidget(combo)
+
+        # Intensity is what turns an emotion tag from a colour change into a
+        # mood: it scales the emotion's contribution to speed, wobble, bloom and
+        # how strongly the voice drives the visuals. 0.0 is the pre-avatar look.
+        inten_row = QHBoxLayout()
+        inten_row.addWidget(QLabel("Intensity"))
+        intensity = QSlider(Qt.Orientation.Horizontal)
+        intensity.setRange(0, 200)
+        intensity.setValue(int(round(ar.get_intensity() * 100)))
+        intensity.setToolTip("0 = avatar has no visual effect, 2 = maximum")
+        inten_row.addWidget(intensity, 1)
+        inten_value = QLabel(f"{ar.get_intensity():.2f}")
+        inten_value.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
+        inten_row.addWidget(inten_value)
+        outer.addLayout(inten_row)
+
+        status_rows = {}
+        asset_rows = {}
+        for info in probes:
+            line = QLabel("")
+            line.setWordWrap(True)
+            line.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
+            outer.addWidget(line)
+            status_rows[info["id"]] = line
+            if info["id"] in ("live2d", "vrm"):
+                row = QHBoxLayout()
+                row.addWidget(QLabel("Model"))
+                edit = QLineEdit(info["asset"] or "")
+                edit.setPlaceholderText(
+                    "folder containing a .model3.json"
+                    if info["id"] == "live2d" else "path to a .vrm file"
+                )
+                row.addWidget(edit, 1)
+                outer.addLayout(row)
+                asset_rows[info["id"]] = edit
+
+        # External avatar. UDP cannot report whether a host is listening, so
+        # this is a "armed" switch with an explicit test - not a checkbox that
+        # implies a connection it cannot establish.
+        osc_rows = {}
+        try:
+            _be = ar.get("osc_vmc")
+            osc_on = bool(_be.enabled()) if _be else False
+            osc_host_val = str(_be.host()) if _be else "127.0.0.1"
+            osc_port_val = str(_be.port()) if _be else "39539"
+        except Exception:
+            osc_on, osc_host_val, osc_port_val = False, "127.0.0.1", "39539"
+        osc_box = QCheckBox("Drive an external avatar over VMC/OSC (e.g. VSeeFace)")
+        osc_box.setChecked(osc_on)
+        osc_box.setToolTip("Sends emotion tags to 127.0.0.1:39539 over UDP. "
+                           "UDP has no receipt, so this cannot confirm a host "
+                           "is running - use Test to check by eye.")
+        outer.addWidget(osc_box)
+        osc_rows["enabled"] = osc_box
+
+        host_row = QHBoxLayout()
+        host_row.addWidget(QLabel("Host"))
+        osc_host = QLineEdit(osc_host_val)
+        host_row.addWidget(osc_host, 1)
+        osc_port = QLineEdit(osc_port_val)
+        osc_port.setFixedWidth(80)
+        host_row.addWidget(QLabel("Port"))
+        host_row.addWidget(osc_port)
+        outer.addLayout(host_row)
+        osc_rows["host"] = osc_host
+        osc_rows["port"] = osc_port
+
+        osc_test = QPushButton("Send a test mood to the external avatar")
+        osc_result = QLabel("")
+        osc_result.setWordWrap(True)
+        osc_result.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
+        outer.addWidget(osc_test)
+        outer.addWidget(osc_result)
+        osc_rows["result"] = osc_result
+
+        diagnostics = QLabel("")
+        diagnostics.setWordWrap(True)
+        diagnostics.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
+        outer.addWidget(diagnostics)
+
+        def _refresh():
+            try:
+                for info in ar.probe_all():
+                    lbl = status_rows.get(info["id"])
+                    if lbl is not None:
+                        text = info["detail"] or info["hint"]
+                        lbl.setText(("ready — " if info["available"] else "needs setup — ") + text)
+                diagnostics.setText(ar.diagnostics().replace("<br>", "\n"))
+            except Exception as exc:
+                diagnostics.setText(f"diagnostics unavailable: {exc}")
+
+        def _persist():
+            try:
+                ar.set_enabled(master.isChecked())
+                bid = combo.currentData()
+                if bid:
+                    ar.set_active(str(bid))
+                ar.set_intensity(intensity.value() / 100.0)
+                for bid2, edit in asset_rows.items():
+                    ar.set_asset_path(bid2, edit.text().strip())
+                # The OSC backend owns its own settings accessors; going through
+                # them rather than poking _setting keeps the write on the same
+                # path the backend reads from.
+                try:
+                    _be = ar.get("osc_vmc")
+                    if _be is not None:
+                        _be.set_enabled(bool(osc_box.isChecked()))
+                        _be.set_host(osc_host.text().strip() or "127.0.0.1")
+                        _be.set_port(osc_port.text().strip() or 39539)
+                except Exception:
+                    pass
+            except Exception as exc:
+                diagnostics.setText(f"could not save avatar settings: {exc}")
+            inten_value.setText(f"{ar.get_intensity():.2f}")
+            _refresh()
+            # The backend decides which document the background shows, so a
+            # change here is a page swap, not just a setting write.
+            try:
+                host = self._owner_window()
+                fn = getattr(host, "refresh_avatar_renderer", None)
+                if callable(fn):
+                    fn()
+            except Exception:
+                pass
+
+        master.stateChanged.connect(lambda _s: _persist())
+        combo.currentIndexChanged.connect(lambda _i: _persist())
+        intensity.valueChanged.connect(lambda _v: _persist())
+        osc_box.stateChanged.connect(lambda _s: _persist())
+        for widget in (osc_host, osc_port):
+            widget.editingFinished.connect(_persist)
+
+        def _osc_test():
+            try:
+                be = ar.get("osc_vmc")
+                if be is None:
+                    osc_result.setText("external avatar backend unavailable")
+                    return
+                _persist()
+                outcome = be.send_test()
+                msg = ("Sent: " if outcome.get("ok") else "Failed: ") + str(
+                    outcome.get("detail", ""))
+                osc_result.setStyleSheet(
+                    f"color: {C.ACC if outcome.get('ok') else C.RED}; font-size: 11px;")
+                osc_result.setText(msg)
+            except Exception as exc:
+                osc_result.setStyleSheet(f"color: {C.RED}; font-size: 11px;")
+                osc_result.setText(f"Test failed: {exc}")
+
+        osc_test.clicked.connect(_osc_test)
+        _refresh()
+        return wrap
+
+    def _build_apply_bar(self):
+        """Explicit save + restart, and a readback of what this process loaded.
+
+        Most cards here save as you toggle. This bar exists because a toggle
+        that fails silently is indistinguishable from one that worked: it
+        reports whether the modules this run depends on are actually present,
+        which is the usual reason a fresh setting appears to do nothing (the app
+        was started before the module existed).
+        """
+        card = self._card(
+            "Apply & Diagnostics",
+            "Save every setting, and check that this running copy has the newest "
+            "code loaded. Changes to the provider chain take effect immediately; "
+            "new modules only load on restart.",
+        )
+        lay = card.layout()
+
+        btn_row = QHBoxLayout()
+        btn_save = QPushButton("Save All Settings")
+        btn_save.setFixedHeight(32)
+        btn_save.clicked.connect(lambda: self._on_save_all_clicked())
+        btn_row.addWidget(btn_save)
+
+        btn_restart = QPushButton("Restart Brahma Evo")
+        btn_restart.setFixedHeight(32)
+        btn_restart.clicked.connect(self._restart_app)
+        btn_row.addWidget(btn_restart)
+
+        btn_check = QPushButton("Refresh diagnostics")
+        btn_check.setFixedHeight(32)
+        btn_check.clicked.connect(lambda: self._refresh_diagnostics())
+        btn_row.addWidget(btn_check)
+        btn_row.addStretch(1)
+        lay.addLayout(btn_row)
+
+        self._save_status = QLabel("")
+        self._save_status.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
+        lay.addWidget(self._save_status)
+
+        self._diag_label = QLabel("")
+        self._diag_label.setWordWrap(True)
+        self._diag_label.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
+        lay.addWidget(self._diag_label)
+        self._refresh_diagnostics()
+        return card
+
+    def _refresh_diagnostics(self):
+        """Report loaded modules, live chain, and the 3D state."""
+        lines = []
+        try:
+            import importlib
+
+            for mod in ("core.provider_router", "core.speech_stt", "core.speech_tts",
+                        "core.instruction_injector", "core.tool_bridge"):
+                try:
+                    importlib.import_module(mod)
+                    lines.append(f"[OK] {mod}")
+                except Exception as exc:
+                    lines.append(f"[MISSING] {mod} — {type(exc).__name__}")
+        except Exception as exc:
+            lines.append(f"diagnostics unavailable: {exc}")
+
+        try:
+            from core import provider_router
+
+            lines.append(f"Chain: {provider_router.describe()}")
+            # Show each toggle as it is actually stored, so a reverted value is
+            # visible here instead of only being inferred from the chain text.
+            flags = ", ".join(
+                f"{pid}={'on' if provider_router.is_enabled(pid) else 'off'}"
+                for pid in ("gemini", "openrouter", "local", "custom")
+            )
+            lines.append(f"Stored provider toggles: {flags}")
+        except Exception:
+            pass
+
+        settings = self._load_app_settings()
+        lines.append(
+            f"3D background: {'on' if settings.get('enable_3d_background', True) else 'off'}"
+            f" · memory extraction: "
+            f"{'on' if settings.get('memory_extraction_enabled', True) else 'off'}"
+        )
+        missing = [line for line in lines if line.startswith("[MISSING]")]
+        if missing:
+            lines.append(">> A missing module means this process started before it "
+                         "existed. Restart Brahma Evo for the toggles to take effect.")
+        try:
+            self._diag_label.setText("<br>".join(lines))
+        except Exception:
+            pass
+        return lines
+
+    def _announce_save(self, ok: bool, detail: str):
+        """Show that the click registered and what it wrote.
+
+        Requested: a toggle that fails silently looks exactly like one that
+        worked. This says so on the card itself, without requiring the user to
+        read the log.
+        """
+        try:
+            from datetime import datetime
+
+            stamp = datetime.now().strftime("%H:%M:%S")
+            if ok:
+                self._save_status.setStyleSheet(f"color: {C.GREEN}; font-size: 11px;")
+                self._save_status.setText(f"[{stamp}] Saved. {detail}")
+            else:
+                self._save_status.setStyleSheet(f"color: {C.RED}; font-size: 11px;")
+                self._save_status.setText(f"[{stamp}] Save failed. {detail}")
+        except Exception:
+            pass
+
+    def _on_save_all_clicked(self):
+        """Force a write of the current on-disk settings and confirm it.
+
+        The write is the thing being reported, so it is separated from
+        everything around it. An earlier revision logged first and let the log
+        call raise, which reported "Save Failed" for a save that had in fact
+        already succeeded.
+        """
+        # Re-read from disk rather than a cached snapshot, so the button
+        # reports on what is really stored - including keys another owner
+        # (provider_router, instruction_injector) changed since.
+        self._invalidate_app_settings_cache()
+        try:
+            settings = self._load_app_settings()
+            self._replace_app_settings(settings)
+        except Exception as exc:
+            self._log(f"ERR: Save failed: {exc}")
+            self._announce_save(False, str(exc))
+            return False
+
+        detail = (f"{len(settings)} keys written to {APP_SETTINGS_FILE.name}. "
+                  "Stored provider toggles are listed under Refresh diagnostics.")
+        # Reporting only: a failure here must not undo or mislabel the save.
+        self._log(f"SYS: {detail}")
+        self._announce_save(True, detail)
+        try:
+            self._refresh_diagnostics()
+        except Exception:
+            pass
+        return True
+
+    def _host_window(self):
+        """Walk up to the MainWindow hosting this settings page.
+
+        The page is constructed with no controller, so it cannot reach BrahmaUI
+        directly. Walking the parent chain finds the window that owns the
+        background widget, which is what the live toggles need. Returns None
+        rather than raising, so callers can report "restart required" instead of
+        failing silently.
+        """
+        node = self
+        seen = 0
+        while node is not None and seen < 64:
+            if hasattr(node, "write_log") and hasattr(node, "_bg_widget"):
+                return node
+            node = node.parentWidget()
+            seen += 1
+        return None
+
+    def _owner_window(self):
+        """The single accessor for the object that owns settings on this page.
+
+        This page reaches the owning window two different ways - through a
+        controller when one is attached, and through _host_window() when it is
+        not - and that ambiguity caused a run of AttributeErrors
+        ('_invalidate_app_settings_cache', '_save_app_settings', '_win').
+        Callers use this and never spell the lookup out themselves. Returns None
+        rather than raising: a settings page with no window is a real state
+        during startup, not an error.
+        """
+        try:
+            ctrl = self._ctrl()
+        except Exception:
+            ctrl = None
+        win = getattr(ctrl, "_win", None) if ctrl is not None else None
+        if win is None:
+            win = self._host_window()
+        return win
+
+    def _log(self, message: str):
+        """Write to the app log if a window is reachable. Never raises."""
+        try:
+            win = self._owner_window()
+            if win is not None and hasattr(win, "write_log"):
+                win.write_log(message)
+        except Exception:
+            pass
+
+    def _build_providers_card(self):
+        """Provider kill switches and the resource toggles, in Settings proper.
+
+        The launcher control panel exposes the same switches, but that is a
+        power-user surface. These need a home in the Settings hub too, and both
+        must read/write through core.provider_router so there is exactly one
+        source of truth for "is this provider allowed to be called".
+        """
+        card = self._card(
+            "Providers & Resources",
+            "Which AI providers the fallback chain may use, and the background "
+            "work that competes with a local model for CPU.",
+        )
+        lay = card.layout()
+
+        try:
+            from core import provider_router
+        except Exception as exc:
+            err = QLabel(f"Provider router unavailable: {exc}")
+            err.setWordWrap(True)
+            err.setStyleSheet(f"color: #ff3b30; font-size: 11px;")
+            lay.addWidget(err)
+            return card
+
+        provider_boxes = {}
+        for spec in provider_router.PROVIDERS:
+            row = QHBoxLayout()
+            box = QCheckBox(spec["label"])
+            # Build the control blocked: setChecked fires stateChanged, and a
+            # live handler here would write to the settings file just by
+            # rendering the card.
+            box.blockSignals(True)
+            box.setChecked(bool(provider_router.is_enabled(spec["id"])))
+            box.blockSignals(False)
+            box.setStyleSheet(f"color: {C.TEXT};")
+            box.setToolTip(spec.get("hint", ""))
+            row.addWidget(box)
+            kind = QLabel("Gemini SDK" if spec["kind"] == "gemini" else "OpenAI-compatible")
+            kind.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
+            row.addWidget(kind)
+            row.addStretch(1)
+            lay.addLayout(row)
+            provider_boxes[spec["id"]] = box
+
+        chain_label = QLabel("")
+        chain_label.setWordWrap(True)
+        chain_label.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
+        lay.addWidget(chain_label)
+
+        def _refresh_chain():
+            chain_label.setText(f"Fallback order: {provider_router.describe()}")
+
+        def _persist(pid):
+            # Write ONLY the provider that changed. Writing all of them on any
+            # single toggle meant one stale checkbox silently re-enabled
+            # another provider - the diagnostics box would read "off" at launch
+            # and flip to "on" after a refresh.
+            try:
+                provider_router.set_enabled(pid, provider_boxes[pid].isChecked())
+                self._invalidate_app_settings_cache()
+                _refresh_chain()
+            except Exception as exc:
+                # A raise here propagates into the Qt signal loop and takes the
+                # whole process down, so it is reported instead.
+                try:
+                    chain_label.setText(f"Fallback order unavailable: {exc}")
+                except Exception:
+                    pass
+
+        for pid, box in provider_boxes.items():
+            box.stateChanged.connect(lambda _s, _pid=pid: _persist(_pid))
+
+        # --- background work ------------------------------------------------ #
+        settings = self._load_app_settings()
+
+        mem_box = QCheckBox("Background memory extraction")
+        mem_box.blockSignals(True)
+        mem_box.setChecked(bool(settings.get("memory_extraction_enabled", True)))
+        mem_box.blockSignals(False)
+        mem_box.setToolTip(
+            "Turn off to stop the background analysis that runs between messages. "
+            "It stays available in Local and Offline mode - it is never forced off "
+            "by the provider you select."
+        )
+        mem_box.setStyleSheet(f"color: {C.TEXT};")
+        lay.addWidget(mem_box)
+
+        anim_box = QCheckBox("3D background animation")
+        anim_box.blockSignals(True)
+        anim_box.setChecked(bool(settings.get("enable_3d_background", True)))
+        anim_box.blockSignals(False)
+        anim_box.setToolTip("Off stops the WebGL background, saving GPU and CPU every frame.")
+        anim_box.setStyleSheet(f"color: {C.TEXT};")
+        lay.addWidget(anim_box)
+
+        def _persist_resources():
+            try:
+                merged = self._load_app_settings()
+                merged["memory_extraction_enabled"] = bool(mem_box.isChecked())
+                merged["enable_3d_background"] = bool(anim_box.isChecked())
+                self._replace_app_settings(merged)
+                self._invalidate_app_settings_cache()
+            except Exception as exc:
+                # Never let a persist failure escape into the Qt signal loop.
+                try:
+                    self._diag_hint = f"Could not save resource toggles: {exc}"
+                except Exception:
+                    pass
+                return
+            # Applied here rather than delegated: this page has no route to
+            # BrahmaUI, and a delegated call that raised was being swallowed --
+            # which is exactly how "the toggle did nothing" happened.
+            if anim_box.isChecked() != anim_box.property("last_applied"):
+                anim_box.setProperty("last_applied", anim_box.isChecked())
+                host = self._host_window()
+                bg = getattr(host, "_bg_widget", None) if host else None
+                if bg is None or not hasattr(bg, "set_animation_enabled"):
+                    try:
+                        self._diag_hint = (
+                            "3D background: saved, but no background widget is reachable "
+                            "from this page. Restart Brahma Evo to apply."
+                        )
+                    except Exception:
+                        pass
+                else:
+                    readback = bg.set_animation_enabled(bool(anim_box.isChecked())) or {}
+                    try:
+                        if not readback.get("web_view"):
+                            self._diag_hint = (
+                                "3D background: saved, but there is no web view "
+                                f"(WebEngine available: {readback.get('engine_available')}). "
+                                "Restart to apply."
+                            )
+                        else:
+                            self._diag_hint = (
+                                "3D background: "
+                                f"{'enabled' if anim_box.isChecked() else 'disabled'} "
+                                f"(js {'issued' if readback.get('js_issued') else 'not issued'})."
+                            )
+                    except Exception:
+                        pass
+
+        mem_box.stateChanged.connect(lambda _s: _persist_resources())
+        anim_box.stateChanged.connect(lambda _s: _persist_resources())
+
+        _refresh_chain()
+        return card
+
+    def _refresh_speech_status(self):
+        """Shows what is selected and what is actually installed. Never raises."""
+        try:
+            from core import speech_stt as _stt
+            from core import speech_tts as _tts
+
+            stt_live = _stt.resolve_available()
+            tts_live = _tts.resolve_available()
+            stt_local = next(
+                (e["local"] for e in _stt.available_engines() if e["id"] == stt_live), False
+            )
+            tts_local = next(
+                (e["local"] for e in _tts.available_engines() if e["id"] == tts_live), False
+            )
+        except Exception as exc:
+            try:
+                self._speech_status.setText(f"Speech engine status unavailable: {exc}")
+            except Exception:
+                pass
+            return
+
+        offline = "offline" if (stt_local and tts_local) else "needs internet"
+        note = ""
+        try:
+            from memory import config_manager
+
+            if config_manager.get_setting("offline_mode_enabled", False):
+                note = " · Offline mode is ON, so SAPI is used unless you pick another voice above."
+        except Exception:
+            pass
+        self._speech_status.setText(
+            f"Transcribing with {stt_live} · speaking with {tts_live} · {offline}{note}"
+        )
+
+    def _on_speech_test(self):
+        """Speak a short phrase through the selected engine, on a worker thread.
+
+        Uses the engine the card currently shows, not the app's installed speech
+        sink - the sink is the Gemini-backed path, so honouring it made this
+        button play Gemini no matter what was selected. Reports which engine
+        actually ran, and reports failure instead of swallowing it.
+        """
+        try:
+            engine = ""
+            try:
+                idx = self._tts_box.currentIndex()
+                engine = (self._tts_box.itemData(idx) or "") if idx >= 0 else ""
+            except Exception:
+                engine = ""
+            if not engine:
+                try:
+                    from core import speech_tts as _tts
+
+                    engine = _tts.get_engine_id()
+                except Exception:
+                    engine = ""
+            try:
+                label = f"Playing test phrase via {engine}..."
+            except Exception:
+                label = "Playing test phrase..."
+            self._speech_status.setText(label)
+
+            import threading
+
+            def _run():
+                try:
+                    from core import speech_tts as _tts
+
+                    played, used = _tts.speak_with(
+                        engine, "Brahma Evo speech engine test."
+                    )
+                    self._speech_status.setText(
+                        f"Tested {used or engine}: {'audio played' if played else 'no audio produced'}."
+                    )
+                except Exception as exc:
+                    self._speech_status.setText(f"Speech test failed: {exc}")
+
+            threading.Thread(target=_run, daemon=True, name="speech-test").start()
+        except Exception as exc:
+            self._speech_status.setText(f"Speech test failed to start: {exc}")
+
+    def _build_custom_mcp_card(self):
+        """Card for registering arbitrary MCP servers from Settings.
+
+        Each row is one stdio (command/args) or remote (url) MCP server. Saving
+        writes `custom_mcp_servers`, which core.mcp_manager.MCPServerManager
+        reads at startup; removing takes effect on the next restart.
+        """
+        card = self._card(
+            "Custom MCP Servers",
+            "Connect any MCP server. Its tools become available to the agent automatically.",
+        )
+        mlay = card.layout()
+
+        def _rebuild_list():
+            while mlay.count():
+                item = mlay.takeAt(0)
+                widget = item.widget()
+                if widget is not None:
+                    widget.setParent(None)
+                    widget.deleteLater()
+
+            servers = self._custom_mcp_servers()
+            if not servers:
+                empty = QLabel("No custom MCP servers configured.")
+                empty.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
+                mlay.addWidget(empty)
+                return
+
+            for entry in servers:
+                name = str(entry.get("name") or "(unnamed)")
+                target = str(entry.get("url") or "").strip()
+                if not target:
+                    cmd = str(entry.get("command") or "").strip()
+                    args = entry.get("args") or []
+                    arg_text = " ".join(str(a) for a in args)
+                    target = f"{cmd} {arg_text}".strip()
+
+                row = QWidget()
+                rlay = QHBoxLayout(row)
+                rlay.setContentsMargins(0, 0, 0, 0)
+
+                label = QLabel(f"<b>{name}</b>")
+                label.setTextFormat(Qt.TextFormat.RichText)
+                label.setWordWrap(True)
+                detail = QLabel(target)
+                detail.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
+                detail.setWordWrap(True)
+                detail.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+                labels = QWidget()
+                llay = QVBoxLayout(labels)
+                llay.setContentsMargins(0, 0, 0, 0)
+                llay.setSpacing(0)
+                llay.addWidget(label)
+                llay.addWidget(detail)
+                rlay.addWidget(labels, 1)
+
+                btn_remove = QPushButton("🗑 Remove")
+                btn_remove.setFixedWidth(95)
+                btn_remove.setStyleSheet("background: rgba(255, 85, 85, 0.15); color: #ff5555; border: 1px solid #ff5555; border-radius: 4px; padding: 4px;")
+
+                def _make_remove(server_name):
+                    def _remove():
+                        settings = self._load_app_settings()
+                        kept = [
+                            e for e in (settings.get("custom_mcp_servers") or [])
+                            if isinstance(e, dict) and str(e.get("name")) != server_name
+                        ]
+                        settings["custom_mcp_servers"] = kept
+                        self._replace_app_settings(settings)
+                        _rebuild_list()
+                        self._log_custom_mcp_change(f"removed '{server_name}'")
+
+                    return _remove
+
+                btn_remove.clicked.connect(_make_remove(name))
+                rlay.addWidget(btn_remove)
+                mlay.addWidget(row)
+
+        def _log_custom_mcp_change(what: str):
+            message = f"SYS: Custom MCP server {what}. Restart Brahma to apply."
+            if self._ctrl() and hasattr(self._ctrl(), "write_log"):
+                try:
+                    self._ctrl().write_log(message)
+                except Exception:
+                    pass
+
+        self._mcp_name_input = QLineEdit()
+        self._mcp_name_input.setPlaceholderText("Name (e.g. Filesystem)")
+        mlay.addWidget(self._mcp_name_input)
+
+        self._mcp_command_input = QLineEdit()
+        self._mcp_command_input.setPlaceholderText("Command or URL (e.g. npx, or https://host/mcp)")
+        mlay.addWidget(self._mcp_command_input)
+
+        self._mcp_args_input = QLineEdit()
+        self._mcp_args_input.setPlaceholderText("Arguments - JSON list (e.g. [\"-y\", \"@modelcontextprotocol/server-filesystem\", \"C:/tmp\"])")
+        mlay.addWidget(self._mcp_args_input)
+
+        self._mcp_feedback = QLabel("")
+        self._mcp_feedback.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
+        mlay.addWidget(self._mcp_feedback)
+
+        btn_add = QPushButton("➕ Add MCP Server")
+        btn_add.setStyleSheet(f"background: {C.PRI}; color: {C.DARK}; font-weight: bold; padding: 7px; border-radius: 4px;")
+        btn_add.clicked.connect(lambda: self._add_custom_mcp_server())
+        mlay.addWidget(btn_add)
+
+        _rebuild_list()
+        # Expose the rebuild closure so _add_custom_mcp_server can refresh the
+        # list after writing settings, without re-reading the whole page.
+        self._rebuild_custom_mcp_list = _rebuild_list
+        return card
+
+    def _add_custom_mcp_server(self):
+        name = (self._mcp_name_input.text() or "").strip()
+        raw_target = (self._mcp_command_input.text() or "").strip()
+        raw_args = (self._mcp_args_input.text() or "").strip()
+
+        def _fail(msg: str):
+            self._mcp_feedback.setText(f"⚠ {msg}")
+            self._mcp_feedback.setStyleSheet("color: #ff5555; font-size: 11px;")
+
+        if not name:
+            return _fail("Give the server a name so it can be removed later.")
+        if not raw_target:
+            return _fail("Enter a command (stdio server) or a URL (remote server).")
+
+        args = []
+        if raw_args:
+            try:
+                parsed = json.loads(raw_args)
+            except json.JSONDecodeError:
+                try:
+                    import shlex
+                    parsed = shlex.split(raw_args)
+                except Exception:
+                    return _fail("Arguments must be a JSON list, e.g. [\"-y\", \"pkg\"].")
+            if isinstance(parsed, str):
+                parsed = [parsed]
+            if not isinstance(parsed, list):
+                return _fail("Arguments must be a JSON list of strings.")
+            args = [str(a) for a in parsed]
+
+        settings = self._load_app_settings()
+        existing = [e for e in (settings.get("custom_mcp_servers") or []) if isinstance(e, dict)]
+        if any(str(e.get("name")) == name for e in existing):
+            return _fail(f"A custom MCP server named '{name}' already exists.")
+        existing.append({"name": name, "command": raw_target, "args": args})
+        settings["custom_mcp_servers"] = existing
+        self._replace_app_settings(settings)
+
+        self._mcp_name_input.clear()
+        self._mcp_command_input.clear()
+        self._mcp_args_input.clear()
+        self._mcp_feedback.setText("")
+        self._mcp_feedback.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
+
+        rebuild = getattr(self, "_rebuild_custom_mcp_list", None)
+        if callable(rebuild):
+            rebuild()
+
+        if self._ctrl() and hasattr(self._ctrl(), "write_log"):
+            try:
+                self._ctrl().write_log(f"SYS: Custom MCP server '{name}' added. Restart Brahma to apply.")
+            except Exception:
+                pass
+
     def _build_left_column(self):
         col = QWidget()
         lay = QVBoxLayout(col)
@@ -11011,6 +12707,28 @@ class SystemConnectivityPage(QWidget):
         # Spotify MCP Server
         lay.addWidget(self._build_spotify_mcp_card())
 
+        # Custom MCP Servers
+        lay.addWidget(self._build_custom_mcp_card())
+
+        # Tool & Skill Index (must come after the MCP card: it reports on them)
+        lay.addWidget(self._build_tool_index_card())
+
+        # Speech Engines — sits next to the tool index because both describe how
+        # a request reaches the model and how the answer gets back out.
+        lay.addWidget(self._build_speech_card())
+
+        # Apply / diagnostics bar. Saves explicitly (so nothing is lost to a
+        # silent exception) and reports what this RUNNING process actually
+        # loaded, which is the difference between "off" and "broken".
+        lay.addWidget(self._build_apply_bar())
+
+        # Providers & Resources — must come after the provider cards above so it
+        # can report the live chain.
+        lay.addWidget(self._build_providers_card())
+
+        # Avatar instruction blocks (both optional and independent).
+        lay.addWidget(self._build_avatar_card())
+
         # Identity & Profile
         identity_card = self._card("Identity & Profile", "Configure assistant identity, user profile, and behavior.")
         ilay = identity_card.layout()
@@ -11078,13 +12796,15 @@ class SystemConnectivityPage(QWidget):
         controls = QHBoxLayout()
         controls.setSpacing(12)
         self._default_provider = QComboBox()
-        self._default_provider.addItems(["Google Gemini", "OpenRouter", "Local"])
+        self._default_provider.addItems(["Google Gemini", "OpenRouter", "Custom (OpenAI-Compatible)", "Local"])
         
         current_provider = self._load_app_settings().get("default_ai_provider", "Gemini")
         if current_provider in {"Gemini", "Google Gemini"}:
             self._default_provider.setCurrentText("Google Gemini")
         elif current_provider == "Local":
             self._default_provider.setCurrentText("Local")
+        elif str(current_provider).strip().lower() == "custom":
+            self._default_provider.setCurrentText("Custom (OpenAI-Compatible)")
         else:
             self._default_provider.setCurrentText("OpenRouter")
             
@@ -11109,13 +12829,24 @@ class SystemConnectivityPage(QWidget):
         status_row.addWidget(self._local_status_lbl, 1)
         local_lay.addLayout(status_row)
 
-        # Server URL
+        # Server URL + OpenCode discovery
         url_row = QHBoxLayout()
         url_row.addWidget(QLabel("Local Server URL"))
         self._local_url_input = QLineEdit(self._load_app_settings().get("local_ai_url", "http://localhost:11434/v1"))
         self._local_url_input.textChanged.connect(lambda t: self._set_setting("local_ai_url", t))
         url_row.addWidget(self._local_url_input, 1)
         local_lay.addLayout(url_row)
+
+        # Optional API key: only sent when non-empty, so unauthenticated local
+        # servers (Ollama / LM Studio) keep working unchanged.
+        key_row = QHBoxLayout()
+        key_row.addWidget(QLabel("Local API Key"))
+        self._local_api_key_input = QLineEdit(self._load_app_settings().get("local_api_key", ""))
+        self._local_api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self._local_api_key_input.setPlaceholderText("Optional - leave blank for Ollama / LM Studio")
+        self._local_api_key_input.textChanged.connect(lambda t: self._set_setting("local_api_key", t))
+        key_row.addWidget(self._local_api_key_input, 1)
+        local_lay.addLayout(key_row)
         
         # Model Selection with Combo Box & Refresh
         model_row = QHBoxLayout()
@@ -11145,7 +12876,49 @@ class SystemConnectivityPage(QWidget):
         btn_refresh.setStyleSheet("background: rgba(255, 255, 255, 0.1); border-radius: 4px; padding: 5px;")
         btn_refresh.clicked.connect(_populate_models)
         model_row.addWidget(btn_refresh)
+
+        # Discover models exposed by an OpenAI-compatible local server (OpenCode
+        # on :4096 by default). Also repoints a blank/Ollama-default URL at the
+        # server that actually answered, so the setting stays self-consistent.
+        btn_discover = QPushButton("🤖 Discover Local Agents")
+        btn_discover.setStyleSheet("background: rgba(0, 255, 170, 0.15); color: #00ffaa; border: 1px solid #00ffaa; border-radius: 4px; padding: 5px;")
+        model_row.addWidget(btn_discover)
         local_lay.addLayout(model_row)
+
+        self._local_discovery = _ModelDiscoveryBridge()
+
+        def _on_discovered(models, resolved_url, error):
+            btn_discover.setEnabled(True)
+            btn_discover.setText("🤖 Discover Local Agents")
+            if not models:
+                self._local_status_lbl.setText(f"🔴 No local models found ({error})")
+                self._local_status_lbl.setStyleSheet("color: #ff5555; font-weight: bold;")
+                return
+            previous = self._local_model_combo.currentText()
+            self._local_model_combo.clear()
+            self._local_model_combo.addItems(models)
+            target = previous if previous in models else models[0]
+            self._local_model_combo.setCurrentText(target)
+            # Only adopt the discovered URL when the field was blank or still the
+            # Ollama default, so a user-pinned URL is never silently overwritten.
+            current = (self._local_url_input.text() or "").strip()
+            if not current or current.rstrip("/") in {"http://localhost:11434", "http://localhost:11434/v1"}:
+                self._local_url_input.setText(resolved_url)
+            self._set_setting("local_ai_model", target)
+            self._local_status_lbl.setText(f"🟢 Discovered {len(models)} local model(s)")
+            self._local_status_lbl.setStyleSheet("color: #00ffaa; font-weight: bold;")
+
+        self._local_discovery.finished.connect(_on_discovered)
+
+        def _on_discover_clicked():
+            from llm_client import OPENCODE_DEFAULT_URL
+            current = (self._local_url_input.text() or "").strip()
+            target = current if current else OPENCODE_DEFAULT_URL
+            btn_discover.setEnabled(False)
+            btn_discover.setText("⏳ Discovering...")
+            self._local_discovery.discover(target)
+
+        btn_discover.clicked.connect(_on_discover_clicked)
 
         # 1-Click Model Download Helper Button
         action_row = QHBoxLayout()
@@ -11163,6 +12936,44 @@ class SystemConnectivityPage(QWidget):
         self._default_provider.currentTextChanged.connect(lambda t: self._local_ai_widget.setVisible(t == "Local"))
         
         lay1.addWidget(self._local_ai_widget)
+
+        # Custom Remote Provider (any OpenAI-compatible /chat/completions endpoint)
+        self._custom_ai_widget = QWidget()
+        custom_lay = QVBoxLayout(self._custom_ai_widget)
+        custom_lay.setContentsMargins(0, 8, 0, 8)
+        custom_lay.setSpacing(10)
+
+        custom_url_row = QHBoxLayout()
+        custom_url_row.addWidget(QLabel("Remote URL"))
+        self._custom_url_input = QLineEdit(self._load_app_settings().get("custom_ai_url", ""))
+        self._custom_url_input.setPlaceholderText("https://api.example.com/v1")
+        self._custom_url_input.textChanged.connect(lambda t: self._set_setting("custom_ai_url", t))
+        custom_url_row.addWidget(self._custom_url_input, 1)
+        custom_lay.addLayout(custom_url_row)
+
+        custom_key_row = QHBoxLayout()
+        custom_key_row.addWidget(QLabel("API Key"))
+        self._custom_api_key_input = QLineEdit(self._load_app_settings().get("custom_api_key", ""))
+        self._custom_api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self._custom_api_key_input.setPlaceholderText("Optional - leave blank if the endpoint is unauthenticated")
+        self._custom_api_key_input.textChanged.connect(lambda t: self._set_setting("custom_api_key", t))
+        custom_key_row.addWidget(self._custom_api_key_input, 1)
+        custom_lay.addLayout(custom_key_row)
+
+        custom_model_row = QHBoxLayout()
+        custom_model_row.addWidget(QLabel("Model"))
+        self._custom_model_input = QLineEdit(self._load_app_settings().get("custom_ai_model", ""))
+        self._custom_model_input.setPlaceholderText("e.g. gpt-4o-mini, qwen2.5-72b-instruct")
+        self._custom_model_input.textChanged.connect(lambda t: self._set_setting("custom_ai_model", t))
+        custom_model_row.addWidget(self._custom_model_input, 1)
+        custom_lay.addLayout(custom_model_row)
+
+        self._custom_ai_widget.setVisible(str(current_provider).strip().lower() == "custom")
+        self._default_provider.currentTextChanged.connect(
+            lambda t: self._custom_ai_widget.setVisible(t == "Custom (OpenAI-Compatible)")
+        )
+
+        lay1.addWidget(self._custom_ai_widget)
         
         self._auto_switch_btn = self._mk_toggle("Automatically switch if a provider fails", bool(self._load_app_settings().get("auto_provider_switch", True)), self._toggle_auto_provider_switch)
         lay1.addWidget(self._auto_switch_btn)
@@ -12415,10 +14226,54 @@ class SystemConnectivityPage(QWidget):
             "os_system": platform.system(),
         }
 
+    def _settings_file_stamp(self):
+        """See MainWindow._settings_file_stamp."""
+        win = self._owner_window()
+        if win is not None and hasattr(win, "_settings_file_stamp"):
+            return win._settings_file_stamp()
+        try:
+            if APP_SETTINGS_FILE.exists():
+                st = APP_SETTINGS_FILE.stat()
+                return (st.st_mtime_ns, st.st_size)
+        except Exception:
+            pass
+        return None
+
+    def _invalidate_app_settings_cache(self):
+        """This page calls this from Qt signal handlers, so it must exist here.
+
+        An earlier revision called it without defining it, which raised
+        AttributeError inside a stateChanged slot: toggling a provider aborted
+        the process, and Save All reported the missing method. The write owner
+        (core/provider_router.py) bypasses this page's cache entirely, so the
+        cache is dropped after every write that page makes.
+        """
+        win = self._owner_window()
+        if win is not None and hasattr(win, "_invalidate_app_settings_cache"):
+            try:
+                win._invalidate_app_settings_cache()
+            except Exception:
+                pass
+        return None
+
     def _load_app_settings(self):
-        if self._ctrl() and hasattr(self._ctrl(), "_win"):
-            return self._ctrl()._win._load_app_settings()
-        return _default_app_settings()
+        win = self._owner_window()
+        if win is not None and hasattr(win, "_load_app_settings"):
+            return win._load_app_settings()
+        # No window attached: read the stored file. Returning bare defaults
+        # here was the "settings reset on restart" bug - every card that
+        # persisted from this dict wrote the full default set back over the
+        # stored choices, including enable_3d_background.
+        settings = _default_app_settings()
+        if APP_SETTINGS_FILE.exists():
+            try:
+                with open(APP_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    settings.update(data)
+            except Exception:
+                pass
+        return settings
 
     def _load_discord_settings(self):
         if self._ctrl() and hasattr(self._ctrl(), "_win"):
@@ -12532,6 +14387,8 @@ class SystemConnectivityPage(QWidget):
                 self._offline_mode_btn.blockSignals(False)
             if hasattr(self, "_local_ai_widget"):
                 self._local_ai_widget.setVisible(False)
+            if hasattr(self, "_custom_ai_widget"):
+                self._custom_ai_widget.setVisible(False)
             msg = "SYS: Default AI provider set to Google Gemini. Cloud connectivity active."
         elif raw == "local":
             provider = "Local"
@@ -12543,6 +14400,25 @@ class SystemConnectivityPage(QWidget):
             if hasattr(self, "_local_ai_widget"):
                 self._local_ai_widget.setVisible(True)
             msg = "SYS: Default AI provider set to Local AI (Ollama). Offline Mode active."
+        elif raw == "custom" or raw.startswith("custom ("):
+            provider = "Custom"
+            self._set_setting("offline_mode_enabled", False)
+            if hasattr(self, "_offline_mode_btn"):
+                self._offline_mode_btn.blockSignals(True)
+                self._offline_mode_btn.setChecked(False)
+                self._offline_mode_btn.blockSignals(False)
+            if hasattr(self, "_local_ai_widget"):
+                self._local_ai_widget.setVisible(False)
+            if hasattr(self, "_custom_ai_widget"):
+                self._custom_ai_widget.setVisible(True)
+            settings = self._load_app_settings()
+            if not settings.get("custom_ai_url") or not settings.get("custom_ai_model"):
+                msg = (
+                    "SYS: Default AI provider set to your custom OpenAI-compatible endpoint. "
+                    "Add its URL and model below, or requests will fail until you do."
+                )
+            else:
+                msg = "SYS: Default AI provider set to your custom OpenAI-compatible endpoint."
         else:
             provider = "OpenRouter"
             self._set_setting("offline_mode_enabled", False)
@@ -12552,6 +14428,8 @@ class SystemConnectivityPage(QWidget):
                 self._offline_mode_btn.blockSignals(False)
             if hasattr(self, "_local_ai_widget"):
                 self._local_ai_widget.setVisible(False)
+            if hasattr(self, "_custom_ai_widget"):
+                self._custom_ai_widget.setVisible(False)
             msg = "SYS: Default AI provider set to OpenRouter. Cloud connectivity active."
         self._set_setting("default_ai_provider", provider)
         if hasattr(self, "_sys_provider"):
@@ -14339,12 +16217,41 @@ class BrahmaUI:
             except Exception:
                 pass
         self._app_settings_cache = dict(settings)
+        self._app_settings_cache_stamp = self._settings_file_stamp()
         return dict(settings)
+
+    def _settings_file_stamp(self):
+        """See MainWindow._settings_file_stamp."""
+        try:
+            if APP_SETTINGS_FILE.exists():
+                st = APP_SETTINGS_FILE.stat()
+                return (st.st_mtime_ns, st.st_size)
+        except Exception:
+            pass
+        return None
+
+    def _invalidate_app_settings_cache(self):
+        """See MainWindow._invalidate_app_settings_cache: a second settings owner
+        (core/provider_router.py, core/instruction_injector.py) writes the same
+        file without touching this cache, so a stale snapshot must never be
+        written back."""
+        self._app_settings_cache = None
 
     def _save_app_settings(self, settings: dict):
         os.makedirs(CONFIG_DIR, exist_ok=True)
-        APP_SETTINGS_FILE.write_text(json.dumps(settings, indent=4), encoding="utf-8")
-        self._app_settings_cache = dict(settings)
+        # Merge over the live file rather than trusting the caller's snapshot,
+        # so a key another component changed after this dict was read survives.
+        merged = dict(settings)
+        if APP_SETTINGS_FILE.exists():
+            try:
+                on_disk = json.loads(APP_SETTINGS_FILE.read_text(encoding="utf-8"))
+                if isinstance(on_disk, dict):
+                    merged = on_disk
+                    merged.update(settings)
+            except Exception:
+                pass
+        APP_SETTINGS_FILE.write_text(json.dumps(merged, indent=4), encoding="utf-8")
+        self._app_settings_cache = dict(merged)
 
     def _save_launcher_position(self, x: int, y: int):
         try:
@@ -14665,6 +16572,76 @@ class BrahmaUI:
             self._win.write_log(f"ERR: Restart failed: {exc}")
         self._app.quit()
 
+    def _on_panel_setting_toggle(self, key: str, value: bool):
+        """Apply a toggle from the launcher control panel or the Settings card.
+
+        Provider flags go through core.provider_router so the kill switch is
+        honoured in one place; the rest persist to app_settings.json. Every step
+        reports through _log rather than swallowing, because a silently-failing
+        toggle is worse than a visible error -- the user cannot tell "off" from
+        "broken".
+        """
+        persisted = False
+        try:
+            settings = self._load_app_settings()
+            settings[key] = bool(value)
+            self._save_app_settings(settings)
+            persisted = True
+        except Exception as exc:
+            try:
+                self._win.write_log(f"ERR: could not save {key}: {exc}")
+            except Exception:
+                pass
+            return False
+
+        try:
+            if key.startswith("provider_enabled_"):
+                from core import provider_router
+
+                pid = key.replace("provider_enabled_", "")
+                provider_router.set_enabled(pid, bool(value))
+                # provider_router writes the file directly; invalidate the UI's
+                # cached snapshot so a later save cannot re-write the stale
+                # pre-toggle value over it.
+                self._win._invalidate_app_settings_cache()
+                chain = provider_router.describe()
+                self._win.write_log(
+                    f"SYS: Provider '{pid}' {'ENABLED' if value else 'DISABLED'}. "
+                    f"Chain: {chain}"
+                )
+                return True
+            if key == "enable_3d_background":
+                bg = getattr(self._win, "_bg_widget", None)
+                readback = {}
+                if bg is not None and hasattr(bg, "set_animation_enabled"):
+                    readback = bg.set_animation_enabled(bool(value)) or {}
+                state = "enabled" if value else "disabled"
+                if not readback.get("web_view"):
+                    self._win.write_log(
+                        f"ERR: 3D background {state} but no web view exists "
+                        f"(WEB_ENGINE_AVAILABLE={readback.get('engine_available')}). "
+                        f"Restart to apply."
+                    )
+                else:
+                    self._win.write_log(
+                        f"SYS: 3D background animation {state} "
+                        f"(js={'issued' if readback.get('js_issued') else 'NOT issued'})."
+                    )
+                return True
+            if key == "memory_extraction_enabled":
+                self._win.write_log(
+                    f"SYS: Background memory extraction "
+                    f"{'ENABLED' if value else 'DISABLED'}."
+                )
+                return True
+        except Exception as exc:
+            try:
+                self._win.write_log(f"ERR: toggle {key} saved but not applied: {exc}")
+            except Exception:
+                pass
+            return False
+        return persisted
+
     def _toggle_workspace_on_startup(self, enabled: bool):
         try:
             settings = self._load_app_settings()
@@ -14688,6 +16665,7 @@ class BrahmaUI:
             on_open_app=self.show_main,
             on_show_icon=self._show_floating_icon,
             on_open_dev=self._open_developer_mode_dialog,
+            on_setting_toggle=self._on_panel_setting_toggle,
         )
         self._control_panel = panel
         self._position_control_panel(panel)
@@ -14845,6 +16823,18 @@ class BrahmaUI:
 
     def set_state(self, state: str):
         self._win._state_sig.emit(state)
+
+    # The Always On / On Call controls are declared on MainWindow. main.py
+    # wires them through BrahmaUI, so they have to be reachable here -- they
+    # were not, and the resulting AttributeError was swallowed by the caller,
+    # leaving the whole feature silently inert.
+    @property
+    def live_mode_changed(self):
+        return self._win.live_mode_changed
+
+    @property
+    def live_call_toggled(self):
+        return self._win.live_call_toggled
 
     def set_audio_level(self, level: float):
         self._win.set_audio_level(level)
@@ -15030,7 +17020,9 @@ class BrahmaUI:
         self.set_state("SPEAKING")
 
     def stop_speaking(self):
-        if not self.muted:
+        # Every speech completion used to force LISTENING, which stomped the
+        # STANDBY indicator right back the moment anything finished speaking.
+        if not self.muted and self._win._state != "STANDBY":
             self.set_state("LISTENING")
 
 
