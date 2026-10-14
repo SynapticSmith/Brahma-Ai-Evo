@@ -17,6 +17,17 @@ def test_daily_briefing_returns_when_one_source_times_out(monkeypatch):
     monkeypatch.setattr(daily_briefing, "_get_instagram_intel", lambda: {"configured": False, "count": 0})
     monkeypatch.setattr(daily_briefing, "_get_top_headlines", lambda **kwargs: ["Test headline"])
 
+    # This test is about the per-source TIMEOUT path, not offline mode. Pin
+    # offline_mode_enabled off so the briefing cannot short-circuit to an
+    # "offline" payload and make the assertion depend on whatever the developer's
+    # app_settings.json happens to say.
+    from memory import config_manager
+
+    monkeypatch.setattr(
+        config_manager, "get_setting",
+        lambda key, default=None: False if key == "offline_mode_enabled" else default,
+    )
+
     started = time.monotonic()
     data, narrative = daily_briefing.compile_unified_briefing()
 

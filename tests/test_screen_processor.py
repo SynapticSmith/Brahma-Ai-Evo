@@ -56,6 +56,15 @@ def test_screen_process_uses_provided_image_bytes(monkeypatch):
     monkeypatch.setattr(screen_processor._live, "is_ready", lambda: True)
     monkeypatch.setattr(screen_processor, "_ensure_started", lambda player=None: None)
 
+    # screen_process injects the LIVE foreground window title into the text it
+    # sends to the model. Left alone, this test asserted an exact user_text and
+    # so failed whenever anything other than Brahma happened to be focused (a
+    # battery toast was enough). Pin the window source so the assertion tests
+    # the byte plumbing, not whatever the desktop was doing.
+    from core import window_context
+
+    monkeypatch.setattr(window_context, "get_foreground_window_info", lambda: None)
+
     result = screen_processor.screen_process(
         parameters={"text": "look at my screen", "angle": "screen"},
         player=None,
