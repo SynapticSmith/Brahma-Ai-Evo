@@ -189,6 +189,19 @@ class OpenRouterClient:
         temperature: float = DEFAULT_TEMPERATURE,
         response_format: Optional[dict] = None,
     ) -> str:
+        # Kill switch. This has to happen BEFORE the pool walk: with a free
+        # model list and a 60s per-request timeout, falling through here is
+        # what produced multi-minute stalls whenever Gemini was rate limited.
+        # Disabled means disabled, not "try everything then fail".
+        try:
+            from core import provider_router
+        except Exception:
+            provider_router = None
+        if provider_router is not None:
+            # Raises ProviderDisabled, which deliberately propagates: callers
+            # use it to move to the next link in the chain.
+            provider_router.guard("openrouter")
+
         if model and not self._is_rate_limited(model):
             try:
                 result = self._call(model, messages, max_tokens, temperature, response_format)

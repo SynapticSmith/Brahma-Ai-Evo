@@ -31,6 +31,7 @@ reportlab
 discord.py
 fastapi
 uvicorn[standard]
+mcp
 cryptography
 qrcode[pil]
 python-multipart
@@ -39,3 +40,30 @@ PyQt6-WebEngine
 edge-tts
 matplotlib
 speedtest-cli
+speechtestlib
+SpeechRecognition
+pyttsx3
+
+# --- Optional: local speech engines (core/speech_stt.py, core/speech_tts.py) ---
+# Deliberately NOT hard dependencies. The defaults (Google STT + Edge TTS) already
+# work and stay the default; these only matter if you switch engines in
+# Settings > Speech Engines.
+#
+# As of the ONE-391 verification these are INSTALLED on this machine but left
+# commented so a fresh clone still starts from the cloud defaults:
+#   faster-whisper-1.2.1  offline speech-to-text (model base.en pre-downloaded)
+#   piper-tts-1.8.0       offline neural voice  -- needs a voice .onnx + .json
+#   kokoro-onnx-0.6.1     offline neural voice  -- needs a model .onnx + voices.bin
+#
+# Run install_speech_deps.ps1 rather than uncommenting: it resolves the interpreter
+# the app actually uses and pre-downloads the whisper model.
+# faster-whisper
+# piper-tts
+# kokoro-onnx
+
+# --- Optional: tool & skill index (core/tool_index.py) -----------------------
+# Semantic tool routing via a ~22 MB ONNX micro-embedding model. Deliberately
+# NOT a hard dependency: without it the index still runs on SQLite FTS5 plus a
+# hashed n-gram TF-IDF scorer (stdlib + numpy), which is faster but weaker on
+# paraphrase. Install with `pip install fastembed`.
+# fastembed

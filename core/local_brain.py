@@ -95,16 +95,18 @@ class LocalBrain:
         """
         Formats and converts Gemini or OpenAI-style tool declarations into
         strictly compliant OpenAI tools with lowercased JSON schema types.
-        If focus_core is True, filters to core desktop operating tools for high precision on 3B/7B models.
+
+        focus_core is accepted for backwards compatibility but the core-name
+        filter is intentionally disabled: the tool index now supplies a bounded,
+        relevance-ranked surface instead (see resolve_tools), which is a better
+        filter than a static name list and also makes MCP tools reachable.
         """
         formatted = []
         for t in tool_declarations:
             name = t.get("name") or (t.get("function", {}).get("name") if isinstance(t.get("function"), dict) else None)
             if not name:
                 continue
-            if focus_core and name not in CORE_LOCAL_TOOL_NAMES:
-                continue
-            
+
             # Already formatted OpenAI tool
             if "type" in t and t.get("type") == "function" and "function" in t:
                 fn = dict(t["function"])
@@ -124,6 +126,35 @@ class LocalBrain:
                     }
                 })
         return formatted
+
+    def resolve_tools(
+        self,
+        intent: str,
+        static_declarations: List[Dict[str, Any]],
+    ) -> tuple:
+        """Tool surface for one local turn, plus any JIT instruction context.
+
+        Gemini Live advertises a bounded, relevance-ranked tool surface built by
+        core.tool_bridge, so the rest of the catalogue stays reachable through
+        search_tools / call_tool. Local models previously got the raw static
+        TOOL_DECLARATIONS list, which neither exposes MCP tools nor fits a 3B
+        context window. This routes the local path through the same bridge.
+
+        Returns (declarations, skill_context). Falls back to `static_declarations`
+        whenever the index is unavailable, so a missing index degrades to the
+        previous behaviour instead of breaking the local path.
+        """
+        fallback = list(static_declarations or [])
+        try:
+            from core import tool_bridge
+
+            payload = tool_bridge.build_session_payload(intent or "")
+        except Exception:
+            return fallback, ""
+        picked = payload.get("declarations") or []
+        if not picked:
+            return fallback, ""
+        return picked, (payload.get("skill_context") or "")
 
     def generate_chat_stream(
         self,
@@ -154,7 +185,7 @@ class LocalBrain:
             headers={"Content-Type": "application/json"},
         )
 
-        with urllib.request.urlopen(req, timeout=60.0) as resp:
+        with urllib.request.urlopen(req, timeout=None) as resp:
             for line in resp:
                 line_str = line.decode("utf-8").strip()
                 if line_str.startswith("data: "):
@@ -192,7 +223,7 @@ class LocalBrain:
             data=data,
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=90.0) as resp:
+        with urllib.request.urlopen(req, timeout=None) as resp:
             return json.loads(resp.read().decode("utf-8"))
 
 
