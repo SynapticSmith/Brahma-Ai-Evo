@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Brahma Evo - VRM avatar</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%;
+               background: #020306; overflow: hidden; }
+  #stage { position: absolute; inset: 0; }
+  #stage canvas { display: block; }
+  #boot {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    max-width: 62ch; text-align: center; font: 13px/1.55 "Segoe UI", system-ui, sans-serif;
+    color: #7fa8c8; text-shadow: 0 1px 3px #000; pointer-events: none;
+  }
+  #boot b { color: #dff0ff; font-weight: 600; }
+  #boot .hint { color: #4d6b83; font-size: 11px; margin-top: 8px; }
+  #boot.hidden { display: none; }
+</style>
+<!--
+  assets/avatar_vrm/index.html
+
+  VRM humanoid in the same QWebEngineView the 3D background uses.
+
+  Same seven hooks as assets/web_background/index.html and
+  assets/avatar_live2d/index.html:
+
+      setBrahmaState  setAudioLevel  setPointerNorm  setAvatarEmotion
+      __pauseAnimation __resumeAnimation __getAvatarState
+
+  so Python swaps a URL and never learns which renderer is mounted.
+
+  The runtime is vendored, not CDN-loaded: this is a local desktop app and a
+  renderer that needs the network to draw is a renderer that silently shows
+  nothing on a bad connection. see vendor_vrm_runtime.py - all MIT.
+
+  Unlike Live2D, nothing here is proprietary: three.js, @pixiv/three-vrm and
+  the whole dependency tree are MIT and mirrorable.
+-->
+<script type="importmap" src="vendor/import-map.json"></script>
+</head>
+<body>
+<div id="stage"></div>
+<div id="boot"><b>VRM avatar</b><div id="boot-detail">starting…</div></div>
+
+<script type="module">
+"use strict";
+
+import * as THREE from "three";
+import { GLTFLoader } from "three";
+import { VRMUtils, createVRMCamera } from "@pixiv/three-vrm";
+
+const BOOT = document.getElementById("boot");
+const BOOT_DETAIL = document.getElementById("boot-detail");
+const STAGE = document.getElementById("stage");
+
+const params = new URLSearchParams(window.location.search);
+const MODEL_DIR = params.get("model") || "";
+const MODEL_URL = MODEL_DIR
+  ? new URL(MODEL_DIR.replace(/\/?$/, "/"), window.location.href).href
+  : "";
+
+const EMOTION_HOLD_SECONDS = 7.0;
+const MOUTH = "aa";
+const BLINK = "blink";
+
+// Standard VRM expression names. Which ones a model actually has is read from
+// the model at runtime and the table is intersected with it, so a model that
+// lacks "surprised" simply skips it instead of throwing.
+const EMOTION_EXPRESSIONS = {
+  NEUTRAL:  [],
+  JOY:      ["happy"],
+  SMILE:    ["happy"],
+  SORROW:   ["sad"],
+  ANGER:    ["angry"],
+  FUN:      ["relaxed"],
+  SURPRISE: ["surprised"],
+  THINKING: [],
+};
+
+const EMOTION_PARAMS = {
+  NEUTRAL:  {},
+  JOY:      {},
+  SMILE:    {},
+  SORROW:   {},
+  FUN:      {},
+  ANGER:    { "aa": 0.0 },
+  SURPRISE: { "aa": 0.5, "ih": 0.35 },
+  THINKING: { "aa": 0.0, "ih": 0.25 },
+};
+
+const state = {
+  backend: "vrm",
+  ready: false,
+  modelLoaded: false,
+  error: "",
+  emotion: "NEUTRAL",
+  intensity: 1.0,
+  hold: 0,
+  weight: 0,
+  paused: false,
+  audioLevel: 0,
+  brahmaState: "IDLE",
+  pointer: { x: 0, y: 0 },
+  expressions: {},
+  modelName: "",
+  specVersion: "",
+};
+
+let renderer, scene, camera, gltfLoader, currentModel, mixer, lookAt;
+let last = performance.now();
+let pointerNdc = { x: 0, y: 0 };
+
+function bootFail(title, detail, hint) {
+  state.ready = false;
+  state.error = detail || title;
+  BOOT_DETAIL.innerHTML = "";
+  const b = document.createElement("b");
+  b.textContent = title;
+  BOOT_DETAIL.appendChild(b);
+  if (detail) {
+    const d = document.createElement("div");
+    d.textContent = detail;
+    BOOT_DETAIL.appendChild(d);
+  }
+  if (hint) {
+    const h = document.createElement("div");
+    h.className = "hint";
+    h.textContent = hint;
+    BOOT_DETAIL.appendChild(h);
+  }
+  BOOT.classList.remove("hidden");
+  console.warn("[VRM] " + title + ": " + (detail || ""));
+}
+
+async function boot() {
+  if (window._vrmBooted) return;
+  window._vrmBooted = true;
+
+  if (!MODEL_URL) {
+    bootFail("No VRM file was given to this page",
+             "expected ?model=<folder url>",
+             "Settings -> Avatar -> VRM model");
+    return;
+  }
+
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    STAGE.appendChild(renderer.domElement);
+
+    scene = new THREE.Scene();
+    camera = createVRMCamera();
+    camera.position.set(0, 1.25, 2.4);
+
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x223344, 1.2));
+    const key = new THREE.DirectionalLight(0xffffff, 1.4);
+    key.position.set(1.2, 2.0, 1.5);
+    scene.add(key);
+
+    gltfLoader = new GLTFLoader();
+    gltfLoader.load(MODEL_URL, onLoaded, undefined, function (err) {
+      bootFail("VRM failed to load", String(err && err.message ? err.message : err),
+               MODEL_URL);
+    });
+
+    window.addEventListener("resize", onResize);
+    onResize();
+    loop();
+  } catch (err) {
+    bootFail("Renderer could not start", String(err), MODEL_URL);
+  }
+}
+
+function onLoaded(gltf) {
+  try {
+    const vrm = gltf.userData.vrm;
+    if (!vrm) {
+      bootFail("That file is glTF, not VRM",
+               "no VRMC_vrm / VRM extension found in the file",
+               MODEL_URL);
+      return;
+    }
+    currentModel = vrm;
+    scene.add(vrm.scene);
+
+    state.specVersion = vrm.meta ? String(vrm.meta.metaVersion || "0.x") : "";
+    state.modelName = (vrm.meta && vrm.meta.name) || "";
+    // Read the expression names the model actually has, so the table above is
+    // intersected with reality rather than assumed to apply.
+    try {
+      const names = (vrm.expressionManager || {}).expressions || [];
+      names.forEach(function (e) {
+        if (e && e.expressionName) state.expressions[e.expressionName] = true;
+      });
+    } catch (e) { /* expression introspection is best-effort */ }
+
+    if (vrm.lookAt) {
+      lookAt = { target: new THREE.Vector3(0, 1.4, 0) };
+    }
+    state.modelLoaded = true;
+    state.ready = true;
+    state.error = "";
+    BOOT.classList.add("hidden");
+    console.log("[VRM] loaded", state.modelName, state.expressions);
+  } catch (err) {
+    bootFail("VRM loaded but could not be set up", String(err), MODEL_URL);
+  }
+}
+
+function onResize() {
+  if (!renderer || !camera) return;
+  const w = window.innerWidth || 1;
+  const h = window.innerHeight || 1;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+}
+
+function setExpression(name, weight) {
+  if (!currentModel || !currentModel.expressionManager) return false;
+  if (!state.expressions[name]) return false;      // model has no such face
+  try {
+    currentModel.expressionManager.setValue(name, weight);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function resetExpressions() {
+  Object.keys(state.expressions).forEach(function (n) { setExpression(n, 0); });
+}
+
+function loop() {
+  window.requestAnimationFrame(loop);
+  const now = performance.now();
+  const dt = Math.min((now - last) / 1000, 0.05);
+  last = now;
+  if (state.paused || !state.ready || !currentModel) return;
+
+  try {
+    // Mood decay, identical in shape to the other two pages.
+    if (state.hold > 0) {
+      state.hold = Math.max(0, state.hold - dt);
+      if (state.hold === 0) state.emotion = "NEUTRAL";
+    }
+    const target = (state.emotion === "NEUTRAL") ? 0.0
+                  : Math.max(0, Math.min(1, state.intensity / 2));
+    const lerp = (target > state.weight) ? 0.18 : 0.05;
+    state.weight += (target - state.weight) * lerp;
+    if (target === 0 && state.weight < 0.002) state.weight = 0;
+
+    currentModel.update(dt);
+
+    const w = state.weight;
+    const faces = EMOTION_EXPRESSIONS[state.emotion] || [];
+    resetExpressions();
+    faces.forEach(function (name) { setExpression(name, w); });
+
+    // Lip sync from the host's audio level, into the standard VRM mouth shape.
+    setExpression(MOUTH, Math.max(0, Math.min(1, state.audioLevel)));
+
+    // Idle blink, so the model is not a statue between replies.
+    if (currentModel.expressionManager && state.expressions[BLINK] &&
+        state.brahmaState !== "SPEAKING") {
+      const t = (now / 1000) % 4.2;
+      const blink = t < 0.12 ? 1 : 0;
+      setExpression(BLINK, blink);
+    }
+
+    if (lookAt && currentModel.lookAt) {
+      currentModel.lookAt.lookAt(lookAt.target);
+    }
+
+    renderer.render(scene, camera);
+  } catch (err) {
+    state.ready = false;
+    state.error = String(err && err.message ? err.message : err);
+    bootFail("Renderer stopped", state.error, MODEL_URL);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The shared hook surface. Same names as every other avatar page.
+// ---------------------------------------------------------------------------
+window.setAvatarEmotion = function (tag, intensity) {
+  const raw = String(tag == null ? "" : tag).trim().toUpperCase();
+  const known = Object.prototype.hasOwnProperty.call(EMOTION_EXPRESSIONS, raw);
+  state.emotion = known ? raw : "NEUTRAL";
+  const i = parseFloat(intensity);
+  state.intensity = Math.max(0, Math.min(2, isNaN(i) ? 1 : i));
+  state.hold = known && raw !== "NEUTRAL" ? EMOTION_HOLD_SECONDS : 0;
+  return true;
+};
+
+window.setAudioLevel = function (level) {
+  state.audioLevel = Math.max(0, Math.min(1, parseFloat(level) || 0));
+};
+
+window.setBrahmaState = function (s) {
+  state.brahmaState = String(s || "IDLE").toUpperCase();
+  if (state.brahmaState === "SPEAKING" && state.audioLevel < 0.05) {
+    state.audioLevel = 0.05;
+  }
+};
+
+window.setPointerNorm = function (nx, ny) {
+  state.pointer.x = Number(nx) || 0;
+  state.pointer.y = Number(ny) || 0;
+  if (lookAt) {
+    lookAt.target.set(state.pointer.x * 1.2, 1.4 - state.pointer.y * 0.6, 1.5);
+  }
+};
+
+window.__pauseAnimation = function () { state.paused = true; };
+window.__resumeAnimation = function () { state.paused = false; };
+window.__isAnimationPaused = function () { return state.paused; };
+
+window.__getAvatarState = function () {
+  return {
+    backend: "vrm",
+    ready: state.ready,
+    modelLoaded: state.modelLoaded,
+    error: state.error,
+    modelName: state.modelName,
+    specVersion: state.specVersion,
+    expressions: Object.keys(state.expressions),
+    emotion: state.emotion,
+    intensity: state.intensity,
+    weight: state.weight,
+    hold: state.hold,
+    audioLevel: state.audioLevel,
+    modelUrl: MODEL_URL,
+    state: state.brahmaState,
+  };
+};
+
+if (document.readyState === "complete" || document.readyState === "interactive") {
+  boot();
+} else {
+  document.addEventListener("DOMContentLoaded", boot);
+}
+</script>
+</body>
+</html>

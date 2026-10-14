@@ -1,0 +1,11 @@
+{
+  "imports": {
+    "three": "./three.module.js",
+    "@pixiv/three-vrm": "./three-vrm.module.js",
+    "@pixiv/three-vrm-core": "./three-vrm-core.module.js",
+    "@pixiv/three-vrm-materials-mtoon": "./three-vrm-materials-mtoon.module.js",
+    "@pixiv/three-vrm-materials-v0compat": "./three-vrm-materials-v0compat.module.js",
+    "@pixiv/three-vrm-springbone": "./three-vrm-springbone.module.js",
+    "@pixiv/three-vrm-node-constraint": "./three-vrm-node-constraint.module.js"
+  }
+}

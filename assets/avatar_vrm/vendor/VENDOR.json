@@ -1,0 +1,49 @@
+{
+  "source": "C:\\Users\\Admin\\AppData\\Local\\Temp\\paperclip-run-one-391-04d3d8ca-0b3-vbWdaZ\\opencode\\vrmdep\\node_modules",
+  "licence": "MIT (three.js and @pixiv/three-vrm, both pixiv Inc. / three.js authors)",
+  "note": "Vendored so the avatar does not need the network at render time. Each package's LICENSE is stored beside its build.",
+  "packages": [
+    {
+      "package": "three",
+      "version": "0.186.1",
+      "file": "three.module.js",
+      "bytes": 662772
+    },
+    {
+      "package": "@pixiv/three-vrm",
+      "version": "3.5.5",
+      "file": "three-vrm.module.js",
+      "bytes": 988239
+    },
+    {
+      "package": "@pixiv/three-vrm-core",
+      "version": "3.5.5",
+      "file": "three-vrm-core.module.js",
+      "bytes": 411948
+    },
+    {
+      "package": "@pixiv/three-vrm-materials-mtoon",
+      "version": "3.5.5",
+      "file": "three-vrm-materials-mtoon.module.js",
+      "bytes": 180611
+    },
+    {
+      "package": "@pixiv/three-vrm-materials-v0compat",
+      "version": "3.5.5",
+      "file": "three-vrm-materials-v0compat.module.js",
+      "bytes": 51412
+    },
+    {
+      "package": "@pixiv/three-vrm-springbone",
+      "version": "3.5.5",
+      "file": "three-vrm-springbone.module.js",
+      "bytes": 174490
+    },
+    {
+      "package": "@pixiv/three-vrm-node-constraint",
+      "version": "3.5.5",
+      "file": "three-vrm-node-constraint.module.js",
+      "bytes": 57158
+    }
+  ]
+}

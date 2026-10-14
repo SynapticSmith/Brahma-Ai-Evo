@@ -103,6 +103,46 @@
     let currentPositionX = 0.0;
     let targetPositionX = 0.0;
 
+    // ——— AVATAR EMOTION LAYER ———
+    // Deliberately NOT part of setBrahmaState. State says what the agent is doing
+    // (LISTENING/THINKING/...); an emotion says how it feels. They must compose,
+    // not overwrite: if the emotion wrote targetColorHot directly it would fight
+    // the state controller and whichever ran last would win. So the state colour
+    // stays pristine in currentColor*, and the emotion is blended on top into
+    // renderColor* right before the colours are pushed to the materials.
+    //
+    // Every factor is a multiplier around 1.0 so that intensity 0 / NEUTRAL is
+    // an exact pass-through of the pre-avatar look, and turning the avatar off
+    // restores the original background pixel for pixel.
+    const EMOTION_HOLD_SECONDS = 7.0;
+    const EMOTION_PROFILES = {
+      NEUTRAL:  { hot: 0xffffff, mid: 0xebf5ff, dim: 0x90b5d8, energy: 1.00, wobble: 1.00, bloom: 1.00, audio: 1.00 },
+      JOY:      { hot: 0xfff3b0, mid: 0xffd54f, dim: 0xffab00, energy: 1.45, wobble: 1.35, bloom: 1.30, audio: 1.35 },
+      SORROW:   { hot: 0xb0c8ff, mid: 0x5c7bd9, dim: 0x2b3f77, energy: 0.62, wobble: 0.55, bloom: 0.70, audio: 0.70 },
+      ANGER:    { hot: 0xffb3a0, mid: 0xff3b30, dim: 0x7a0f0a, energy: 1.70, wobble: 2.00, bloom: 1.55, audio: 1.60 },
+      FUN:      { hot: 0xffd6f5, mid: 0xff66cc, dim: 0xb02a8c, energy: 1.55, wobble: 1.70, bloom: 1.35, audio: 1.45 },
+      SURPRISE: { hot: 0xe0ffff, mid: 0x00e5ff, dim: 0x0077aa, energy: 1.95, wobble: 2.40, bloom: 1.70, audio: 1.80 },
+      THINKING: { hot: 0xffe0b3, mid: 0xffb74d, dim: 0x8d6e35, energy: 0.85, wobble: 0.80, bloom: 0.95, audio: 1.00 },
+      SMILE:    { hot: 0xffffff, mid: 0xd6ffe9, dim: 0x4fbf8f, energy: 1.20, wobble: 1.10, bloom: 1.15, audio: 1.15 },
+    };
+
+    let avatarEmotion = "NEUTRAL";
+    let avatarTargetEmotion = "NEUTRAL";
+    let avatarIntensity = 1.0;          // user slider, 0..2
+    let avatarMoodWeight = 0.0;         // smoothed 0..1 blend into the state look
+    let avatarMoodHold = 0.0;           // seconds of hold left before decay
+    let avatarEnergyMult = 1.0;
+    let avatarWobbleMult = 1.0;
+    let avatarBloomMult = 1.0;
+    let avatarAudioMult = 1.0;
+
+    const avatarHot = new THREE.Color(EMOTION_PROFILES.NEUTRAL.hot);
+    const avatarMid = new THREE.Color(EMOTION_PROFILES.NEUTRAL.mid);
+    const avatarDim = new THREE.Color(EMOTION_PROFILES.NEUTRAL.dim);
+    const renderColorHot = new THREE.Color(0xffffff);
+    const renderColorMid = new THREE.Color(0xebf5ff);
+    const renderColorDim = new THREE.Color(0x90b5d8);
+
     const clock = new THREE.Clock();
 
     // CURSOR GAZE & SENTIENT TRACKING
@@ -583,6 +623,38 @@
       currentColorMid.lerp(targetColorMid, 0.06);
       currentColorDim.lerp(targetColorDim, 0.06);
 
+      // 1b. Avatar emotion layer: decay the mood, then compose it ON TOP of the
+      // state colour. currentColor* stays the pure state look so setBrahmaState
+      // and setAvatarEmotion never fight over the same variable.
+      if (avatarMoodHold > 0) {
+        avatarMoodHold = Math.max(0, avatarMoodHold - dt);
+        if (avatarMoodHold === 0) avatarTargetEmotion = "NEUTRAL";
+      }
+      const mood = EMOTION_PROFILES[avatarTargetEmotion] || EMOTION_PROFILES.NEUTRAL;
+      const moodTarget = (avatarTargetEmotion === "NEUTRAL") ? 0.0
+                        : Math.max(0.0, Math.min(1.0, avatarIntensity / 2.0)) * 1.0;
+      // Asymmetric blend: moods arrive fast and fade slowly, which reads as a
+      // feeling settling rather than a colour being switched.
+      const moodLerp = (moodTarget > avatarMoodWeight) ? 0.18 : 0.05;
+      avatarMoodWeight += (moodTarget - avatarMoodWeight) * moodLerp;
+      if (avatarMoodWeight < 0.001 && moodTarget === 0) {
+        avatarMoodWeight = 0;
+        avatarEmotion = "NEUTRAL";
+      } else if (avatarEmotion !== avatarTargetEmotion) {
+        avatarEmotion = avatarTargetEmotion;
+      }
+      avatarHot.lerp(new THREE.Color(mood.hot), 0.10);
+      avatarMid.lerp(new THREE.Color(mood.mid), 0.10);
+      avatarDim.lerp(new THREE.Color(mood.dim), 0.10);
+      const mw = avatarMoodWeight;
+      avatarEnergyMult = 1.0 + (mood.energy - 1.0) * mw;
+      avatarWobbleMult = 1.0 + (mood.wobble - 1.0) * mw;
+      avatarBloomMult = 1.0 + (mood.bloom - 1.0) * mw;
+      avatarAudioMult = 1.0 + (mood.audio - 1.0) * mw;
+      renderColorHot.copy(currentColorHot).lerp(avatarHot, mw * 0.85);
+      renderColorMid.copy(currentColorMid).lerp(avatarMid, mw * 0.85);
+      renderColorDim.copy(currentColorDim).lerp(avatarDim, mw * 0.85);
+
       // 2. Smooth State Dynamics
       currentPositionX += (targetPositionX - currentPositionX) * 0.08;
       mainGroup.position.x = currentPositionX;
@@ -603,12 +675,16 @@
       camera.position.x += (mouseNormX * 1.5 - camera.position.x) * 0.03;
       camera.position.y += (mouseNormY * 1.0 - camera.position.y) * 0.03;
 
-      // 4. Smooth audio with fast attack and graceful decay
+      // 4. Smooth audio with fast attack and graceful decay.
+      // The avatar emotion scales how strongly the voice drives the visuals -
+      // that is the "audio-reactive intensity" half of the feature, and it is a
+      // multiplier on the incoming level, never a replacement for it.
       const smoothFactor = (targetAudioLevel > currentAudioLevel) ? 0.28 : 0.08;
       currentAudioLevel += (targetAudioLevel - currentAudioLevel) * smoothFactor;
+      const reactiveAudio = Math.min(1.0, currentAudioLevel * avatarAudioMult);
 
-      const effectiveAmp = AMPLITUDE + currentAudioLevel * 0.22;
-      const speedMult = currentSpeedMult * (1.0 + currentAudioLevel * 0.25);
+      const effectiveAmp = AMPLITUDE + reactiveAudio * 0.22;
+      const speedMult = currentSpeedMult * (1.0 + reactiveAudio * 0.25) * avatarEnergyMult;
 
       // Continuous phase integration: mathematically eliminates all speed-jump glitches
       simTime += dt * SPEED * speedMult;
@@ -619,38 +695,38 @@
 
       // Dynamic Bloom Surge with Voice
       if (bloomPass) {
-        bloomPass.strength = BLOOM_STRENGTH + currentAudioLevel * 0.70;
+        bloomPass.strength = BLOOM_STRENGTH * avatarBloomMult + reactiveAudio * 0.70;
       }
 
 
       // 5. Apply Reactive State Colors to Shaders and Lines
       if (standingWaveParticles && standingWaveParticles.material.uniforms) {
         if (standingWaveParticles.material.uniforms.uColorHot) {
-          standingWaveParticles.material.uniforms.uColorHot.value.copy(currentColorHot);
+          standingWaveParticles.material.uniforms.uColorHot.value.copy(renderColorHot);
         }
         if (standingWaveParticles.material.uniforms.uColorDim) {
-          standingWaveParticles.material.uniforms.uColorDim.value.copy(currentColorDim);
+          standingWaveParticles.material.uniforms.uColorDim.value.copy(renderColorDim);
         }
       }
 
       standingWaveLines.forEach(item => {
-        item.line.material.color.copy(currentColorMid);
+        item.line.material.color.copy(renderColorMid);
       });
 
       if (coreSingularity) {
-        coreSingularity.material.color.copy(currentColorHot);
-        const pulse = 1.0 + Math.sin(simTime * 3.5 * currentPulseMod) * 0.12 + currentAudioLevel * 0.32;
+        coreSingularity.material.color.copy(renderColorHot);
+        const pulse = 1.0 + Math.sin(simTime * 3.5 * currentPulseMod * avatarWobbleMult) * 0.12 + reactiveAudio * 0.32;
         coreSingularity.scale.set(pulse, pulse, pulse);
       }
 
       if (glowSprite) {
-        glowSprite.material.color.copy(currentColorHot);
-        const glowPulse = 1.0 + currentAudioLevel * 0.35;
+        glowSprite.material.color.copy(renderColorHot);
+        const glowPulse = 1.0 + reactiveAudio * 0.35;
         glowSprite.scale.set(glowPulse, glowPulse, 1.0);
       }
 
       if (spiralMat) {
-        spiralMat.color.copy(currentColorHot);
+        spiralMat.color.copy(renderColorHot);
       }
 
       if (vortexTendrilsGroup) {
@@ -658,17 +734,17 @@
       }
 
       orbitalRingsGroup.forEach((ring) => {
-        ring.mesh.material.color.copy(currentColorMid);
-        ring.mesh.rotation.z = ring.rot[2] + simTime * ring.speed * 0.25;
+        ring.mesh.material.color.copy(renderColorMid);
+        ring.mesh.rotation.z = ring.rot[2] + simTime * ring.speed * 0.25 * avatarEnergyMult;
       });
 
       if (outerLine) {
-        outerLine.material.color.copy(currentColorDim);
+        outerLine.material.color.copy(renderColorDim);
       }
 
       if (starburstNodesGroup) {
         starburstNodesGroup.children.forEach(sprite => {
-          sprite.material.color.copy(currentColorHot);
+          sprite.material.color.copy(renderColorHot);
           const uData = sprite.userData;
           const ring = orbitalRingsGroup[uData.ringIdx];
           if (ring) {
@@ -680,8 +756,8 @@
             pos.applyEuler(ring.mesh.rotation);
             sprite.position.copy(pos);
 
-            const glint = 0.8 + Math.sin(simTime * uData.pulseSpeed * currentPulseMod + uData.angle * 3.0) * 0.35;
-            const sc = uData.baseScale * glint * (1.0 + currentAudioLevel * 0.06);
+            const glint = 0.8 + Math.sin(simTime * uData.pulseSpeed * currentPulseMod * avatarWobbleMult + uData.angle * 3.0) * 0.35;
+            const sc = uData.baseScale * glint * (1.0 + reactiveAudio * 0.06);
             sprite.scale.set(sc, sc, 1.0);
           }
         });
@@ -689,10 +765,10 @@
 
       // 6. Surrounding dynamic background animation
       if (spaceDustGroup) {
-        spaceDustGroup.rotation.y += dt * 0.015 * currentSpeedMult;
+        spaceDustGroup.rotation.y += dt * 0.015 * currentSpeedMult * avatarEnergyMult;
         spaceDustGroup.rotation.x = Math.sin(simTime * 0.08) * 0.04;
         if (spaceDustGroup.children[0] && spaceDustGroup.children[0].material) {
-          spaceDustGroup.children[0].material.color.copy(currentColorDim);
+          spaceDustGroup.children[0].material.color.copy(renderColorDim);
         }
       }
 
@@ -702,7 +778,13 @@
       }
     }
 
+    // Pause/resume hooks so the desktop app can actually stop the render loop.
+    // Without these the "3D background" toggle only hid the widget while the
+    // page kept asking for frames, so nothing was actually saved.
+    let animationPaused = false;
+
     function renderLoop() {
+      if (animationPaused) return;          // stop re-arming entirely
       requestAnimationFrame(renderLoop);
       const dt = Math.min(clock.getDelta(), 0.05);
       
@@ -711,6 +793,23 @@
       controls.update();
       composer.render();
     }
+
+    window.__pauseAnimation = function () {
+      if (animationPaused) return;
+      animationPaused = true;
+      if (typeof clock !== 'undefined' && clock && clock.stop) clock.stop();
+    };
+
+    window.__resumeAnimation = function () {
+      if (!animationPaused) return;
+      animationPaused = false;
+      // Discard the gap so the simulation does not jump forward by however
+      // long the background was switched off.
+      if (typeof clock !== 'undefined' && clock) clock.getDelta();
+      requestAnimationFrame(renderLoop);
+    };
+
+    window.__isAnimationPaused = function () { return animationPaused; };
 
     function onWindowResize() {
       const container = document.getElementById('webgl-canvas');
@@ -787,6 +886,42 @@
 
     window.setAudioLevel = function(level) {
       targetAudioLevel = Math.max(0.0, Math.min(1.0, parseFloat(level) || 0.0));
+    };
+
+    // Avatar emotion ingress. This is the whole renderer surface for
+    // three_reactive: one call, two scalar arguments, no payload to keep in sync.
+    // Intensity is clamped here rather than trusted, so a bad value cannot turn
+    // into a runaway multiplier in the render loop.
+    window.setAvatarEmotion = function(tag, intensity) {
+      const raw = String(tag == null ? "" : tag).trim().toUpperCase();
+      const known = Object.prototype.hasOwnProperty.call(EMOTION_PROFILES, raw);
+      avatarTargetEmotion = known ? raw : "NEUTRAL";
+      const i = parseFloat(intensity);
+      avatarIntensity = Math.max(0.0, Math.min(2.0, isNaN(i) ? 1.0 : i));
+      avatarMoodHold = known && raw !== "NEUTRAL" ? EMOTION_HOLD_SECONDS : 0.0;
+      if (!known && raw !== "NEUTRAL") {
+        console.warn("setAvatarEmotion: unknown tag refused ->", raw);
+      }
+      return true;
+    };
+
+    // Readback for the Settings card's diagnostics and for tests. Exposes the
+    // composition itself, not just the tag, so a wrong blend is visible.
+    window.__getAvatarState = function () {
+      return {
+        emotion: avatarEmotion,
+        target: avatarTargetEmotion,
+        intensity: avatarIntensity,
+        weight: avatarMoodWeight,
+        hold: avatarMoodHold,
+        energy: avatarEnergyMult,
+        wobble: avatarWobbleMult,
+        bloom: avatarBloomMult,
+        audio: avatarAudioMult,
+        audioLevel: currentAudioLevel,
+        reactiveAudio: Math.min(1.0, currentAudioLevel * avatarAudioMult),
+        state: currentState,
+      };
     };
 
     window.setCompactMode = function(isCompact) {
