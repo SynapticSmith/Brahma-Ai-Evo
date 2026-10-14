@@ -66,7 +66,42 @@ email_credentials.json
 
 build/
 dist/
-gradle-8.7-bin.zip
+gradle-8.5-bin.zip
 setup_android_sdk.ps1
 build_apk.ps1
 process_logo.py
+
+# ---------------------------------------------------------------------------
+# ONE-391 working-tree additions
+# ---------------------------------------------------------------------------
+
+# Editor / manual backups. These are pre-patch snapshots of main.py and ui.py
+# kept so a manual rollback was possible during the refactor. They are 900 KB of
+# duplicated source and nothing reads them; the git history is the rollback.
+*.bak
+main.py.bak
+ui.py.bak
+core/prompt - Copy.txt
+core/*- Copy.txt
+
+# Scratch tooling caches that appeared while driving the UI headlessly.
+.playwright-mcp/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Partials from the model installers. A *.part means an install was interrupted
+# and the licence/provenance sidecars were never written - committing one would
+# ship a model with no licence record beside it.
+*.part
+
+# Live per-machine state. The app reads settings from %LOCALAPPDATA%\BrahmaAI,
+# so this repo copy is a template only; anything that drifts into it by hand is
+# ignored rather than trusted.
+config/app_settings.local.json
+
+# Node packages used only to vendor the VRM runtime (assets/avatar_vrm/vendor
+# holds the copies that ARE committed, with their licences).
+node_modules/
+package-lock.json
+package.json
