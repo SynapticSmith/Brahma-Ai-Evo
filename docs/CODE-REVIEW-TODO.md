@@ -65,13 +65,20 @@ Working reference for the code-review improvement pass. Keep this updated as ite
   the single long-lived relay now drops frames while `self.session is None` (no consumer → no unbounded
   queue). Added `_spawn_background(coro, name)` which keeps a strong ref in `_background_tasks` and logs any
   exception, and routed the dashboard / remote-commands / phone-audio tasks through it.
-- [ ] **P1-7 — MCP `_status`/`_tasks` lock inconsistency.** Written from the loop thread (`_set_state`
+- [x] **P1-7 — MCP `_status`/`_tasks` lock inconsistency.** Written from the loop thread (`_set_state`
   `core/mcp_manager.py:776`) and read from others without a consistent lock.
-- [ ] **P1-8 — MCP shutdown race.** `mcp_manager.stop_all` (`core/mcp_manager.py:512-521`) waits 5s then
+  Fix (done): `_set_state` now takes `cls._lock` (RLock, so the startup call already holding it is fine);
+  `status()` iterates `list(cls._status.items())` so a key added mid-iteration cannot raise.
+- [x] **P1-8 — MCP shutdown race.** `mcp_manager.stop_all` (`core/mcp_manager.py:512-521`) waits 5s then
   `loop.stop()` with the task possibly still pending → possible orphaned stdio child. (Correction: normal
   cancellation *does* tear the transport down via `async with connect()` at `mcp_manager.py:595`.)
-- [ ] **P1-9 — MCP circuit breaker.** `_supervise` (`mcp_manager.py:542-566`) retries forever capped at 30 s;
+  Fix (done): `stop_all` cleared `_tasks` before scheduling `_cancel_task(name)`, so the lookup found nothing
+  and nothing was ever cancelled — it now cancels the exact task objects captured in the snapshot.
+- [x] **P1-9 — MCP circuit breaker.** `_supervise` (`mcp_manager.py:542-566`) retries forever capped at 30 s;
   add a max-retry → "permanently failed" state surfaced in the panel.
+  Fix (done): `_supervise` counts consecutive connect failures (reset whenever the server reaches `ready`) and
+  parks a never-connecting config in a `failed` state after `_max_connect_failures` (5) attempts. The panel
+  already renders the raw state string (`ui.py:11728`), so `· failed` shows without a UI change.
 
 ---
 
@@ -150,3 +157,6 @@ These were listed as incomplete before this pass. **None of them is done, and no
   `pytest tests` → **139 passed**; `accept_live_toggle.py` → ALL CRITERIA PASS; `accept_local_speech.py` →
   ALL CRITERIA PASS; `accept_wakeword.py` → B/C/C2 pass (section D "STT invoked" fails only because this box
   has no input device — confirmed identical on the pre-change stash, i.e. environmental). Not pushed.
+- 2026-10-15 — **P1-7, P1-8, P1-9 implemented** (`core/mcp_manager.py`; test `tests/test_mcp_supervise.py`,
+  new, 3 tests). Verification: `py_compile` clean; `pytest tests` → **142 passed**; `accept_live_toggle.py` →
+  ALL CRITERIA PASS. Not pushed.
