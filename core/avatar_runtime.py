@@ -72,6 +72,7 @@ SETTING_INTENSITY = "avatar_intensity"
 EMOTIONS = (
     "NEUTRAL", "JOY", "SORROW", "ANGER", "FUN",
     "SURPRISE", "THINKING", "SMILE",
+    "CALM", "EXCITED", "CONFUSED", "LOVE", "TIRED",
 )
 
 
@@ -1043,6 +1044,11 @@ class OscVmcBackend(AvatarBackend):
         "FUN":      {"Joy": 0.6, "S": 0.4, "F": 0.6},
         "SURPRISE": {"A": 0.9, "BrowUp": 0.7, "Joy": 0.3},
         "THINKING": {"BrowUp": 0.4, "S": -0.2},
+        "CALM":     {"BrowUp": 0.2, "M": -0.2},
+        "EXCITED":  {"Joy": 0.9, "A": 0.5, "S": 0.3, "BrowUp": 0.6, "F": 0.4},
+        "CONFUSED": {"BrowUp": 0.5, "BrowDown": 0.4, "M": 0.3, "S": -0.2},
+        "LOVE":     {"Joy": 0.8, "S": 0.4, "BrowUp": 0.3},
+        "TIRED":    {"BrowDown": 0.4, "S": -0.4, "M": 0.3, "Blink": 0.5},
     }
 
     KEEPALIVE_SECONDS = 1.0

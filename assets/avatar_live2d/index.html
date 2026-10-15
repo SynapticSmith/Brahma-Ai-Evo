@@ -54,7 +54,12 @@
     ANGER: null,
     FUN: "exp_03",
     SURPRISE: "exp_05",
-    THINKING: null
+    THINKING: null,
+    CALM: null,
+    EXCITED: null,
+    CONFUSED: null,
+    LOVE: null,
+    TIRED: null
   };
   // Parameters applied when an emotion has no expression file (or to reinforce
   // one). Ids that the loaded model does not expose are skipped at runtime, so
@@ -66,8 +71,13 @@
     SORROW: { ParamMouthForm: -1.0, ParamBrowLY: -1.0, ParamBrowRY: -1.0, ParamEyeLOpen: 0.3, ParamEyeROpen: 0.3 },
     ANGER: { ParamMouthForm: -1.0, ParamBrowLY: 1.0, ParamBrowRY: 1.0 },
     FUN: { ParamMouthForm: 1.0, ParamEyeLOpen: 0.6, ParamEyeROpen: 0.6, ParamBrowLY: 0.4, ParamBrowRY: 0.4 },
-    SURPRISE: { ParamMouthForm: 1.0, ParamEyeLOpen: 1.2, ParamEyeROpen: 1.2, ParamBrowLY: 1.0, ParamBrowRY: 1.0 },
-    THINKING: { ParamEyeBallX: 0.6, ParamBrowLY: -0.4, ParamBrowRY: -0.4, ParamMouthForm: -0.3 }
+    SURPRISE: { ParamMouthForm: 1.0, ParamEyeLOpen: 1.0, ParamEyeROpen: 1.0, ParamBrowLY: 0.8, ParamBrowRY: 0.8 },
+    THINKING: { ParamMouthForm: -0.3, ParamBrowLY: 0.5, ParamBrowRY: -0.5, ParamEyeLOpen: 0.7, ParamEyeROpen: 0.7, ParamAngleZ: 6.0 },
+    CALM: { ParamMouthForm: 0.3, ParamEyeLOpen: 0.55, ParamEyeROpen: 0.55, ParamBrowLY: -0.2, ParamBrowRY: -0.2 },
+    EXCITED: { ParamMouthForm: 1.0, ParamMouthOpenY: 0.6, ParamEyeLOpen: 1.0, ParamEyeROpen: 1.0, ParamBrowLY: 0.8, ParamBrowRY: 0.8, ParamBodyAngleZ: 4.0 },
+    CONFUSED: { ParamMouthForm: -0.4, ParamEyeLOpen: 0.7, ParamEyeROpen: 0.7, ParamBrowLY: 0.5, ParamBrowRY: -0.5, ParamAngleZ: 9.0 },
+    LOVE: { ParamMouthForm: 1.0, ParamEyeLOpen: 0.45, ParamEyeROpen: 0.45, ParamBrowLY: 0.4, ParamBrowRY: 0.4, ParamCheek: 1.0 },
+    TIRED: { ParamMouthForm: -0.3, ParamEyeLOpen: 0.2, ParamEyeROpen: 0.2, ParamBrowLY: 0.3, ParamBrowRY: 0.3 }
   };
   var SDK_DOWNLOAD_URL = "https://www.live2d.com/en/sdk/download/web/";
   var EMOTION_HOLD_SECONDS = 7.0;

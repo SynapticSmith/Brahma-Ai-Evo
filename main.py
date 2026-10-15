@@ -4239,6 +4239,33 @@ class BrahmaLive:
             return raw, ""
         return raw[end + 1:].strip(), tag.upper()
 
+    def _deliver_avatar_emotion(self, emotion: str) -> None:
+        """Hand one already-stripped emotion tag to the UI and the avatar seam.
+
+        Shared by the fallback reply path and the live voice path. The live path
+        previously never parsed tags at all, so in the default voice mode a tag
+        the model emitted reached nothing: the reply path knows nothing about
+        which backend is selected, core.avatar_runtime decides whether the tag
+        reaches a renderer, and this never raises.
+        """
+        if not emotion:
+            return
+        print(f"[BRAHMA EVO] 🎭 Emotion tag: {emotion}")
+        try:
+            if hasattr(self.ui, "set_emotion_tag"):
+                self.ui.set_emotion_tag(emotion)
+        except Exception:
+            pass
+        try:
+            from core import avatar_runtime
+
+            record = avatar_runtime.handle_emotion_tag(emotion)
+            if record.get("delivered"):
+                print(f"[BRAHMA EVO] 🎭 Avatar: {record['tag']} -> "
+                      f"{record['backend']}")
+        except Exception:
+            pass
+
     def _fallback_reply(self, text: str, memory_ctx: str = ""):
         try:
             self.ui.set_state("THINKING")
@@ -4477,29 +4504,9 @@ class BrahmaLive:
             reply = (reply or "").strip()
             # An emotion tag is an instruction-layer artefact, not speech. Strip
             # it before logging and before TTS so "[SMILE]" is never vocalised,
-            # and hand the tag to the UI so a future avatar layer can consume it.
+            # then hand the tag to the shared delivery seam.
             reply, emotion = self._split_emotion_tag(reply)
-            if emotion:
-                print(f"[BRAHMA EVO] 🎭 Emotion tag: {emotion}")
-                try:
-                    if hasattr(self.ui, "set_emotion_tag"):
-                        self.ui.set_emotion_tag(emotion)
-                except Exception:
-                    pass
-                # The avatar seam. The reply path knows nothing about which
-                # backend is selected; core.avatar_runtime decides whether the
-                # tag reaches a renderer, and never raises. Until a renderer
-                # exists this records the tag and returns - the pipeline can be
-                # exercised end to end without one.
-                try:
-                    from core import avatar_runtime
-
-                    record = avatar_runtime.handle_emotion_tag(emotion)
-                    if record.get("delivered"):
-                        print(f"[BRAHMA EVO] 🎭 Avatar: {record['tag']} -> "
-                              f"{record['backend']}")
-                except Exception:
-                    pass
+            self._deliver_avatar_emotion(emotion)
             if not reply:
                 reply = "I’m ready, sir."
             self.ui.write_log(f"Brahma Evo: {reply}")
@@ -5709,7 +5716,16 @@ class BrahmaLive:
 
                             full_out = " ".join(out_buf).strip()
                             if full_out:
-                                self.ui.write_log(f"Brahma Evo: {full_out}")
+                                # The model emits its mood as a leading
+                                # [EMOTION] tag on the injected live layer. This
+                                # path used to log the turn verbatim and drop
+                                # the tag, so in the default voice mode the
+                                # avatar never reacted at all. Strip it, deliver
+                                # it, and log the clean turn.
+                                full_out, emotion = self._split_emotion_tag(full_out)
+                                self._deliver_avatar_emotion(emotion)
+                                if full_out:
+                                    self.ui.write_log(f"Brahma Evo: {full_out}")
                             out_buf = []
 
                             if full_in and len(full_in) > 5:

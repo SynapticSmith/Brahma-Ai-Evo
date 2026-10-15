@@ -101,6 +101,11 @@ const EMOTION_EXPRESSIONS = {
   FUN:      ["relaxed"],
   SURPRISE: ["surprised"],
   THINKING: [],
+  CALM:     ["relaxed"],
+  EXCITED:  ["happy", "surprised"],
+  CONFUSED: ["surprised"],
+  LOVE:     ["happy", "relaxed"],
+  TIRED:    ["sad"],
 };
 
 const EMOTION_PARAMS = {
@@ -112,6 +117,39 @@ const EMOTION_PARAMS = {
   ANGER:    { "aa": 0.0 },
   SURPRISE: { "aa": 0.5, "ih": 0.35 },
   THINKING: { "aa": 0.0, "ih": 0.25 },
+  CALM:     {},
+  EXCITED:  { "aa": 0.55, "ih": 0.3 },
+  CONFUSED: { "ih": 0.2, "ou": 0.2 },
+  LOVE:     {},
+  TIRED:    { "ou": 0.25 },
+};
+
+// Model-agnostic emotion channel. Not every VRM can smile: a humanoid with no
+// expression blend shapes (a voxel avatar, or a VRM 0.x with an empty
+// BlendShapeMaster) would change zero pixels when the expression table above is
+// the only route. So every emotion also drives a small procedural pose and a
+// scene-light tint, both scaled by the same mood weight. This is what makes an
+// expressionless model still visibly react.
+//
+//   pitch/yaw/roll  radians, applied to the model root (about the feet)
+//   bob             metres of vertical sway amplitude
+//   rate            sway frequency (Hz-ish); higher = livelier
+//   tint            key/hemisphere light colour blended toward from white
+//   light           key light intensity multiplier
+const EMOTION_POSE = {
+  NEUTRAL:  { pitch:  0.00, yaw:  0.00, roll: 0.000, bob: 0.006, rate: 1.1, tint: 0xffffff, light: 1.00 },
+  JOY:      { pitch: -0.06, yaw:  0.03, roll: 0.035, bob: 0.018, rate: 1.8, tint: 0xfff2c4, light: 1.25 },
+  SMILE:    { pitch: -0.03, yaw:  0.02, roll: 0.022, bob: 0.012, rate: 1.4, tint: 0xffffff, light: 1.12 },
+  SORROW:   { pitch:  0.12, yaw:  0.00, roll: 0.010, bob: 0.005, rate: 0.7, tint: 0x9fb8e6, light: 0.72 },
+  ANGER:    { pitch:  0.05, yaw:  0.00, roll: 0.000, bob: 0.020, rate: 2.2, tint: 0xff9a86, light: 1.30 },
+  FUN:      { pitch: -0.04, yaw:  0.06, roll: 0.060, bob: 0.024, rate: 2.0, tint: 0xffc4ee, light: 1.22 },
+  SURPRISE: { pitch: -0.10, yaw:  0.00, roll: 0.000, bob: 0.008, rate: 2.6, tint: 0xbff6ff, light: 1.35 },
+  THINKING: { pitch:  0.07, yaw:  0.10, roll: 0.045, bob: 0.006, rate: 0.9, tint: 0xffd9a6, light: 0.95 },
+  CALM:     { pitch:  0.02, yaw:  0.00, roll: 0.008, bob: 0.007, rate: 0.8, tint: 0xbfe4ff, light: 0.98 },
+  EXCITED:  { pitch: -0.05, yaw:  0.05, roll: 0.070, bob: 0.030, rate: 2.8, tint: 0xffe08a, light: 1.45 },
+  CONFUSED: { pitch:  0.03, yaw: -0.12, roll: 0.090, bob: 0.009, rate: 1.5, tint: 0xd6c8ff, light: 1.05 },
+  LOVE:     { pitch: -0.05, yaw:  0.02, roll: 0.040, bob: 0.014, rate: 1.5, tint: 0xffbfd8, light: 1.20 },
+  TIRED:    { pitch:  0.14, yaw:  0.00, roll: 0.012, bob: 0.004, rate: 0.5, tint: 0xc8d2dd, light: 0.62 },
 };
 
 const state = {
@@ -133,8 +171,15 @@ const state = {
 };
 
 let renderer, scene, camera, gltfLoader, currentModel, mixer, lookAt;
+let modelRoot = null, keyLight = null, hemiLight = null;
 let last = performance.now();
 let pointerNdc = { x: 0, y: 0 };
+
+// Smoothed pose, so an emotion eases in rather than snapping. Persists across
+// frames; reset to rest at boot.
+let poseNow = { pitch: 0, yaw: 0, roll: 0, bob: 0, light: 1 };
+const poseTint = new THREE.Color(0xffffff);
+const POSE_WHITE = new THREE.Color(0xffffff);
 
 function bootFail(title, detail, hint) {
   state.ready = false;
@@ -181,10 +226,11 @@ async function boot() {
     camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 0.1, 50);
     camera.position.set(0, 1.25, 2.4);
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x223344, 1.2));
-    const key = new THREE.DirectionalLight(0xffffff, 1.4);
-    key.position.set(1.2, 2.0, 1.5);
-    scene.add(key);
+    hemiLight = new THREE.HemisphereLight(0xffffff, 0x223344, 1.2);
+    scene.add(hemiLight);
+    keyLight = new THREE.DirectionalLight(0xffffff, 1.4);
+    keyLight.position.set(1.2, 2.0, 1.5);
+    scene.add(keyLight);
 
     gltfLoader = new GLTFLoader();
     gltfLoader.register(function (parser) { return new VRMLoaderPlugin(parser); });
@@ -211,7 +257,11 @@ function onLoaded(gltf) {
       return;
     }
     currentModel = vrm;
-    scene.add(vrm.scene);
+    // Wrap the model so the emotion pose can move it about its feet without
+    // touching the VRM root, whose rotation VRMUtils.rotateVRM0 already set.
+    modelRoot = new THREE.Group();
+    modelRoot.add(vrm.scene);
+    scene.add(modelRoot);
 
     state.specVersion = vrm.meta ? String(vrm.meta.metaVersion || "0.x") : "";
     state.modelName = (vrm.meta && vrm.meta.name) || "";
@@ -262,6 +312,48 @@ function resetExpressions() {
   Object.keys(state.expressions).forEach(function (n) { setExpression(n, 0); });
 }
 
+// The expression-free emotion channel: a small procedural pose on the model
+// root plus a light tint, both eased in and scaled by the mood weight. This is
+// what lets a model with no blend shapes still react to a tag.
+function applyEmotionPose(now, dt) {
+  if (!modelRoot) return;
+  const pose = EMOTION_POSE[state.emotion] || EMOTION_POSE.NEUTRAL;
+  const rest = EMOTION_POSE.NEUTRAL;
+  const amt = state.weight;                       // 0..1
+  const ease = Math.min(1, dt * 4);
+
+  const pitch = rest.pitch + (pose.pitch - rest.pitch) * amt;
+  const yaw   = rest.yaw   + (pose.yaw   - rest.yaw)   * amt;
+  const roll  = rest.roll  + (pose.roll  - rest.roll)  * amt;
+  const bobA  = rest.bob   + (pose.bob   - rest.bob)   * amt;
+  const light = rest.light + (pose.light - rest.light) * amt;
+
+  poseNow.pitch += (pitch - poseNow.pitch) * ease;
+  poseNow.yaw   += (yaw   - poseNow.yaw)   * ease;
+  poseNow.roll  += (roll  - poseNow.roll)  * ease;
+  poseNow.bob   += (bobA  - poseNow.bob)   * ease;
+  poseNow.light += (light - poseNow.light) * ease;
+
+  const t = now / 1000;
+  const sway = Math.sin(t * pose.rate);
+  const sway2 = Math.sin(t * pose.rate * 0.6);
+  const bob = poseNow.bob * sway;
+
+  modelRoot.position.y = bob;
+  modelRoot.rotation.x = poseNow.pitch + bob * 0.5;
+  modelRoot.rotation.y = poseNow.yaw * sway2;
+  modelRoot.rotation.z = poseNow.roll * sway2;
+
+  poseTint.setHex(pose.tint).lerp(POSE_WHITE, 1 - amt);
+  if (keyLight) {
+    keyLight.color.copy(poseTint);
+    keyLight.intensity = 1.4 * poseNow.light;
+  }
+  if (hemiLight) {
+    hemiLight.color.copy(poseTint);
+  }
+}
+
 function loop() {
   window.requestAnimationFrame(loop);
   const now = performance.now();
@@ -281,6 +373,9 @@ function loop() {
     state.weight += (target - state.weight) * lerp;
     if (target === 0 && state.weight < 0.002) state.weight = 0;
 
+    // Pose the root before update() so the humanoid/normalised-bone pass and
+    // lookAt run against the posed frame.
+    applyEmotionPose(now, dt);
     currentModel.update(dt);
 
     const w = state.weight;
@@ -363,6 +458,10 @@ window.__getAvatarState = function () {
     audioLevel: state.audioLevel,
     modelUrl: MODEL_URL,
     state: state.brahmaState,
+    pose: {
+      pitch: poseNow.pitch, yaw: poseNow.yaw, roll: poseNow.roll,
+      bob: poseNow.bob, light: poseNow.light,
+    },
   };
 };
 

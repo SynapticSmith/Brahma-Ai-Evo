@@ -54,6 +54,9 @@ BUILTIN_BLOCKS: Dict[str, Dict[str, Any]] = {
         "text": (
             "When an avatar is active, you may prefix a reply with a single "
             "emotion tag in square brackets, for example [SMILE] or [THINKING]. "
+            "Use one of these tags and nothing else: NEUTRAL, JOY, SMILE, FUN, "
+            "LOVE, EXCITED, SURPRISE, CALM, THINKING, CONFUSED, SORROW, TIRED, "
+            "ANGER. "
             "Emit at most one tag, and only when the emotion genuinely differs "
             "from your neutral tone. Omit the tag entirely for ordinary replies. "
             "The tag drives the avatar only; it does not change your wording."

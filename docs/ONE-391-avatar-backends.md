@@ -114,6 +114,17 @@ explicitly is reported as `delivered: False`.
 The tag is interpolated with `json.dumps`, not string concatenation — it is
 model-produced text going into a JS source string.
 
+### Both reply paths deliver, not just the fallback
+
+The tag is peeled off a reply in two places, and both now hand it to one helper
+(`BrahmaLive._deliver_avatar_emotion`):
+
+- `_fallback_reply` — the local / offline / OpenRouter path.
+- `_receive_audio` — the **Gemini Live** voice path, which is the default mode.
+  It used to log the turn verbatim and drop the tag, so in normal voice use the
+  avatar never reacted to anything. It now strips the tag, delivers it, and logs
+  the clean turn.
+
 ### Cost
 
 Two `THREE.Color` lerps per frame, inside the loop that already exists. No new
@@ -186,6 +197,7 @@ their filenames:
 | SORROW | `exp_04` | brows down, mouth form down |
 | SURPRISE | `exp_05` | brows raised |
 | ANGER, THINKING | parameters | no honest expression exists |
+| CALM, EXCITED, CONFUSED, LOVE, TIRED | parameters only | the five expressions are fully spent; these are parameter nudges |
 | NEUTRAL | neither | the reset |
 
 Expressions are additive (`Blend: "Add"`) and touch a subset of parameters, so
@@ -299,6 +311,27 @@ bare specifiers. **No bundler, no build step, and no network at render time** �
 a local desktop app should not have a renderer that silently shows nothing on a
 bad connection. A check asserts the page contains no CDN URL.
 
+### Emotions: expressions first, then a channel that needs no face
+
+`EMOTION_EXPRESSIONS` maps to the standard VRM faces (`happy`, `sad`, `angry`,
+`relaxed`, `surprised`); a model that does not own one simply skips it.
+
+That is not enough on its own, because a VRM can legitimately have **no blend
+shapes at all** — `cryptovoxels.vrm` is a VRM 0.x voxel avatar whose
+`expressionManager.expressions` is empty, so an expression-only renderer sets
+`state.emotion` and moves *zero pixels*. So every emotion also drives a
+model-agnostic channel:
+
+- a small procedural pose on a wrapper node around `vrm.scene` (pitch / yaw /
+  roll about the feet, plus a vertical bob at an emotion-specific rate), and
+- a scene-light tint (key + hemisphere colour toward an emotion colour, with a
+  key-light intensity multiplier),
+
+both eased in and scaled by the same mood `weight` the expression path uses, so
+`NEUTRAL` / intensity `0` returns the model to rest. The pose lives on the
+wrapper, **not** on the humanoid bones, because `three-vrm`'s `lookAt` overwrites
+the head bone every `update()` and would erase a head-bone pose.
+
 ### Staged probe, same shape as Live2D
 
 ```
@@ -358,7 +391,7 @@ what emotion-driven Live2D actually needs.
 
 ## Tests
 
-`accept_avatar.py` — 191 checks.
+`accept_avatar.py` — 207 checks.
 
 - Sections A–J: the seam contract. Registry opens without editing core,
   actionable probe reasons, tag normalisation and refusal, a raising backend

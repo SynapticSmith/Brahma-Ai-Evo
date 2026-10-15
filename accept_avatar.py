@@ -294,14 +294,20 @@ def main() -> int:
         m_src = (BASE / "main.py").read_text(encoding="utf-8")
         ui_src = (BASE / "ui.py").read_text(encoding="utf-8")
 
-        check("the reply path routes stripped tags to the registry",
-              "avatar_runtime.handle_emotion_tag(emotion)" in m_src)
+        check("stripped tags route to the registry through one helper",
+              "def _deliver_avatar_emotion" in m_src
+              and "avatar_runtime.handle_emotion_tag(emotion)" in m_src)
         check("the routing call is guarded - a reply is never lost to it",
               m_src.split("avatar_runtime.handle_emotion_tag(emotion)")[0].count("try:")
               >= 1)
-        check("the tag is stripped before it ever reaches routing",
-              m_src.index("self._split_emotion_tag(reply)")
-              < m_src.index("avatar_runtime.handle_emotion_tag(emotion)"))
+        check("both the fallback and the live voice paths deliver tags",
+              m_src.count("self._deliver_avatar_emotion(emotion)") >= 2,
+              f"{m_src.count('self._deliver_avatar_emotion(emotion)')} call site(s)")
+        live_recv = m_src.split("async def _receive_audio", 1)[1].split(
+            "async def ", 1)[0]
+        check("the live voice path strips the tag before delivering it",
+              "_split_emotion_tag(full_out)" in live_recv
+              and "_deliver_avatar_emotion(emotion)" in live_recv)
         check("Settings exposes backend selection",
               "def _build_avatar_backend_section" in ui_src)
         check("the card is placed inside the avatar card",
@@ -436,8 +442,9 @@ def main() -> int:
               "renderColorHot.copy(currentColorHot).lerp(avatarHot" in html)
         check("audio reactivity is scaled by the emotion, not replaced",
               "reactiveAudio = Math.min(1.0, currentAudioLevel * avatarAudioMult)" in html)
+        profile_block = html.split("EMOTION_PROFILES = {", 1)[1].split("};", 1)[0]
         check("every canonical emotion has a profile",
-              all(f"{e}:" in html.split("EMOTION_PROFILES")[1][:900] for e in ar.EMOTIONS))
+              all(f"{e}:" in profile_block for e in ar.EMOTIONS))
 
         # 10. The profile table, parsed out of the page and checked as numbers.
         #     A typo in a multiplier is invisible to a substring assertion but
@@ -967,6 +974,23 @@ def main() -> int:
               refs <= {"happy", "sad", "angry", "relaxed", "surprised"}, str(refs))
         check("at least one emotion is a real expression, not just parameters",
               len(refs) >= 4, str(sorted(refs)))
+
+        # A model with no blend shapes (a voxel avatar, or an empty VRM 0.x
+        # BlendShapeMaster) changes zero pixels through the expression table
+        # above. So every emotion must also have a model-agnostic pose/tint, and
+        # the render loop must apply it - that is the bug this guards against.
+        pose_block = vrm_html.split("EMOTION_POSE = {", 1)[1].split("};", 1)[0]
+        pose_uncovered = [e for e in ar.EMOTIONS if f"{e}:" not in pose_block]
+        check("every canonical emotion has a model-agnostic pose on the VRM page",
+              not pose_uncovered, str(pose_uncovered))
+        check("the pose is applied to a model root, not the expression manager",
+              "modelRoot.rotation" in vrm_html and "modelRoot.position.y" in vrm_html
+              and "applyEmotionPose(now, dt)" in vrm_html)
+        check("an expressionless model is still tinted by the emotion",
+              "keyLight.color.copy(poseTint)" in vrm_html
+              and "hemiLight.color.copy(poseTint)" in vrm_html)
+        check("the pose is driven by the same mood weight as the expression",
+              "const amt = state.weight;" in vrm_html)
 
     finally:
         cm.SETTINGS_FILE = real_cm_file
