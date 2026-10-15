@@ -110,13 +110,19 @@ Working reference for the code-review improvement pass. Keep this updated as ite
 
 ## P3 — testing & CI (highest leverage)
 
-- [ ] **P3-14 — No CI / no lint-type config.** No `.github/`, no `pyproject.toml`/`pytest.ini`; `.git/hooks`
-  empty; gate is manual `scripts/precommit_check.py`. Add a CI workflow (pytest + accept harnesses).
-- [ ] **P3-14b — Dependencies fully unpinned.** `requirements.txt` (0 `==` in 69 lines).
-- [ ] **P3-15 — Unmarked `ZeroDivisionError` fixtures.** `actions/test_action.py:9-10`; `test_self_heal.py:28`
-  imports it, so bare `pytest` double-collects. Mark `xfail` or fix.
-- [ ] **P3-16 — Interactive scripts pollute root collection.** `test_local_brain.py`, `test_sensorium_live.py`,
-  `test_self_heal.py` are not pytest tests and can hang.
+- [ ] **P3-14 — No CI / no lint-type config.** No `.github/`, no `pyproject.toml`. A minimal `pytest.ini`
+  now exists (see P3-15/16), but CI workflow, lint/type config, and `pyproject.toml` are still open. Gate is
+  still the manual `scripts/precommit_check.py`. **Needs a decision:** CI host/runner (Windows-only stack) and
+  tool choices (ruff/black/mypy?).
+- [ ] **P3-14b — Dependencies fully unpinned.** `requirements.txt` (0 `==` in 69 lines). **Needs a decision:**
+  freeze to pinned versions now vs. adopt a managed lockfile.
+- [x] **P3-15 — Unmarked `ZeroDivisionError` fixture collected by bare pytest.** `actions/test_action.py` raises
+  `ZeroDivisionError` on purpose (self-heal demo) and `test_self_heal.py` re-exports its `test_action`, so a bare
+  `pytest` errored. Fixed with `pytest.ini` + `testpaths = tests`: the demo files stay intact for the self-heal
+  harness, and bare `pytest` now collects only the real suite (144 tests).
+- [x] **P3-16 — Interactive scripts pollute root collection.** Same fix: `testpaths = tests` keeps
+  `test_self_heal.py`, `test_local_brain.py`, `test_sensorium_live.py` out of pytest collection (they are not
+  pytest tests and can hang).
 - [ ] **P3-17 — Duplicated `check()` across 7 `accept_*.py`.** Extract a helper (or port to pytest);
   `precommit_check.py` scrapes stdout for `"ALL CRITERIA PASS"`.
 - [ ] **P3-18 — Install `precommit_check.py` as an actual git hook.**
@@ -180,3 +186,7 @@ These were listed as incomplete before this pass. **None of them is done, and no
   `tests/test_mcp_supervise.py` (+2 collision tests). Verification: `py_compile` clean on all four; `pytest tests`
   → **144 passed**; `accept_live_toggle.py`, `accept_local_speech.py`, `accept_avatar.py`, `accept_providers.py` →
   ALL CRITERIA PASS. Note: P2-12's STT `_model_cache` was already bounded (clear-then-set). Not pushed.
+- 2026-10-15 — **P3-15, P3-16 implemented.** Added `pytest.ini` with `testpaths = tests`. Bare `pytest` went
+  from a collection error (actions/test_action.py::test_action, test_self_heal.py::test_action both hitting the
+  intentional ZeroDivisionError) to **144 passed**; the demo/harness files are untouched. Remaining P3-14
+  (CI/lint config) and P3-14b (dependency pinning) need a decision and were left open.
