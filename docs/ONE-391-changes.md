@@ -326,7 +326,7 @@ and ignored-but-present files for review.
 this preparation.** That file is git-tracked and is *not* the file the app
 reads — `config_manager` resolves to `%LOCALAPPDATA%\BrahmaAI\config`. That
 mismatch is exactly why they sat unnoticed: it looks like the config, and it is
-not. Both values are now `<REDACTED-INTO-USER-DATA-DIR>`; the live credentials
+not. Both values are now empty strings (`""`, alongside an added `"mcpServers": {}`); the live credentials
 live only in the per-user file.
 
 See `ONE-391-next-steps.md` for what to do next.

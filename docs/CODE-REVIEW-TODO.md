@@ -138,10 +138,11 @@ Working reference for the code-review improvement pass. Keep this updated as ite
   can roll back files before the UI; `ui.py:19-22` sets WebEngine flags; `QApplication` constructed inside
   `BrahmaUI.__init__`.
 - [ ] **P4-21 — Repo weight.** Vendored `three.min.js` ×3 trees; `hand_landmarker.task` 7.8 MB tracked.
-- [ ] **P4-22 — Stale doc.** `docs/ONE-391-changes.md:329` says `<REDACTED-INTO-USER-DATA-DIR>`; template now
-  uses `""` + `mcpServers`.
-- [ ] **P4-23 — Portability.** `core/user_paths.py:4-8` hardcodes `%LOCALAPPDATA%` (fine if Windows-only is
-  intended — state it).
+- [x] **P4-22 — Stale doc.** `docs/ONE-391-changes.md:329` now states the two credentials are empty strings
+  (`""`) with an added `"mcpServers": {}`, matching the current `config/app_settings.json`.
+- [x] **P4-23 — Portability.** `core/user_paths.get_user_data_dir` now documents that it is Windows-first
+  (`%LOCALAPPDATA%\BrahmaAI`) with a home-dir fallback only so non-Windows tooling does not crash; no behavior
+  change.
 
 ---
 
@@ -190,3 +191,6 @@ These were listed as incomplete before this pass. **None of them is done, and no
   from a collection error (actions/test_action.py::test_action, test_self_heal.py::test_action both hitting the
   intentional ZeroDivisionError) to **144 passed**; the demo/harness files are untouched. Remaining P3-14
   (CI/lint config) and P3-14b (dependency pinning) need a decision and were left open.
+- 2026-10-15 — **P4-22, P4-23 implemented** (docs only). `docs/ONE-391-changes.md` credential note corrected to
+  match `config/app_settings.json` (`""` + `mcpServers`); `core/user_paths.get_user_data_dir` docstring now
+  states the Windows-first path and the non-Windows fallback. `py_compile` clean. Not pushed.

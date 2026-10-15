@@ -4,6 +4,12 @@ import tempfile
 from pathlib import Path
 
 def get_user_data_dir() -> Path:
+    """Per-user data directory for BrahmaAI: ``%LOCALAPPDATA%\\BrahmaAI``.
+
+    Windows is the supported target, so ``LOCALAPPDATA`` is preferred; the
+    ``~`` fallback only keeps non-Windows imports (tests, tooling) from
+    crashing, and is not a supported layout.
+    """
     app_data = os.getenv('LOCALAPPDATA', os.path.expanduser('~'))
     d = Path(app_data) / 'BrahmaAI'
     d.mkdir(parents=True, exist_ok=True)
