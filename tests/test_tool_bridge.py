@@ -320,10 +320,12 @@ def test_main_no_longer_advertises_every_tool_unconditionally():
     )
 
 
-def test_main_routes_the_meta_tools_before_the_normal_dispatch():
-    src = (ROOT / "main.py").read_text(encoding="utf-8")
-    body = src[src.index("async def _execute_tool"):]
-    head = body[:body.index("self.speak(")]
+def test_meta_tools_route_before_the_normal_dispatch():
+    """The executor (P4-19: moved out of main.py) handles discovery meta-tools
+    before the HUD/speech noise that follows the normal dispatch."""
+    src = (ROOT / "core" / "tool_exec.py").read_text(encoding="utf-8")
+    body = src[src.index("async def execute(self, fc)"):]
+    head = body[:body.index("self._host.speak(")]
     assert "tool_bridge.is_meta_tool" in head
     assert "tool_bridge.execute_meta" in head
 

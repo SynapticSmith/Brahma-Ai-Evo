@@ -149,6 +149,13 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     `getattr`, so attribute-built harnesses still work). Note: `core.provider_router` is the *provider registry*
     (kill switches), a different concern — not touched. Remaining seams: session state machine, audio I/O,
     tool executor, and the `ui.py` panels.
+  - **Done — tool executor seam (this commit).** `_execute_tool` (727 lines) and its two wrappers
+    (`_execute_tool_via_bridge`, `_execute_tool_sync`) moved verbatim to `core/tool_exec.py::ToolExecutor`.
+    `main.py` keeps three thin delegations behind a lazily-built `self._tool_exec`; the executor takes a host
+    reference plus the two main.py symbols it needs (`_ig_gemini_reply`, `TOOL_DECLARATIONS`) so there is no
+    circular import. Behavior-preserving: full suite 149 passed, `accept_instructions.py` and
+    `accept_local_speech.py` green. `main.py` 6551 -> 5813 lines.
+  - Remaining seams: session state machine, audio I/O, and the `ui.py` panels.
 - [x] **P4-20 — Import-time side effects.** Done: the duplicated Qt/env blocks in `main.py`, `ui.py` (two) and
   `core/globe_window.py` collapsed into one idempotent `core/qt_bootstrap.bootstrap()` (importing that module
   has no side effects); `core/boot_sentry` no longer rolls files back on import — `main` calls
