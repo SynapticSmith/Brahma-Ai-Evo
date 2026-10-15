@@ -511,17 +511,22 @@ def _extract_skill_creation_goal(text: str) -> str | None:
 
 
 def _is_gemini_limit_error(exc: Exception) -> bool:
+    """True only for genuine rate-limit / quota exhaustion.
+
+    Deliberately narrow: the caller uses this to fail over to OpenRouter, so an
+    auth error ("permission denied", "access denied") or an unrelated numeric
+    code ("1008" appears in timestamps and request ids) must NOT be mistaken for
+    a throttle, or a bad key silently disables Gemini.
+    """
     msg = str(exc).lower()
     return any(token in msg for token in (
         "429",
         "resource_exhausted",
+        "resource has been exhausted",
         "quota",
         "rate limit",
         "too many requests",
         "exceeded",
-        "1008",
-        "access denied",
-        "permission denied",
     ))
 
 
@@ -2193,6 +2198,10 @@ class BrahmaLive:
         self._is_speaking   = False
         self._speaking_lock = threading.Lock()
         self._use_openrouter_first = False
+        # When a Gemini throttle flips the failover, it only holds for a cooldown
+        # instead of the whole process: a one-minute quota blip must not hide a
+        # working Gemini for the rest of the session.
+        self._openrouter_until = 0.0
         self._pending_attention: dict | None = None
         self._pending_reply_event: dict | None = None
         self._reply_mode = False
@@ -2344,6 +2353,17 @@ class BrahmaLive:
             self._disconnect_live()
         # Abort any in-flight reconnect backoff so Connect/Disconnect is instant.
         self._wake_control()
+
+    def _prefer_openrouter(self) -> bool:
+        """True while a recent Gemini throttle should keep OpenRouter first."""
+        return getattr(self, "_use_openrouter_first", False) and time.time() < getattr(
+            self, "_openrouter_until", 0.0
+        )
+
+    def _throttled_to_openrouter(self, seconds: float = 300.0) -> None:
+        """Record a Gemini throttle and route to OpenRouter for a cooldown."""
+        self._use_openrouter_first = True
+        self._openrouter_until = time.time() + seconds
 
     def _should_standby(self) -> bool:
         """True when the session loop must idle instead of holding a session.
@@ -3523,7 +3543,7 @@ class BrahmaLive:
         else:
             is_local_preferred = False
 
-        if is_local_preferred or self._use_openrouter_first or not self._loop or not self.session:
+        if is_local_preferred or self._prefer_openrouter() or not self._loop or not self.session:
             threading.Thread(target=self._fallback_reply, args=(text, memory_ctx), daemon=True).start()
             return
         self.ui.set_state("THINKING")
@@ -4443,7 +4463,7 @@ class BrahmaLive:
             except Exception:
                 pass
             reply = ""
-            gemini_first = not self._use_openrouter_first
+            gemini_first = not self._prefer_openrouter()
             request_text = f"{memory_ctx}\n\nCurrent User Request:\n{text}" if memory_ctx else text
 
             app_settings = config_manager.load_settings()
@@ -4487,7 +4507,7 @@ class BrahmaLive:
                 except Exception as e_gem:
                     print(f"[BRAHMA EVO] ⚠️ Gemini failed: {e_gem}")
                     if _is_gemini_limit_error(e_gem):
-                        self._use_openrouter_first = True
+                        self._throttled_to_openrouter()
 
             # 2. If user explicitly selected OpenRouter, run OpenRouter FIRST
             elif is_cloud_openrouter and not is_offline_mode and "openrouter" in active_chain:
@@ -4629,7 +4649,7 @@ class BrahmaLive:
 
             # 4. Fallback cascading: if primary cloud choice failed, try secondary cloud choice
             if not reply and not is_offline_mode:
-                if is_cloud_gemini and self._use_openrouter_first and "openrouter" in active_chain:
+                if is_cloud_gemini and self._prefer_openrouter() and "openrouter" in active_chain:
                     try:
                         reply = openrouter_client.chat(request_text)
                     except Exception:
@@ -6166,7 +6186,7 @@ class BrahmaLive:
                     print(f"[BRAHMA EVO] ⚠️ {e}")
                     traceback.print_exc()
                 if _is_gemini_limit_error(e):
-                    self._use_openrouter_first = True
+                    self._throttled_to_openrouter()
                 if "1008" in str(e):
                     self._resume_handle = None
                 self.session = None
