@@ -12,7 +12,8 @@
                   pick an engine in Settings -> Speech Engines.
       osc         python-osc, for the external VMC avatar (VSeeFace).
       avatar-l2d  The Live2D "Ren" model plus its licence text.
-      avatar-vrm  The VRM "cryptovoxels" model plus its licence record.
+      avatar-vrm  The VRM "cryptovoxels" (VRM 0.x) and "seed-san" (VRM 1.0)
+                  models, each with its own licence record.
       vrm-runtime Vendors three.js + @pixiv/three-vrm into assets/avatar_vrm.
       all         Everything above.
 
@@ -203,9 +204,17 @@ function Install-Live2DModel {
 }
 
 function Install-VrmModel {
+    # Two models, each with its own licence record, so they sit side by side in
+    # the vr folder: the small VRM 0.x default (238 KB - exercises the
+    # expressionless path an expression-only renderer would fail on) and the
+    # VRM 1.0 sample (Seed-san, which has the full set of faces and the newer
+    # spec). Both are gated on the licence the FILE declares.
     $argv = @()
     if ($Force) { $argv += '--force' }
-    Run-Py 'fetch_vrm_model.py' $argv 'VRM model (cryptovoxels) + licence record'
+    Run-Py 'fetch_vrm_model.py' ($argv + @('--model', 'cryptovoxels')) `
+           'VRM model (cryptovoxels, VRM 0.x) + licence record'
+    Run-Py 'fetch_vrm_model.py' ($argv + @('--model', 'seed-san')) `
+           'VRM model (seed-san, VRM 1.0) + licence record'
 }
 
 function Install-VrmRuntime {

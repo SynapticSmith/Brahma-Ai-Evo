@@ -934,6 +934,11 @@ class ToolIndex:
         self._built = False
         self._enabled = enabled
         self._diversity_ready = False
+        #: Tool names the user has switched off. Disabled tools stay in
+        #: ``_entries`` (so toggling back on is instant and a catalog resync
+        #: cannot lose them) but are invisible to retrieval, advertisement and
+        #: execution — i.e. fully removed from what the model can see or call.
+        self._disabled: set[str] = set()
 
         self._fts = _Fts5Backend()
         self._ngram = _NgramBackend()
@@ -1004,11 +1009,23 @@ class ToolIndex:
             return list(self._manuals.values())
 
     def entries(self) -> List[ToolEntry]:
+        """Visible tools only; disabled tools are omitted."""
+        with self._lock:
+            return [
+                self._entries[n]
+                for n in self._order
+                if n in self._entries and n not in self._disabled
+            ]
+
+    def all_entries(self) -> List[ToolEntry]:
+        """Every catalogued tool, including disabled ones (for the settings UI)."""
         with self._lock:
             return [self._entries[n] for n in self._order if n in self._entries]
 
     def get(self, name: str) -> Optional[ToolEntry]:
         with self._lock:
+            if name in self._disabled:
+                return None
             return self._entries.get(name)
 
     def skill_ids(self) -> List[str]:
@@ -1023,7 +1040,11 @@ class ToolIndex:
             if self._built and not force:
                 return self._stats
             started = time.perf_counter()
-            entries = [self._entries[n] for n in self._order if n in self._entries]
+            entries = [
+                self._entries[n]
+                for n in self._order
+                if n in self._entries and n not in self._disabled
+            ]
             self._fingerprint = _EmbedCache.fingerprint([e.name for e in entries])
 
             self._fts.build(entries)
@@ -1106,6 +1127,8 @@ class ToolIndex:
 
             hits: List[SearchHit] = []
             for name, slot in fused.items():
+                if name in self._disabled:
+                    continue
                 entry = self._entries.get(name)
                 if entry is None:
                     continue
@@ -1142,6 +1165,8 @@ class ToolIndex:
         span = re.sub(r"[^a-z0-9]+", " ", clause.lower()).split()
         out: List[Tuple[str, float]] = []
         for name in self._order:
+            if name in self._disabled:
+                continue
             flat = name.lower()
             score = 0.0
             if flat_clause and flat == flat_clause:
@@ -1277,8 +1302,14 @@ class ToolIndex:
         if a caller passes something silly.
         """
         with self._lock:
-            pinned_entries = [self._entries[n] for n in self._order
-                              if n in self._entries and self._entries[n].pinned]
+            pinned_entries = sorted(
+                (
+                    e
+                    for e in self._entries.values()
+                    if e.pinned and e.name not in self._disabled
+                ),
+                key=lambda e: self._order.index(e.name) if e.name in self._order else 0,
+            )
 
         pinned_names = {e.name for e in pinned_entries}
         room = max(0, int(budget) - len(pinned_names) - len(META_TOOLS))
@@ -1292,7 +1323,7 @@ class ToolIndex:
             # When there is no query yet (first connect), fall back to a stable,
             # useful ordering rather than an arbitrary one: broad-coverage
             # built-ins first, then everything else alphabetically.
-            if not query.strip() and len(self._entries) > len(pinned_names):
+            if not query.strip() and len(self.entries()) > len(pinned_names):
                 hits = self._cold_start_order(room)
             hits = hits[:room]
 
@@ -1302,7 +1333,7 @@ class ToolIndex:
 
         skill_ids = {e.skill_id for e in selected} - {"native"}
         context = self.render_skill_context(sorted(skill_ids))
-        total = len(self._entries)
+        total = len(self.entries())
         return {
             "declarations": [e.declaration for e in selected],
             "skill_context": context,
@@ -1361,7 +1392,9 @@ class ToolIndex:
 
     def stats(self) -> IndexStats:
         with self._lock:
-            self._stats.tools = len(self._entries)
+            self._stats.tools = sum(
+                1 for n in self._entries if n not in self._disabled
+            )
             self._stats.manuals = len(self._manuals)
             return self._stats
 
@@ -1373,6 +1406,32 @@ class ToolIndex:
     @property
     def enabled(self) -> bool:
         return self._enabled
+
+    def set_disabled(self, names: Iterable[str]) -> None:
+        """Replaces the whole switched-off set. Cheap; the index rebuilds lazily."""
+        with self._lock:
+            self._disabled = {str(n) for n in (names or []) if str(n)}
+            self._built = False
+
+    def disable(self, name: str) -> None:
+        with self._lock:
+            if name and name not in self._disabled:
+                self._disabled.add(name)
+                self._built = False
+
+    def enable(self, name: str) -> None:
+        with self._lock:
+            if name in self._disabled:
+                self._disabled.discard(name)
+                self._built = False
+
+    def disabled(self) -> set:
+        with self._lock:
+            return set(self._disabled)
+
+    def is_disabled(self, name: str) -> bool:
+        with self._lock:
+            return name in self._disabled
 
     def explain(self, query: str, k: int = 8) -> List[Dict[str, Any]]:
         """Diagnostic view: what each backend contributed to the ranking."""

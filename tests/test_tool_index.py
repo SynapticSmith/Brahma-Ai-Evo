@@ -506,3 +506,60 @@ def test_concurrent_search_is_safe(index, monkeypatch):
     for t in threads:
         t.join(timeout=60)
     assert not errors, f"concurrent access raised: {errors[:3]}"
+
+
+# --------------------------------------------------------------------------- #
+# Disabled tools (Settings: "Tools & MCP Access")
+# --------------------------------------------------------------------------- #
+
+
+def test_disabled_tool_is_removed_from_every_model_facing_surface(index):
+    """Toggling a tool off must make it invisible, not merely low-ranked."""
+    index.set_disabled(["web_search"])
+    index.rebuild(force=True)
+
+    assert index.is_disabled("web_search")
+    assert "web_search" not in [e.name for e in index.entries()]
+    assert index.get("web_search") is None          # call_tool can no longer reach it
+    assert "web_search" not in [h.name for h in index.search("search the web for news", k=20)]
+
+    advertised = [d["name"] for d in index.resolve("search the web for news", budget=24)["declarations"]]
+    assert "web_search" not in advertised
+    cold = [d["name"] for d in index.resolve("", budget=24)["declarations"]]
+    assert "web_search" not in cold
+
+
+def test_disabled_tool_definition_is_retained_for_re_enabling(index):
+    """The definition stays in the catalog, so switching back on is lossless."""
+    index.set_disabled(["open_app"])
+    index.rebuild(force=True)
+    assert "open_app" not in [e.name for e in index.entries()]
+    assert "open_app" in [e.name for e in index.all_entries()]
+
+    index.enable("open_app")
+    index.rebuild(force=True)
+    assert not index.is_disabled("open_app")
+    assert "open_app" in [e.name for e in index.entries()]
+
+
+def test_disabled_pinned_tool_is_not_advertised(index):
+    """Disabling wins over pinning: the user's choice must be honoured."""
+    assert "undo" in index.resolve("", budget=10)["pinned"]
+    index.set_disabled(["undo"])
+    resolved = index.resolve("", budget=10)
+    assert "undo" not in resolved["pinned"]
+    assert "undo" not in [d["name"] for d in resolved["declarations"]]
+
+
+def test_set_disabled_replaces_the_whole_set(index):
+    index.set_disabled(["web_search", "open_app"])
+    assert index.disabled() == {"web_search", "open_app"}
+    index.set_disabled(["set_volume"])
+    assert index.disabled() == {"set_volume"}
+
+
+def test_stats_exclude_disabled_tools(index):
+    before = index.stats().tools
+    index.set_disabled(["web_search"])
+    index.rebuild(force=True)
+    assert index.stats().tools == before - 1

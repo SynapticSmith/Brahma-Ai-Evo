@@ -32,7 +32,7 @@ The advertised surface is therefore:
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 from core import tool_index as ti
 from core.tool_index import (
@@ -77,10 +77,12 @@ def configure(settings: Optional[Dict[str, Any]] = None,
 
     index = get_index()
     index.set_enabled(bool(_settings.get("tool_index_enabled", True)))
+    index.set_disabled(_settings.get("disabled_tools") or [])
     logger.info(
-        "[ToolBridge] configured (enabled=%s, budget=%s)",
+        "[ToolBridge] configured (enabled=%s, budget=%s, disabled=%d)",
         _settings.get("tool_index_enabled", True),
         budget(),
+        len(index.disabled()),
     )
 
 
@@ -455,6 +457,7 @@ def snapshot() -> Dict[str, Any]:
         "last_query_ms": stats.last_query_ms,
         "token_estimate": stats.total_tokens_estimate,
         "gemini_limit": GEMINI_MAX_TOOLS,
+        "disabled": len(index.disabled()),
         "mcp_servers": mcp,
     }
 
@@ -462,3 +465,78 @@ def snapshot() -> Dict[str, Any]:
 def explain(query: str, k: int = 8) -> List[Dict[str, Any]]:
     """Why a query ranked the way it did. Used by the settings 'test' box."""
     return get_index().explain(query, k=k)
+
+
+def disabled_tools() -> List[str]:
+    """Names currently switched off in the index."""
+    return sorted(get_index().disabled())
+
+
+def set_disabled_tools(names: Iterable[str]) -> None:
+    """Replaces the switched-off set. Takes effect on the next search/advertise."""
+    get_index().set_disabled(list(names or []))
+
+
+def tool_catalog() -> Dict[str, Any]:
+    """Grouped view of every catalogued tool, for the Settings UI.
+
+    Default tools (native + feature skills) come first, then one section per MCP
+    server. Disabled tools are still listed — with ``enabled=False`` — so they
+    can be switched back on; the definitions are hidden from the model, not
+    discarded. Servers that are configured but have not connected yet still get
+    an (empty) section, so a freshly-added server is visible before its tools
+    arrive rather than leaving the card blank.
+    """
+    index = get_index()
+    disabled = index.disabled()
+    groups: Dict[str, Dict[str, Any]] = {}
+
+    for entry in index.all_entries():
+        source = entry.source or "native"
+        if source.startswith("mcp:"):
+            key = source[4:] or "MCP"
+            label, kind = key, "mcp"
+        else:
+            key, label, kind = "__default__", "Default tools", "default"
+        group = groups.get(key)
+        if group is None:
+            group = {"id": key, "label": label, "kind": kind, "state": "", "tools": []}
+            groups[key] = group
+        group["tools"].append(
+            {
+                "name": entry.name,
+                "source": source,
+                "description": entry.short_description(140),
+                "enabled": entry.name not in disabled,
+            }
+        )
+
+    # Live connection state + any server that is configured but tool-less yet.
+    try:
+        from core.mcp_manager import MCPServerManager
+
+        status = MCPServerManager.status()
+    except Exception:
+        status = {}
+
+    server_names: List[str] = []
+    for entry in _settings.get("custom_mcp_servers") or []:
+        if isinstance(entry, dict) and str(entry.get("name") or "").strip():
+            server_names.append(str(entry["name"]).strip())
+    server_names.extend(str(name) for name in status)
+
+    for name in server_names:
+        if name not in groups:
+            groups[name] = {"id": name, "label": name, "kind": "mcp", "state": "", "tools": []}
+
+    default_keys = [k for k, g in groups.items() if g["kind"] == "default"]
+    mcp_keys = sorted((k for k, g in groups.items() if g["kind"] == "mcp"), key=str.lower)
+    for key in mcp_keys:
+        groups[key]["state"] = (status.get(key) or {}).get("state", "not connected")
+        groups[key]["tools"].sort(key=lambda t: t["name"].lower())
+
+    return {
+        "groups": [groups[k] for k in default_keys + mcp_keys],
+        "disabled": sorted(disabled),
+        "default_count": sum(len(groups[k]["tools"]) for k in default_keys),
+    }

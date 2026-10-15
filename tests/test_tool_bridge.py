@@ -332,3 +332,69 @@ def test_main_installs_the_bridge_executor():
     src = (ROOT / "main.py").read_text(encoding="utf-8")
     assert "tool_bridge.configure(executor=" in src
     assert "def _execute_tool_via_bridge" in src
+
+
+# --------------------------------------------------------------------------- #
+# Disabled tools (Settings: "Tools & MCP Access")
+# --------------------------------------------------------------------------- #
+
+
+def test_configure_applies_persisted_disabled_tools(bridge):
+    """A disabled tool persisted in app_settings must be gone from the session."""
+    tool_bridge.sync_native(_native_declarations())
+    tool_bridge.configure(settings={"tool_index_enabled": True, "tool_index_budget": 24,
+                                    "disabled_tools": ["web_search"]})
+    names = {d["name"] for d in tool_bridge.build_session_payload("search the web")["declarations"]}
+    assert "web_search" not in names
+    assert "web_search" in [e.name for e in bridge[0].all_entries()]
+    assert tool_bridge.snapshot()["disabled"] == 1
+
+
+def test_set_disabled_tools_takes_effect_immediately(bridge):
+    tool_bridge.sync_native(_native_declarations())
+    tool_bridge.set_disabled_tools(["open_app"])
+    names = {d["name"] for d in tool_bridge.build_session_payload("open an app")["declarations"]}
+    assert "open_app" not in names
+    assert tool_bridge.disabled_tools() == ["open_app"]
+
+    tool_bridge.set_disabled_tools([])
+    assert "open_app" in {e.name for e in bridge[0].entries()}
+
+
+def test_disabled_tool_cannot_be_called(bridge):
+    idx, calls = bridge
+    idx.upsert(ToolEntry(name="send_email", description="Send an email.", source="native"))
+    tool_bridge.set_disabled_tools(["send_email"])
+    out = asyncio.run(tool_bridge.execute_meta("call_tool", {"tool_name": "send_email"}))
+    assert out.startswith("Error:")
+    assert calls == []  # never dispatched
+
+
+def test_tool_catalog_groups_default_tools_and_mcp_servers(bridge):
+    idx, _ = bridge
+    idx.upsert(ToolEntry(name="web_search", description="Search the web.", source="native"))
+    idx.upsert(ToolEntry(name="calyx_search", description="Search a vault.", source="mcp:Calyx"))
+    idx.upsert(ToolEntry(name="synapse_observe", description="Look at the screen.", source="mcp:Synapse"))
+    tool_bridge.set_disabled_tools(["calyx_search"])
+
+    catalog = tool_bridge.tool_catalog()
+    groups = {g["label"]: g for g in catalog["groups"]}
+    assert groups["Default tools"]["kind"] == "default"
+    assert [t["name"] for t in groups["Default tools"]["tools"]] == ["web_search"]
+    assert groups["Calyx"]["kind"] == "mcp"
+    assert groups["Calyx"]["tools"][0]["enabled"] is False   # disabled still listed
+    assert groups["Synapse"]["tools"][0]["enabled"] is True
+    assert catalog["disabled"] == ["calyx_search"]
+
+
+def test_tool_catalog_shows_a_configured_but_tool_less_server(bridge):
+    """A server added before it connects must still get a section (not blank)."""
+    tool_bridge.configure(settings={
+        "tool_index_enabled": True,
+        "custom_mcp_servers": [{"name": "Filesystem", "command": "npx"}],
+    })
+    catalog = tool_bridge.tool_catalog()
+    labels = [g["label"] for g in catalog["groups"]]
+    assert "Filesystem" in labels
+    filesystem = next(g for g in catalog["groups"] if g["label"] == "Filesystem")
+    assert filesystem["tools"] == []

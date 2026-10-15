@@ -11578,6 +11578,199 @@ class SystemConnectivityPage(QWidget):
             )
         self._tool_index_result.setText("<br>".join(lines))
 
+    @staticmethod
+    def _tool_visibility_signature(catalog):
+        """Identity of the tool inventory for change detection.
+
+        Covers each group's id, connection state, and tool names — deliberately
+        NOT the per-tool ``enabled`` flag, so toggling a checkbox never rebuilds
+        the list under the user's cursor. Only a server gaining or losing tools
+        (or changing state) produces a new signature.
+        """
+        return tuple(
+            (
+                group.get("id"),
+                group.get("state"),
+                tuple(sorted(str(t.get("name")) for t in group.get("tools") or [])),
+            )
+            for group in catalog.get("groups") or []
+        )
+
+    def _poll_tool_visibility(self):
+        """Rebuilds the tool list only when the inventory changes.
+
+        MCP tools register asynchronously as servers finish connecting, so the
+        list has to populate itself instead of waiting for the Refresh button.
+        Cheap: only runs while this page is on screen, and only redraws when the
+        signature actually differs.
+        """
+        if not self.isVisible():
+            return
+        rebuild = getattr(self, "_rebuild_tool_visibility", None)
+        if rebuild is None:
+            return
+        try:
+            from core import tool_bridge
+
+            catalog = tool_bridge.tool_catalog()
+        except Exception:
+            return
+        if self._tool_visibility_signature(catalog) != getattr(self, "_tool_visibility_sig", None):
+            rebuild()
+
+    def _build_tool_visibility_card(self):
+        """Lists every tool as a toggle: "Default tools" then one section per MCP server.
+
+        A tool switched off is removed from the index the model sees — it cannot
+        be searched, advertised, or called — while its definition stays in the
+        underlying catalog so switching it back on is instant and survives a
+        resync. The choice is persisted to `disabled_tools` and applied live, so
+        no restart is needed. MCP servers that are configured but not yet
+        connected still show an (empty) section rather than leaving the card
+        blank, which is what made the old view look like nothing was loading.
+        """
+        card = self._card(
+            "Tools & MCP Access",
+            "Every tool the agent can use, grouped by where it comes from. Toggle one "
+            "off to hide it from the agent entirely — it stays installed and can be "
+            "switched back on any time.",
+        )
+        lay = card.layout()
+
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
+        body_lay.setSpacing(6)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setMaximumHeight(360)
+        scroll.setStyleSheet(f"QScrollArea {{ border: 1px solid {C.BORDER}; border-radius: 6px; background: transparent; }}")
+        scroll.setWidget(body)
+        lay.addWidget(scroll)
+
+        footer = QLabel("")
+        footer.setWordWrap(True)
+        footer.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
+        lay.addWidget(footer)
+
+        def _clear(layout):
+            while layout.count():
+                item = layout.takeAt(0)
+                widget = item.widget()
+                if widget is not None:
+                    widget.setParent(None)
+                    widget.deleteLater()
+                else:
+                    sub = item.layout()
+                    if sub is not None:
+                        _clear(sub)
+
+        def _apply(name, enabled):
+            merged = self._load_app_settings()
+            disabled = set(merged.get("disabled_tools") or [])
+            if enabled:
+                disabled.discard(name)
+            else:
+                disabled.add(name)
+            merged["disabled_tools"] = sorted(disabled)
+            self._replace_app_settings(merged)
+            try:
+                from core import tool_bridge
+
+                tool_bridge.configure(settings=merged)
+                self._refresh_tool_index_status()
+            except Exception as exc:
+                footer.setText(f"Saved, but the running index could not be updated: {exc}")
+                return
+            self._refresh_tool_visibility_footer()
+
+        def _refresh_footer():
+            try:
+                from core import tool_bridge
+
+                snap = tool_bridge.snapshot()
+            except Exception:
+                footer.setText("")
+                return
+            off = snap.get("disabled", 0)
+            footer.setText(
+                f"{snap['tools']} tools active · {off} hidden · {snap['advertised']} sent this session"
+                + (" · hiding tools frees prompt space" if not off else "")
+            )
+
+        def _rebuild():
+            _clear(body_lay)
+            try:
+                from core import tool_bridge
+
+                catalog = tool_bridge.tool_catalog()
+            except Exception as exc:
+                self._tool_visibility_sig = None
+                self._tool_visibility_boxes = []
+                err = QLabel(f"Tool catalog unavailable: {exc}")
+                err.setStyleSheet("color: #ff5555; font-size: 11px;")
+                body_lay.addWidget(err)
+                _refresh_footer()
+                return
+
+            self._tool_visibility_sig = self._tool_visibility_signature(catalog)
+            boxes = []
+            for group in catalog["groups"]:
+                is_mcp = group.get("kind") == "mcp"
+                title = str(group.get("label") or "Tools")
+                count = len(group.get("tools") or [])
+                state = f" · {group.get('state')}" if is_mcp and group.get("state") else ""
+                head = QLabel(f"<b>{title}</b> <span style='color:{C.TEXT_DIM}'>({count}){state}</span>")
+                head.setTextFormat(Qt.TextFormat.RichText)
+                head.setStyleSheet(f"color: {C.WHITE}; margin-top: 6px;")
+                body_lay.addWidget(head)
+
+                tools = group.get("tools") or []
+                if not tools:
+                    note = QLabel("No tools connected yet." if is_mcp else "No tools.")
+                    note.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px; margin-left: 18px;")
+                    body_lay.addWidget(note)
+                    continue
+
+                for tool in tools:
+                    box = QCheckBox(str(tool.get("name") or "tool"))
+                    box.setChecked(bool(tool.get("enabled", True)))
+                    desc = str(tool.get("description") or "").strip()
+                    box.setToolTip(desc or str(tool.get("name") or ""))
+                    box.setStyleSheet(f"color: {C.TEXT}; margin-left: 18px;")
+                    box.stateChanged.connect(
+                        lambda _state, name=str(tool.get("name")), widget=box: _apply(name, widget.isChecked())
+                    )
+                    body_lay.addWidget(box)
+                    boxes.append(box)
+
+            body_lay.addStretch(1)
+            self._tool_visibility_boxes = boxes
+            _refresh_footer()
+
+        self._refresh_tool_visibility_footer = _refresh_footer
+        self._rebuild_tool_visibility = _rebuild
+
+        # Populate live as MCP servers connect (their tools land asynchronously).
+        # One timer for the page; the tick is a no-op unless the inventory changed.
+        if not hasattr(self, "_tool_visibility_timer"):
+            self._tool_visibility_timer = QTimer(self)
+            self._tool_visibility_timer.setInterval(2000)
+            self._tool_visibility_timer.timeout.connect(self._poll_tool_visibility)
+            self._tool_visibility_timer.start()
+
+        btn_row = QHBoxLayout()
+        btn_refresh = QPushButton("Refresh")
+        btn_refresh.setFixedWidth(90)
+        btn_refresh.clicked.connect(lambda: _rebuild())
+        btn_row.addWidget(btn_refresh)
+        btn_row.addStretch(1)
+        lay.addLayout(btn_row)
+
+        _rebuild()
+        return card
+
     # ------------------------------------------------------------------
     # Speech engines (core/speech_stt.py, core/speech_tts.py)
     # ------------------------------------------------------------------
@@ -12477,6 +12670,9 @@ class SystemConnectivityPage(QWidget):
                         settings["custom_mcp_servers"] = kept
                         self._replace_app_settings(settings)
                         _rebuild_list()
+                        _refresh_visibility = getattr(self, "_rebuild_tool_visibility", None)
+                        if callable(_refresh_visibility):
+                            _refresh_visibility()
                         self._log_custom_mcp_change(f"removed '{server_name}'")
 
                     return _remove
@@ -12567,6 +12763,10 @@ class SystemConnectivityPage(QWidget):
         rebuild = getattr(self, "_rebuild_custom_mcp_list", None)
         if callable(rebuild):
             rebuild()
+
+        refresh_visibility = getattr(self, "_rebuild_tool_visibility", None)
+        if callable(refresh_visibility):
+            refresh_visibility()
 
         if self._ctrl() and hasattr(self._ctrl(), "write_log"):
             try:
@@ -12722,6 +12922,9 @@ class SystemConnectivityPage(QWidget):
 
         # Tool & Skill Index (must come after the MCP card: it reports on them)
         lay.addWidget(self._build_tool_index_card())
+
+        # Per-tool access list: default tools + one section per MCP server.
+        lay.addWidget(self._build_tool_visibility_card())
 
         # Speech Engines — sits next to the tool index because both describe how
         # a request reaches the model and how the answer gets back out.
@@ -14611,6 +14814,11 @@ class SystemConnectivityPage(QWidget):
             self._startup_anim_enable_btn.setChecked(bool(self._startup_animation_enabled()))
             self._discord_token.setText((discord.get("bot_token") or "").strip())
             self._discord_channel.setText((discord.get("channel_id") or "").strip())
+            # Refresh the tool list on open so MCP servers that connected since
+            # this page was last built appear immediately, not on the next poll.
+            rebuild_tools = getattr(self, "_rebuild_tool_visibility", None)
+            if callable(rebuild_tools):
+                rebuild_tools()
         finally:
             for widget in (
                 getattr(self, "_default_provider", None),

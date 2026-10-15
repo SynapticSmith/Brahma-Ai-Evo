@@ -42,7 +42,15 @@ from core.user_paths import get_user_data_dir
 
 logger = logging.getLogger("MCPManager")
 
-SETTINGS_PATH = Path(r"C:\Users\Admin\Brahma-Ai-Evo\config\app_settings.json")
+# Must match the file the Settings UI and main.py read/write. It used to be
+# hardcoded to the source checkout's config/, so a server added in Settings was
+# written to the per-user config while the manager loaded the repo copy — the
+# server never appeared and its tools never populated.
+SETTINGS_PATH = get_user_data_dir() / "config" / "app_settings.json"
+
+#: The tracked, credentials-redacted settings template shipped with the app.
+#: Never read as a live source; only used once to seed a brand-new user config.
+TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "config" / "app_settings.json"
 
 # Cap a single tool call so a wedged MCP server cannot hang a dispatch thread
 # forever; the registry's execution paths are worker threads.
@@ -253,20 +261,71 @@ class MCPServerManager:
     # ------------------------------------------------------------------ config
 
     @classmethod
-    def load_server_configs(cls) -> List[Dict[str, Any]]:
-        """Reads ``custom_mcp_servers`` from app settings, defensively."""
+    def _read_settings(cls, path: Path) -> Dict[str, Any]:
+        if not path.exists():
+            return {}
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+
+    @classmethod
+    def _seed_from_template(cls, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Copies the shipped template's servers into a fresh user config once.
+
+        The tracked ``config/app_settings.json`` is a credentials-redacted
+        *template*, not a live source. A new install keeps its real servers in
+        the per-user config, which starts without any. We seed the template's
+        servers in one time (guarded by a marker so an intentionally-cleared
+        list is never re-seeded), so the template is never read as live config
+        and the servers still show up in Settings and the tool index.
+        """
+        existing = data.get("custom_mcp_servers") or []
+        if data.get("custom_mcp_servers_migrated") or existing:
+            return existing if isinstance(existing, list) else []
+
+        seeded: List[Dict[str, Any]] = []
         try:
-            if not SETTINGS_PATH.exists():
-                return []
-            with open(SETTINGS_PATH, "r", encoding="utf-8") as handle:
-                data = json.load(handle)
+            if TEMPLATE_PATH.exists() and TEMPLATE_PATH.resolve() != SETTINGS_PATH.resolve():
+                seeded = cls._read_settings(TEMPLATE_PATH).get("custom_mcp_servers") or []
+        except Exception as exc:
+            logger.debug("[MCP Manager] Could not read template %s: %s", TEMPLATE_PATH, exc)
+        if not isinstance(seeded, list):
+            return []
+
+        # Record the migration even when the template is empty, so we only ever
+        # attempt this once and never overwrite a deliberate empty config later.
+        data["custom_mcp_servers"] = data.get("custom_mcp_servers") or list(seeded)
+        data["custom_mcp_servers_migrated"] = True
+        try:
+            SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            SETTINGS_PATH.write_text(json.dumps(data, indent=4), encoding="utf-8")
+            if seeded:
+                logger.info(
+                    "[MCP Manager] Seeded %d server(s) from the shipped template into %s.",
+                    len(seeded), SETTINGS_PATH,
+                )
+        except Exception as exc:
+            logger.warning(f"[MCP Manager] Could not write {SETTINGS_PATH}: {exc}")
+        return list(seeded)
+
+    @classmethod
+    def load_server_configs(cls) -> List[Dict[str, Any]]:
+        """Reads ``custom_mcp_servers`` from the per-user app settings, defensively.
+
+        On a brand-new install the servers only exist in the shipped
+        ``config/app_settings.json`` template; they are seeded once (see
+        :meth:`_seed_from_template`) so the template itself is never read as a
+        live source and the user config stays the single source of truth.
+        """
+        try:
+            data = cls._read_settings(SETTINGS_PATH)
         except Exception as exc:
             logger.warning(f"[MCP Manager] Could not read {SETTINGS_PATH}: {exc}")
             return []
 
         if not isinstance(data, dict):
             return []
-        servers = data.get("custom_mcp_servers") or []
+        servers = cls._seed_from_template(data)
         if not isinstance(servers, list):
             logger.warning("[MCP Manager] 'custom_mcp_servers' is not a list; ignoring.")
             return []
