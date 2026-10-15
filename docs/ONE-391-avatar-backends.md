@@ -125,6 +125,17 @@ The tag is peeled off a reply in two places, and both now hand it to one helper
   avatar never reacted to anything. It now strips the tag, delivers it, and logs
   the clean turn.
 
+### The push is marshalled to the GUI thread
+
+Both reply paths run off the Qt GUI thread: `_fallback_reply` on its own worker
+thread, and `_receive_audio` inside the Gemini Live `asyncio` loop, which
+`start_runner` also runs on a daemon thread. `QWebEngineView.page().runJavaScript`
+is GUI-thread-only, so pushing the tag into the page inline **crashed the app the
+moment a tag arrived**. `BackgroundWidget.set_avatar_emotion` therefore only emits
+a queued `_emotion_sig`; the actual `runJavaScript` runs in `_do_set_avatar_emotion`
+on the GUI thread — the same pattern `_state_sig` and `_audio_sig` already use.
+"Accepted" from the sink means the tag reached that signal, not that pixels moved.
+
 ### Cost
 
 Two `THREE.Color` lerps per frame, inside the loop that already exists. No new
@@ -184,6 +195,19 @@ the runtime is not, which is precisely the state this machine is in.
 
 It also refuses a `model3.json` that does not reference a `.moc3`, which is a
 real failure mode: the file looks like a model and is not one.
+
+### The fetch bridge must resolve relative urls
+
+The app loads this page over `file://`. Chromium refuses `fetch()` of the `file:`
+scheme outright, so the page bridges `file:` to `XMLHttpRequest`, which the
+WebEngine does allow locally. That bridge has to resolve its argument against the
+document *before* testing the scheme: the model is fetched by absolute `file://`
+url, but the Cubism shaders are fetched by **relative** path
+(`vendor/Shaders/WebGL/...`). A guard that only looked for a leading `file://`
+let the shader loads through to the native `fetch`, the sources came back empty,
+the programs failed to link, and every frame logged
+`WebGL: INVALID_OPERATION: drawElements: no valid shader program in use` while
+nothing was drawn — visible only in the real app, never in an `http://` test run.
 
 ### Emotion mapping: expressions first, parameters for the rest
 
@@ -283,21 +307,31 @@ This is the sharp contrast with Live2D. VRM carries its own permission metadata
 the licence" can mean asking the file rather than trusting a README, which is
 what `vrm_license_report.py` and `fetch_vrm_model.py` do.
 
-Checked on three candidates:
+Checked on candidates:
 
 | model | verdict |
 |---|---|
-| `VRM1_Constraint_Twist_Sample.vrm` (three-vrm, 10.7 MB) | **refused** — authors pixiv Inc. © 2022, `commercialUsage = corporation` |
+| `Seed-san.vrm` (madjin/vrm-samples, 10.7 MB, VRM 1.0) | **installed** — VirtualCast, Inc.; VRM Public License 1.0 whose own License Settings grant redistribution and commercial use (attribution required) |
+| `cryptovoxels.vrm` (238 KB, VRM 0.x) | **installed** — `redistribution=allow, modification=allow, corporate_commercial_use=allow, personal_commercial_use=profit, credit=unnecessary` |
+| `VRM1_Constraint_Twist_Sample.vrm` (three-vrm, 10.7 MB, VRM 1.0) | **permissive** — pixiv Inc. © 2022; same licence, and the file grants redistribution too |
 | `Avatar_Orion.vrm` (6.1 MB) | **refused** — declares no licence at all |
-| `cryptovoxels.vrm` (238 KB) | **installed** — `redistribution=allow, modification=allow, corporate_commercial_use=allow, personal_commercial_use=profit, credit=unnecessary` |
+
+The **"VRM Public License 1.0"** (`https://vrm.dev/licenses/1.0/`) is not one
+licence but a template: the author picks License Settings and those choices are
+written *into the file*. So the verdict comes from the file's `allowRedistribution`
+/ `modification` / `commercialUsage` / `avatarPermission` flags, never from the
+licence name — the same name covers "do anything" and "do nothing". A file that
+cites the URL without those flags is reported `unknown`, not assumed permissive.
 
 `fetch_vrm_model.py` **refuses** anything it cannot read as permissive. That is
 the gate that matters: a model hosted in an MIT repository is not thereby MIT,
-and the `three-vrm` sample is exactly that trap — MIT repo, non-permissive
-avatar.
+and `Avatar_Orion.vrm` sits in the same sample repo as the models that *are*
+permissive.
 
-The model is also the smallest by a factor of forty, which matters on the CPU-
-constrained machine this runs on.
+`seed-san.vrm` is the VRM 1.0 sample installed here; `cryptovoxels.vrm` remains
+the small VRM 0.x default (238 KB, a factor of forty smaller, which matters on
+the CPU-constrained machine this runs on, and it exercises the expressionless
+path an expression-only renderer would fail on).
 
 ### The runtime is MIT, so it is vendored
 
@@ -353,6 +387,12 @@ is not a statue between replies. The page reads which expressions the *loaded
 model* actually has and intersects the table with reality, so a model lacking
 `surprised` skips it instead of throwing.
 
+One warning is dropped rather than shown: `three-vrm` cannot honour a
+`LookAtDegreeMap` curve from a VRM 0.0 file (the curve field is a VRM 1.0
+feature) and says so via `console.warn`. On a VRM 0.x avatar that is expected and
+harmless — the model still loads and lookAt still drives the eyes — so the page
+filters that one message and forwards every other warning and error untouched.
+
 ---
 
 ## Still to do
@@ -391,7 +431,7 @@ what emotion-driven Live2D actually needs.
 
 ## Tests
 
-`accept_avatar.py` — 207 checks.
+`accept_avatar.py` — 219 checks.
 
 - Sections A–J: the seam contract. Registry opens without editing core,
   actionable probe reasons, tag normalisation and refusal, a raising backend
@@ -402,6 +442,7 @@ what emotion-driven Live2D actually needs.
 - Section L: `live2d`, against the **real installed model** where present.
 - Section M: `osc_vmc` against a **real UDP socket** — the emitted packets are
   read off the wire, not asserted against a mock.
-- Section N: `vrm` against the **real installed model**, plus licence
-  provenance, the vendored runtime, and the shared hook contract on all three
-  pages.
+- Section N: `vrm` against the **real installed models** (VRM 0.x and VRM 1.0),
+  the VRM Public License 1.0 classifier (permissive / refused / name-alone),
+  licence provenance, the vendored runtime, and the shared hook contract on all
+  three pages.

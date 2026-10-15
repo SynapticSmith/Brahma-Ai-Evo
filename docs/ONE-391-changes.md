@@ -181,10 +181,14 @@ renderer that silently shows nothing on a bad connection.
 |---|---|---|---|
 | Live2D **Ren** | 2.4 MB | Live2D Free Material License | `fetch_live2d_model.py` |
 | VRM **cryptovoxels** | 238 KB | permissive (VRoid Hub flags in-file) | `fetch_vrm_model.py` |
+| VRM **seed-san** (VRM 1.0) | 10.7 MB | VRM Public License 1.0, permissive in-file | `fetch_vrm_model.py` |
 | faster-whisper **base.en** | ~140 MB | MIT | `install_optional_deps.ps1` |
 
-Both installers write `LICENSE.*`, `PROVENANCE.json` (source repo, branch, a
-SHA-256 per file) and the source README alongside the model.
+Both installers write a licence record, a `PROVENANCE` JSON (source repo and a
+SHA-256) and the source README alongside the model. VRM names each record after
+the model (`LICENSE.<name>.txt`, `PROVENANCE.<name>.json`,
+`SOURCE-README.<name>.md`) so several VRM models can sit side by side without
+one install overwriting another's provenance.
 
 ---
 
@@ -197,13 +201,21 @@ VRM binary**, because VRM carries its own permission metadata
 
 | candidate | verdict |
 |---|---|
-| `VRM1_Constraint_Twist_Sample.vrm` (three-vrm, 10.7 MB) | **refused** — pixiv Inc. © 2022, `commercialUsage = corporation` |
+| `Seed-san.vrm` (madjin/vrm-samples, 10.7 MB, VRM 1.0) | **installed** — VirtualCast, Inc.; redistribution and corporation use granted in-file, attribution required |
+| `cryptovoxels.vrm` (238 KB, VRM 0.x) | **installed** — VRoid Hub flags: redistribution ✓ modification ✓ commercial ✓ credit not required |
+| `VRM1_Constraint_Twist_Sample.vrm` (three-vrm, 10.7 MB, VRM 1.0) | permissive — pixiv Inc. © 2022; the file grants redistribution too |
 | `Avatar_Orion.vrm` (6.1 MB) | **refused** — declares no licence at all |
-| `cryptovoxels.vrm` (238 KB) | **installed** — redistribution ✓ modification ✓ commercial ✓ credit not required |
 
-The trap was the obvious one: **an MIT repository containing a non-permissive
-avatar.** `fetch_vrm_model.py` refuses anything it cannot read as permissive, so
-that class of mistake cannot recur quietly.
+The **"VRM Public License 1.0"** is a template, not a fixed licence: the
+author's License Settings are written into the file (`allowRedistribution`,
+`modification`, `commercialUsage`, `avatarPermission`). The report judges those
+flags, not the licence name — the same name covers "do anything" and "do
+nothing", so a file that cites the URL without the flags is `unknown`, never
+assumed permissive.
+
+The trap that matters is caught: **a model hosted in an MIT repository that is
+not itself MIT.** `Avatar_Orion.vrm` sits in the same sample repo as the models
+that *are* permissive, and `fetch_vrm_model.py` refuses it.
 
 Live2D is different and there is no CC0 alternative — every model is either
 Live2D's sample data under the Free Material License or a third-party VTuber's

@@ -98,13 +98,23 @@
   }
 
   // Chromium cannot fetch() file:// URLs, but the Cubism framework loads the
-  // model, physics, and shaders through fetch(). Bridge file:// through
-  // XMLHttpRequest, which the WebEngine is configured to allow locally.
+  // model, physics and - crucially - the shaders through fetch(). Bridge file://
+  // through XMLHttpRequest, which the WebEngine is configured to allow locally.
+  //
+  // The shader path is *relative* ("vendor/Shaders/WebGL/..."), so the guard
+  // must resolve the argument against the document first: checking only for a
+  // leading "file://" let relative shader loads fall through to the native
+  // fetch, which refuses file: - the sources came back empty, the programs
+  // failed to link, and every frame logged
+  // "no valid shader program in use" while nothing was drawn.
   if (typeof window.fetch !== "function" || location.protocol === "file:") {
     var nativeFetch = window.fetch;
     window.fetch = function (input, init) {
-      var url = typeof input === "string" ? input : (input && input.url);
-      if (location.protocol === "file:" && url && url.indexOf("file://") === 0) {
+      var raw = typeof input === "string" ? input
+        : (input && input.url ? input.url : String(input));
+      var url = raw;
+      try { url = new URL(raw, document.baseURI).href; } catch (e) { url = raw; }
+      if (location.protocol === "file:" && url.indexOf("file:") === 0) {
         return new Promise(function (resolve, reject) {
           var xhr = new XMLHttpRequest();
           xhr.open("GET", url, true);
@@ -121,7 +131,7 @@
         });
       }
       if (typeof nativeFetch === "function") { return nativeFetch.apply(this, arguments); }
-      return Promise.reject(new Error("No fetch available for " + url));
+      return Promise.reject(new Error("No fetch available for " + raw));
     };
   }
 

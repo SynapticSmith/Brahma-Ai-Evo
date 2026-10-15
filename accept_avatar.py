@@ -507,6 +507,27 @@ def main() -> int:
               "avatar_runtime.flush_pending_mood()" in ui_src)
         check("the tag is JSON-encoded into the JS, not concatenated",
               "json.dumps(str(tag or ''))" in ui_src)
+
+        # The tag arrives on a worker thread - the reply path runs off the GUI
+        # thread, and the Gemini Live loop is a daemon thread too - while
+        # QWebEngineView.runJavaScript is GUI-thread-only. Pushing it inline
+        # crashed the app the moment a tag landed, so the push must be marshalled
+        # through a queued signal, exactly as the state and audio hooks are.
+        def _method_body(src: str, name: str) -> str:
+            start = src.find("def " + name)
+            if start < 0:
+                return ""
+            nxt = src.find("\n    def ", start + 1)
+            return src[start:nxt if nxt > 0 else len(src)]
+
+        emit_body = _method_body(ui_src, "set_avatar_emotion")
+        slot_body = _method_body(ui_src, "_do_set_avatar_emotion")
+        check("the emotion push is marshalled to the GUI thread, not called inline",
+              "_emotion_sig = pyqtSignal" in ui_src
+              and "self._emotion_sig.connect(self._do_set_avatar_emotion)" in ui_src
+              and "self._emotion_sig.emit(" in emit_body
+              and "runJavaScript(" not in emit_body
+              and "runJavaScript(" in slot_body)
         check("core never imports the UI",
               "import ui" not in (BASE / "core" / "avatar_runtime.py").read_text(
                   encoding="utf-8"))
@@ -649,6 +670,16 @@ def main() -> int:
               "Renderer stopped" in l2d_html)
         check("an unknown parameter resolves to null instead of breaking",
               "return (resolved === undefined || resolved === null) ? null" in l2d_html)
+        # The shaders are loaded by *relative* path ("vendor/Shaders/WebGL/...")
+        # while the model uses an absolute file:// url. Chromium refuses fetch()
+        # of file: entirely, so the page bridges file: to XHR - but only if the
+        # guard resolves the argument to an absolute url first. A check for a
+        # leading "file://" let the relative shader loads through to the native
+        # fetch, so the sources came back empty and every frame logged
+        # "no valid shader program in use" while nothing was drawn.
+        check("the Live2D fetch bridge resolves relative urls before bridging",
+              "new URL(raw, document.baseURI).href" in l2d_html
+              and 'url.indexOf("file:") === 0' in l2d_html)
         # Emotion coverage: every canonical emotion must map to something, even
         # if only to parameters, or the feature silently does nothing for it.
         emap = l2d_html.split("EMOTION_EXPRESSION = {")[1].split("};")[0]
@@ -855,7 +886,7 @@ def main() -> int:
                   "vroid.com/license" in info["license_url"],
                   info["license_url"][:60])
 
-            lic = vrm_file.parent / "LICENSE.txt"
+            lic = vrm_file.parent / f"LICENSE.{vrm_file.stem}.txt"
             check("the licence record travelled with the model", lic.is_file(),
                   str(lic))
             if lic.is_file():
@@ -865,7 +896,7 @@ def main() -> int:
                 check("the record carries the sha256",
                       "sha256" in text and "c5b3ae99" in text.lower()
                       or "sha256" in text)
-            prov = vrm_file.parent / "PROVENANCE.json"
+            prov = vrm_file.parent / f"PROVENANCE.{vrm_file.stem}.json"
             check("provenance records source, sha256 and the licence verdict",
                   prov.is_file()
                   and "madjin/vrm-samples" in prov.read_text(encoding="utf-8"))
@@ -876,6 +907,64 @@ def main() -> int:
                   d["available"], d["detail"][:76])
             check("the probe surfaces the licence verdict too",
                   "licence" in d["detail"], d["detail"][:76])
+
+        # The licence classifier must understand the "VRM Public License 1.0"
+        # from the file's own License Settings, not from the licence name (the
+        # same name covers "do anything" and "do nothing"). Pure logic, so it
+        # runs with no model present.
+        try:
+            import vrm_license_report as vlr
+
+            permissive1 = vlr.classify({
+                "licenseUrl": "https://vrm.dev/licenses/1.0/",
+                "allowRedistribution": True,
+                "modification": "allowModificationRedistribution",
+                "commercialUsage": "corporation",
+                "creditNotation": "required",
+            })
+            check("a permissive VRM Public License 1.0 file is read as permissive",
+                  permissive1[0] == "permissive", permissive1[1][:70])
+            locked1 = vlr.classify({
+                "licenseUrl": "https://vrm.dev/licenses/1.0/",
+                "allowRedistribution": False,
+                "modification": "prohibited",
+                "commercialUsage": "personalNonProfit",
+            })
+            check("a VRM Public License 1.0 file that forbids redistribution "
+                  "is refused",
+                  locked1[0] == "restricted", locked1[1][:70])
+            named_only = vlr.classify({
+                "licenseUrl": "https://vrm.dev/licenses/1.0/"})
+            check("the VRM Public License 1.0 name alone is not assumed to be "
+                  "permissive",
+                  named_only[0] == "unknown", named_only[1][:70])
+        except Exception as exc:
+            check("the VRM Public License 1.0 classifier is importable",
+                  False, repr(exc))
+
+        # A VRM 1.0 model, so the newer spec is exercised end to end too. Its
+        # licence is the VRM Public License 1.0, judged from the file's flags.
+        vrm10_file = (Path(os.environ.get("LOCALAPPDATA", "")) /
+                      "BrahmaAI" / "avatar" / "vrm" / "seed-san.vrm")
+        check("a VRM 1.0 model is installed for the newer spec",
+              vrm10_file.is_file(), str(vrm10_file))
+        if vrm10_file.is_file():
+            info10 = ar.scan_vrm_model(str(vrm10_file))
+            check("the VRM 1.0 model's spec version is detected",
+                  info10["spec"].startswith("1."), info10["spec"])
+            check("its VRM Public License is read as permissive from the file",
+                  info10["verdict"].startswith("permissive"), info10["verdict"])
+            check("the VRM 1.0 licence url is surfaced verbatim",
+                  "vrm.dev/licenses" in info10["license_url"],
+                  info10["license_url"][:60])
+            lic10 = vrm10_file.parent / f"LICENSE.{vrm10_file.stem}.txt"
+            check("the VRM 1.0 licence record travelled with the model",
+                  lic10.is_file(), str(lic10))
+            prov10 = vrm10_file.parent / f"PROVENANCE.{vrm10_file.stem}.json"
+            check("provenance for the VRM 1.0 model records its verdict",
+                  prov10.is_file()
+                  and "VirtualCast" in prov10.read_text(encoding="utf-8"),
+                  str(prov10))
 
         # The runtime is vendored, so the avatar needs no network at render time.
         vendored = ar.vrm_vendor_present()
@@ -991,6 +1080,14 @@ def main() -> int:
               and "hemiLight.color.copy(poseTint)" in vrm_html)
         check("the pose is driven by the same mood weight as the expression",
               "const amt = state.weight;" in vrm_html)
+        # three-vrm warns once that a VRM 0.0 LookAtDegreeMap curve is
+        # unsupported. It is benign and unfixable in a vendored runtime, so the
+        # page drops that one message - narrowly, leaving every other warning and
+        # error intact rather than muting the console.
+        check("the benign VRM 0.x LookAtDegreeMap warning is filtered, not the console",
+              "LookAtDegreeMap" in vrm_html
+              and "console.warn = function" in vrm_html
+              and "warn.apply(console, arguments)" in vrm_html)
 
     finally:
         cm.SETTINGS_FILE = real_cm_file

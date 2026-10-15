@@ -911,6 +911,14 @@ def scan_vrm_model(path: str) -> Dict[str, Any]:
         out["verdict"] = "CC0"
     elif "creativecommons.org/licenses/by/" in low:
         out["verdict"] = "CC BY"
+    elif ("vrm.dev/licenses" in low
+          and str(meta.get("avatarPermission") or "") != "onlyAuthor"
+          and (meta.get("allowRedistribution") is True
+               or str(meta.get("modification") or "")
+               == "allowModificationRedistribution")):
+        # "VRM Public License 1.0" is a template: the author's License Settings
+        # live in the file, so judge those rather than the licence name.
+        out["verdict"] = "permissive (VRM Public License 1.0)"
     elif "vroid.com/license" in low and "redistribution=allow" in low.replace(
             "%3d", "=").replace("&amp;", "&"):
         out["verdict"] = "permissive (VRoid Hub flags)"

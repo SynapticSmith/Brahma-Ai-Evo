@@ -18,6 +18,14 @@ Two spec versions, two shapes:
 Both are checked, and a file that declares nothing is reported as declaring
 nothing rather than being quietly treated as permissive.
 
+Two kinds of declaration are read. The CC family and the old VRoid Hub
+"conditions of use" URLs are matched by token. The "VRM Public License 1.0"
+(https://vrm.dev/licenses/1.0/) is different again: it is a template whose
+License Settings are written into the file as meta flags
+(`allowRedistribution`, `modification`, `commercialUsage`, `avatarPermission`),
+so it is judged from those flags - not from the licence name, which on its own
+permits everything from "no restrictions" to "no redistribution".
+
 Usage: py -3.11 vrm_license_report.py <file.vrm> [more.vrm ...]
 """
 from __future__ import annotations
@@ -41,6 +49,17 @@ NON_PERMISSIVE = {
         "custom", "redistribution/use conditions apply - read the linked terms"),
     "redistribution prohibited": ("prohibited", "may not be redistributed"),
 }
+
+# "VRM Public License 1.0" is not one licence but a template: the author picks
+# License Settings (relaxed / standard / custom) and those choices are written
+# INTO the file as meta flags. So the URL alone cannot decide the verdict - the
+# flags can. The canonical url is https://vrm.dev/licenses/1.0/.
+VRM_PUBLIC_LICENSE_TOKENS = ("vrm.dev/licenses", "vrm public license")
+
+# The meta keys that carry a VRM 1.0 file's License Settings. Their presence is
+# what makes the file self-describing enough to judge.
+_VRM1_LICENSE_SETTINGS = ("allowRedistribution", "modification",
+                          "commercialUsage", "avatarPermission")
 
 
 def read_gltf_json(path: Path) -> dict:
@@ -81,6 +100,51 @@ def _vroid_hub_flags(url: str) -> dict:
     return out
 
 
+def vrm_public_license(meta: dict, url: str) -> tuple:
+    """(verdict, human) for a VRM Public License 1.0 file, from its own flags.
+
+    The licence name is a template, so judging it by name would be guessing in
+    both directions. What the file declares concretely - whether it may be
+    redistributed, whether commercial use is allowed, whether the face may be
+    animated by others - is in the meta. That is the evidence used here.
+
+    A file that cites the url but carries no License Settings (e.g. a VRM 0.x
+    model that merely names the licence) cannot be verified and is reported as
+    unknown rather than waved through.
+    """
+    if not any(k in meta for k in _VRM1_LICENSE_SETTINGS):
+        return "unknown", ("VRM Public License url, but no in-file License "
+                           f"Settings to judge: {url}")
+
+    redistribution = meta.get("allowRedistribution")
+    modification = str(meta.get("modification") or "")
+    permission = str(meta.get("avatarPermission") or "")
+    commercial = str(meta.get("commercialUsage") or "")
+    credit = str(meta.get("creditNotation") or "")
+
+    if permission == "onlyAuthor":
+        return "restricted", ("VRM Public License 1.0: avatar use limited to "
+                              f"the author ({url})")
+
+    can_redistribute = (redistribution is True
+                        or modification == "allowModificationRedistribution")
+    if not can_redistribute:
+        return "restricted", (f"VRM Public License 1.0: redistribution not "
+                              f"granted (allowRedistribution={redistribution!r}, "
+                              f"modification={modification!r}) ({url})")
+
+    if commercial in ("personalProfit", "corporation"):
+        bits = [f"commercial use allowed ({commercial})"]
+    elif commercial == "personalNonProfit":
+        bits = ["NON-COMMERCIAL only"]
+    else:
+        bits = [f"commercial usage {commercial!r}"]
+    if credit == "required":
+        bits.append("attribution required")
+    return "permissive", ("VRM Public License 1.0: redistribution allowed; "
+                          + "; ".join(bits) + f" ({url})")
+
+
 def classify(meta: dict) -> tuple:
     """(verdict, human) from a VRM meta block. Never guesses.
 
@@ -94,6 +158,8 @@ def classify(meta: dict) -> tuple:
 
     if url:
         low = url.lower()
+        if any(tok in low for tok in VRM_PUBLIC_LICENSE_TOKENS):
+            return vrm_public_license(meta, url)
         for token, human in PERMISSIVE.items():
             if token in low:
                 return "permissive", f"{human} ({url})"
@@ -138,6 +204,9 @@ def report(path: Path) -> dict:
         "copyright": meta.get("copyrightInformation"),
         "commercial": meta.get("commercialUsage"),
         "modification": meta.get("modification"),
+        "redistribution": meta.get("allowRedistribution"),
+        "avatarPermission": meta.get("avatarPermission"),
+        "creditNotation": meta.get("creditNotation"),
         "licenseUrl": meta.get("licenseUrl"),
         "otherLicenseUrl": meta.get("otherLicenseUrl"),
         "verdict": verdict,
@@ -158,6 +227,9 @@ def main(argv) -> int:
         print(f"  authors     : {r['authors']}")
         print(f"  copyright   : {r['copyright']}")
         print(f"  commercial  : {r['commercial']}   modification: {r['modification']}")
+        print(f"  settings    : redistribute={r['redistribution']}   "
+              f"avatarPermission={r['avatarPermission']}   "
+              f"credit={r['creditNotation']}")
         print(f"  licenceUrl  : {r['licenseUrl']}")
         if r["otherLicenseUrl"]:
             print(f"  otherLicence: {r['otherLicenseUrl']}")

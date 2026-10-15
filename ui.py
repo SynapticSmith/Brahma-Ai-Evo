@@ -209,11 +209,13 @@ QWidget.setStyleSheet = _new_setStyleSheet
 class BackgroundWidget(QWidget):
     _state_sig = pyqtSignal(str)
     _audio_sig = pyqtSignal(float)
+    _emotion_sig = pyqtSignal(str, float)
 
     def __init__(self, image_path: Path | str | None = None, parent=None):
         super().__init__(parent)
         self._state_sig.connect(self._do_set_ai_state)
         self._audio_sig.connect(self._do_set_audio_level)
+        self._emotion_sig.connect(self._do_set_avatar_emotion)
         self._last_audio_js_time = 0.0
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, False)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
@@ -477,10 +479,14 @@ class BackgroundWidget(QWidget):
             return False
 
     def set_avatar_emotion(self, tag: str, intensity: float = 1.0) -> bool:
-        """Push one emotion into the 3D background. Returns whether it went out.
+        """Queue one emotion for the 3D background. Returns whether it was accepted.
 
-        The tag is interpolated with json.dumps, not string-concatenated: it
-        arrives as model-produced text, and this is a JS source string.
+        Emits a signal rather than touching the page here. The tag can arrive on
+        a reply worker thread or the Gemini Live asyncio loop, and
+        QWebEngineView.runJavaScript is only safe on the GUI thread — a direct
+        call crashed the app the moment a tag landed. The signal is queued to
+        the GUI thread, which is why the state and audio hooks use the same
+        pattern. "Accepted" means it reached this channel, not that pixels moved.
         """
         if self._web_view is None:
             return False
@@ -489,15 +495,23 @@ class BackgroundWidget(QWidget):
                 iv = max(0.0, min(2.0, float(intensity)))
             except (TypeError, ValueError):
                 iv = 1.0
-            js = (f"window.setAvatarEmotion && "
-                  f"window.setAvatarEmotion({json.dumps(str(tag or ''))}, {iv:.3f});")
-            page = self._web_view.page()
-            if page is None:
-                return False
-            page.runJavaScript(js)
+            self._emotion_sig.emit(str(tag or ""), iv)
             return True
         except Exception:
             return False
+
+    def _do_set_avatar_emotion(self, tag: str, intensity: float) -> None:
+        if self._web_view is None:
+            return
+        try:
+            js = (f"window.setAvatarEmotion && "
+                  f"window.setAvatarEmotion({json.dumps(str(tag or ''))}, {float(intensity):.3f});")
+            page = self._web_view.page()
+            if page is None:
+                return
+            page.runJavaScript(js)
+        except Exception:
+            pass
 
     def set_pointer_norm(self, nx: float, ny: float) -> None:
         if self._web_view:

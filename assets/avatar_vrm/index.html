@@ -77,6 +77,22 @@ const BOOT = document.getElementById("boot");
 const BOOT_DETAIL = document.getElementById("boot-detail");
 const STAGE = document.getElementById("stage");
 
+// three-vrm cannot honour a LookAtDegreeMap curve from a VRM 0.0 file (the curve
+// field is a VRM 1.0 feature) and reports that through console.warn. On a VRM 0.x
+// avatar this is expected and harmless - the model still loads and lookAt still
+// drives the eyes - so drop that one known message and let every other warning
+// and error through untouched.
+(function () {
+  const warn = console.warn.bind(console);
+  console.warn = function () {
+    if (typeof arguments[0] === "string"
+        && arguments[0].indexOf("LookAtDegreeMap") !== -1) {
+      return;
+    }
+    return warn.apply(console, arguments);
+  };
+})();
+
 const params = new URLSearchParams(window.location.search);
 // The host passes the .vrm file itself (active_model_url() returns the model
 // path), so this must not append a slash: that turned a file URL into a
