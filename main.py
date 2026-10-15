@@ -12,6 +12,7 @@ from core import undo as undo_stack
 from core import audio_devices
 from core.echo import EchoGuard
 from core.hotkey import PushToTalk
+from core.provider_failover import ProviderFailover
 from memory import config_manager
 from memory.memory_manager import search_memory
 
@@ -2188,11 +2189,9 @@ class BrahmaLive:
         self._loop          = None
         self._is_speaking   = False
         self._speaking_lock = threading.Lock()
-        self._use_openrouter_first = False
-        # When a Gemini throttle flips the failover, it only holds for a cooldown
-        # instead of the whole process: a one-minute quota blip must not hide a
-        # working Gemini for the rest of the session.
-        self._openrouter_until = 0.0
+        # Gemini->OpenRouter failover timing (see core.provider_failover). The
+        # registry of enabled providers lives in core.provider_router.
+        self._provider_failover = ProviderFailover()
         self._pending_attention: dict | None = None
         self._pending_reply_event: dict | None = None
         self._reply_mode = False
@@ -2345,16 +2344,25 @@ class BrahmaLive:
         # Abort any in-flight reconnect backoff so Connect/Disconnect is instant.
         self._wake_control()
 
+    def _provider_failover_or_default(self) -> ProviderFailover:
+        """Return the failover tracker, creating it if ``__init__`` was bypassed.
+
+        Test harnesses build instances by setting attributes rather than calling
+        ``__init__``, so the tracker may not exist yet.
+        """
+        failover = getattr(self, "_provider_failover", None)
+        if failover is None:
+            failover = ProviderFailover()
+            self._provider_failover = failover
+        return failover
+
     def _prefer_openrouter(self) -> bool:
         """True while a recent Gemini throttle should keep OpenRouter first."""
-        return getattr(self, "_use_openrouter_first", False) and time.time() < getattr(
-            self, "_openrouter_until", 0.0
-        )
+        return self._provider_failover_or_default().prefer_openrouter()
 
     def _throttled_to_openrouter(self, seconds: float = 300.0) -> None:
         """Record a Gemini throttle and route to OpenRouter for a cooldown."""
-        self._use_openrouter_first = True
-        self._openrouter_until = time.time() + seconds
+        self._provider_failover_or_default().throttle_to_openrouter(seconds)
 
     def _should_standby(self) -> bool:
         """True when the session loop must idle instead of holding a session.

@@ -143,6 +143,12 @@ Working reference for the code-review improvement pass. Keep this updated as ite
 - [ ] **P4-19 — Split god objects.** `ui.py` ~16k lines; `BrahmaLive` ~3.9k lines / 122 methods
   (`main.py:2162-6068`). Seams: session state machine, audio I/O, provider router, tool executor; and
   settings/chat/avatar/MCP panels.
+  - **Started — provider failover seam.** The Gemini→OpenRouter throttle policy
+    (`_prefer_openrouter`/`_throttled_to_openrouter` + 2 attrs) is now `core.provider_failover.ProviderFailover`,
+    unit-tested in `tests/test_provider_failover.py`; `BrahmaLive` keeps thin delegating wrappers (defensive
+    `getattr`, so attribute-built harnesses still work). Note: `core.provider_router` is the *provider registry*
+    (kill switches), a different concern — not touched. Remaining seams: session state machine, audio I/O,
+    tool executor, and the `ui.py` panels.
 - [x] **P4-20 — Import-time side effects.** Done: the duplicated Qt/env blocks in `main.py`, `ui.py` (two) and
   `core/globe_window.py` collapsed into one idempotent `core/qt_bootstrap.bootstrap()` (importing that module
   has no side effects); `core/boot_sentry` no longer rolls files back on import — `main` calls
