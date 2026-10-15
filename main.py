@@ -4599,12 +4599,23 @@ class BrahmaLive:
             # user-selectable engine applies. edge-tts stays the default and the
             # pre-existing offline_mode -> SAPI routing is preserved inside
             # speech_tts. The Gemini branch above is deliberately untouched.
+            #
+            # use_sink=False is required, not cosmetic: this method IS the
+            # installed speech sink (set_speech_sink(self.speak) at init), and
+            # the modular engine honours an installed sink when one is present.
+            # Passing the default (True) made speak() re-enter through the sink
+            # (itself) on a fresh thread, forever: an unbounded thread-spawning
+            # loop. With no live session that is the only path, so every
+            # offline/local reply froze the UI (not responding) and pinned
+            # CPU/RAM while the speech engines flooded the audio device.
+            # Skipping the sink here breaks the re-entry; the engine selection
+            # and the offline_mode -> SAPI routing below are unchanged.
             def _speak_thread():
                 try:
                     self.set_speaking(True)
                     from core import speech_tts
 
-                    speech_tts.speak(text)
+                    speech_tts.speak(text, use_sink=False)
                 except Exception as exc:
                     print(f"[Brahma Speak] Unified TTS failed: {exc}")
                 finally:
