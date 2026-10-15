@@ -77,6 +77,18 @@ function Get-TargetPythonVersion {
 }
 
 function Resolve-Python {
+    # The app's own bootstrap creates .venv and runs from it, so when it exists
+    # it IS the interpreter the app imports from - prefer it over any PATH
+    # lookup. A .venv\Scripts\python.exe is a real argv[0] with no launcher
+    # flags, so it slots straight into the ARGV-array contract below.
+    if ($PSScriptRoot) {
+        $venvPython = Join-Path (Split-Path -Parent $PSScriptRoot) '.venv\Scripts\python.exe'
+        if (Test-Path $venvPython) {
+            Write-Host "[info] using the app virtualenv: $venvPython"
+            return @($venvPython)
+        }
+    }
+
     $want = Get-TargetPythonVersion
     Write-Host "[info] app runs on Python $want (read from EVO.bat)"
 
@@ -105,7 +117,10 @@ function Resolve-Python {
     throw "No suitable Python interpreter found. Install Python $want and re-run."
 }
 
-$script:PyArgv = Resolve-Python
+# @(...) is load-bearing: a function returning a single-element array is
+# unrolled to a bare string, and $PyArgv[0] would then be the first CHARACTER
+# (e.g. 'C:') - invoking 'C' as a command. Force the array shape here.
+$script:PyArgv = @(Resolve-Python)
 $Repo = Split-Path -Parent $PSScriptRoot
 Write-Host "[info] repository  : $Repo"
 Write-Host "[info] interpreter : $($script:PyArgv -join ' ')"

@@ -1,21 +1,21 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Brahma Evo - Live2D avatar</title>
 <style>
-  html, body { margin: 0; padding: 0; width: 100%; height: 100%;
-               background: #020306; overflow: hidden; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: #020306; overflow: hidden;
+  }
   #stage { position: absolute; inset: 0; }
-  #stage canvas { display: block; }
-
-  /* Diagnostics. Deliberately unobtrusive: this page is the desktop background,
-     not a debug view, but a silent black rectangle is indistinguishable from a
-     broken renderer, so a failure has to say what it is. */
+  #stage canvas { display: block; width: 100%; height: 100%; }
   #boot {
     position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-    max-width: 60ch; text-align: center; font: 13px/1.55 "Segoe UI", system-ui, sans-serif;
-    color: #7fa8c8; text-shadow: 0 1px 3px #000; pointer-events: none;
+    max-width: 60ch; text-align: center; pointer-events: none;
+    font: 13px/1.55 "Segoe UI", system-ui, sans-serif;
+    color: #7fa8c8; text-shadow: 0 1px 3px #000;
   }
   #boot b { color: #dff0ff; font-weight: 600; }
   #boot .hint { color: #4d6b83; font-size: 11px; margin-top: 8px; }
@@ -24,127 +24,128 @@
 </head>
 <body>
 <div id="stage"></div>
-<div id="boot"><b>Live2D avatar</b><div id="boot-detail">starting…</div></div>
-
-<!--
-  assets/avatar_live2d/index.html
-
-  The Live2D half of the avatar transport.
-
-  Why a separate page and not a mode of the 3D background
-  ------------------------------------------------------
-  assets/web_background/index.html already owns a WebGL context, a three.js
-  scene and a render loop. A Cubism model needs its own canvas, its own core and
-  its own update cycle. Running both in one document means two GL contexts
-  fighting over the same element and a pile of "are we in 3D or 2D mode"
-  branches in the shared code.
-
-  Instead both documents expose the *same seven hooks*:
-
-      setBrahmaState / setAudioLevel / setPointerNorm / setAvatarEmotion
-      __pauseAnimation / __resumeAnimation / __getAvatarState
-
-  So Python swaps a URL and keeps calling the same methods, and neither page
-  knows which one is loaded. That is the whole transport contract.
-
-  Runtime provenance
-  ------------------
-  live2dcubismcore.min.js and framework.js are NOT in this repository. They come
-  from the Cubism SDK for Web, which Live2D distributes after you accept their
-  licence, and they are deliberately absent from the public sample repo. Drop
-  both into ./vendor/ from https://www.live2d.com/en/sdk/download/web/
-
-  Until then this page shows why it is not running instead of a black rectangle.
--->
+<div id="boot">
+  <b>Live2D avatar</b>
+  <div id="boot-detail">starting...</div>
+</div>
 <script>
 "use strict";
-
+/*
+ * Live2D avatar host.
+ *
+ * The page is intentionally thin: all Cubism work lives in the vendored
+ * runtime under vendor/ (see scripts/setup_live2d_cubism.ps1). This script
+ * only wires that runtime to one canvas and exposes the fixed host-hook
+ * contract the Brahma app drives.
+ *
+ * Query parameters:
+ *   ?model=<file url or path>  folder that contains <Name>.model3.json
+ *   ?name=<Name>               optional explicit model basename
+ */
 (function () {
-  const BOOT_DETAIL = document.getElementById("boot-detail");
-  const BOOT = document.getElementById("boot");
-  const STAGE = document.getElementById("stage");
+  var VENDOR_CORE = "vendor/live2dcubismcore.min.js";
+  var VENDOR_FRAMEWORK = "vendor/framework.js";
 
-  const VENDOR_CORE = "vendor/live2dcubismcore.min.js";
-  const VENDOR_FRAMEWORK = "vendor/framework.js";
-
-  // Injected by the host: absolute file:// URL of the folder holding the
-  // *.model3.json. Empty means "work it out from ?model=". Both exist because
-  // the model lives in the user's per-user data folder, outside the repo, and
-  // because a query string is easy to inspect when something does not load.
-  const params = new URLSearchParams(window.location.search);
-  let MODEL_DIR = params.get("model") || "";
-  let MODEL_URL = MODEL_DIR
-    ? (MODEL_DIR.replace(/\\/g, "/").replace(/\/?$/, "/"))
-    : "";
-  if (MODEL_URL) MODEL_URL = new URL(MODEL_URL, window.location.href).href;
-
-  // ---------------------------------------------------------------------
-  // Emotion mapping.
-  //
-  // Expressions are used when the model ships them and an emotion maps to one;
-  // everything else drives parameters directly. Expression files are additive
-  // (Blend: "Add") and only ever touch a subset of parameters, so a missing or
-  // unmapped emotion degrades to "no expression change" rather than breaking.
-  // ---------------------------------------------------------------------
-  const EMOTION_EXPRESSION = {
-    NEUTRAL:  null,
-    JOY:      "exp_02",   // eyes shut, smiling eyes, upturned mouth
-    SMILE:    "exp_02",   // same face; JOY and SMILE are the same smile
-    SORROW:   "exp_04",   // brows down, mouth form down
-    ANGER:    null,       // driven by parameters - no honest expression
-    FUN:      "exp_03",   // narrowed eyes, no smile
-    SURPRISE: "exp_05",   // brows raised
-    THINKING: null,       // driven by parameters
+  var EMOTION_EXPRESSION = {
+    NEUTRAL: null,
+    JOY: "exp_02",
+    SMILE: "exp_02",
+    SORROW: "exp_04",
+    ANGER: null,
+    FUN: "exp_03",
+    SURPRISE: "exp_05",
+    THINKING: null
   };
-
-  // Parameter nudges for emotions with no expression. Values are in the
-  // model's own parameter range (Live2D parameters are typically -1..1).
-  const EMOTION_PARAMS = {
-    NEUTRAL:  {},
-    JOY:      {},
-    SMILE:    {},
-    SORROW:   {},
-    FUN:      {},
-    SURPRISE: { ParamEyeSize: 0.35, ParamBrowLY: 0.4, ParamBrowRY: 0.4 },
-    ANGER:    { ParamBrowLY: -0.6, ParamBrowRY: -0.6,
-                ParamBrowLForm: -0.7, ParamBrowRForm: -0.7,
-                ParamMouthForm: -0.6, ParamAngleZ: 4 },
-    THINKING: { ParamEyeROpen: -0.55, ParamEyeLOpen: -0.25,
-                ParamAngleX: -6, ParamAngleY: 4 },
+  // Parameters applied when an emotion has no expression file (or to reinforce
+  // one). Ids that the loaded model does not expose are skipped at runtime, so
+  // the same table is safe across models.
+  var EMOTION_PARAMS = {
+    NEUTRAL: {},
+    JOY: { ParamMouthForm: 1.0, ParamEyeLOpen: 0.6, ParamEyeROpen: 0.6, ParamBrowLY: 0.6, ParamBrowRY: 0.6 },
+    SMILE: { ParamMouthForm: 1.0, ParamEyeLOpen: 0.7, ParamEyeROpen: 0.7 },
+    SORROW: { ParamMouthForm: -1.0, ParamBrowLY: -1.0, ParamBrowRY: -1.0, ParamEyeLOpen: 0.3, ParamEyeROpen: 0.3 },
+    ANGER: { ParamMouthForm: -1.0, ParamBrowLY: 1.0, ParamBrowRY: 1.0 },
+    FUN: { ParamMouthForm: 1.0, ParamEyeLOpen: 0.6, ParamEyeROpen: 0.6, ParamBrowLY: 0.4, ParamBrowRY: 0.4 },
+    SURPRISE: { ParamMouthForm: 1.0, ParamEyeLOpen: 1.2, ParamEyeROpen: 1.2, ParamBrowLY: 1.0, ParamBrowRY: 1.0 },
+    THINKING: { ParamEyeBallX: 0.6, ParamBrowLY: -0.4, ParamBrowRY: -0.4, ParamMouthForm: -0.3 }
   };
+  var SDK_DOWNLOAD_URL = "https://www.live2d.com/en/sdk/download/web/";
+  var EMOTION_HOLD_SECONDS = 7.0;
+  var LIPSYNC_GAIN = 0.9;
 
-  const EMOTION_HOLD_SECONDS = 7.0;
-  const LIPSYNC_GAIN = 0.9;
+  var BOOT = document.getElementById("boot");
+  var BOOT_DETAIL = document.getElementById("boot-detail");
+  var STAGE = document.getElementById("stage");
 
-  const state = {
+  var params = new URLSearchParams(window.location.search);
+  var MODEL_DIR = params.get("model") || "";
+  var MODEL_NAME = params.get("name") || "";
+  var MODEL_URL_BASE = "";
+
+  if (MODEL_DIR) {
+    var base = MODEL_DIR.replace(/\\/g, "/").replace(/\/?$/, "/");
+    MODEL_URL_BASE = new URL(base, window.location.href).href;
+  }
+
+  // Chromium cannot fetch() file:// URLs, but the Cubism framework loads the
+  // model, physics, and shaders through fetch(). Bridge file:// through
+  // XMLHttpRequest, which the WebEngine is configured to allow locally.
+  if (typeof window.fetch !== "function" || location.protocol === "file:") {
+    var nativeFetch = window.fetch;
+    window.fetch = function (input, init) {
+      var url = typeof input === "string" ? input : (input && input.url);
+      if (location.protocol === "file:" && url && url.indexOf("file://") === 0) {
+        return new Promise(function (resolve, reject) {
+          var xhr = new XMLHttpRequest();
+          xhr.open("GET", url, true);
+          xhr.responseType = "arraybuffer";
+          xhr.onload = function () {
+            if ((xhr.status >= 200 && xhr.status < 300) || xhr.status === 0) {
+              resolve(new Response(xhr.response, { status: 200, statusText: "OK" }));
+            } else {
+              reject(new Error("fetch failed " + xhr.status + " " + url));
+            }
+          };
+          xhr.onerror = function () { reject(new Error("fetch error " + url)); };
+          xhr.send();
+        });
+      }
+      if (typeof nativeFetch === "function") { return nativeFetch.apply(this, arguments); }
+      return Promise.reject(new Error("No fetch available for " + url));
+    };
+  }
+
+  var state = {
     emotion: "NEUTRAL",
     intensity: 1.0,
     hold: 0.0,
     weight: 0.0,
     ready: false,
-    modelLoaded: false,
-    expressions: {},
     error: "",
     paused: false,
     audioLevel: 0.0,
-    brahmaState: "IDLE",
     pointer: { x: 0, y: 0 },
+    brahmaState: "IDLE",
+    modelUrl: ""
   };
+
+  var app = null;      // { LCF, canvas, model, glManager, CubismMatrix44, LAppPal, Offscreen }
+  var lastTick = 0;
 
   function bootFail(title, detail, hint) {
     state.ready = false;
     state.error = detail || title;
     BOOT_DETAIL.innerHTML = "";
-    const b = document.createElement("b");
+    var b = document.createElement("b");
     b.textContent = title;
     BOOT_DETAIL.appendChild(b);
     if (detail) {
-      const d = document.createElement("div");
+      var d = document.createElement("div");
       d.textContent = detail;
       BOOT_DETAIL.appendChild(d);
     }
     if (hint) {
-      const h = document.createElement("div");
+      var h = document.createElement("div");
       h.className = "hint";
       h.textContent = hint;
       BOOT_DETAIL.appendChild(h);
@@ -154,238 +155,253 @@
   }
 
   function loadScript(src) {
-    return new Promise((resolve, reject) => {
-      const s = document.createElement("script");
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement("script");
       s.src = src;
-      s.onload = () => resolve(src);
-      s.onerror = () => reject(new Error("could not load " + src));
+      s.onload = function () { resolve(src); };
+      s.onerror = function () { reject(new Error("could not load " + src)); };
       document.head.appendChild(s);
     });
   }
 
-  // ---------------------------------------------------------------------
-  // Boot
-  // ---------------------------------------------------------------------
+  function deriveModelFileName() {
+    if (MODEL_NAME) { return MODEL_NAME.replace(/\.model3\.json$/, "") + ".model3.json"; }
+    var parts = MODEL_URL_BASE.split("/").filter(Boolean);
+    var name = parts[parts.length - 1] || parts[parts.length - 2] || "model";
+    return name.replace(/\.model3\.json$/, "") + ".model3.json";
+  }
+
   async function boot() {
-    if (window._live2dBooted) return;
+    if (window._live2dBooted) { return; }
     window._live2dBooted = true;
 
-    if (!MODEL_URL) {
-      bootFail("No Live2D model folder was given to this page",
-               "expected ?model=<folder url>",
-               "Settings → Avatar → Live2D model");
+    if (!MODEL_URL_BASE) {
+      bootFail("No Live2D model folder",
+        "expected ?model=<folder url>",
+        "Settings -> Avatar -> Live2D");
       return;
     }
 
     try {
       await loadScript(VENDOR_CORE);
       await loadScript(VENDOR_FRAMEWORK);
-    } catch (err) {
-      bootFail("Cubism runtime not installed",
-               String(err && err.message ? err.message : err),
-               "Copy live2dcubismcore.min.js and framework.js into assets/avatar_live2d/vendor/ " +
-               "(https://www.live2d.com/en/sdk/download/web/)");
+    } catch (e) {
+      bootFail("runtime not installed", String(e.message || e),
+        "run scripts/setup_live2d_cubism.ps1, or download the SDK from " + SDK_DOWNLOAD_URL);
       return;
     }
 
     if (typeof window.Live2DCubismCore === "undefined" ||
         typeof window.Live2DCubismFramework === "undefined") {
-      bootFail("Cubism runtime loaded but did not register",
-               "Live2DCubismCore/Live2DCubismFramework missing",
-               "check the two files in assets/avatar_live2d/vendor/");
+      bootFail("runtime loaded but missing globals",
+        "Live2DCubismCore / Live2DCubismFramework not found");
       return;
     }
 
     try {
-      await startModel();
-    } catch (err) {
-      bootFail("Model failed to load", String(err && err.message ? err.message : err),
-               MODEL_URL);
+      startModel();
+    } catch (e) {
+      bootFail("model init failed", String(e.message || e), MODEL_URL_BASE);
     }
   }
 
-  let app = null;
+  function startModel() {
+    var LCF = window.Live2DCubismFramework;
+    var LAppDefine = LCF.LAppDefine;
 
-  async function startModel() {
-    const LCF = window.Live2DCubismFramework;
-    const l2d = window.Live2DCubism;
-    LCF.CubismFramework.startup({ logLevel: 3, mouseEvent: false });
+    LCF.CubismFramework.startUp({ loggingLevel: LAppDefine.CubismLoggingLevel });
     LCF.CubismFramework.initialize();
 
-    const model = new l2d.Live2DModel();
-    model.setupModel(MODEL_URL);
-    // live2d.min.js resolves these itself; setupModel is what fetches the moc.
-    model.loadModel(MODEL_URL).catch(function (err) {
-      bootFail("Model failed to load", String(err), MODEL_URL);
-    });
-
-    const canvas = document.createElement("canvas");
+    var canvas = document.createElement("canvas");
     STAGE.appendChild(canvas);
-    const wrapper = document.createElement("div");
-    wrapper.style.cssText = "position:absolute;inset:0";
-    STAGE.appendChild(wrapper);
 
-    const cubismCanvas = new l2d.Live2DCubismCore.Canvas(canvas);
-    const renderer = new l2d.Live2DCubismCore.WebGLRenderer(cubismCanvas);
-    const matrix = new cubismCanvas.getUpdateMatrix();
+    var glManager = new LCF.LAppGlManager();
+    if (!glManager.initialize(canvas)) {
+      throw new Error("WebGL2 is not available");
+    }
+    var textureManager = new LCF.LAppTextureManager();
+    textureManager.setGlManager(glManager);
 
-    app = { LCF, l2d, model, canvas, cubismCanvas, renderer, matrix };
+    var subdelegate = new LCF.LAppSubdelegate(canvas, glManager, textureManager);
+    subdelegate.setFrameBuffer(null);
 
-    // Expressions the model actually declares. Resolving them from the page
-    // rather than assuming means the emotion map can only ever reference an
-    // expression that exists.
-    try {
-      expressionRefs().forEach(function (ref) {
-        if (ref && ref.Name) state.expressions[ref.Name] = ref.File;
-      });
-    } catch (e) { /* expression map is optional; parameters still work */ }
+    var model = new LCF.LAppModel();
+    model.setSubdelegate(subdelegate);
 
-    state.modelLoaded = true;
-    state.ready = true;
-    state.error = "";
-    BOOT.classList.add("hidden");
+    state.modelUrl = MODEL_URL_BASE + deriveModelFileName();
+    model.loadAssets(MODEL_URL_BASE, deriveModelFileName());
 
-    window.requestAnimationFrame(function loop() {
-      window.requestAnimationFrame(loop);
-      if (state.paused) return;
-      tick();
-    });
+    app = {
+      LCF: LCF,
+      canvas: canvas,
+      model: model,
+      glManager: glManager,
+      CubismMatrix44: LCF.CubismMatrix44,
+      LAppPal: LCF.LAppPal,
+      Offscreen: LCF.CubismWebGLOffscreenManager
+    };
+
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+    lastTick = performance.now();
+    window.requestAnimationFrame(loop);
   }
 
-  // ---------------------------------------------------------------------
-  // Parameter lookup
-  //
-  // The framework exposes parameters by name through its Id table, and a model
-  // only owns the ones it declares. Resolving through the framework rather than
-  // hardcoding indices means a parameter this model does not have simply
-  // resolves to null and is skipped - which is what keeps one emotion table from
-  // breaking every other model.
-  // ---------------------------------------------------------------------
-  function paramId(name) {
-    if (!app || !app.model || !app.model.coreModel) return null;
-    const F = window.Live2DCubismFramework;
-    const table = F && (F.Id || (F.CubismFramework && F.CubismFramework.Id));
-    if (!table || table[name] === undefined) return null;
-    try {
-      const resolved = F.CubismFramework.getId(table[name], app.model.coreModel);
-      return (resolved === undefined || resolved === null) ? null : resolved;
-    } catch (e) {
-      return null;
+  function resizeCanvas() {
+    if (!app) { return; }
+    var canvas = app.canvas;
+    var dpr = window.devicePixelRatio || 1;
+    var w = Math.max(1, Math.round(canvas.clientWidth * dpr));
+    var h = Math.max(1, Math.round(canvas.clientHeight * dpr));
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
     }
   }
 
-  function setParam(name, value, weight) {
-    const id = paramId(name);
-    if (id === null) return false;
-    try {
-      app.model.coreModel.setParameterValueById(id, value, weight || 0.0);
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  function expressionRefs() {
-    if (!app || !app.model) return [];
-    const model = app.model;
-    const candidates = [];
-    try { if (typeof model.getModelJson === "function") candidates.push(model.getModelJson()); } catch (e) {}
-    try { candidates.push(model.settings); } catch (e) {}
-    try { candidates.push(model._settings); } catch (e) {}
-    for (let i = 0; i < candidates.length; i++) {
-      const s = candidates[i];
-      const refs = s && s.FileReferences && s.FileReferences.Expressions;
-      if (Array.isArray(refs)) return refs;
-    }
-    return [];
-  }
-
-  // ---------------------------------------------------------------------
-  // Frame
-  // ---------------------------------------------------------------------
-  function tick() {
-    if (!app || !state.ready) return;
-    const { model, cubismCanvas, renderer, matrix } = app;
-
-    // Mood decay, mirroring the 3D background so both feel the same.
-    if (state.hold > 0) {
-      state.hold = Math.max(0, state.hold - 1 / 60);
-      if (state.hold === 0) state.emotion = "NEUTRAL";
-    }
-    const target = (state.emotion === "NEUTRAL") ? 0.0
-                  : Math.max(0, Math.min(1, state.intensity / 2));
-    const lerp = (target > state.weight) ? 0.18 : 0.05;
-    state.weight += (target - state.weight) * lerp;
-    if (target === 0 && state.weight < 0.002) state.weight = 0;
-
-    try {
-      if (model.coreModel) {
-        // Lip sync from the host's audio level. Ren declares a "LipSync"
-        // parameter group containing ParamMouthOpenY, so this works; a model
-        // without it resolves to null and is skipped.
-        setParam("ParamMouthOpenY",
-                 LIPSYNC_GAIN * Math.max(0, Math.min(1, state.audioLevel)));
-
-        const nudges = EMOTION_PARAMS[state.emotion] || {};
-        Object.keys(nudges).forEach(function (name) {
-          setParam(name, nudges[name] * state.weight);
-        });
-      }
-      model.update && model.update(1 / 60);
-      renderer.drawModel(model, matrix);
-      cubismCanvas.texture = app.canvas;
-    } catch (err) {
-      // A renderer that throws every frame would otherwise spin the CPU and
-      // never recover; stop the loop and report once.
-      state.ready = false;
-      state.error = String(err && err.message ? err.message : err);
-      bootFail("Renderer stopped", state.error, MODEL_URL);
-    }
-  }
-
-  // ---------------------------------------------------------------------
-  // The shared hook surface. Identical names to the 3D background page.
-  // ---------------------------------------------------------------------
-  window.setAvatarEmotion = function (tag, intensity) {
-    const raw = String(tag == null ? "" : tag).trim().toUpperCase();
-    const known = Object.prototype.hasOwnProperty.call(EMOTION_EXPRESSION, raw);
-    state.emotion = known ? raw : "NEUTRAL";
-    const i = parseFloat(intensity);
-    state.intensity = Math.max(0, Math.min(2, isNaN(i) ? 1 : i));
-    state.hold = known && raw !== "NEUTRAL" ? EMOTION_HOLD_SECONDS : 0;
-
-    if (state.ready && app && app.model && state.expressions) {
-      const name = EMOTION_EXPRESSION[state.emotion];
-      const file = name ? state.expressions[name] : null;
+  function loop() {
+    var now = performance.now();
+    var delta = (now - lastTick) / 1000.0;
+    lastTick = now;
+    if (!state.paused) {
       try {
-        if (app.model.setExpression && typeof app.model.expressionManager !== "undefined") {
-          if (file) {
-            app.model.expressionManager.setExpression(app.model, file);
-          } else if (app.model.expressionManager.resetExpression &&
-                     app.model.expressionManager._expressions) {
-            app.model.expressionManager._expressions = [];
-          }
-        }
-      } catch (e) { /* expression unsupported; parameters still apply */ }
+        tick(delta > 0 && delta < 0.5 ? delta : 1 / 60);
+      } catch (err) {
+        state.ready = false;
+        state.error = "Renderer stopped: " +
+          (err && err.message ? err.message : String(err));
+        bootFail("Renderer stopped", state.error, "see the developer console");
+        console.error("Renderer stopped", err);
+        return;
+      }
     }
+    window.requestAnimationFrame(loop);
+  }
+
+  function tick(delta) {
+    if (!app || !app.model.getModel()) { return; }
+
+    // Emotion blend + auto-return to neutral.
+    if (state.hold > 0) {
+      state.hold = Math.max(0, state.hold - delta);
+      if (state.hold === 0) { state.emotion = "NEUTRAL"; }
+    }
+    var target = state.emotion === "NEUTRAL"
+      ? 0.0
+      : Math.max(0, Math.min(1, state.intensity / 2));
+    state.weight += (target - state.weight) * (target > state.weight ? 0.18 : 0.05);
+    if (target === 0 && state.weight < 0.002) { state.weight = 0; }
+
+    var canvas = app.canvas;
+    var model = app.model;
+    var gl = app.glManager.getGl();
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+    app.LAppPal.updateTime();
+
+    app.Offscreen.getInstance().beginFrameProcess(gl);
+
+    model.update();
+
+    var cubismModel = model.getModel();
+    if (!EMOTION_EXPRESSION[state.emotion]) {
+      applyEmotionParams(cubismModel);
+    }
+
+    var projection = new app.CubismMatrix44();
+    if (cubismModel.getCanvasWidth() > 1.0 && canvas.width < canvas.height) {
+      cubismModel.getModelMatrix().setWidth(2.0);
+      projection.scale(1.0, canvas.width / canvas.height);
+    } else {
+      projection.scale(canvas.height / canvas.width, 1.0);
+    }
+    model.draw(projection);
+
+    var offscreen = app.Offscreen.getInstance();
+    offscreen.endFrameProcess(gl);
+    offscreen.releaseStaleRenderTextures(gl);
+
+    if (!state.ready && model.getRenderer()) {
+      state.ready = true;
+      state.error = "";
+      BOOT.classList.add("hidden");
+    }
+  }
+
+  // --- Host hook contract ---------------------------------------------------
+  // These names are fixed: the Brahma app calls them via QWebEngine runJavaScript.
+
+  function applyExpression() {
+    if (!app) { return; }
+    var name = EMOTION_EXPRESSION[state.emotion];
+    if (name && typeof app.model.setExpression === "function") {
+      try { app.model.setExpression(name); } catch (e) {}
+    }
+  }
+
+  // CubismIdManager.getId() registers unknown ids, so existence must be checked
+  // with isExist() first; an absent parameter resolves to null and is skipped.
+  function resolveParameterId(idManager, name) {
+    var resolved = idManager.isExist(name) ? idManager.getId(name) : undefined;
+    return (resolved === undefined || resolved === null) ? null : resolved;
+  }
+
+  function applyEmotionParams(cubismModel) {
+    var overrides = EMOTION_PARAMS[state.emotion];
+    if (!overrides || !cubismModel) { return; }
+    var idManager = app.LCF.CubismFramework.getIdManager();
+    for (var name in overrides) {
+      if (!Object.prototype.hasOwnProperty.call(overrides, name)) { continue; }
+      var id = resolveParameterId(idManager, name);
+      if (id === null) { continue; }
+      cubismModel.setParameterValueById(id, overrides[name], 1.0);
+    }
+  }
+
+  window.setAvatarEmotion = function (tag, intensity) {
+    var raw = String(tag == null ? "" : tag).trim().toUpperCase();
+    var known = Object.prototype.hasOwnProperty.call(EMOTION_EXPRESSION, raw);
+    state.emotion = known ? raw : "NEUTRAL";
+    var i = parseFloat(intensity);
+    state.intensity = isNaN(i) ? 1.0 : Math.max(0, Math.min(2, i));
+    state.hold = known && raw !== "NEUTRAL" ? EMOTION_HOLD_SECONDS : 0;
+    applyExpression();
     return true;
   };
 
   window.setAudioLevel = function (level) {
-    state.audioLevel = Math.max(0, Math.min(1, parseFloat(level) || 0));
-  };
-
-  window.setBrahmaState = function (s) {
-    state.brahmaState = String(s || "IDLE").toUpperCase();
-    // Talking about should look like talking even if the audio feed is silent.
-    if (state.brahmaState === "SPEAKING" && state.audioLevel < 0.05) {
-      state.audioLevel = 0.05;
-    }
+    var v = parseFloat(level);
+    state.audioLevel = isNaN(v) ? 0 : Math.max(0, Math.min(1, v));
+    if (!app) { return; }
+    try {
+      var cubismModel = app.model.getModel();
+      if (cubismModel && cubismModel.setParameterValueById) {
+        var id = app.LCF.CubismFramework.getIdManager().getId("ParamMouthOpenY");
+        cubismModel.setParameterValueById(id, LIPSYNC_GAIN * state.audioLevel, 0.8);
+      }
+    } catch (e) {}
   };
 
   window.setPointerNorm = function (nx, ny) {
-    state.pointer.x = Number(nx) || 0;
-    state.pointer.y = Number(ny) || 0;
+    var x = Number(nx), y = Number(ny);
+    state.pointer.x = isNaN(x) ? 0 : x;
+    state.pointer.y = isNaN(y) ? 0 : y;
+    if (app && typeof app.model.setDragging === "function") {
+      try { app.model.setDragging(state.pointer.x * 20, state.pointer.y * 20); } catch (e) {}
+    }
+  };
+
+  window.setBrahmaState = function (name) {
+    state.brahmaState = String(name || "IDLE").toUpperCase();
+    if (state.brahmaState === "SPEAKING" && state.audioLevel < 0.05) {
+      window.setAudioLevel(0.05);
+    }
   };
 
   window.__pauseAnimation = function () { state.paused = true; };
@@ -396,16 +412,13 @@
     return {
       backend: "live2d",
       ready: state.ready,
-      modelLoaded: state.modelLoaded,
       error: state.error,
       emotion: state.emotion,
       intensity: state.intensity,
       weight: state.weight,
-      hold: state.hold,
-      audioLevel: state.audioLevel,
-      expressions: state.expressions,
-      modelUrl: MODEL_URL,
-      state: state.brahmaState,
+      mouthOpen: LIPSYNC_GAIN * state.audioLevel,
+      paused: state.paused,
+      modelUrl: state.modelUrl
     };
   };
 

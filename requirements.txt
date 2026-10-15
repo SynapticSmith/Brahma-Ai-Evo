@@ -40,7 +40,7 @@ PyQt6-WebEngine
 edge-tts
 matplotlib
 speedtest-cli
-speechtestlib
+# speechtestlib  # NOT on PyPI and unused in the codebase - blocked installation
 SpeechRecognition
 pyttsx3
 
@@ -57,13 +57,13 @@ pyttsx3
 #
 # Run install_speech_deps.ps1 rather than uncommenting: it resolves the interpreter
 # the app actually uses and pre-downloads the whisper model.
-# faster-whisper
-# piper-tts
-# kokoro-onnx
+faster-whisper
+piper-tts
+kokoro-onnx
 
 # --- Optional: tool & skill index (core/tool_index.py) -----------------------
 # Semantic tool routing via a ~22 MB ONNX micro-embedding model. Deliberately
 # NOT a hard dependency: without it the index still runs on SQLite FTS5 plus a
 # hashed n-gram TF-IDF scorer (stdlib + numpy), which is faster but weaker on
 # paraphrase. Install with `pip install fastembed`.
-# fastembed
+fastembed

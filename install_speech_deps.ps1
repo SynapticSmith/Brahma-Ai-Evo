@@ -35,11 +35,22 @@ $ErrorActionPreference = "Continue"
 # string as one command name and fails.
 $pythonExe = $null
 $pythonArgs = @()
-foreach ($candidate in @(@{Exe="py"; Args=@("-3.11")}, @{Exe="py"; Args=@("-3")}, @{Exe="python"; Args=@()})) {
-    if (Get-Command $candidate.Exe -ErrorAction SilentlyContinue) {
-        $pythonExe = $candidate.Exe
-        $pythonArgs = $candidate.Args
-        break
+
+# Prefer the app's virtualenv when present: bootstrap.ps1 creates .venv and the
+# app runs from it, so it is the only interpreter whose site-packages the app
+# actually sees. A bare `python` on PATH would install somewhere it never looks.
+$venvPython = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
+if (Test-Path $venvPython) {
+    $pythonExe = $venvPython
+    $pythonArgs = @()
+}
+if (-not $pythonExe) {
+    foreach ($candidate in @(@{Exe="py"; Args=@("-3.11")}, @{Exe="py"; Args=@("-3")}, @{Exe="python"; Args=@()})) {
+        if (Get-Command $candidate.Exe -ErrorAction SilentlyContinue) {
+            $pythonExe = $candidate.Exe
+            $pythonArgs = $candidate.Args
+            break
+        }
     }
 }
 if (-not $pythonExe) {

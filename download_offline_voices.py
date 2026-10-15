@@ -16,9 +16,9 @@ def download_file(url: str, dest_path: Path):
         with urllib.request.urlopen(req) as response:
             with open(dest_path, 'wb') as out_file:
                 shutil.copyfileobj(response, out_file)
-        print("✓ Success\n")
+        print("OK\n")
     except Exception as e:
-        print(f"❌ Failed: {e}\n")
+        print(f"FAILED: {e}\n")
 
 if __name__ == "__main__":
     import shutil
