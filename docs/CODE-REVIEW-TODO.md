@@ -84,16 +84,27 @@ Working reference for the code-review improvement pass. Keep this updated as ite
 
 ## P2 — reliability & error handling
 
-- [ ] **P2-10 — `_is_gemini_limit_error` over-broad + sticky.** `main.py:492-504` matches
-  `"exceeded"/"1008"/"permission denied"`; `_use_openrouter_first` latches for the process lifetime
-  (`main.py:6047-6048`, never reset after init).
-- [ ] **P2-11 — MCP tool-name collisions unchecked.** `core/tool_bridge.py:751-769` sanitizes but never
-  detects a clash with native/skill/other-MCP names.
-- [ ] **P2-12 — Unbounded caches.** TTS `_probe_cache` (`core/speech_tts.py:214-220`), STT `_model_cache`
-  (`core/speech_stt.py:177`) never evict on engine switch; koko probe can spawn a child tree under a 90s
-  timeout.
-- [ ] **P2-13 — Cleanup-path `except Exception: pass`.** e.g. `core/mcp_manager.py:509-521`,
-  `core/avatar_runtime.py:167-178` — downgrade to `logger.debug`.
+- [x] **P2-10 — `_is_gemini_limit_error` over-broad + sticky.** Fixed. The token list is narrowed to
+  genuine throttle/quota signals (`429`, `resource_exhausted`, `resource has been exhausted`, `quota`,
+  `rate limit`, `too many requests`, `exceeded`); `"1008"`, `"access denied"`, `"permission denied"` are
+  dropped so a bad key is not mistaken for a rate limit. `_use_openrouter_first` is no longer sticky:
+  `_throttled_to_openrouter()` arms a `_openrouter_until` cooldown (default 300 s) and all four read
+  sites now ask `_prefer_openrouter()`, so a one-off 429 no longer hides a working Gemini for the whole
+  session.
+- [x] **P2-11 — MCP tool-name collisions unchecked.** Fixed in `core/mcp_manager.py` (the old
+  `core/tool_bridge.py` line was stale; registration lives in `_register_server_tools`).
+  `_register_server_tools` now tracks sanitized names seen in one `tools/list` response, refuses to
+  shadow a name already claimed by a different server, and refuses to shadow a built-in skill —
+  logging each skip instead of silently overwriting. Two tools that sanitize alike (`a.b` vs `a-b`)
+  now keep the first and skip the second. Covered by `tests/test_mcp_supervise.py`.
+- [x] **P2-12 — Unbounded caches.** TTS `_probe_cache` now clears at `_PROBE_CACHE_LIMIT = 16`.
+  STT `_model_cache` was already bounded: it `clear()`s before inserting, so it holds at most one
+  model and the previous model is released on switch (deliberate, to avoid two resident models).
+  No change needed there.
+- [x] **P2-13 — Cleanup-path `except Exception: pass`.** `core/mcp_manager.py` loop-shutdown,
+  `stop_all` cancel/stop, `unregister_server_tools`, `unregister_all_tools`, and init-instruction reads
+  now log at `logger.debug`. `core/avatar_runtime.py` gained a module logger; the three silent
+  cleanups (settings read, Live2D/VRM asset scan) log at `logger.debug`.
 
 ---
 
@@ -160,3 +171,12 @@ These were listed as incomplete before this pass. **None of them is done, and no
 - 2026-10-15 — **P1-7, P1-8, P1-9 implemented** (`core/mcp_manager.py`; test `tests/test_mcp_supervise.py`,
   new, 3 tests). Verification: `py_compile` clean; `pytest tests` → **142 passed**; `accept_live_toggle.py` →
   ALL CRITERIA PASS. Not pushed.
+- 2026-10-15 — **P1-4..P1-9 committed** locally (no push): `2703e75` (logs), `7cefdb7` (P1-4/5/6, `main.py`),
+  `b871624` (P1-7/8/9, `core/mcp_manager.py` + test), `a6796ed` (logs). HEAD now 7 commits ahead of `origin/main`.
+- 2026-10-15 — **P2-10, P2-11, P2-12, P2-13 implemented.** Files: `main.py` (`_is_gemini_limit_error` narrowed;
+  `_prefer_openrouter`/`_throttled_to_openrouter` + `_openrouter_until` cooldown replacing the sticky flag),
+  `core/mcp_manager.py` (collision detection in `_register_server_tools`; cleanup `except` → `logger.debug`),
+  `core/speech_tts.py` (`_PROBE_CACHE_LIMIT`), `core/avatar_runtime.py` (module `logger`; asset-skip debug logs),
+  `tests/test_mcp_supervise.py` (+2 collision tests). Verification: `py_compile` clean on all four; `pytest tests`
+  → **144 passed**; `accept_live_toggle.py`, `accept_local_speech.py`, `accept_avatar.py`, `accept_providers.py` →
+  ALL CRITERIA PASS. Note: P2-12's STT `_model_cache` was already bounded (clear-then-set). Not pushed.
