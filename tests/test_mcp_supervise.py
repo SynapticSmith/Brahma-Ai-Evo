@@ -7,8 +7,38 @@ that reached "ready" and later dropped keeps restarting (its streak resets).
 """
 
 import asyncio
+from types import SimpleNamespace
 
 from core import mcp_manager as mm
+from core.dynamic_registry import DynamicToolRegistry
+
+
+class _Tool:
+    def __init__(self, name):
+        self.name = name
+        self.description = ""
+        self.inputSchema = {"type": "object", "properties": {}}
+
+
+class _Session:
+    def __init__(self, tools):
+        self._tools = tools
+
+    async def list_tools(self):
+        return SimpleNamespace(tools=self._tools)
+
+
+def _stub_registration(monkeypatch, registered):
+    monkeypatch.setattr(
+        DynamicToolRegistry, "register_external_tool",
+        classmethod(lambda cls, **kw: registered.append(kw["name"])),
+    )
+    monkeypatch.setattr(DynamicToolRegistry, "is_external_tool",
+                        classmethod(lambda cls, name: False))
+    monkeypatch.setattr(DynamicToolRegistry, "get_skill",
+                        classmethod(lambda cls, name: None))
+    monkeypatch.setattr(mm, "_index_tool", lambda **kw: None)
+    monkeypatch.setattr(mm.MCPServerManager, "_registered_tools", {})
 
 
 def _reset_manager():
@@ -64,3 +94,24 @@ def test_status_returns_an_independent_snapshot(monkeypatch):
 
     assert mm.MCPServerManager._status["A"]["tools"] == ["t"]
     assert mm.MCPServerManager._status["A"]["state"] == "ready"
+
+def test_tools_that_sanitize_alike_do_not_shadow_each_other(monkeypatch):
+    registered = []
+    _stub_registration(monkeypatch, registered)
+
+    session = _Session([_Tool("a.b"), _Tool("a-b")])
+    asyncio.run(mm.MCPServerManager._register_server_tools("srv", session))
+
+    assert registered == ["mcp_srv_a_b"]
+
+
+def test_an_mcp_tool_never_shadows_a_different_server(monkeypatch):
+    registered = []
+    _stub_registration(monkeypatch, registered)
+    mm.MCPServerManager._registered_tools["mcp_srv_a_b"] = "other"
+
+    session = _Session([_Tool("a.b")])
+    asyncio.run(mm.MCPServerManager._register_server_tools("srv", session))
+
+    assert registered == []
+    assert mm.MCPServerManager._registered_tools["mcp_srv_a_b"] == "other"
