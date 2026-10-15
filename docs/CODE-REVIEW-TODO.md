@@ -110,10 +110,12 @@ Working reference for the code-review improvement pass. Keep this updated as ite
 
 ## P3 — testing & CI (highest leverage)
 
-- [ ] **P3-14 — No CI / no lint-type config.** No `.github/`, no `pyproject.toml`. A minimal `pytest.ini`
-  now exists (see P3-15/16), but CI workflow, lint/type config, and `pyproject.toml` are still open. Gate is
-  still the manual `scripts/precommit_check.py`. **Needs a decision:** CI host/runner (Windows-only stack) and
-  tool choices (ruff/black/mypy?).
+- [x] **P3-14 — CI workflow added.** `.github/workflows/ci.yml` runs on `windows-latest`: a stdlib-only static
+  gate job (`precommit_check.py --quick`, same as the local hook) plus a unit-suite job
+  (`pip install -r requirements.txt` → `pytest tests -q`, `QT_QPA_PLATFORM=offscreen`). The wake-word/accept
+  harnesses stay a local gate (they need a display and audio devices). **Still open (needs a decision):**
+  lint/type tool choices (ruff/black/mypy?) and a `pyproject.toml`. The workflow is unexercised until the
+  branch is pushed.
 - [x] **P3-14b — Dependencies fully pinned.** `requirements.txt` now pins every package to the version verified on
   the ONE-391 host (`==`, 46 pins). `pyttsx3` is deliberately left unpinned: it is imported lazily by
   `core/speech_tts.py` but is not installed on the verification host (the direct-SAPI path covers that engine),

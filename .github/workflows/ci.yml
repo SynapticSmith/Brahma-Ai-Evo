@@ -1,0 +1,43 @@
+name: CI
+
+# The stack is Windows-only (PyQt6, pywin32/comtypes/pycaw, SAPI, a real mic for
+# the wake-word harness), so the runner is windows-latest and only the portable
+# unit suite is executed here. The accept_*.py harnesses need a display and audio
+# devices and stay a local/manual gate via scripts/precommit_check.py.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  static-gate:
+    name: Static gate (secrets / licences / large files)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # No dependency install: precommit_check.py --quick is stdlib-only and is
+      # the same gate installed as the local pre-commit hook.
+      - name: Run the static pre-commit gate
+        run: python scripts/precommit_check.py --quick
+
+  tests:
+    name: Unit suite
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip -r requirements.txt
+      - name: Run pytest
+        env:
+          # Qt widgets are exercised headlessly; no display exists on the runner.
+          QT_QPA_PLATFORM: offscreen
+          NO_COLOR: "1"
+        run: python -m pytest tests -q
