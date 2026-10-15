@@ -117,3 +117,8 @@ assets/avatar_live2d/vendor/
 # reads a repo-relative copy; the committed one was pure tree weight and was
 # untracked in P4-21a.
 config/models/hand_landmarker.task
+
+# Same three.min.js as assets/web_background (identical hash). The Android module
+# copies it in at build time via the syncSharedThree Gradle task, so the source
+# tree copy is not committed (P4-21b).
+brahma-connect-android/app/src/main/assets/web_background/three.min.js

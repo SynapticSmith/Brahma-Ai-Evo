@@ -146,7 +146,10 @@ Working reference for the code-review improvement pass. Keep this updated as ite
 - [ ] **P4-20 — Import-time side effects.** `main.py:6-19` mutates Qt/env; `import core.boot_sentry` (`main.py:28`)
   can roll back files before the UI; `ui.py:19-22` sets WebEngine flags; `QApplication` constructed inside
   `BrahmaUI.__init__`.
-- [ ] **P4-21 — Repo weight.** Vendored `three.min.js` ×3 trees; `hand_landmarker.task` 7.8 MB tracked.
+- [x] **P4-21 — Repo weight.** Vendored `three.min.js` ×3 trees; `hand_landmarker.task` 7.8 MB tracked. Done: `hand_landmarker.task` untracked + gitignored (ui.py downloads it on demand under
+  `%LOCALAPPDATA%`); `three.min.js` is now committed once at `assets/web_background/` (`assets/globe/index.html`
+  loads it via `../web_background/`; the Android module copies it in at build time with the `syncSharedThree`
+  Gradle task, which is unverified until an Android build runs).
 - [x] **P4-22 — Stale doc.** `docs/ONE-391-changes.md:329` now states the two credentials are empty strings
   (`""`) with an added `"mcpServers": {}`, matching the current `config/app_settings.json`.
 - [x] **P4-23 — Portability.** `core/user_paths.get_user_data_dir` now documents that it is Windows-first

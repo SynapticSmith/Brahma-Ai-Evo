@@ -39,6 +39,17 @@ android {
     }
 }
 
+// three.min.js is shared, byte-for-byte, with the desktop web_background runtime
+// (assets/web_background/three.min.js). Copy it from there at build time so only
+// one copy is committed; the file is gitignored in the Android source tree.
+val syncSharedThree by tasks.registering(Copy::class) {
+    from(rootProject.file("../assets/web_background/three.min.js"))
+    into(layout.projectDirectory.dir("src/main/assets/web_background"))
+}
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }.configureEach {
+    dependsOn(syncSharedThree)
+}
+
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.09.00"))
     implementation("androidx.activity:activity-compose:1.9.3")
