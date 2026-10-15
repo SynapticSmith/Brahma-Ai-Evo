@@ -20,17 +20,7 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE))
 
-FAILURES = []
-
-
-def check(label, ok, detail=""):
-    print(f"  [{'PASS' if ok else 'FAIL'}] {label}" + (f" -- {detail}" if detail else ""))
-    if not ok:
-        FAILURES.append(label)
-
-
-def section(name):
-    print(f"\n{name}")
+from accept_util import check, section, report
 
 
 def _ui_source(marker: str) -> str:
@@ -552,12 +542,10 @@ def main() -> int:
                     )
 
     print("\n" + "=" * 74)
-    if FAILURES:
-        print(f"RESULT: {len(FAILURES)} FAILED -> {FAILURES}")
-        return 1
-    print("RESULT: ALL CRITERIA PASS")
-    print("provider settings restored to their pre-test values")
-    return 0
+    code = report()
+    if code == 0:
+        print("provider settings restored to their pre-test values")
+    return code
 
 
 if __name__ == "__main__":

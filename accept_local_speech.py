@@ -24,17 +24,7 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE))
 
-FAILURES = []
-
-
-def check(label: str, ok: bool, detail: str = "") -> None:
-    print(f"  [{'PASS' if ok else 'FAIL'}] {label}" + (f" -- {detail}" if detail else ""))
-    if not ok:
-        FAILURES.append(label)
-
-
-def section(name: str) -> None:
-    print(f"\n{name}")
+from accept_util import check, section, report
 
 
 # ---------------------------------------------------------------------------
@@ -514,11 +504,7 @@ def main() -> int:
     test_offline_mode()
     test_gemini_untouched()
     print("\n" + "=" * 74)
-    if FAILURES:
-        print(f"RESULT: {len(FAILURES)} FAILED -> {FAILURES}")
-        return 1
-    print("RESULT: ALL CRITERIA PASS")
-    return 0
+    return report()
 
 
 if __name__ == "__main__":

@@ -25,13 +25,7 @@ sys.path.insert(0, str(BASE))
 import main as brahma_main
 from main import BrahmaLive, _standby_wakeword_detected, _wakeword_detected
 
-FAILURES: list[str] = []
-
-
-def check(label: str, ok: bool, detail: str = "") -> None:
-    print(f"  [{'PASS' if ok else 'FAIL'}] {label}" + (f" -- {detail}" if detail else ""))
-    if not ok:
-        FAILURES.append(label)
+from accept_util import check, report
 
 
 class StubUI:
@@ -235,11 +229,7 @@ def main() -> int:
     test_real_microphone()
 
     print("\n" + "=" * 74)
-    if FAILURES:
-        print(f"RESULT: {len(FAILURES)} FAILED -> {FAILURES}")
-        return 1
-    print("RESULT: ALL CRITERIA PASS")
-    return 0
+    return report()
 
 
 if __name__ == "__main__":
