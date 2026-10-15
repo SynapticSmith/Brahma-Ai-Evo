@@ -1,47 +1,53 @@
-sounddevice
-google-genai
-google-generativeai
-pillow
-requests
-python-kasa
-beautifulsoup4
-duckduckgo-search
-playwright          
-pyautogui
-pyperclip
-pygetwindow       
-opencv-python
-numpy
-mediapipe
-mss
-Pillow
-psutil
-comtypes
-pycaw               
-instagrapi
-win10toast          
-send2trash
-youtube-transcript-api
-pywinauto
-pyaudio
-openpyxl
-python-pptx
-python-docx
-reportlab
-discord.py
-fastapi
-uvicorn[standard]
-mcp
-cryptography
-qrcode[pil]
-python-multipart
-PyQt6
-PyQt6-WebEngine
-edge-tts
-matplotlib
-speedtest-cli
+# Pinned to the versions verified on the ONE-391 host (Windows, py -3.11).
+# Top-level pins only: pip still resolves each package's own dependencies, so a
+# fresh install is not byte-for-byte reproducible. If you need that, generate a
+# full lock (pip freeze / pip-compile) rather than editing this file.
+sounddevice==0.5.6
+google-genai==2.19.0
+google-generativeai==0.8.6
+pillow==12.3.0
+requests==2.34.2
+python-kasa==0.11.0.1
+beautifulsoup4==4.15.0
+duckduckgo-search==8.1.1
+playwright==1.63.0
+pyautogui==0.9.54
+pyperclip==1.11.0
+pygetwindow==0.0.9
+opencv-python==5.0.0.93
+numpy==2.4.6
+mediapipe==1.0.1
+mss==10.2.0
+psutil==7.2.2
+comtypes==1.4.17
+pycaw==20260927
+instagrapi==3.0.20
+win10toast==0.9
+send2trash==2.1.0
+youtube-transcript-api==1.2.4
+pywinauto==0.6.9
+pyaudio==0.2.14
+openpyxl==3.1.5
+python-pptx==1.0.2
+python-docx==1.2.0
+reportlab==5.0.1
+discord.py==2.7.1
+fastapi==0.138.0
+uvicorn[standard]==0.52.4
+mcp==1.29.0
+cryptography==50.0.0
+qrcode[pil]==8.2
+python-multipart==0.0.32
+PyQt6==6.11.0
+PyQt6-WebEngine==6.11.0
+edge-tts==7.2.8
+matplotlib==3.11.2
+speedtest-cli==2.1.3
 # speechtestlib  # NOT on PyPI and unused in the codebase - blocked installation
-SpeechRecognition
+SpeechRecognition==3.17.0
+# pyttsx3 is imported lazily by core/speech_tts.py for a SAPI engine, but it is
+# not installed on the verification host (the direct-SAPI path covers that
+# engine), so no known-good version could be pinned. Left unpinned on purpose.
 pyttsx3
 
 # --- Optional: local speech engines (core/speech_stt.py, core/speech_tts.py) ---
@@ -57,13 +63,13 @@ pyttsx3
 #
 # Run install_speech_deps.ps1 rather than uncommenting: it resolves the interpreter
 # the app actually uses and pre-downloads the whisper model.
-faster-whisper
-piper-tts
-kokoro-onnx
+faster-whisper==1.2.1
+piper-tts==1.8.0
+kokoro-onnx==0.6.1
 
 # --- Optional: tool & skill index (core/tool_index.py) -----------------------
 # Semantic tool routing via a ~22 MB ONNX micro-embedding model. Deliberately
 # NOT a hard dependency: without it the index still runs on SQLite FTS5 plus a
 # hashed n-gram TF-IDF scorer (stdlib + numpy), which is faster but weaker on
 # paraphrase. Install with `pip install fastembed`.
-fastembed
+fastembed==0.8.1

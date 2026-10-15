@@ -114,8 +114,11 @@ Working reference for the code-review improvement pass. Keep this updated as ite
   now exists (see P3-15/16), but CI workflow, lint/type config, and `pyproject.toml` are still open. Gate is
   still the manual `scripts/precommit_check.py`. **Needs a decision:** CI host/runner (Windows-only stack) and
   tool choices (ruff/black/mypy?).
-- [ ] **P3-14b — Dependencies fully unpinned.** `requirements.txt` (0 `==` in 69 lines). **Needs a decision:**
-  freeze to pinned versions now vs. adopt a managed lockfile.
+- [x] **P3-14b — Dependencies fully pinned.** `requirements.txt` now pins every package to the version verified on
+  the ONE-391 host (`==`, 46 pins). `pyttsx3` is deliberately left unpinned: it is imported lazily by
+  `core/speech_tts.py` but is not installed on the verification host (the direct-SAPI path covers that engine),
+  so no known-good version existed to pin. Pins are top-level only; a full lock would be a follow-up if
+  byte-for-byte reproducibility is ever needed.
 - [x] **P3-15 — Unmarked `ZeroDivisionError` fixture collected by bare pytest.** `actions/test_action.py` raises
   `ZeroDivisionError` on purpose (self-heal demo) and `test_self_heal.py` re-exports its `test_action`, so a bare
   `pytest` errored. Fixed with `pytest.ini` + `testpaths = tests`: the demo files stay intact for the self-heal
@@ -123,9 +126,13 @@ Working reference for the code-review improvement pass. Keep this updated as ite
 - [x] **P3-16 — Interactive scripts pollute root collection.** Same fix: `testpaths = tests` keeps
   `test_self_heal.py`, `test_local_brain.py`, `test_sensorium_live.py` out of pytest collection (they are not
   pytest tests and can hang).
-- [ ] **P3-17 — Duplicated `check()` across 7 `accept_*.py`.** Extract a helper (or port to pytest);
-  `precommit_check.py` scrapes stdout for `"ALL CRITERIA PASS"`.
-- [ ] **P3-18 — Install `precommit_check.py` as an actual git hook.**
+- [x] **P3-17 — Duplicated `check()` across 7 `accept_*.py`.** Extracted `check`/`section` and the terminal
+  RESULT line into `accept_util.py`; the six updated harnesses import it and still print
+  `"ALL CRITERIA PASS"` (`precommit_check.py`'s scrape contract unchanged). `accept_391.py` keeps its own
+  differently-shaped `check` for now.
+- [x] **P3-18 — Install `precommit_check.py` as an actual git hook.** Installed `.git/hooks/pre-commit`
+  (per-clone, untracked by design): fast static pass by default, full suite with `PRECOMMIT_FULL=1`.
+  Verified with `git hook run pre-commit`.
 
 ---
 
