@@ -287,6 +287,9 @@ class MCPServerManager:
     _registered_tools: Dict[str, str] = {}  # tool_name -> server_name
     _status: Dict[str, Dict[str, Any]] = {}
     _call_timeout = DEFAULT_CALL_TIMEOUT_SECONDS
+    # Consecutive connect failures (never having reached "ready") before a
+    # server is parked in a "failed" state instead of retried forever.
+    _max_connect_failures = 5
 
     # ------------------------------------------------------------------ config
 
@@ -502,10 +505,13 @@ class MCPServerManager:
             tasks = list(cls._tasks.items())
             cls._tasks.clear()
 
-        for name, _task in tasks:
+        # Cancel the exact task objects captured above: _tasks was already
+        # cleared, so a name lookup inside the loop would find nothing and the
+        # cancel would silently be a no-op.
+        for _name, task in tasks:
             try:
                 if loop and not loop.is_closed():
-                    loop.call_soon_threadsafe(_cancel_task, name)
+                    loop.call_soon_threadsafe(_cancel_task, task)
             except Exception:
                 pass
 
@@ -543,17 +549,38 @@ class MCPServerManager:
         """Keeps one server connected, registering its tools and restarting on exit."""
         name = str(config.get("name")).strip()
         delay = 1.0
+        connect_failures = 0
         while not cls._stopping:
             try:
                 cls._set_state(name, "connecting")
                 await cls._connect_once(config)
-                # _connect_once only returns on failure or shutdown.
+                # _connect_once only returns on failure or shutdown. Reaching
+                # "ready" at any point means the server *can* work, so its
+                # failure streak resets and a later crash is just a restart.
+                if cls._status.get(name, {}).get("state") == "ready":
+                    connect_failures = 0
                 delay = 1.0
             except asyncio.CancelledError:
                 cls._set_state(name, "stopped")
                 raise
             except Exception as exc:
                 reason = " -> ".join(_flatten_exception_messages(exc))
+                connect_failures += 1
+                if connect_failures >= cls._max_connect_failures:
+                    # Give up: a config that never connected once (bad command,
+                    # missing package, wrong URL) will not start on retry #100.
+                    cls._set_state(
+                        name,
+                        "failed",
+                        error=reason,
+                        detail=f"Gave up after {connect_failures} attempts",
+                    )
+                    logger.error(
+                        f"[MCP Manager] Server '{name}' permanently failed after "
+                        f"{connect_failures} attempts: {reason}"
+                    )
+                    cls.unregister_server_tools(name)
+                    break
                 cls._set_state(name, "error", error=reason)
                 logger.error(f"[MCP Manager] Server '{name}' failed: {reason}")
 
@@ -781,17 +808,22 @@ class MCPServerManager:
         tools: Optional[List[str]] = None,
         detail: Optional[str] = None,
     ) -> None:
-        entry = cls._status.setdefault(
-            name, {"name": name, "state": state, "tools": [], "error": None, "transport": None}
-        )
-        entry["state"] = state
-        entry["updated_at"] = time.time()
-        if error is not None:
-            entry["error"] = error
-        if tools is not None:
-            entry["tools"] = tools
-        if detail is not None:
-            entry["detail"] = detail
+        # Written from the manager's loop thread, read from the UI thread.
+        # status() holds _lock while it iterates, so the write must take the same
+        # lock or the reader can still observe a half-built row / a key added
+        # mid-iteration. RLock, so the startup call already holding it is fine.
+        with cls._lock:
+            entry = cls._status.setdefault(
+                name, {"name": name, "state": state, "tools": [], "error": None, "transport": None}
+            )
+            entry["state"] = state
+            entry["updated_at"] = time.time()
+            if error is not None:
+                entry["error"] = error
+            if tools is not None:
+                entry["tools"] = tools
+            if detail is not None:
+                entry["detail"] = detail
 
     # ---------------------------------------------------------------- removal
 
@@ -841,7 +873,7 @@ class MCPServerManager:
                     "transport": entry.get("transport"),
                     "detail": entry.get("detail"),
                 }
-                for name, entry in cls._status.items()
+                for name, entry in list(cls._status.items())
             }
 
     @classmethod
@@ -992,8 +1024,8 @@ def _publish_manual(manual: Any) -> None:
         logger.debug("[MCP Manager] Tool index not ready to accept a manual: %s", exc)
 
 
-def _cancel_task(name: str) -> None:
-    task = MCPServerManager._tasks.get(name)
+def _cancel_task(task: "asyncio.Task") -> None:
+    """Cancel one concrete server task. Runs on the manager's loop thread."""
     if task is not None and not task.done():
         task.cancel()
 
