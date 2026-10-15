@@ -1620,6 +1620,11 @@ def _default_app_settings() -> dict:
         "custom_ai_model": "",
         "custom_api_key": "",
         "custom_mcp_servers": [],
+        # De-facto standard MCP config shape, read as a fallback by
+        # core.mcp_manager when custom_mcp_servers is empty, so a config from
+        # another MCP client works unchanged: {"name": {command,args,env}} for
+        # stdio or {"name": {url,headers}} for a remote server.
+        "mcpServers": {},
         # Tool & Skill Index. Budget is the number of function declarations sent
         # on the Gemini Live setup frame; the provider hard-caps this at 128, so
         # the default stays far below. Everything else is reachable on demand

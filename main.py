@@ -504,6 +504,60 @@ def _is_gemini_limit_error(exc: Exception) -> bool:
     ))
 
 
+class _LiveReconnect(Exception):
+    """Raised to ask run() to rebuild the live session (e.g. after a GoAway)."""
+
+
+def _is_transient_live_error(exc: BaseException) -> bool:
+    """True for a dropped live link that should be retried quietly.
+
+    A Gemini Live socket ends with a bare ``1006`` whenever the network path
+    hiccups: a Proactor recv raising ``WinError 121`` (semaphore timeout) over a
+    VPN, a WebSocket cut without a close frame, or a DNS blip during the opening
+    handshake. None of those mean the app is broken, so they must not dump a
+    full ExceptionGroup traceback and must not be treated as a hard failure.
+    """
+    seen = set()
+    stack = [exc]
+    while stack:
+        cur = stack.pop()
+        if cur is None or id(cur) in seen:
+            continue
+        seen.add(id(cur))
+        if isinstance(cur, _LiveReconnect):
+            return True
+        text = f"{type(cur).__name__} {cur}".lower()
+        if any(token in text for token in (
+            "1006",
+            "abnormal closure",
+            "connectionclosed",
+            "no close frame",
+            "winerror 121",
+            "semaphore timeout",
+            "timed out during opening handshake",
+            "getaddrinfo",
+            "connection reset",
+            "connection aborted",
+            "server disconnected",
+        )):
+            return True
+        nested = getattr(cur, "exceptions", None)
+        if isinstance(nested, (list, tuple)):
+            stack.extend(nested)
+        cause = getattr(exc, "__cause__", None) or getattr(cur, "__context__", None)
+        if cause is not None:
+            stack.append(cause)
+    return False
+
+
+def _live_error_reason(exc: Exception) -> str:
+    """A one-line, log-friendly reason for a dropped live link."""
+    if isinstance(exc, _LiveReconnect):
+        return str(exc) or "server requested reconnect"
+    text = f"{type(exc).__name__}: {exc}".strip()
+    return text[:160] if text else type(exc).__name__
+
+
 def _looks_like_screen_request(text: str) -> bool:
     t = (text or "").lower()
     if not t:
@@ -2140,7 +2194,9 @@ class BrahmaLive:
         self._control_lock = threading.Lock()
         self._ui_loop = None                 # loop running run(); set once by it
         self._connect_event = None           # asyncio.Event, built on that loop
+        self._control_wake = None            # asyncio.Event; aborts a reconnect pause
         self._session_task = None            # the live Gemini session task
+        self._reconnect_delay = 0.0          # exponential backoff, reset on connect
         self._wake_stop = None               # threading.Event that stops standby mic
         self._wake_thread = None
         # Wire the tool bridge's call_tool escape hatch back into this app's own
@@ -2238,6 +2294,8 @@ class BrahmaLive:
         elif was_on_call:
             self._stop_wakeword_listener()
             self._request_connect()
+        # Abort any in-flight reconnect backoff so the new mode takes effect now.
+        self._wake_control()
 
     def set_live_call(self, active: bool):
         """Connect / Disconnect. Authoritative in BOTH modes."""
@@ -2253,6 +2311,8 @@ class BrahmaLive:
         else:
             self.ui.set_state("STANDBY")
             self._disconnect_live()
+        # Abort any in-flight reconnect backoff so Connect/Disconnect is instant.
+        self._wake_control()
 
     def _should_standby(self) -> bool:
         """True when the session loop must idle instead of holding a session.
@@ -2299,6 +2359,48 @@ class BrahmaLive:
         with self._control_lock:
             requested, self._disconnect_requested = self._disconnect_requested, False
             return requested
+
+    def _wake_control(self):
+        """Abort an in-progress reconnect pause so a mode change is immediate.
+
+        The session loop waits between reconnect attempts. That wait used to be a
+        bare ``asyncio.sleep``, so switching to On Call (or pressing Disconnect)
+        did nothing until the sleep expired -- up to the full backoff. Waking the
+        pause lets the loop re-read the control flags right away and park in
+        standby instead of retrying a socket the user no longer wants.
+        """
+        loop = getattr(self, "_ui_loop", None)
+        event = getattr(self, "_control_wake", None)
+        if loop is None or event is None:
+            # run() has not built the pause event yet; it re-reads the flags on
+            # its next pass, so nothing is lost.
+            return
+        try:
+            loop.call_soon_threadsafe(event.set)
+        except RuntimeError:
+            pass  # loop already closed; nothing left to wake
+
+    async def _pause_until(self, seconds: float) -> None:
+        """Sleep up to ``seconds``, returning early on a control change."""
+        event = getattr(self, "_control_wake", None)
+        if event is None:
+            await asyncio.sleep(seconds)
+            return
+        event.clear()
+        try:
+            await asyncio.wait_for(event.wait(), timeout=seconds)
+        except asyncio.TimeoutError:
+            pass
+
+    def _next_reconnect_delay(self) -> float:
+        """Exponential backoff for the reconnect pause: 2, 4, 8 ... capped at 30.
+
+        ``_reconnect_delay`` is reset to 0 on every good connect, so the first
+        retry after a healthy session is always the fast one.
+        """
+        self._reconnect_delay = 2.0 if self._reconnect_delay <= 0.0 \
+            else min(self._reconnect_delay * 2.0, 30.0)
+        return self._reconnect_delay
 
     def _report_voice_status(self, live: bool, detail: str = ""):
         """Tell the UI which voice backend is driving the session and its state.
@@ -5680,6 +5782,17 @@ class BrahmaLive:
         try:
             while True:
                 async for response in self.session.receive():
+                    _go = getattr(response, "go_away", None)
+                    if _go is not None:
+                        # The server is rotating the session (e.g. before a
+                        # planned restart). Reconnect on our terms now instead of
+                        # waiting for the socket to be cut mid-turn and surfacing
+                        # as a bare 1006.
+                        _left = getattr(_go, "time_left", None)
+                        raise _LiveReconnect(
+                            f"server GoAway (time_left={_left})"
+                            if _left is not None else "server GoAway"
+                        )
                     _sru = getattr(response, "session_resumption_update", None)
                     if _sru is not None:
                         if getattr(_sru, "resumable", False) and getattr(_sru, "new_handle", None):
@@ -5839,6 +5952,11 @@ class BrahmaLive:
         )
 
         self._ui_loop = asyncio.get_running_loop()
+        # Built on the loop that awaits it. A control change fires it to cut a
+        # reconnect pause short, so On Call / Disconnect apply without waiting
+        # out the backoff.
+        self._control_wake = asyncio.Event()
+        self._reconnect_delay = 0.0
 
         while True:
             # --- DISCONNECT CONSTANT BACKGROUND CONNECTION TO GEMINI LIVE FOR OFFLINE MODE---
@@ -5866,7 +5984,7 @@ class BrahmaLive:
                 self.ui.set_state("STANDBY" if self._should_standby() else "LISTENING")
                 if not self._should_standby():
                     print("[BRAHMA EVO] 🔄 Re-attaching local mic in 5s...")
-                    await asyncio.sleep(5)
+                    await self._pause_until(5)
                 continue
             # -------------------------
 
@@ -5884,25 +6002,34 @@ class BrahmaLive:
                 connect_cm = client.aio.live.connect(model=LIVE_MODEL, config=config)
                 session = await asyncio.wait_for(connect_cm.__aenter__(), timeout=LIVE_CONNECT_TIMEOUT)
                 try:
-                    # The session runs as its own task so _disconnect_live() has
-                    # something to cancel. Awaiting it inline would leave no
-                    # handle at all and "End Call" would silently do nothing.
-                    self._session_task = asyncio.create_task(
-                        self._serve_live_session(session)
-                    )
-                    self._report_voice_status(True)
-                    try:
-                        await self._session_task
-                    except asyncio.CancelledError:
-                        # CancelledError is a BaseException, so `except Exception`
-                        # below cannot see it. Swallow it only when this was our
-                        # own On Call teardown; a real shutdown must still
-                        # propagate and end run().
-                        if not self._take_disconnect_request():
-                            raise
-                        print("[BRAHMA EVO] 📴 Session closed by On Call control.")
-                    finally:
-                        self._session_task = None
+                    if self._should_standby():
+                        # The user hit Disconnect / switched to On Call while the
+                        # handshake was in flight. _disconnect_live() had no task
+                        # to cancel yet, so without this guard the session would
+                        # arm anyway and the socket the user just dismissed stays
+                        # up. Drop it here instead.
+                        print("[BRAHMA EVO] 📴 Connect cancelled during handshake.")
+                    else:
+                        # The session runs as its own task so _disconnect_live() has
+                        # something to cancel. Awaiting it inline would leave no
+                        # handle at all and "End Call" would silently do nothing.
+                        self._session_task = asyncio.create_task(
+                            self._serve_live_session(session)
+                        )
+                        self._report_voice_status(True)
+                        self._reconnect_delay = 0.0  # a good connect resets backoff
+                        try:
+                            await self._session_task
+                        except asyncio.CancelledError:
+                            # CancelledError is a BaseException, so `except Exception`
+                            # below cannot see it. Swallow it only when this was our
+                            # own On Call teardown; a real shutdown must still
+                            # propagate and end run().
+                            if not self._take_disconnect_request():
+                                raise
+                            print("[BRAHMA EVO] 📴 Session closed by On Call control.")
+                        finally:
+                            self._session_task = None
                 finally:
                     try:
                         await connect_cm.__aexit__(None, None, None)
@@ -5910,8 +6037,13 @@ class BrahmaLive:
                         pass
 
             except Exception as e:
-                print(f"[BRAHMA EVO] ⚠️ {e}")
-                traceback.print_exc()
+                if _is_transient_live_error(e):
+                    # A dropped link / DNS blip is expected, not a crash: log one
+                    # line instead of dumping a TaskGroup ExceptionGroup.
+                    print(f"[BRAHMA EVO] 🔌 Live link dropped ({_live_error_reason(e)}); will retry.")
+                else:
+                    print(f"[BRAHMA EVO] ⚠️ {e}")
+                    traceback.print_exc()
                 if _is_gemini_limit_error(e):
                     self._use_openrouter_first = True
                 if "1008" in str(e):
@@ -5928,8 +6060,11 @@ class BrahmaLive:
                 continue
             self._report_voice_status(False, "reconnecting")
             self.ui.set_state("LISTENING")
-            print("[BRAHMA EVO] 🔄 Reconnecting in 5s...")
-            await asyncio.sleep(5)
+            # Exponential backoff with a cap: fast first retry, then settle down
+            # so a broken network is not hammered. Reset to 0 on a good connect.
+            delay = self._next_reconnect_delay()
+            print(f"[BRAHMA EVO] 🔄 Reconnecting in {delay:.0f}s...")
+            await self._pause_until(delay)
 
 def main():
     _startup_log("main entered")

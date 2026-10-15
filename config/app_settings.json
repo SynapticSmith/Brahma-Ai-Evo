@@ -22,34 +22,7 @@
     "custom_ai_url": "",
     "custom_ai_model": "",
     "custom_api_key": "",
-    "custom_mcp_servers": [
-        {
-            "name": "Calyx",
-            "command": "C:\\Users\\Admin\\Calyx\\target\\release\\calyx-mcp.exe",
-            "args": []
-        },
-        {
-            "name": "Synapse",
-            "command": "C:\\Users\\Admin\\Synapse\\target\\release\\synapse-mcp.exe",
-            "args": [],
-            "env": {
-                "SYNAPSE_API_KEY": "<REDACTED-INTO-USER-DATA-DIR>"
-            }
-        },
-        {
-            "name": "obsidian",
-            "command": "npx.cmd",
-            "args": [
-                "mcp-remote@latest",
-                "https://127.0.0.1:27124/mcp/",
-                "--header",
-                "Authorization: Bearer <REDACTED-INTO-USER-DATA-DIR>"
-            ],
-            "env": {
-                "NODE_TLS_REJECT_UNAUTHORIZED": "0"
-            }
-        }
-    ],
+    "mcpServers": {},
     "sound_effects_enabled": true,
     "sound_effects_volume": 75,
     "push_to_talk_enabled": false,

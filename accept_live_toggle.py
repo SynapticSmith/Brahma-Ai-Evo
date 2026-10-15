@@ -178,6 +178,7 @@ def _control_surface(mode: str):
         _should_standby = _main.BrahmaLive._should_standby
         set_live_mode = _main.BrahmaLive.set_live_mode
         set_live_call = _main.BrahmaLive.set_live_call
+        _wake_control = _main.BrahmaLive._wake_control
 
         def __init__(self, start_mode):
             self._control_lock = threading.Lock()

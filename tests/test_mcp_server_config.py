@@ -87,3 +87,35 @@ def test_missing_user_config_is_not_an_error(paths):
     settings, template = paths
     template.unlink(missing_ok=True)
     assert mm.MCPServerManager.load_server_configs() == []
+
+
+def test_standard_mcp_servers_key_is_read(paths):
+    settings, _template = paths
+    _write(settings, {
+        "custom_mcp_servers": [],
+        "mcpServers": {
+            "Stdio": {"command": "run", "args": ["--x"]},
+            "Remote": {
+                "url": "http://127.0.0.1:7700/mcp",
+                "headers": {"Authorization": "Bearer token"},
+            },
+        },
+    })
+
+    configs = mm.MCPServerManager.load_server_configs()
+    by = {c["name"]: c for c in configs}
+
+    assert sorted(by) == ["Remote", "Stdio"]
+    assert by["Stdio"]["command"] == "run"
+    assert by["Stdio"]["args"] == ["--x"]
+    assert by["Remote"]["headers"]["Authorization"] == "Bearer token"
+
+
+def test_custom_mcp_servers_wins_over_standard_key(paths):
+    settings, _template = paths
+    _write(settings, {
+        "custom_mcp_servers": [_server("Mine")],
+        "mcpServers": {"Std": {"command": "run"}},
+    })
+
+    assert [c["name"] for c in mm.MCPServerManager.load_server_configs()] == ["Mine"]

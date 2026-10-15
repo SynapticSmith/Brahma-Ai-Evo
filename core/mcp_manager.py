@@ -243,6 +243,36 @@ def _extract_result_text(result: Any) -> str:
     return "\n".join(parts)
 
 
+def _flatten_exception_messages(exc: BaseException, _depth: int = 0) -> List[str]:
+    """Flattens an exception into human-readable ``Type: message`` lines.
+
+    An error raised through the MCP SDK's ``stdio_client`` / ``ClientSession``
+    arrives wrapped in nested ``ExceptionGroup``\\ s, and ``str()`` of a group is
+    only ``"unhandled errors in a TaskGroup (1 sub-exception)"`` — the real cause
+    (a child that exited, a DNS failure, a TLS error) is hidden inside. Walking
+    ``.exceptions`` and the ``__cause__``/``__context__`` chain surfaces it, and
+    consecutive duplicate frames (the group-in-group wrapper) are collapsed so
+    the log names the actual failure.
+    """
+    if _depth > 8:
+        return []
+    lines = [f"{type(exc).__name__}: {exc}".strip()]
+    subs = getattr(exc, "exceptions", None)
+    if subs:
+        for sub in subs:
+            lines.extend(_flatten_exception_messages(sub, _depth + 1))
+    else:
+        cause = exc.__cause__ or exc.__context__
+        if cause is not None:
+            lines.extend(_flatten_exception_messages(cause, _depth + 1))
+
+    collapsed: List[str] = []
+    for line in lines:
+        if not collapsed or collapsed[-1] != line:
+            collapsed.append(line)
+    return collapsed
+
+
 class MCPServerManager:
     """Loads and supervises user-configured MCP servers."""
 
@@ -269,6 +299,44 @@ class MCPServerManager:
         return data if isinstance(data, dict) else {}
 
     @classmethod
+    def _servers_from_standard(cls, raw: Any) -> List[Dict[str, Any]]:
+        """Normalizes the de-facto MCP JSON standard into our list shape.
+
+        The ecosystem convention (Claude Desktop, Cursor, VS Code, most clients)
+        is a top-level ``{"mcpServers": {"<name>": {...}}}` object where each
+        value is either a stdio spec (``command``/``args``/``env``) or a remote
+        one (``url`` / ``headers``). Internally Brahma uses a *list* of dicts
+        that each carry their own ``name``, so bridge the two here: the mapping
+        key becomes ``name`` and the spec is preserved verbatim.
+        """
+        if not isinstance(raw, dict):
+            return []
+        servers: List[Dict[str, Any]] = []
+        for name, spec in raw.items():
+            if not isinstance(spec, dict):
+                continue
+            entry = dict(spec)
+            entry.setdefault("name", str(name))
+            servers.append(entry)
+        return servers
+
+    @classmethod
+    def _configured_servers(cls, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Effective server list from a settings dict.
+
+        The app's own ``custom_mcp_servers`` (list shape) wins when it holds
+        anything, so the Settings panel stays authoritative; otherwise the
+        de-facto standard ``mcpServers`` (dict shape) is read so a config
+        pasted from another MCP client works unchanged.
+        """
+        existing = data.get("custom_mcp_servers")
+        if isinstance(existing, list):
+            entries = [e for e in existing if isinstance(e, dict)]
+            if entries:
+                return entries
+        return cls._servers_from_standard(data.get("mcpServers") or data.get("mcp_servers"))
+
+    @classmethod
     def _seed_from_template(cls, data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Copies the shipped template's servers into a fresh user config once.
 
@@ -279,14 +347,14 @@ class MCPServerManager:
         list is never re-seeded), so the template is never read as live config
         and the servers still show up in Settings and the tool index.
         """
-        existing = data.get("custom_mcp_servers") or []
+        existing = cls._configured_servers(data)
         if data.get("custom_mcp_servers_migrated") or existing:
-            return existing if isinstance(existing, list) else []
+            return existing
 
         seeded: List[Dict[str, Any]] = []
         try:
             if TEMPLATE_PATH.exists() and TEMPLATE_PATH.resolve() != SETTINGS_PATH.resolve():
-                seeded = cls._read_settings(TEMPLATE_PATH).get("custom_mcp_servers") or []
+                seeded = cls._configured_servers(cls._read_settings(TEMPLATE_PATH))
         except Exception as exc:
             logger.debug("[MCP Manager] Could not read template %s: %s", TEMPLATE_PATH, exc)
         if not isinstance(seeded, list):
@@ -485,8 +553,9 @@ class MCPServerManager:
                 cls._set_state(name, "stopped")
                 raise
             except Exception as exc:
-                cls._set_state(name, "error", error=str(exc))
-                logger.error(f"[MCP Manager] Server '{name}' failed: {exc}")
+                reason = " -> ".join(_flatten_exception_messages(exc))
+                cls._set_state(name, "error", error=reason)
+                logger.error(f"[MCP Manager] Server '{name}' failed: {reason}")
 
             cls.unregister_server_tools(name)
             if cls._stopping:
@@ -503,6 +572,7 @@ class MCPServerManager:
         args = config.get("args") or []
         url = str(config.get("url") or "").strip()
         env = config.get("env") or None
+        headers = _coerce_headers(config.get("headers"))
 
         try:
             from mcp import ClientSession, StdioServerParameters
@@ -513,7 +583,7 @@ class MCPServerManager:
             ) from exc
 
         if transport == "http":
-            connect = cls._http_connectors(url)
+            connect = cls._http_connectors(url, headers)
             if connect is None:
                 raise RuntimeError(
                     "Installed 'mcp' SDK has no HTTP/SSE client. Upgrade with: pip install -U mcp"
@@ -544,8 +614,13 @@ class MCPServerManager:
             cls._sessions.pop(name, None)
 
     @staticmethod
-    def _http_connectors(url: str):
-        """Returns a zero-arg factory yielding (read, write) for an HTTP MCP server."""
+    def _http_connectors(url: str, headers: Optional[Dict[str, str]] = None):
+        """Returns a zero-arg factory yielding (read, write) for an HTTP MCP server.
+
+        ``headers`` are attached to every request, which is how an
+        authenticated remote server (a shared daemon behind a bearer token, a
+        hosted endpoint behind an API key) is reached.
+        """
         try:
             from mcp.client.streamable_http import streamablehttp_client
         except Exception:
@@ -555,12 +630,12 @@ class MCPServerManager:
                 return None
 
             def _sse():
-                return sse_client(url)
+                return sse_client(url, headers=headers)
 
             return _sse
 
         def _http():
-            return streamablehttp_client(url)
+            return streamablehttp_client(url, headers=headers)
 
         return _http
 
@@ -772,6 +847,18 @@ class MCPServerManager:
     @classmethod
     def is_running(cls) -> bool:
         return bool(cls._started and cls._loop is not None and not cls._loop.is_closed())
+
+
+def _coerce_headers(raw: Any) -> Optional[Dict[str, str]]:
+    """Normalizes a config ``headers`` block into a ``str -> str`` mapping.
+
+    Remote MCP servers frequently require an auth header; a non-dict or empty
+    value means "no headers", never a crash at connect time.
+    """
+    if not isinstance(raw, dict):
+        return None
+    headers = {str(k): str(v) for k, v in raw.items() if k is not None}
+    return headers or None
 
 
 def _transport_for(config: Dict[str, Any]) -> str:
