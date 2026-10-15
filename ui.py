@@ -1,5 +1,5 @@
 from __future__ import annotations
-from core.user_paths import get_user_data_dir
+from core.user_paths import get_user_data_dir, atomic_write_json
 
 import asyncio
 import json
@@ -9141,7 +9141,7 @@ class MainWindow(QMainWindow):
                     merged.update(settings)
             except Exception:
                 pass
-        APP_SETTINGS_FILE.write_text(json.dumps(merged, indent=4), encoding="utf-8")
+        atomic_write_json(APP_SETTINGS_FILE, merged)
         self._app_settings_cache = dict(merged)
 
     def _startup_animation_enabled(self) -> bool:
@@ -11427,7 +11427,7 @@ class SystemConnectivityPage(QWidget):
                         merged.update(settings)
                 except Exception:
                     pass
-            APP_SETTINGS_FILE.write_text(json.dumps(merged, indent=4), encoding="utf-8")
+            atomic_write_json(APP_SETTINGS_FILE, merged)
         except Exception:
             pass
 
@@ -16473,7 +16473,7 @@ class BrahmaUI:
                     merged.update(settings)
             except Exception:
                 pass
-        APP_SETTINGS_FILE.write_text(json.dumps(merged, indent=4), encoding="utf-8")
+        atomic_write_json(APP_SETTINGS_FILE, merged)
         self._app_settings_cache = dict(merged)
 
     def _save_launcher_position(self, x: int, y: int):
