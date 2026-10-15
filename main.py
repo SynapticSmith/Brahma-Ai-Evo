@@ -2213,6 +2213,12 @@ class BrahmaLive:
         self._live_suspended = False
         self._disconnect_requested = False
         self._control_lock = threading.Lock()
+        # Every control change (mode, Connect/Disconnect) bumps _control_seq. A
+        # reconnect pause that starts *after* a change would otherwise clear the
+        # wake event and sleep the full backoff, silently ignoring it -- so the
+        # pause compares the sequence it has already consumed.
+        self._control_seq = 0
+        self._pause_seen = 0
         self._ui_loop = None                 # loop running run(); set once by it
         self._connect_event = None           # asyncio.Event, built on that loop
         self._control_wake = None            # asyncio.Event; aborts a reconnect pause
@@ -2220,6 +2226,10 @@ class BrahmaLive:
         self._reconnect_delay = 0.0          # exponential backoff, reset on connect
         self._wake_stop = None               # threading.Event that stops standby mic
         self._wake_thread = None
+        # Strong refs to fire-and-forget loop tasks (dashboard, remote commands,
+        # phone-audio relay). Without this the task can be garbage-collected
+        # mid-flight and its exception is silently lost.
+        self._background_tasks = set()
         # Wire the tool bridge's call_tool escape hatch back into this app's own
         # dispatcher, so a tool the model discovered mid-session runs through
         # exactly the same path as an advertised one.
@@ -2392,9 +2402,11 @@ class BrahmaLive:
         """
         loop = getattr(self, "_ui_loop", None)
         event = getattr(self, "_control_wake", None)
+        with self._control_lock:
+            self._control_seq = getattr(self, "_control_seq", 0) + 1
         if loop is None or event is None:
-            # run() has not built the pause event yet; it re-reads the flags on
-            # its next pass, so nothing is lost.
+            # run() has not built the pause event yet; the sequence bump makes
+            # the next pause return immediately, so nothing is lost.
             return
         try:
             loop.call_soon_threadsafe(event.set)
@@ -2402,16 +2414,31 @@ class BrahmaLive:
             pass  # loop already closed; nothing left to wake
 
     async def _pause_until(self, seconds: float) -> None:
-        """Sleep up to ``seconds``, returning early on a control change."""
+        """Sleep up to ``seconds``, returning early on a control change.
+
+        Order matters: clear the event *before* sampling the sequence, so a
+        control change that lands between the two is either seen in the sequence
+        (and we return now) or sets the event after the clear (and ``wait``
+        returns now). Sampling first would let a change be cleared away unseen.
+        """
         event = getattr(self, "_control_wake", None)
         if event is None:
             await asyncio.sleep(seconds)
             return
         event.clear()
+        with self._control_lock:
+            seen = getattr(self, "_control_seq", 0)
+        if seen != getattr(self, "_pause_seen", 0):
+            # A control change arrived while we were connecting; honour it now
+            # instead of sleeping through the whole backoff.
+            self._pause_seen = seen
+            return
         try:
             await asyncio.wait_for(event.wait(), timeout=seconds)
         except asyncio.TimeoutError:
             pass
+        with self._control_lock:
+            self._pause_seen = getattr(self, "_control_seq", 0)
 
     def _next_reconnect_delay(self) -> float:
         """Exponential backoff for the reconnect pause: 2, 4, 8 ... capped at 30.
@@ -2638,8 +2665,12 @@ class BrahmaLive:
         self._wake_thread.start()
 
     def _stop_wakeword_listener(self):
-        stop, self._wake_stop = self._wake_stop, None
-        self._wake_thread = None
+        # Keep the thread reference until the worker actually exits. Nulling it
+        # here let a still-blocked listener (up to ~3s inside recognizer.listen)
+        # overlap with the next one, and the two then fought over the microphone.
+        # _start refuses to arm while the previous thread is still alive, and the
+        # worker clears its own slot in a finally once it is truly done.
+        stop = self._wake_stop
         if stop is not None:
             stop.set()
 
@@ -2668,24 +2699,36 @@ class BrahmaLive:
         recognizer = sr.Recognizer()
         recognizer.dynamic_response_threshold = False
         print("[BRAHMA EVO] ON-CALL: wake word armed.")
-        while stop is not None and not stop.is_set():
-            try:
-                with sr.Microphone() as source:
-                    recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                    while stop is not None and not stop.is_set():
-                        audio = recognizer.listen(
-                            source, timeout=3.0, phrase_time_limit=2.5
-                        )
-                        transcript = self._transcribe_wakeword(recognizer, audio)
-                        if _standby_wakeword_detected(transcript):
-                            print("[BRAHMA EVO] ON-CALL: wake word heard - connecting.")
-                            self.set_live_call(True)
-                            return
-            except Exception as e:
-                if stop is None or stop.is_set():
-                    return
-                print(f"[BRAHMA EVO] ON-CALL: wake word listener retrying: {e}")
-                stop.wait(1.0)
+        try:
+            while stop is not None and not stop.is_set():
+                try:
+                    with sr.Microphone() as source:
+                        recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                        while stop is not None and not stop.is_set():
+                            audio = recognizer.listen(
+                                source, timeout=3.0, phrase_time_limit=2.5
+                            )
+                            # A Disconnect / mode change may have landed while
+                            # listen() was blocking. Don't resurrect a session the
+                            # user just dropped.
+                            if stop.is_set() or self._wake_stop is not stop:
+                                return
+                            transcript = self._transcribe_wakeword(recognizer, audio)
+                            if _standby_wakeword_detected(transcript):
+                                print("[BRAHMA EVO] ON-CALL: wake word heard - connecting.")
+                                self.set_live_call(True)
+                                return
+                except Exception as e:
+                    if stop is None or stop.is_set():
+                        return
+                    print(f"[BRAHMA EVO] ON-CALL: wake word listener retrying: {e}")
+                    stop.wait(1.0)
+        finally:
+            # Only clear the slot if we are still the current listener, so a
+            # freshly started one is never clobbered by a slow predecessor.
+            if self._wake_thread is threading.current_thread():
+                self._wake_thread = None
+                self._wake_stop = None
 
     @staticmethod
     def _transcribe_wakeword(recognizer, audio) -> str:
@@ -2723,7 +2766,6 @@ class BrahmaLive:
 
             tg.create_task(self._send_realtime())
             tg.create_task(self._listen_audio())
-            tg.create_task(self._relay_phone_audio())
             tg.create_task(self._receive_audio())
             tg.create_task(self._play_audio())
             if not self._startup_briefing_started:
@@ -5640,6 +5682,32 @@ class BrahmaLive:
             response={"result": result}
         )
 
+    def _spawn_background(self, coro, name: str):
+        """Start a loop task that outlives its caller, with a strong ref.
+
+        Fire-and-forget ``asyncio.create_task`` calls keep no reference, so the
+        task can be garbage-collected before it finishes and its exception never
+        surfaces. Holding it in ``_background_tasks`` until it completes fixes
+        both, and the done-callback logs a real failure instead of dropping it.
+        """
+        task = asyncio.ensure_future(coro)
+        self._background_tasks.add(task)
+
+        def _done(t: "asyncio.Future") -> None:
+            self._background_tasks.discard(t)
+            if t.cancelled():
+                return
+            exc = t.exception()
+            if exc is not None:
+                try:
+                    print(f"[BRAHMA EVO] background task '{name}' failed: {exc!r}")
+                    traceback.print_exception(type(exc), exc, exc.__traceback__)
+                except Exception:
+                    pass
+
+        task.add_done_callback(_done)
+        return task
+
     async def _serve_dashboard(self):
         if self._dashboard is None:
             self.ui.write_log("ERR: Mobile Connect disabled because dashboard dependencies are missing.")
@@ -5668,7 +5736,10 @@ class BrahmaLive:
             return
         while True:
             frame = await self._dashboard._phone_audio_queue.get()
-            if not self.out_queue:
+            # Only relay while a live session can actually play it. Queuing into a
+            # stale out_queue (no consumer) would just grow without bound while
+            # disconnected.
+            if self.session is None or not self.out_queue:
                 continue
             self._phone_active = True
             try:
@@ -5954,14 +6025,14 @@ class BrahmaLive:
         if self._dashboard is not None:
             if not self._dashboard_started:
                 self._dashboard_started = True
-                asyncio.create_task(self._serve_dashboard())
+                self._spawn_background(self._serve_dashboard(), "dashboard")
                 try:
                     self.ui.boot_set_step_status("Start dashboard server", "done")
                     self.ui.boot_set_progress(22, "Mobile connect server running")
                 except Exception:
                     pass
-            asyncio.create_task(self._consume_remote_commands())
-            asyncio.create_task(self._relay_phone_audio())
+            self._spawn_background(self._consume_remote_commands(), "remote-commands")
+            self._spawn_background(self._relay_phone_audio(), "phone-audio-relay")
         try:
             self.ui.boot_set_progress(36, "Initializing AI client")
         except Exception:
