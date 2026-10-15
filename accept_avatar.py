@@ -656,6 +656,38 @@ def main() -> int:
               referenced <= {"exp_01", "exp_02", "exp_03", "exp_04", "exp_05"},
               str(sorted(referenced)))
 
+        # The Core is the other half of the runtime, and it is version-sensitive.
+        # The legacy /sdk-web/cubismcore/ url serves Core 5.1.0, which cannot load
+        # moc3 version 6 files - and the Ren sample's moc3 is v6. The page then
+        # dies with a cryptic "Core unsupport later than moc3 ver:[5]" and hangs
+        # on "starting..." forever, while every static check still passes. So the
+        # vendoring script is pinned to a versioned Core under /sdk-web/core/.
+        setup_src = (BASE / "scripts" / "setup_live2d_cubism.ps1").read_text(
+            encoding="utf-8")
+        core_url = (re.search(r"\$CoreUrl\s*=\s*'([^']+)'", setup_src)
+                    or [None, ""])[1]
+        check("the Live2D runtime is fetched from a versioned Core, not the "
+              "5.1.0 legacy url",
+              "/sdk-web/core/" in core_url and "/sdk-web/cubismcore/" not in core_url,
+              core_url or "no $CoreUrl")
+        check("the Core is vendored, so the avatar needs no network to render",
+              (BASE / "assets" / "avatar_live2d" / "vendor"
+               / "live2dcubismcore.min.js").is_file())
+        if model_dir.is_dir():
+            # The model's moc3 version is byte 4 of the file; the runtime must be
+            # new enough to load it. A v6 model with a v5 Core is the exact hang
+            # this guard was written for.
+            moc3s = sorted(model_dir.glob("*.moc3"))
+            if moc3s:
+                head = moc3s[0].read_bytes()[:5]
+                moc_ver = head[4] if len(head) >= 5 and head[:4] == b"MOC3" else None
+                check("the installed model's moc3 version is read", moc_ver is not None,
+                      str(moc_ver))
+                check("the vendored Core is newer than the model's moc3 version",
+                      moc_ver is not None and moc_ver <= 6
+                      and "/sdk-web/core/" in core_url,
+                      f"moc3 v{moc_ver}, core {core_url or 'unknown'}")
+
         # The UI swaps the document rather than branching on backend identity.
         check("the widget can be pointed at another avatar document",
               "def set_avatar_page" in ui_src
@@ -850,6 +882,50 @@ def main() -> int:
               (vendor_dir / "import-map.json").is_file()
               and '"three"' in (vendor_dir / "import-map.json").read_text(
                   encoding="utf-8"))
+        # The map must be INLINE in the page: Chromium ignores
+        # <script type="importmap" src=...>, and with an external map the module
+        # script never resolves its bare imports, so the page hangs on
+        # "starting..." forever. This guard exists because the src= form passed
+        # every other check while being completely broken in a real browser.
+        vrm_map_html = (BASE / "assets" / "avatar_vrm" / "index.html").read_text(
+            encoding="utf-8")
+        try:
+            vrm_map = json.loads(
+                vrm_map_html.split('<script type="importmap">', 1)[1]
+                .split("</script>", 1)[0])
+        except Exception:
+            vrm_map = {}
+        # Strip HTML comments first: the page documents the src= trap in prose,
+        # and a naive substring test flags that explanation as the bug itself.
+        vrm_bare = re.sub(r"<!--.*?-->", "", vrm_map_html, flags=re.S)
+        check("the map is inline in the page, not an ignored external src",
+              'type="importmap" src=' not in vrm_bare
+              and vrm_map.get("imports", {}).get("three")
+              == "./vendor/three.module.js",
+              str(vrm_map.get("imports", {}).get("three")))
+        # A named import that the vendored build does not export aborts the whole
+        # module: the page never calls boot() and sits on "starting..." forever.
+        # createVRMCamera shipped in the page while three-vrm 3.5.5 never exported
+        # it, and every other check still passed.
+        _page_syms = set()
+        for _grp in re.findall(r'import\s*\{([^}]*)\}\s*from\s*'
+                               r'"@pixiv/three-vrm"', vrm_map_html):
+            _page_syms.update(n.strip() for n in _grp.split(",") if n.strip())
+        _exports = re.findall(
+            r"export\s*\{([^}]*)\}",
+            (vendor_dir / "three-vrm.module.js").read_text(encoding="utf-8"),
+            flags=re.S)
+        _exported = set()
+        for _blk in _exports:
+            _exported.update(n.strip() for n in _blk.split(",") if n.strip())
+        check("every three-vrm symbol the page imports is exported by the build",
+              bool(_page_syms) and _page_syms <= _exported,
+              f"missing: {sorted(_page_syms - _exported)}")
+        # GLTFLoader returns a plain glTF unless a VRM plugin is registered on it,
+        # so gltf.userData.vrm stays undefined and a valid model is rejected.
+        check("the page registers the VRM loader plugin on the GLTFLoader",
+              "VRMLoaderPlugin" in vrm_map_html
+              and re.search(r"\.register\s*\(", vrm_map_html) is not None)
         check("each vendored build keeps its MIT licence beside it",
               any(vendor_dir.glob("*.LICENSE")), "no .LICENSE files")
         check("the vendor manifest records what was copied and under what terms",

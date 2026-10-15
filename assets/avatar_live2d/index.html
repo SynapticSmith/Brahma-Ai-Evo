@@ -198,18 +198,53 @@
       return;
     }
 
+    var settingName = deriveModelFileName();
     try {
-      startModel();
+      await ensureModelFile(settingName);
+    } catch (e) {
+      bootFail("the model file could not be read", String(e.message || e),
+        MODEL_URL_BASE + settingName);
+      return;
+    }
+
+    try {
+      startModel(settingName);
     } catch (e) {
       bootFail("model init failed", String(e.message || e), MODEL_URL_BASE);
     }
   }
 
-  function startModel() {
+  // The page derives the model file name from the folder it was handed. A
+  // mismatch used to sit on "starting..." forever, because the sample's
+  // loadAssets is fire-and-forget. Reading the setting first names the failure
+  // and proves the file:// fetch bridge works before the runtime leans on it.
+  function ensureModelFile(fileName) {
+    var url = MODEL_URL_BASE + fileName;
+    return window.fetch(url, { cache: "no-store" }).then(function (resp) {
+      if (!resp.ok) { throw new Error("HTTP " + resp.status + " for " + url); }
+      return resp.text();
+    }).then(function (text) {
+      try { JSON.parse(text); }
+      catch (e) { throw new Error("not a JSON model setting: " + url); }
+      return true;
+    });
+  }
+
+  function startModel(settingName) {
     var LCF = window.Live2DCubismFramework;
     var LAppDefine = LCF.LAppDefine;
 
-    LCF.CubismFramework.startUp({ loggingLevel: LAppDefine.CubismLoggingLevel });
+    // startUp() hands s_option.logFunction straight to the core's
+    // csmSetLogFunction(). Omit it and the core's logger is nulled, so the very
+    // first core log - emitted during CubismMoc.create()'s consistency check -
+    // throws "Logging.logFunction is not a function" and aborts the load chain.
+    // The model then never reaches a renderer and the page hangs on startup.
+    LCF.CubismFramework.startUp({
+      loggingLevel: LAppDefine.CubismLoggingLevel,
+      logFunction: function (message) {
+        if (window.console && console.log) { console.log("[Live2D] " + message); }
+      }
+    });
     LCF.CubismFramework.initialize();
 
     var canvas = document.createElement("canvas");
@@ -228,8 +263,8 @@
     var model = new LCF.LAppModel();
     model.setSubdelegate(subdelegate);
 
-    state.modelUrl = MODEL_URL_BASE + deriveModelFileName();
-    model.loadAssets(MODEL_URL_BASE, deriveModelFileName());
+    state.modelUrl = MODEL_URL_BASE + settingName;
+    model.loadAssets(MODEL_URL_BASE, settingName);
 
     app = {
       LCF: LCF,
@@ -245,6 +280,16 @@
     window.addEventListener("resize", resizeCanvas);
     lastTick = performance.now();
     window.requestAnimationFrame(loop);
+
+    // The sample's loadAssets does not report failure, so a model that never
+    // arrives would sit on "starting..." indefinitely. Name it instead.
+    app.readyDeadline = window.setTimeout(function () {
+      if (!state.ready && !state.error) {
+        bootFail("the model did not finish loading",
+          "no frame was drawn within 20s - the runtime loaded but no model appeared",
+          state.modelUrl || MODEL_URL_BASE);
+      }
+    }, 20000);
   }
 
   function resizeCanvas() {
@@ -330,6 +375,10 @@
     if (!state.ready && model.getRenderer()) {
       state.ready = true;
       state.error = "";
+      if (app && app.readyDeadline) {
+        window.clearTimeout(app.readyDeadline);
+        app.readyDeadline = 0;
+      }
       BOOT.classList.add("hidden");
     }
   }

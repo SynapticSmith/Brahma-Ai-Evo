@@ -35,7 +35,9 @@ $FrameworkRepo = 'https://github.com/Live2D/CubismWebFramework.git'
 $FrameworkSha  = 'd4da0aa07e47d2c1e4f5fa7ea6047861ea5e5d0b'  # "Update to Cubism 5 SDK for Web R5"
 $SamplesRepo   = 'https://github.com/Live2D/CubismWebSamples.git'
 $SamplesSha    = 'b1de66b0b1f1cb881d95fb6158622aeb6a2827bd'
-$CoreUrl       = 'https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js'
+# Cubism Core 6.0.1 (Cubism 5.3). The legacy /sdk-web/cubismcore/ URL serves
+# Core 5.1.0, which cannot load moc3 version 6 models (e.g. the Ren sample).
+$CoreUrl       = 'https://cubism.live2d.com/sdk-web/core/06/live2dcubismcore.min.js'
 
 $Repo      = Split-Path -Parent $PSScriptRoot
 $VendorDir = Join-Path $Repo 'assets\avatar_live2d\vendor'

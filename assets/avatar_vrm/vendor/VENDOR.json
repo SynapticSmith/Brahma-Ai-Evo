@@ -1,5 +1,5 @@
 {
-  "source": "C:\\Users\\Admin\\AppData\\Local\\Temp\\paperclip-run-one-391-04d3d8ca-0b3-vbWdaZ\\opencode\\vrmdep\\node_modules",
+  "source": "C:\\Users\\Admin\\AppData\\Local\\Temp\\opencode\\vrmdep\\node_modules",
   "licence": "MIT (three.js and @pixiv/three-vrm, both pixiv Inc. / three.js authors)",
   "note": "Vendored so the avatar does not need the network at render time. Each package's LICENSE is stored beside its build.",
   "packages": [
@@ -8,6 +8,30 @@
       "version": "0.186.1",
       "file": "three.module.js",
       "bytes": 662772
+    },
+    {
+      "package": "three",
+      "version": "0.186.1",
+      "file": "three.core.js",
+      "bytes": 1458113
+    },
+    {
+      "package": "three",
+      "version": "0.186.1",
+      "file": "addons/loaders/GLTFLoader.js",
+      "bytes": 117570
+    },
+    {
+      "package": "three",
+      "version": "0.186.1",
+      "file": "addons/utils/BufferGeometryUtils.js",
+      "bytes": 37712
+    },
+    {
+      "package": "three",
+      "version": "0.186.1",
+      "file": "addons/utils/SkeletonUtils.js",
+      "bytes": 11535
     },
     {
       "package": "@pixiv/three-vrm",

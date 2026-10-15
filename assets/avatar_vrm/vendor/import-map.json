@@ -1,6 +1,7 @@
 {
   "imports": {
     "three": "./three.module.js",
+    "three/addons/": "./addons/",
     "@pixiv/three-vrm": "./three-vrm.module.js",
     "@pixiv/three-vrm-core": "./three-vrm-core.module.js",
     "@pixiv/three-vrm-materials-mtoon": "./three-vrm-materials-mtoon.module.js",

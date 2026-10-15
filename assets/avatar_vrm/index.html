@@ -37,7 +37,30 @@
   Unlike Live2D, nothing here is proprietary: three.js, @pixiv/three-vrm and
   the whole dependency tree are MIT and mirrorable.
 -->
-<script type="importmap" src="vendor/import-map.json"></script>
+
+<!--
+  The import map is inline, not a src= reference: Chromium (and so QtWebEngine)
+  ignores <script type="importmap" src=...> entirely. With an external map the
+  bare specifiers below never resolve, the module script never runs, and the page
+  sits on its "starting..." overlay with a console error and nothing else. Paths
+  are relative to THIS document, hence the ./vendor/ prefix.
+
+  Kept in sync with vendor/import-map.json by vendor_vrm_runtime.py.
+-->
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.js",
+    "three/addons/": "./vendor/addons/",
+    "@pixiv/three-vrm": "./vendor/three-vrm.module.js",
+    "@pixiv/three-vrm-core": "./vendor/three-vrm-core.module.js",
+    "@pixiv/three-vrm-materials-mtoon": "./vendor/three-vrm-materials-mtoon.module.js",
+    "@pixiv/three-vrm-materials-v0compat": "./vendor/three-vrm-materials-v0compat.module.js",
+    "@pixiv/three-vrm-springbone": "./vendor/three-vrm-springbone.module.js",
+    "@pixiv/three-vrm-node-constraint": "./vendor/three-vrm-node-constraint.module.js"
+  }
+}
+</script>
 </head>
 <body>
 <div id="stage"></div>
@@ -47,17 +70,19 @@
 "use strict";
 
 import * as THREE from "three";
-import { GLTFLoader } from "three";
-import { VRMUtils, createVRMCamera } from "@pixiv/three-vrm";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { VRMUtils, VRMLoaderPlugin } from "@pixiv/three-vrm";
 
 const BOOT = document.getElementById("boot");
 const BOOT_DETAIL = document.getElementById("boot-detail");
 const STAGE = document.getElementById("stage");
 
 const params = new URLSearchParams(window.location.search);
-const MODEL_DIR = params.get("model") || "";
-const MODEL_URL = MODEL_DIR
-  ? new URL(MODEL_DIR.replace(/\/?$/, "/"), window.location.href).href
+// The host passes the .vrm file itself (active_model_url() returns the model
+// path), so this must not append a slash: that turned a file URL into a
+// directory URL and the loader fetched nothing.
+const MODEL_URL = params.get("model")
+  ? new URL(params.get("model"), window.location.href).href
   : "";
 
 const EMOTION_HOLD_SECONDS = 7.0;
@@ -153,7 +178,7 @@ async function boot() {
     STAGE.appendChild(renderer.domElement);
 
     scene = new THREE.Scene();
-    camera = createVRMCamera();
+    camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 0.1, 50);
     camera.position.set(0, 1.25, 2.4);
 
     scene.add(new THREE.HemisphereLight(0xffffff, 0x223344, 1.2));
@@ -162,6 +187,7 @@ async function boot() {
     scene.add(key);
 
     gltfLoader = new GLTFLoader();
+    gltfLoader.register(function (parser) { return new VRMLoaderPlugin(parser); });
     gltfLoader.load(MODEL_URL, onLoaded, undefined, function (err) {
       bootFail("VRM failed to load", String(err && err.message ? err.message : err),
                MODEL_URL);
@@ -201,6 +227,7 @@ function onLoaded(gltf) {
     if (vrm.lookAt) {
       lookAt = { target: new THREE.Vector3(0, 1.4, 0) };
     }
+    try { VRMUtils.rotateVRM0(vrm); } catch (e) {}
     state.modelLoaded = true;
     state.ready = true;
     state.error = "";
