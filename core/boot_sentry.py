@@ -71,5 +71,8 @@ def check_and_recover_on_boot() -> bool:
         return False
 
 
-# Automatically execute recovery check on import
-check_and_recover_on_boot()
+def run() -> bool:
+    """Entry point used by ``main`` at startup. Previously this ran as an import
+    side effect, which made importing the module (e.g. from tooling) silently
+    roll files back; it is now an explicit call."""
+    return check_and_recover_on_boot()

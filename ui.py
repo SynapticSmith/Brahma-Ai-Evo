@@ -15,11 +15,11 @@ import subprocess
 import traceback
 from typing import Any
 
-# Hardware acceleration & WebGL flags for smooth 180fps+ rendering in Chromium
-os.environ.setdefault(
-    "QTWEBENGINE_CHROMIUM_FLAGS",
-    "--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist --enable-accelerated-2d-canvas --enable-webgl --enable-webgl2-compute-context --disable-frame-rate-limit --disable-gpu-vsync --num-raster-threads=4 --use-angle=d3d11 --disable-gpu-driver-bug-workarounds"
-)
+# Hardware acceleration & WebGL flags for smooth 180fps+ rendering in Chromium.
+# Applied through the shared bootstrap (see core.qt_bootstrap) instead of a
+# local copy so the flag string cannot drift from main.py/globe_window.py.
+from core.qt_bootstrap import bootstrap
+bootstrap()
 
 import platform
 import random
@@ -36,7 +36,7 @@ if platform.system() == "Windows":
 
 from PyQt6.QtCore import (
     QEasingCurve, QEvent, QObject, QPoint, QPointF, QRectF, QSize, Qt,
-    QTimer, QUrl, QPropertyAnimation, pyqtSignal, QCoreApplication,
+    QTimer, QUrl, QPropertyAnimation, pyqtSignal,
 )
 from PyQt6.QtGui import (
     QAction, QBrush, QColor, QDragEnterEvent, QDropEvent, QFont,
@@ -50,11 +50,6 @@ from PyQt6.QtWidgets import (
     QStyle, QSystemTrayIcon, QVBoxLayout, QWidget, QProgressBar,
     QStackedWidget, QInputDialog, QMessageBox,
 )
-
-try:
-    QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
-except Exception:
-    pass
 
 try:
     from PyQt6.QtWebEngineWidgets import QWebEngineView

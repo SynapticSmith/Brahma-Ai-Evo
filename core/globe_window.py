@@ -3,31 +3,26 @@ Brahma 3D HoloGlobe Window Controller.
 Hosts the WebGL 3D Earth, Great-Circle route visualizer, and live flight radar inside a modern PyQt6 window.
 """
 
-import os
 import json
 import threading
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
-# Hardware acceleration & WebGL flags for smooth 180fps+ rendering in Chromium
-os.environ.setdefault(
-    "QTWEBENGINE_CHROMIUM_FLAGS",
-    "--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist --enable-accelerated-2d-canvas --enable-webgl --enable-webgl2-compute-context --disable-frame-rate-limit --disable-gpu-vsync --num-raster-threads=4 --use-angle=d3d11 --disable-gpu-driver-bug-workarounds"
-)
+# Hardware acceleration & WebGL flags for smooth 180fps+ rendering in Chromium.
+# Applied through the shared bootstrap so the flag string/flags cannot drift from
+# main.py and ui.py.
+from core.qt_bootstrap import bootstrap
+
+bootstrap()
 
 from PyQt6.QtCore import Qt, QUrl, pyqtSlot, QObject, pyqtSignal, QTimer, QPoint, QCoreApplication
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QWidget, QHBoxLayout, QLabel,
     QPushButton, QGraphicsDropShadowEffect, QApplication
 )
-from PyQt6.QtGui import QColor, QIcon, QSurfaceFormat
+from PyQt6.QtGui import QColor, QIcon
 
-# Ensure OpenGL contexts sharing and unthrottled swap interval (180Hz+)
 try:
-    QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
-    fmt = QSurfaceFormat.defaultFormat()
-    fmt.setSwapInterval(0)
-    QSurfaceFormat.setDefaultFormat(fmt)
     import PyQt6.QtWebEngineWidgets
 except Exception:
     pass

@@ -143,9 +143,10 @@ Working reference for the code-review improvement pass. Keep this updated as ite
 - [ ] **P4-19 — Split god objects.** `ui.py` ~16k lines; `BrahmaLive` ~3.9k lines / 122 methods
   (`main.py:2162-6068`). Seams: session state machine, audio I/O, provider router, tool executor; and
   settings/chat/avatar/MCP panels.
-- [ ] **P4-20 — Import-time side effects.** `main.py:6-19` mutates Qt/env; `import core.boot_sentry` (`main.py:28`)
-  can roll back files before the UI; `ui.py:19-22` sets WebEngine flags; `QApplication` constructed inside
-  `BrahmaUI.__init__`.
+- [x] **P4-20 — Import-time side effects.** Done: the duplicated Qt/env blocks in `main.py`, `ui.py` (two) and
+  `core/globe_window.py` collapsed into one idempotent `core/qt_bootstrap.bootstrap()` (importing that module
+  has no side effects); `core/boot_sentry` no longer rolls files back on import — `main` calls
+  `boot_sentry.run()`. `tests/conftest.py` applies `bootstrap()` so the flag/attribute tests stay deterministic.
 - [x] **P4-21 — Repo weight.** Vendored `three.min.js` ×3 trees; `hand_landmarker.task` 7.8 MB tracked. Done: `hand_landmarker.task` untracked + gitignored (ui.py downloads it on demand under
   `%LOCALAPPDATA%`); `three.min.js` is now committed once at `assets/web_background/` (`assets/globe/index.html`
   loads it via `../web_background/`; the Android module copies it in at build time with the `syncSharedThree`

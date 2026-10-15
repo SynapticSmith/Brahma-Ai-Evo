@@ -2,21 +2,11 @@
 from core.user_paths import get_user_data_dir
 import os
 
-# Hardware acceleration & WebGL flags for smooth 180fps+ rendering in Chromium
-os.environ.setdefault(
-    "QTWEBENGINE_CHROMIUM_FLAGS",
-    "--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist --enable-accelerated-2d-canvas --enable-webgl --enable-webgl2-compute-context --disable-frame-rate-limit --disable-gpu-vsync --num-raster-threads=4 --use-angle=d3d11 --disable-gpu-driver-bug-workarounds"
-)
+from core.qt_bootstrap import bootstrap
 
-try:
-    from PyQt6.QtCore import QCoreApplication, Qt
-    from PyQt6.QtGui import QSurfaceFormat
-    QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
-    fmt = QSurfaceFormat.defaultFormat()
-    fmt.setSwapInterval(0)
-    QSurfaceFormat.setDefaultFormat(fmt)
-except Exception:
-    pass
+# Qt/QtWebEngine runtime settings (Chromium flags + shared GL contexts) must be
+# in place before any module pulls in QtWebEngineWidgets.
+bootstrap()
 
 from core import undo as undo_stack
 from core import audio_devices
@@ -25,7 +15,8 @@ from core.hotkey import PushToTalk
 from memory import config_manager
 from memory.memory_manager import search_memory
 
-import core.boot_sentry
+from core import boot_sentry
+boot_sentry.run()
 from core.sensorium import sensorium
 from core.protocols import protocols
 from core.local_brain import local_brain
