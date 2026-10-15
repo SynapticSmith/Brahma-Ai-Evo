@@ -131,8 +131,29 @@ LIVE_CONNECT_TIMEOUT = 12
 
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    """Return the Gemini API key, or raise with an actionable message.
+
+    Previously this raised a bare ``KeyError`` from ``json.load(...)["gemini_api_key"]``
+    when the file or key was missing. That escaped ``run()`` and killed the whole
+    voice loop with no visible reason. Callers can now catch one clear RuntimeError.
+    """
+    try:
+        data = json.loads(API_CONFIG_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise RuntimeError(
+            f"Missing {API_CONFIG_PATH}. Add {{\"gemini_api_key\": \"...\"}} or switch "
+            "the AI provider to Local/offline."
+        ) from None
+    except Exception as exc:
+        raise RuntimeError(f"Could not read {API_CONFIG_PATH}: {exc}") from exc
+
+    key = str((data or {}).get("gemini_api_key") or "").strip()
+    if not key:
+        raise RuntimeError(
+            f'No "gemini_api_key" in {API_CONFIG_PATH}. Set it, or switch the AI '
+            "provider to Local/offline to run without Gemini."
+        )
+    return key
 
 
 def _is_port_in_use(port: int, host: str = "127.0.0.1") -> bool:
@@ -5946,10 +5967,11 @@ class BrahmaLive:
         except Exception:
             pass
 
-        client = genai.Client(
-            api_key=_get_api_key(),
-            http_options={"api_version": "v1beta"}
-        )
+        # Built lazily inside the Gemini branch. A Local/offline provider must
+        # not require a Gemini key, and a missing key must surface as a bounded
+        # retry instead of killing the voice loop before its first iteration.
+        client = None
+        api_key_warned = False
 
         self._ui_loop = asyncio.get_running_loop()
         # Built on the loop that awaits it. A control change fires it to cut a
@@ -5973,9 +5995,20 @@ class BrahmaLive:
                         await self._wait_for_connect_request()
                         continue
                     self._clear_disconnect_request()
-                    await self._session_task_guard(
-                        self._run_local_voice_session()
-                    )
+                    try:
+                        await self._session_task_guard(
+                            self._run_local_voice_session()
+                        )
+                    except asyncio.CancelledError:
+                        # CancelledError is a BaseException, so the `except
+                        # Exception` below cannot see it. Swallow it only when
+                        # this was our own On Call / Disconnect teardown; a real
+                        # shutdown must still propagate and end run(). The Gemini
+                        # path does exactly this; without it, disconnecting in
+                        # Local mode killed the whole voice loop.
+                        if not self._take_disconnect_request():
+                            raise
+                        print("[BRAHMA EVO] 📴 Local session closed by On Call control.")
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:
@@ -5997,6 +6030,23 @@ class BrahmaLive:
                 print("[BRAHMA EVO] 🔌 Connecting...")
                 self._report_voice_status(False, "connecting")
                 self.ui.set_state("THINKING")
+                if client is None:
+                    try:
+                        client = genai.Client(
+                            api_key=_get_api_key(),
+                            http_options={"api_version": "v1beta"},
+                        )
+                    except Exception as e:
+                        if not api_key_warned:
+                            api_key_warned = True
+                            msg = f"Gemini client unavailable: {e}"
+                            print(f"[BRAHMA EVO] ⚠️ {msg}")
+                            _startup_log(msg)
+                        self._report_voice_status(False, "no-api-key")
+                        self.ui.set_state("STANDBY")
+                        await self._pause_until(10)
+                        continue
+
                 config = self._build_config()
 
                 connect_cm = client.aio.live.connect(model=LIVE_MODEL, config=config)
