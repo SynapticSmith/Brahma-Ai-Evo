@@ -46,13 +46,25 @@ Working reference for the code-review improvement pass. Keep this updated as ite
 
 ## P1 — concurrency & lifecycle
 
-- [ ] **P1-4 — Lost-wakeup race in reconnect backoff.** `_pause_until` clears `_control_wake`
-  (`main.py:2389`) after the `_should_standby()` check at `main.py:6054`; a GUI-thread wake can be dropped.
-- [ ] **P1-5 — Wake-word listener can double-open the mic / re-arm a disconnected call.** `main.py:2619-2623`
-  nulls the handle while the old thread still blocks in `recognizer.listen` (~`main.py:2655`); a stale thread
-  can call `set_live_call(True)` (`main.py:2661`).
-- [ ] **P1-6 — Duplicate `_relay_phone_audio` consumer** (`main.py:5943` and `main.py:2705`); fire-and-forget
+- [x] **P1-4 — Lost-wakeup race in reconnect backoff.** `_pause_until` cleared `_control_wake`
+  (`main.py:2389`) after the `_should_standby()` check at `main.py:6054`; a GUI-thread wake could be dropped.
+  Fix (done): control-sequence counter. `_wake_control` bumps `_control_seq` under `_control_lock`;
+  `_pause_until` clears the event, *then* samples `_control_seq` — a change that arrived during the connect
+  attempt makes it return immediately (recorded in `_pause_seen`) instead of sleeping the full backoff. The
+  counter is read via `getattr` so partial test harnesses keep working.
+- [x] **P1-5 — Wake-word listener can double-open the mic / re-arm a disconnected call.** `main.py:2619-2623`
+  nulled the handle while the old thread still blocked in `recognizer.listen` (~`main.py:2655`); a stale thread
+  could call `set_live_call(True)` (`main.py:2661`).
+  Fix (done): `_stop_wakeword_listener` no longer nulls `_wake_thread`/`_wake_stop` (so `_start` sees the old
+  thread alive and refuses to double-arm); the worker clears its own slot in a `finally` only if it is still
+  the current thread, and re-checks `stop.is_set()`/identity after the blocking `listen` so a Disconnect during
+  capture cannot resurrect the session.
+- [x] **P1-6 — Duplicate `_relay_phone_audio` consumer** (`main.py:5943` and `main.py:2705`); fire-and-forget
   tasks (`main.py:5936/5942/5943`) with no strong ref / done-callback.
+  Fix (done): removed the session-scoped relay (it raced the long-lived one for the same phone-audio queue);
+  the single long-lived relay now drops frames while `self.session is None` (no consumer → no unbounded
+  queue). Added `_spawn_background(coro, name)` which keeps a strong ref in `_background_tasks` and logs any
+  exception, and routed the dashboard / remote-commands / phone-audio tasks through it.
 - [ ] **P1-7 — MCP `_status`/`_tasks` lock inconsistency.** Written from the loop thread (`_set_state`
   `core/mcp_manager.py:776`) and read from others without a consistent lock.
 - [ ] **P1-8 — MCP shutdown race.** `mcp_manager.stop_all` (`core/mcp_manager.py:512-521`) waits 5s then
@@ -134,3 +146,7 @@ These were listed as incomplete before this pass. **None of them is done, and no
   `memory/config_manager.py`, `tests/test_atomic_settings_write.py` (new, 4 tests).
   Verification: `py_compile` clean; `pytest tests` → **139 passed**; `accept_live_toggle.py` → ALL CRITERIA
   PASS; `accept_local_speech.py` → ALL CRITERIA PASS. Not committed, not pushed.
+- 2026-10-15 — **P1-4, P1-5, P1-6 implemented** (`main.py` only). Verification: `py_compile` clean;
+  `pytest tests` → **139 passed**; `accept_live_toggle.py` → ALL CRITERIA PASS; `accept_local_speech.py` →
+  ALL CRITERIA PASS; `accept_wakeword.py` → B/C/C2 pass (section D "STT invoked" fails only because this box
+  has no input device — confirmed identical on the pre-change stash, i.e. environmental). Not pushed.
