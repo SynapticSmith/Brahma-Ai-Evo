@@ -403,6 +403,12 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     any method that uses `super()`. `accept_instructions.py`'s settings source guard widened to
     also read `core/ui_shell_settings.py`. `ui.py` 1620 -> 1570 lines. 149 tests pass, seven
     harnesses green.
+  - **Done - BrahmaUI discord-settings mixin (this commit).** Second BrahmaUI method-level split:
+    four discord bot-settings methods (`_load_discord_settings`, `_save_discord_settings`,
+    `_emit_discord_settings`, `_refresh_discord_card`, span 845-898 = 54 lines) moved verbatim
+    into `core/ui_shell_discord.py` (`class _ShellDiscordMixin`); `CONFIG_DIR` /
+    `DISCORD_SETTINGS_FILE` / `_default_discord_settings` injected via `bind()`, `C` imported from
+    `core.ui_theme`. `ui.py` 1570 -> 1522 lines. 149 tests pass, seven harnesses green.
   - **Done - MainWindow secondary-overlays mixin (this commit).** Tenth method-level split: 10
     contiguous methods (`_apply_circuit_overlay`, `_apply_call_screening`,
     `_take_over_screened_call`, `_hang_up_screened_call`, `_on_confirm_answered`,
