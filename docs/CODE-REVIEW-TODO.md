@@ -348,6 +348,13 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     (`BASE_DIR` is that same repo root) but correct from `core/`; the class already used `BASE_DIR`
     in `_browse_folder`. Body verified identical modulo that one documented line. `ui.py`
     3331 -> 3254 lines. Full suite 149 passed, all seven `accept_*.py` harnesses green.
+  - **Done - MainWindow avatar/audio mixin (this commit).** Fourth method-level split: 4
+    contiguous methods (`_attach_avatar_renderer`, `refresh_avatar_renderer`,
+    `_on_audio_level_sig`, `set_audio_level`, 56 lines) moved verbatim into
+    `core/ui_avatar_audio.py` (`class _AvatarAudioMixin`). Fully self-contained - no injected
+    globals, no new imports (only `self.*`). `accept_avatar.py` `ui_src` widened to include the
+    new module (presence/text checks). `ui.py` 2978 -> 2923 lines. 149 tests pass, seven
+    harnesses green.
   - **Done - MainWindow run-at-login/API-defaults mixin (this commit).** Third method-level
     split: 5 contiguous methods (`_load_api_defaults`, `_startup_enabled`, `_set_startup_enabled`,
     `_refresh_startup_button`, `_toggle_startup`, 81 lines) moved verbatim into

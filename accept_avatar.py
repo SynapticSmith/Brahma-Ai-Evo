@@ -288,7 +288,8 @@ def main() -> int:
         # _method_body lookups cover the move transparently.
         ui_src = (BASE / "ui.py").read_text(encoding="utf-8") + "\n" + (
             BASE / "core" / "ui_connectivity.py").read_text(encoding="utf-8") + "\n" + (
-            BASE / "core" / "ui_bg.py").read_text(encoding="utf-8")
+            BASE / "core" / "ui_bg.py").read_text(encoding="utf-8") + "\n" + (
+            BASE / "core" / "ui_avatar_audio.py").read_text(encoding="utf-8")
 
         check("stripped tags route to the registry through one helper",
               "def _deliver_avatar_emotion" in m_src
