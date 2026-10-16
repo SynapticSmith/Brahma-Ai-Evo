@@ -269,8 +269,17 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     `ui.py` source guard to also read `core/ui_floating.py` (the launcher orb-theme / status-text
     `standby` strings moved with it). Behavior-preserving: full suite 149 passed, all seven
     `accept_*.py` harnesses green. `ui.py` 7919 -> 7429 lines.
-  - Remaining seam: the rest of the `ui.py` panels (command bar, globe, file-drop,
-    setup/scanning/boot overlays, ...).
+  - **Done - top-overlays seam (this commit).** `RemoteKeyOverlay`, `DailyBriefingOverlay`,
+    `ConfirmationOverlay`, and `MemoryInspectorOverlay`, a 921-line contiguous block (4 nodes, no
+    non-blank holes), moved verbatim to `core/ui_overlays.py` (933 lines with its header). No
+    `bind()`: the only project symbol used is the `C` palette, imported directly from
+    `core.ui_theme`; everything else is Qt (`PyQt6.QtCore`/`QtGui`/`QtWidgets`) or `time`.
+    `ui.py` imports the module and re-exports the four class names, so the `MainWindow` references
+    (`self._remote_overlay`, plus the daily-briefing/confirmation/memory-inspector instantiations and
+    the `RemoteKeyOverlay | None` annotation) are unchanged. Behavior-preserving: full suite 149
+    passed, all seven `accept_*.py` harnesses green. `ui.py` 7429 -> 6514 lines.
+  - Remaining seam: the rest of the `ui.py` panels (command bar, developer-mode dialog,
+    scanning/boot/meeting overlays, globe, file-drop, `SetupOverlay`, ...).
 - [x] **P4-20 — Import-time side effects.** Done: the duplicated Qt/env blocks in `main.py`, `ui.py` (two) and
   `core/globe_window.py` collapsed into one idempotent `core/qt_bootstrap.bootstrap()` (importing that module
   has no side effects); `core/boot_sentry` no longer rolls files back on import — `main` calls
