@@ -442,6 +442,15 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     1320 lines. 148 tests pass (network-dependent auto-heal test deselected), seven harnesses
     green. (See the environment note below: the pytest *process* now exits non-zero on Qt
     native teardown even when all tests pass — pre-existing, reproduced at the prior commit.)
+  - **Done - BrahmaUI launcher/startup mixin (this commit).** Seventh BrahmaUI method-level split:
+    three launcher/startup helpers (`_toggle_workspace_on_startup`,
+    `_hide_launcher_with_protection`, `_show_hide_launcher_confirm`; span 936-965 = 30 lines)
+    moved verbatim into `core/ui_shell_launcher.py` (`class _ShellLauncherMixin`);
+    `LauncherControlPanel` injected via `bind()`. `_show_hide_launcher_confirm` builds the
+    `LauncherControlPanel(...)` whose `on_setting_toggle=self._on_panel_setting_toggle` line is
+    asserted by `accept_providers.py`, so its source-text `panel_start` was widened to also read
+    `core/ui_shell_launcher.py`. `ui.py` 1320 -> 1294 lines. 148 tests pass (network-dependent
+    auto-heal test deselected), seven harnesses green.
   - **Done - MainWindow secondary-overlays mixin (this commit).** Tenth method-level split: 10
     contiguous methods (`_apply_circuit_overlay`, `_apply_call_screening`,
     `_take_over_screened_call`, `_hang_up_screened_call`, `_on_confirm_answered`,
