@@ -26,11 +26,13 @@ from accept_util import check, section, report
 def _ui_source(marker: str) -> str:
     """The source of the ui.py class/method starting at `marker`.
 
-    The class may live in ui.py or in the extracted panel module
-    (core/ui_connectivity.py); read both so the move is transparent.
+    The class may live in ui.py or in an extracted panel module
+    (core/ui_connectivity.py, core/ui_telemetry.py); read all so the
+    move is transparent.
     """
     text = (BASE / "ui.py").read_text(encoding="utf-8") + "\n" + (
-        BASE / "core" / "ui_connectivity.py").read_text(encoding="utf-8")
+        BASE / "core" / "ui_connectivity.py").read_text(encoding="utf-8") + "\n" + (
+        BASE / "core" / "ui_telemetry.py").read_text(encoding="utf-8")
     start = text.index(marker)
     nxt = text.find("\nclass ", start + 1)
     return text[start:] if nxt == -1 else text[start:nxt]
@@ -373,11 +375,13 @@ def main() -> int:
         # ------------------------------------------------------------------
         section("F. Launcher control panel toggles")
         # ------------------------------------------------------------------
-        # Panels may live in ui.py or the extracted module
-        # (core/ui_connectivity.py); read both so the move is transparent.
+        # Panels may live in ui.py or an extracted module
+        # (core/ui_connectivity.py, core/ui_telemetry.py); read all so the
+        # move is transparent.
         panel_start = src and (
             (BASE / "ui.py").read_text(encoding="utf-8") + "\n" + (
-                BASE / "core" / "ui_connectivity.py").read_text(encoding="utf-8"))
+                BASE / "core" / "ui_connectivity.py").read_text(encoding="utf-8") + "\n" + (
+                BASE / "core" / "ui_telemetry.py").read_text(encoding="utf-8"))
         pc_start = panel_start.index("class LauncherControlPanel")
         pc_end = panel_start.index("def _invoke(self, fn, *args)", pc_start)
         pc_body = panel_start[pc_start:pc_end]

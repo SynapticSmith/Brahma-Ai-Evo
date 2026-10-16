@@ -229,6 +229,23 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     there is no import cycle. Qt, `asyncio`/`json`, and the external `SmartHomeService`/`_DeviceTile`
     are direct imports. Behavior-preserving: full suite 149 passed, all seven `accept_*.py` harnesses
     green. `ui.py` 11004 -> 9727 lines.
+  - **Done - color-palette leaf module (this commit).** `class C` (the 84-line theme palette,
+    lines 92-175; self-contained - no project imports, local `colorsys`, `_listeners` class attr,
+    classmethods) moved verbatim to a new leaf module `core/ui_theme.py` (90 lines); `ui.py` now reads
+    `from core.ui_theme import C` and the extracted `ui_*` modules import `C` directly. This was required
+    ahead of the telemetry seam because `SmallPanelCard.__init__` uses `C.WHITE` as a default-argument
+    value, which Python evaluates at class-definition time - so `C` cannot be injected through `bind()`.
+    Class C body verified byte-identical to `HEAD:ui.py`. Behavior-preserving: full suite 149 passed, all
+    seven `accept_*.py` harnesses green. `ui.py` 9727 -> 9644 lines.
+  - **Done - launcher / telemetry-wings seam (this commit).** `LauncherControlPanel` + `SmallPanelCard`
+    + `BrahmaTelemetryWing` + `BrahmaResultWing` + `StatCard` + `LogWidget` - 6 classes, a 1,084-line
+    block - moved verbatim to `core/ui_telemetry.py` (1,105 lines with its header). `ui.py` imports the
+    module, injects the one shared symbol still defined in `ui.py` (`MessageCard`, a `ui_chat` re-export)
+    through a `bind()` call, and re-exports the six class names so every `ui.<Class>` reference is
+    unchanged; `MessageCard` is not used at class-definition time, and `C` (from `core.ui_theme`) plus Qt
+    are direct imports. `accept_providers.py` extended its source-guard concatenation to also read
+    `core/ui_telemetry.py`. Behavior-preserving: full suite 149 passed, all seven `accept_*.py` harnesses
+    green. `ui.py` 9644 -> 8572 lines.
   - Remaining seam: the rest of the `ui.py` panels (launcher, command bar, globe, gesture/floating
     widgets, …).
 - [x] **P4-20 — Import-time side effects.** Done: the duplicated Qt/env blocks in `main.py`, `ui.py` (two) and
