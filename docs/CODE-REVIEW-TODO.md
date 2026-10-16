@@ -224,6 +224,18 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     `_meeting_active`, `_meeting_event`, `_meeting_assistant`) stays on the host (`self._host.*`) because the Qt
     surface and `_on_text_command` also read and set it. Behavior-preserving: full suite 149 passed, all seven
     `accept_*.py` harnesses green (none guard this cluster's source). `main.py` 4668 -> 4509 lines.
+  - **Done — device-routing seam (this commit).** The smart-home and Brahma-Connect text-command
+    handlers — `_handle_smart_home_command` (80 lines), `_extract_launch_app_name` (30 lines) and
+    `_handle_brahma_connect_command` (143 lines), 253 contiguous lines — moved verbatim to
+    `core/device_flow.py::DeviceFlow` (a host reference; `json`/`re`/`threading` and the
+    `actions.brahma_connect` symbols `connect_list_devices`/`connect_execute` imported directly;
+    `mobile_autopilot` stays a lazy in-body import, so no injection and no circular import).
+    `main.py` keeps a lazily-built `self._device_flow` property plus two thin delegations
+    (`_handle_smart_home_command`, `_handle_brahma_connect_command`, both called from
+    `_on_text_command`); the cluster-internal `_extract_launch_app_name` lost its name and becomes a
+    public method on the class. `_smart_home`/`ui`/`speak` live on the host (`self._host.*`).
+    Behavior-preserving: full suite 149 passed, all seven `accept_*.py` harnesses green (none guard
+    this cluster's source). `main.py` 4509 -> 4273 lines.
   - **Done — chat/workspace widget seam (this commit).** The conversation feed, the message/task/
     attachment/event/artifact cards, the history item, the task dock, the workspace sidebar and the
     inline chat workspace — 11 classes plus the two helpers `_fmt_time_stamp` and `_markdown_to_html`
