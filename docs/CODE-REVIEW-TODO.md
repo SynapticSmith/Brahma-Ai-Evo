@@ -460,6 +460,15 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     LauncherControlPanel` instead of a `bind()` (no import cycle: `ui_telemetry` does not import
     `core.ui`). `ui.py` 1294 -> 1264 lines. 148 tests pass (network-dependent auto-heal test
     deselected), seven harnesses green.
+  - **Done - BrahmaUI panel-settings mixin (this commit).** Ninth BrahmaUI method-level split:
+    two panel/app helpers (`_restart_app`, `_on_panel_setting_toggle`; span 861-941 = 81 lines)
+    moved verbatim into `core/ui_shell_panel_settings.py` (`class _ShellPanelSettingsMixin`);
+    `BASE_DIR`, `_OS`, `_hidden_launch_args`, `_launched_from_windows_startup` injected via
+    `bind()`. `_on_panel_setting_toggle` carries the `set_animation_enabled` / "no web view
+    exists" strings, so `accept_instructions.py`'s `ui_src2` source-text guard was widened to
+    also read `core/ui_shell_panel_settings.py` (the `accept_providers.py` `set_animation_enabled`
+    / `_web_view.hide()` guards still pass via `ui_connectivity`/`ui_bg`). `ui.py` 1264 -> 1190
+    lines. 148 tests pass (network-dependent auto-heal test deselected), seven harnesses green.
   - **Done - MainWindow secondary-overlays mixin (this commit).** Tenth method-level split: 10
     contiguous methods (`_apply_circuit_overlay`, `_apply_call_screening`,
     `_take_over_screened_call`, `_hang_up_screened_call`, `_on_confirm_answered`,

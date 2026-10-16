@@ -255,7 +255,8 @@ def main() -> int:
 
         ui_src2 = (BASE / "ui.py").read_text(encoding="utf-8") + "\n" + (
             BASE / "core" / "ui_connectivity.py").read_text(encoding="utf-8") + "\n" + (
-            BASE / "core" / "ui_bg.py").read_text(encoding="utf-8")
+            BASE / "core" / "ui_bg.py").read_text(encoding="utf-8") + "\n" + (
+            BASE / "core" / "ui_shell_panel_settings.py").read_text(encoding="utf-8")
         check("background honours the saved setting at construction",
               'get_setting("enable_3d_background", True)' in ui_src2)
         check("set_animation_enabled reports a readback instead of returning None",
