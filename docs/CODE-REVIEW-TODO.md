@@ -193,7 +193,18 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     `accept_local_speech.py` and `tests/test_tool_bridge.py` retargeted their source guards to
     `core/session_lifecycle.py`; `accept_live_toggle.py` retargeted too and its method-copying `Surface`
     harness now binds the new property). `main.py` 5247 -> 4668 lines.
-  - Remaining seam: the `ui.py` panels.
+  - **Done — chat/workspace widget seam (this commit).** The conversation feed, the message/task/
+    attachment/event/artifact cards, the history item, the task dock, the workspace sidebar and the
+    inline chat workspace — 11 classes plus the two helpers `_fmt_time_stamp` and `_markdown_to_html`
+    (used only by this cluster) — a 2,109-line block moved verbatim to `core/ui_chat.py` (2,169 lines
+    with its header). `ui.py` imports the module, injects the three shared symbols defined outside the
+    cluster (`C`, `_framed_logo`, `BASE_DIR`) through a `bind()` call, and re-exports the eleven class
+    names so every existing `ui.<Class>` reference is unchanged; none of the injected symbols is used at
+    class-definition time, so there is no import cycle. Behavior-preserving: full suite 149 passed, all
+    seven `accept_*.py` harnesses green (`accept_live_toggle.py`'s footer guard now reads `ui.py` +
+    `core/ui_chat.py`). `ui.py` 17247 -> 15153 lines.
+  - Remaining seam: the rest of the `ui.py` panels (settings/avatar/MCP/connectivity panels, launcher,
+    command bar, globe, …).
 - [x] **P4-20 — Import-time side effects.** Done: the duplicated Qt/env blocks in `main.py`, `ui.py` (two) and
   `core/globe_window.py` collapsed into one idempotent `core/qt_bootstrap.bootstrap()` (importing that module
   has no side effects); `core/boot_sentry` no longer rolls files back on import — `main` calls

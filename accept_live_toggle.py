@@ -560,11 +560,12 @@ def main() -> int:
     section("Connectivity is reported, not inferred from the microphone")
     # ------------------------------------------------------------------
     ui_src2 = (BASE / "ui.py").read_text(encoding="utf-8")
+    chat_src = (BASE / "core" / "ui_chat.py").read_text(encoding="utf-8")
     check("the window exposes set_voice_status",
           "def set_voice_status" in ui_src2)
     check("the footer renders backend + connection state",
-          "_refresh_connectivity_indicator" in ui_src2
-          and '"connected"' in ui_src2)
+          "_refresh_connectivity_indicator" in (ui_src2 + chat_src)
+          and '"connected"' in (ui_src2 + chat_src))
     check("standby text is no longer On-Call-specific",
           '"standby": "On Call - waiting' not in ui_src2)
     check("the main loop reports connectivity from every transition",
