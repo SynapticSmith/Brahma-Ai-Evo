@@ -348,6 +348,11 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     (`BASE_DIR` is that same repo root) but correct from `core/`; the class already used `BASE_DIR`
     in `_browse_folder`. Body verified identical modulo that one documented line. `ui.py`
     3331 -> 3254 lines. Full suite 149 passed, all seven `accept_*.py` harnesses green.
+  - **Done - MainWindow mute/send mixin (this commit).** Sixth method-level split: 6
+    contiguous methods (`_toggle_mute`, `set_muted_state`, `_style_mute_btn`, `_send`,
+    `submit_command`, `_on_log_text`, 114 lines) moved verbatim into `core/ui_mute_send.py`
+    (`class _MuteSendMixin`). `C` (theme) and `sound_mgr` imported directly, `threading` stdlib;
+    no injected globals. `ui.py` 2789 -> 2676 lines. 149 tests pass, seven harnesses green.
   - **Done - MainWindow overlay-cards mixin (this commit).** Fifth method-level split: 14
     contiguous methods (`_restart_card_hide_timer`, `_hide_command_cards`, `_apply_hud_operation`,
     `_apply_hud_deliverable`, `_apply_daily_briefing`, `_position_briefing_overlay`,
