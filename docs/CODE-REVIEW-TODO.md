@@ -632,6 +632,23 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     `_base_dir` and `_new_setStyleSheet` are deliberately left in `ui.py`: `_base_dir` uses
     `__file__` (moving it to `core/` would change `BASE_DIR`) and `_new_setStyleSheet` is an
     order-sensitive import-time monkeypatch. `ui.py` is 816 lines (down from 17247).
+  - **BrahmaLive seam split complete.** The `BrahmaLive` god object (originally ~3.9k lines / 122
+    methods, per the item above) is now 72 methods / 1,701 lines after eight verbatim seam
+    extractions, each reached through a lazily-built host property plus thin delegating wrappers:
+    `core/provider_failover.py` (throttle policy), `core/tool_exec.py` (tool executor),
+    `core/audio_io.py` (mic/receive/playback/speak), `core/reply_flow.py` (reply/IG/email),
+    `core/session_lifecycle.py` (Live lifecycle), `core/attention_flow.py` (attention/meeting),
+    `core/device_flow.py` (smart-home + Brahma-Connect) and `core/realtime_flow.py`
+    (background/dashboard/realtime). Every extraction was verified the same way: AST-identical
+    method bodies, an import check, full suite 149 passed, all seven `accept_*.py` harnesses green,
+    and `scripts/precommit_check.py --quick` SAFE. The remainder is intentionally host-resident and
+    **not** slated for further extraction: `_on_text_command` (658 lines) is one cohesive dispatcher
+    — its 21 nested `_run_*` closures are its content, so relocating it would move, not decompose,
+    the logic, and the audio/session/attention seams' own rationale depends on it staying on the
+    host; `_fallback_reply` (262 lines) plus `_split_emotion_tag`/`_deliver_avatar_emotion` is coupled
+    to `accept_instructions.py`'s source-slice guard (which protects a historical `NameError` in the
+    reply path) and was deliberately left out of the reply seam; and the `__init__` body (109 lines)
+    is irreducible. No unguarded, high-cohesion cluster remains.
 - [x] **P4-20 — Import-time side effects.** Done: the duplicated Qt/env blocks in `main.py`, `ui.py` (two) and
   `core/globe_window.py` collapsed into one idempotent `core/qt_bootstrap.bootstrap()` (importing that module
   has no side effects); `core/boot_sentry` no longer rolls files back on import — `main` calls
