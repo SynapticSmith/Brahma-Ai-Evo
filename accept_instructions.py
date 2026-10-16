@@ -346,8 +346,14 @@ def main() -> int:
         _json.dump({"enable_3d_background": True,
                     "provider_enabled_openrouter": True,
                     "sound_effects_volume": 70}, open(_sandbox, "w"))
+        _apps = getattr(ui_mod, "_ui_appsettings", None)
         _real_ui_file, _real_cm_file = ui_mod.APP_SETTINGS_FILE, _cm.SETTINGS_FILE
+        _real_apps_file = getattr(_apps, "APP_SETTINGS_FILE", None)
         ui_mod.APP_SETTINGS_FILE = _sandbox
+        # The MainWindow settings methods live in the extracted mixin module now;
+        # patch its copy of the path too so the sandbox redirect is transparent.
+        if _apps is not None:
+            _apps.APP_SETTINGS_FILE = _sandbox
         _cm.SETTINGS_FILE = _sandbox
         try:
             class _Win:
@@ -403,7 +409,8 @@ def main() -> int:
             # Explicit invalidation helper exists on both settings owners.
             _ui_src = (BASE / "ui.py").read_text(encoding="utf-8") + "\n" + (
                 BASE / "core" / "ui_connectivity.py").read_text(encoding="utf-8") + "\n" + (
-                BASE / "core" / "ui_bg.py").read_text(encoding="utf-8")
+                BASE / "core" / "ui_bg.py").read_text(encoding="utf-8") + "\n" + (
+                BASE / "core" / "ui_appsettings.py").read_text(encoding="utf-8")
             check("both settings owners expose cache invalidation",
                   _ui_src.count("def _invalidate_app_settings_cache") >= 2)
             check("the cache is stamped against the file, not trusted blindly",
@@ -415,6 +422,8 @@ def main() -> int:
                   _ui_src.count("merged = on_disk") >= 2)
         finally:
             ui_mod.APP_SETTINGS_FILE = _real_ui_file
+            if _apps is not None:
+                _apps.APP_SETTINGS_FILE = _real_apps_file
             _cm.SETTINGS_FILE = _real_cm_file
 
         # Avatar switches follow the 3D background.

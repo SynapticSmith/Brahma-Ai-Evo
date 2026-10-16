@@ -348,7 +348,18 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     (`BASE_DIR` is that same repo root) but correct from `core/`; the class already used `BASE_DIR`
     in `_browse_folder`. Body verified identical modulo that one documented line. `ui.py`
     3331 -> 3254 lines. Full suite 149 passed, all seven `accept_*.py` harnesses green.
-  - **Done - MainWindow Discord mixin (this commit).** First method-level split of the
+  - **Done - MainWindow app-settings/startup-animation mixin (this commit).** Second
+    method-level split: 8 contiguous methods (`_settings_file_stamp`, `_load_app_settings`,
+    `_invalidate_app_settings_cache`, `_save_app_settings`, `_startup_animation_enabled`,
+    `_set_startup_animation_enabled`, `_refresh_startup_animation_button`,
+    `_toggle_startup_animation`, 100 lines) moved verbatim into `core/ui_appsettings.py`
+    (`class _AppSettingsMixin`, second base of `MainWindow`). Bodies byte-identical;
+    `json`/`os`/`platform`/`atomic_write_json` direct, `APP_SETTINGS_FILE`/`CONFIG_DIR`/
+    `_current_boot_stamp`/`_default_app_settings` injected via `bind()`. `accept_instructions.py`
+    retargeted (mirror sandbox onto `_ui_appsettings.APP_SETTINGS_FILE`, add module to `_ui_src`
+    source reads) - same rebind hazard as the connectivity seam. `ui.py` 3146 -> 3053 lines.
+    149 tests pass, seven harnesses green.
+  - **Done - MainWindow Discord mixin (previous commit).** First method-level split of the
     `MainWindow` god object (97 methods, 1945 lines). Its 7 contiguous Discord methods
     (`_load_discord_settings`/`_save_discord_settings`/`_emit_discord_settings`/
     `_refresh_discord_card`/`_save_discord_token`/`_start_discord_bot`/`_stop_discord_bot`,
