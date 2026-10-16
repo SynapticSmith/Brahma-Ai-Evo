@@ -3853,79 +3853,31 @@ class BrahmaLive:
     async def _execute_tool(self, fc) -> types.FunctionResponse:
         return await self._tool_executor().execute(fc)
 
+    @property
+    def _realtime_flow(self):
+        """Lazily build the realtime/dashboard flows (P4-19 seam; see core.realtime_flow)."""
+        rf = getattr(self, "_realtime_flow_obj", None)
+        if rf is None:
+            from core.realtime_flow import RealtimeFlow
+
+            rf = RealtimeFlow(self)
+            self._realtime_flow_obj = rf
+        return rf
+
     def _spawn_background(self, coro, name: str):
-        """Start a loop task that outlives its caller, with a strong ref.
-
-        Fire-and-forget ``asyncio.create_task`` calls keep no reference, so the
-        task can be garbage-collected before it finishes and its exception never
-        surfaces. Holding it in ``_background_tasks`` until it completes fixes
-        both, and the done-callback logs a real failure instead of dropping it.
-        """
-        task = asyncio.ensure_future(coro)
-        self._background_tasks.add(task)
-
-        def _done(t: "asyncio.Future") -> None:
-            self._background_tasks.discard(t)
-            if t.cancelled():
-                return
-            exc = t.exception()
-            if exc is not None:
-                try:
-                    print(f"[BRAHMA EVO] background task '{name}' failed: {exc!r}")
-                    traceback.print_exception(type(exc), exc, exc.__traceback__)
-                except Exception:
-                    pass
-
-        task.add_done_callback(_done)
-        return task
+        return self._realtime_flow.spawn_background(coro, name)
 
     async def _serve_dashboard(self):
-        if self._dashboard is None:
-            self.ui.write_log("ERR: Mobile Connect disabled because dashboard dependencies are missing.")
-            return
-        try:
-            self._dashboard.set_connect_callback(self._on_phone_connected)
-            self._dashboard.set_wake_callback(lambda: None)
-            await self._dashboard.serve()
-        except Exception as e:
-            self.ui.write_log(f"ERR: Mobile Connect server failed: {e}")
-            traceback.print_exc()
+        return await self._realtime_flow.serve_dashboard()
 
     async def _consume_remote_commands(self):
-        if self._dashboard is None:
-            return
-        while True:
-            text = await self._dashboard._command_queue.get()
-            if text:
-                try:
-                    self.ui.submit_external_command(text, source="mobile")
-                except Exception:
-                    self._on_text_command(text, source="mobile")
+        return await self._realtime_flow.consume_remote_commands()
 
     async def _relay_phone_audio(self):
-        if self._dashboard is None:
-            return
-        while True:
-            frame = await self._dashboard._phone_audio_queue.get()
-            # Only relay while a live session can actually play it. Queuing into a
-            # stale out_queue (no consumer) would just grow without bound while
-            # disconnected.
-            if self.session is None or not self.out_queue:
-                continue
-            self._phone_active = True
-            try:
-                await self.out_queue.put(frame)
-            finally:
-                await asyncio.sleep(0.08)
-                if self._dashboard._phone_audio_queue.empty():
-                    self._phone_active = False
+        return await self._realtime_flow.relay_phone_audio()
 
     async def _send_realtime(self):
-        while True:
-            msg = await self.out_queue.get()
-            await self.session.send_realtime_input(media=msg)
-
-
+        return await self._realtime_flow.send_realtime()
 
 
 def main():

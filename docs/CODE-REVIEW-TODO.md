@@ -224,6 +224,18 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     `_meeting_active`, `_meeting_event`, `_meeting_assistant`) stays on the host (`self._host.*`) because the Qt
     surface and `_on_text_command` also read and set it. Behavior-preserving: full suite 149 passed, all seven
     `accept_*.py` harnesses green (none guard this cluster's source). `main.py` 4668 -> 4509 lines.
+  - **Done — realtime/dashboard seam (this commit).** The background-task spawner and the
+    dashboard/driver coroutines — `_spawn_background` (25 lines), `_serve_dashboard` (11),
+    `_consume_remote_commands` (10), `_relay_phone_audio` (17) and `_send_realtime` (4) —
+    moved verbatim to `core/realtime_flow.py::RealtimeFlow` (a host reference; `asyncio`/
+    `traceback` imported directly). These are driven from `core/session_lifecycle.py` through
+    `self._host.*`, so `main.py` keeps a lazily-built `self._realtime_flow` property plus five
+    thin wrappers (`_spawn_background` sync; the four coroutines `async`). Host state
+    (`_background_tasks`/`_dashboard`/`session`/`out_queue`/`_phone_active`/`ui`) and host
+    methods (`_on_phone_connected`/`_on_text_command`) stay on the host. Cleanest residual
+    seam: no source-text harness guards (`accept_live_toggle.py` monkeypatches a `FakeLive`
+    stub, not `BrahmaLive`). Full suite 149 passed, all seven `accept_*.py` harnesses green.
+    `main.py` 4273 -> 4224 lines.
   - **Done — device-routing seam (this commit).** The smart-home and Brahma-Connect text-command
     handlers — `_handle_smart_home_command` (80 lines), `_extract_launch_app_name` (30 lines) and
     `_handle_brahma_connect_command` (143 lines), 253 contiguous lines — moved verbatim to
