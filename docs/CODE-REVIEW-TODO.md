@@ -745,3 +745,13 @@ These were listed as incomplete before this pass. **None of them is done, and no
   clean; full suite **156 passed**; all six harnesses (`accept_instructions/live_toggle/providers/wakeword/
   local_speech/avatar.py`) → ALL CRITERIA PASS; `precommit_check.py --quick` SAFE; DPI proven via
   `AreDpiAwarenessContextsEqual`. Committed locally (no push).
+- 2026-10-16 — **Python-version requirement made consistent (user-decided: robust fallback chain).**
+  `EVO.bat` no longer hard-pins `py -3.11`; it now prefers the repo `.venv` (created by
+  `bootstrap.ps1` / `start_brahma.bat`), then probes `py -3.12`, `py -3.11`, `py -3`, `python` —
+  the same style as `install_speech_deps.ps1`. Added `BRAHMA_PRINT_PY=1` to print the chosen
+  interpreter and exit without launching (for verification/CI). `bootstrap.ps1` now prefers a
+  supported interpreter (`py -3.12` / `-3.11`) when creating the venv, so a bare `py` default
+  (e.g. 3.14) can no longer create an out-of-range venv; `install_speech_deps.ps1` gained a
+  `py -3.12` probe. README already claims 3.11 | 3.12, which is now accurate. Verified:
+  `BRAHMA_PRINT_PY=1 EVO.bat` → the `.venv` python when present, else `py -3.11` (3.12 absent on
+  this host); both PowerShell scripts parse cleanly. Not pushed.

@@ -45,7 +45,7 @@ if (Test-Path $venvPython) {
     $pythonArgs = @()
 }
 if (-not $pythonExe) {
-    foreach ($candidate in @(@{Exe="py"; Args=@("-3.11")}, @{Exe="py"; Args=@("-3")}, @{Exe="python"; Args=@()})) {
+    foreach ($candidate in @(@{Exe="py"; Args=@("-3.11")}, @{Exe="py"; Args=@("-3.12")}, @{Exe="py"; Args=@("-3")}, @{Exe="python"; Args=@()})) {
         if (Get-Command $candidate.Exe -ErrorAction SilentlyContinue) {
             $pythonExe = $candidate.Exe
             $pythonArgs = $candidate.Args

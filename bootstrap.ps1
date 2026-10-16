@@ -31,9 +31,16 @@ function Update-Environment {
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
 }
 
-# 3. Check for Python
+# 3. Check for Python (prefer a supported version: 3.11 / 3.12)
 $PythonExe = $null
-if (Get-Command "py" -ErrorAction SilentlyContinue) { $PythonExe = "py" }
+$PythonVersionArg = ""
+if (Get-Command "py" -ErrorAction SilentlyContinue) {
+    foreach ($v in @("-3.12","-3.11")) {
+        & py $v -c "import sys" 2>$null
+        if ($LASTEXITCODE -eq 0) { $PythonExe = "py"; $PythonVersionArg = $v; break }
+    }
+    if (-not $PythonExe) { $PythonExe = "py" }   # fall back to whatever py defaults to
+}
 elseif (Get-Command "python" -ErrorAction SilentlyContinue) { $PythonExe = "python" }
 
 if (-not $PythonExe) {
@@ -48,8 +55,10 @@ if (-not $PythonExe) {
     Write-Host "Python installed successfully." -ForegroundColor Green
     Update-Environment
     $PythonExe = "python"
+    $PythonVersionArg = ""
 } else {
-    Write-Host "Python is already installed: $(Get-Command $PythonExe | Select-Object -ExpandProperty Source)" -ForegroundColor Green
+    $PythonDesc = "$PythonExe $PythonVersionArg".Trim()
+    Write-Host "Python is already installed: $PythonDesc ($(Get-Command $PythonExe | Select-Object -ExpandProperty Source))" -ForegroundColor Green
 }
 
 # 4. Check for Node.js
@@ -76,7 +85,10 @@ $VenvPythonW = Join-Path -Path $VenvDir -ChildPath "Scripts\pythonw.exe"
 if (-not (Test-Path $VenvPython)) {
     Write-Host "Creating Virtual Environment in .venv..." -ForegroundColor Cyan
     if (Test-Path $VenvDir) { Remove-Item -Recurse -Force $VenvDir }
-    Start-Process -FilePath $PythonExe -ArgumentList "-m venv .venv" -Wait -NoNewWindow
+    $VenvCreateArgs = @()
+    if ($PythonVersionArg) { $VenvCreateArgs += $PythonVersionArg }
+    $VenvCreateArgs += @("-m", "venv", ".venv")
+    Start-Process -FilePath $PythonExe -ArgumentList $VenvCreateArgs -Wait -NoNewWindow
     Write-Host "Virtual Environment created." -ForegroundColor Green
 } else {
     Write-Host "Virtual Environment already exists." -ForegroundColor Green
