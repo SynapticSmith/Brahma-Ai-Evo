@@ -348,6 +348,14 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     (`BASE_DIR` is that same repo root) but correct from `core/`; the class already used `BASE_DIR`
     in `_browse_folder`. Body verified identical modulo that one documented line. `ui.py`
     3331 -> 3254 lines. Full suite 149 passed, all seven `accept_*.py` harnesses green.
+  - **Done - MainWindow secondary-overlays mixin (this commit).** Tenth method-level split: 10
+    contiguous methods (`_apply_circuit_overlay`, `_apply_call_screening`,
+    `_take_over_screened_call`, `_hang_up_screened_call`, `_on_confirm_answered`,
+    `_position_confirm_overlay`, `show_memory_inspector`, `hide_memory_inspector`,
+    `_apply_memory_overlay`, `_position_memory_overlay`, 132 lines) moved verbatim into
+    `core/ui_secondary_overlays.py` (`class _SecondaryOverlaysMixin`). `MemoryInspectorOverlay`
+    injected via `bind()`; Qt widgets imported directly. `ui.py` 2485 -> 2357 lines. 149 tests
+    pass, seven harnesses green.
   - **Done - MainWindow remote-connect mixin (this commit).** Ninth method-level split: 4
     contiguous methods (`show_app`, `_show_remote_connect`, `_position_remote_overlay`,
     `notify_phone_connected`, 50 lines) moved verbatim into `core/ui_remote.py`
