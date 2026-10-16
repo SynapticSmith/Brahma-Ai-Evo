@@ -392,6 +392,17 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     input-placeholder / chip / task-card maps, including their emoji, verified byte-identical).
     `accept_live_toggle.py`'s section-9 source guard widened to also read
     `core/ui_apply_state.py`. `ui.py` 1728 -> 1620 lines. 149 tests pass, seven harnesses green.
+  - **Done - BrahmaUI app-settings mixin (this commit).** First method-level split of the
+    remaining `BrahmaUI` god object: five settings-persistence methods (`_load_app_settings`,
+    `_settings_file_stamp`, `_invalidate_app_settings_cache`, `_save_app_settings`,
+    `_save_launcher_position`, span 798-853 = 56 lines) moved verbatim into
+    `core/ui_shell_settings.py` (`class _ShellSettingsMixin`); `APP_SETTINGS_FILE` / `CONFIG_DIR`
+    / `_default_app_settings` injected via `bind()` (all defined well above the bind site; values
+    copied at import, so production behaviour is unchanged). `gen_ui_mixin.py` generalised to a
+    `TARGET_CLASS` env var (also handles a base-less `class BrahmaUI:`) and now refuses to move
+    any method that uses `super()`. `accept_instructions.py`'s settings source guard widened to
+    also read `core/ui_shell_settings.py`. `ui.py` 1620 -> 1570 lines. 149 tests pass, seven
+    harnesses green.
   - **Done - MainWindow secondary-overlays mixin (this commit).** Tenth method-level split: 10
     contiguous methods (`_apply_circuit_overlay`, `_apply_call_screening`,
     `_take_over_screened_call`, `_hang_up_screened_call`, `_on_confirm_answered`,

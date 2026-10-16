@@ -410,7 +410,8 @@ def main() -> int:
             _ui_src = (BASE / "ui.py").read_text(encoding="utf-8") + "\n" + (
                 BASE / "core" / "ui_connectivity.py").read_text(encoding="utf-8") + "\n" + (
                 BASE / "core" / "ui_bg.py").read_text(encoding="utf-8") + "\n" + (
-                BASE / "core" / "ui_appsettings.py").read_text(encoding="utf-8")
+                BASE / "core" / "ui_appsettings.py").read_text(encoding="utf-8") + "\n" + (
+                BASE / "core" / "ui_shell_settings.py").read_text(encoding="utf-8")
             check("both settings owners expose cache invalidation",
                   _ui_src.count("def _invalidate_app_settings_cache") >= 2)
             check("the cache is stamped against the file, not trusted blindly",
