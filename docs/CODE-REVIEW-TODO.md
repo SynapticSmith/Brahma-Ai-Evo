@@ -428,6 +428,12 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     `core/ui_shell_tray.py` (`class _ShellTrayMixin`, no injected names). `ui.py` 1428 -> 1372
     lines. 148 tests pass (network-dependent auto-heal test deselected, see prior note), seven
     harnesses green.
+  - **Done - BrahmaUI developer-mode mixin (this commit).** Fifth BrahmaUI method-level split: two
+    developer-mode helpers (`_open_developer_mode_dialog`, `_apply_developer_mode_ui`; span
+    820-844 = 25 lines) moved verbatim into `core/ui_shell_devmode.py`
+    (`class _ShellDevModeMixin`); `DeveloperModeDialog` injected via `bind()`. `ui.py` 1372 ->
+    1351 lines. 148 tests pass (network-dependent auto-heal test deselected), seven harnesses
+    green.
   - **Done - MainWindow secondary-overlays mixin (this commit).** Tenth method-level split: 10
     contiguous methods (`_apply_circuit_overlay`, `_apply_call_screening`,
     `_take_over_screened_call`, `_hang_up_screened_call`, `_on_confirm_answered`,

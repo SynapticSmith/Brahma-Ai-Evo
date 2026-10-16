@@ -685,7 +685,12 @@ _ui_shell_boot.bind(
 _ShellBootMixin = _ui_shell_boot._ShellBootMixin
 from core import ui_shell_tray as _ui_shell_tray
 _ShellTrayMixin = _ui_shell_tray._ShellTrayMixin
-class BrahmaUI(_ShellTrayMixin, _ShellBootMixin, _ShellDiscordMixin, _ShellSettingsMixin):
+from core import ui_shell_devmode as _ui_shell_devmode
+_ui_shell_devmode.bind(
+    DeveloperModeDialog=DeveloperModeDialog,
+)
+_ShellDevModeMixin = _ui_shell_devmode._ShellDevModeMixin
+class BrahmaUI(_ShellDevModeMixin, _ShellTrayMixin, _ShellBootMixin, _ShellDiscordMixin, _ShellSettingsMixin):
     def __init__(self, face_path: str, size=None, *, show_immediately: bool = True):
         self._app = QApplication.instance() or QApplication(sys.argv)
         self._app.setStyle("Fusion")
@@ -816,32 +821,6 @@ class BrahmaUI(_ShellTrayMixin, _ShellBootMixin, _ShellDiscordMixin, _ShellSetti
         self._command_bar.hide()
         self._launcher.hide()
         self._win.hide()
-
-    def _open_developer_mode_dialog(self):
-        try:
-            dialog = DeveloperModeDialog(self._win, settings=self._load_app_settings())
-            if dialog.exec() == QDialog.DialogCode.Accepted:
-                settings = dialog.get_settings()
-                self._save_app_settings(settings)
-                self._apply_developer_mode_ui()
-        except Exception:
-            pass
-
-    def _apply_developer_mode_ui(self):
-        try:
-            settings = self._load_app_settings()
-            enabled = bool(settings.get("developer_mode_enabled", False))
-            workspace = str(settings.get("developer_mode_workspace", "")).strip()
-            if hasattr(self._win, "_developer_card") and hasattr(self._win, "_developer_status_lbl"):
-                if enabled:
-                    workspace_text = workspace or "No folder selected"
-                    self._win._developer_status_lbl.setText(
-                        f"Developer mode is on • {workspace_text}"
-                    )
-                # Keep legacy card permanently hidden; modern UI integrates status inside settings
-                self._win._developer_card.hide()
-        except Exception:
-            pass
 
     def _sync_launcher_state(self, state: str):
         state = (state or "idle").strip().lower()
