@@ -486,6 +486,12 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     also read `core/ui_shell_panel_settings.py` (the `accept_providers.py` `set_animation_enabled`
     / `_web_view.hide()` guards still pass via `ui_connectivity`/`ui_bg`). `ui.py` 1264 -> 1190
     lines. 148 tests pass (network-dependent auto-heal test deselected), seven harnesses green.
+  - **Done - BrahmaUI actions mixin (this commit).** Tenth BrahmaUI method-level split: nine
+    contiguous command/clipboard/discord handlers (`_sync_launcher_state`, `_on_clipboard_actionable`,
+    `_submit_command`, `_browse_attachment`, `_toggle_mute`, `_show_update_prompt`, `_on_chat_event`,
+    `_on_discord_config_changed`, `_open_app`; span 842-931 = 90 lines) moved verbatim into
+    `core/ui_shell_actions.py` (`class _ShellActionsMixin`, no injected or imported names). `ui.py`
+    1190 -> 1101 lines. 149 tests pass, seven harnesses green.
   - **Done - MainWindow secondary-overlays mixin (this commit).** Tenth method-level split: 10
     contiguous methods (`_apply_circuit_overlay`, `_apply_call_screening`,
     `_take_over_screened_call`, `_hang_up_screened_call`, `_on_confirm_answered`,
