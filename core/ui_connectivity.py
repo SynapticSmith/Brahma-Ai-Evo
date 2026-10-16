@@ -18,6 +18,8 @@ import threading
 import time
 from pathlib import Path
 
+from core.ui_thread import run_on_ui
+
 from PyQt6.QtCore import (
     QObject,
     Qt,
@@ -1830,11 +1832,11 @@ class SystemConnectivityPage(QWidget):
                     played, used = _tts.speak_with(
                         engine, "Brahma Evo speech engine test."
                     )
-                    self._speech_status.setText(
-                        f"Tested {used or engine}: {'audio played' if played else 'no audio produced'}."
-                    )
+                    msg = f"Tested {used or engine}: {'audio played' if played else 'no audio produced'}."
+                    run_on_ui(self, lambda: self._speech_status.setText(msg))
                 except Exception as exc:
-                    self._speech_status.setText(f"Speech test failed: {exc}")
+                    msg = f"Speech test failed: {exc}"
+                    run_on_ui(self, lambda: self._speech_status.setText(msg))
 
             threading.Thread(target=_run, daemon=True, name="speech-test").start()
         except Exception as exc:

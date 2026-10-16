@@ -672,10 +672,23 @@ These were listed as incomplete before this pass. **None of them is done, and no
 - [ ] **Optional: add Gemini as an extra TTS engine for the local/modular path.** NOT done. (User note:
   "if you want to add gemini as an extra tts engine for the local mode, that is fine." Opt-in, not started.)
 - [ ] **Fix `QPushButton` "Could not parse stylesheet" error.** NOT done. Cause not yet located.
-- [ ] **Fix `QObject::setParent: Cannot set parent, new parent is in a different thread` (×9).** NOT done.
-  Related root causes surfaced by the review: `ui.py` builds `MainWindow` on a worker thread and moves
-  widgets across threads — `setParent(None)` at `ui.py:12626`, `6922`, `6934`, `11667`, plus
-  `threading.Thread(target=self.on_text_command…)` at `ui.py:9730` (+`11026`, `12604`, `1678`, `16954`).
+- [x] **Fix `QObject::setParent: Cannot set parent, new parent is in a different thread` (x9).**
+  FIXED. The original hypothesis (MainWindow built on a worker thread) was false: `MainWindow` is
+  built in `main()` on the main thread, and the post-split `setParent(None)` sites run on the GUI
+  thread. The real cause is that `BrahmaUI` delegates and `MainWindow.submit_command` are reached
+  from worker threads (mic/audio level loop, screen processor, meeting listener, daily-briefing loop,
+  wake word, Discord gateway, phone gateway) and touched QWidgets directly. Every such call now
+  funnels through one GUI-thread marshaller, `core/ui_thread.run_on_ui(win, fn)` ->
+  `MainWindow._run_on_ui` (queued over the `_ui_call_sig` signal when off the GUI thread, inline
+  otherwise). Added `_ui_call_sig` / `_on_ui_call` / `_run_on_ui` to `ui.py`; routed the
+  `_ShellDelegatesMixin` direct-widget delegates (`set_audio_level`, `set_meeting_mode`,
+  `set_scanning`, `show`/`hide`/`schedule_daily_briefing`, `notify_phone_connected`, `set_muted`,
+  `set_muted_state`, the `muted` setter, `submit_external_command`), `_MuteSendMixin.submit_command`,
+  and the offline speech-test thread in `core/ui_connectivity.py` (its `_speech_status` write)
+  through it. The `on_text_command` worker thread is intentionally kept off the GUI thread (it runs
+  blocking LLM/network work); its `self.ui.*` calls were already Qt-signal based, so no marshalling
+  is needed there. Verified: `tests/test_ui_thread_marshalling.py` (6 tests), full suite 155 passed,
+  all seven `accept_*.py` harnesses green, `scripts/precommit_check.py --quick` SAFE.
 - [ ] **Address the DPI awareness warning (qt.conf).** NOT done. `SetProcessDpiAwarenessContext() failed:
   Access is denied` — likely related to P4-20 (import-time Qt env / QApplication timing).
 

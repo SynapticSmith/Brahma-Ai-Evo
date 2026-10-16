@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import threading
 
+from core.ui_thread import run_on_ui
 from core.ui_theme import (C)
 from sound_manager import (sound_mgr)
 
@@ -71,21 +72,24 @@ class _MuteSendMixin:
         self.submit_command(txt)
 
     def submit_command(self, txt: str, source: str = "local"):
-        txt = (txt or "").strip()
-        if not txt:
-            return
-        self._chat_source_queue.append(source or "local")
-        if hasattr(self, "_command_card"):
-            preview = txt[:60] + ("…" if len(txt) > 60 else "")
-            self._command_card.set_body(preview)
-            self._command_card.hide()
-        if hasattr(self, "_result_card"):
-            self._result_card.set_body("Waiting for reply...")
-            self._result_card.hide()
-        self._restart_card_hide_timer()
-        self._log_sig.emit(f"You: {txt}")
-        if self.on_text_command:
-            threading.Thread(target=self.on_text_command, args=(txt, source or "local"), daemon=True).start()
+        def _do():
+            txt_norm = (txt or "").strip()
+            if not txt_norm:
+                return
+            self._chat_source_queue.append(source or "local")
+            if hasattr(self, "_command_card"):
+                preview = txt_norm[:60] + ("…" if len(txt_norm) > 60 else "")
+                self._command_card.set_body(preview)
+                self._command_card.hide()
+            if hasattr(self, "_result_card"):
+                self._result_card.set_body("Waiting for reply...")
+                self._result_card.hide()
+            self._restart_card_hide_timer()
+            self._log_sig.emit(f"You: {txt_norm}")
+            if self.on_text_command:
+                threading.Thread(target=self.on_text_command, args=(txt_norm, source or "local"), daemon=True).start()
+
+        run_on_ui(self, _do)
 
     def _on_log_text(self, text: str):
         self._log.append_log(text)

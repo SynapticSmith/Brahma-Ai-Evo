@@ -7,8 +7,21 @@ import time
 
 from pathlib import (Path)
 
+from core.ui_thread import run_on_ui
+
 
 class _ShellDelegatesMixin:
+    def _ui(self, fn):
+        """Run a MainWindow widget call on the GUI thread.
+
+        BrahmaUI delegates are reachable from worker threads (Discord, wake
+        word, meeting/screen monitors, phone gateway). Touching QWidgets off
+        the GUI thread raises ``QObject::setParent: ... different thread`` and
+        corrupts layout state, so every direct widget call funnels through
+        MainWindow._run_on_ui, which queues to the GUI thread when needed.
+        """
+        run_on_ui(getattr(self, "_win", None), fn)
+
     @property
     def muted(self) -> bool:
         return self._win._muted
@@ -16,14 +29,14 @@ class _ShellDelegatesMixin:
     @muted.setter
     def muted(self, v: bool):
         if v != self._win._muted:
-            self._win._toggle_mute()
+            self._ui(lambda: self._win._toggle_mute())
 
     def set_muted(self, muted: bool):
         if bool(muted) != self._win._muted:
-            self._win.set_muted_state(bool(muted))
+            self._ui(lambda: self._win.set_muted_state(bool(muted)))
 
     def set_muted_state(self, muted: bool, *, wakeword: bool = False):
-        self._win.set_muted_state(bool(muted), wakeword=wakeword)
+        self._ui(lambda: self._win.set_muted_state(bool(muted), wakeword=wakeword))
 
     @property
     def current_file(self) -> str | None:
@@ -77,7 +90,7 @@ class _ShellDelegatesMixin:
         return self._win.live_call_toggled
 
     def set_audio_level(self, level: float):
-        self._win.set_audio_level(level)
+        self._ui(lambda: self._win.set_audio_level(level))
 
     def write_log(self, text: str):
         self._win._log_sig.emit(text)
@@ -95,22 +108,22 @@ class _ShellDelegatesMixin:
         self.w.hide_memory_inspector()
 
     def show_daily_briefing(self, text: str):
-        self._win.show_daily_briefing(text)
+        self._ui(lambda: self._win.show_daily_briefing(text))
 
     def hide_daily_briefing(self):
-        self._win.hide_daily_briefing()
+        self._ui(lambda: self._win.hide_daily_briefing())
 
     def schedule_daily_briefing_hide(self):
-        self._win.schedule_daily_briefing_hide()
+        self._ui(lambda: self._win.schedule_daily_briefing_hide())
 
     def submit_external_command(self, text: str, source: str = "discord"):
-        self._win.submit_command(text, source=source)
+        self._ui(lambda: self._win.submit_command(text, source=source))
 
     def notify_phone_connected(self):
-        self._win.notify_phone_connected()
+        self._ui(lambda: self._win.notify_phone_connected())
 
     def set_scanning(self, enabled: bool, text: str = ""):
-        self._win.set_scanning(enabled, text)
+        self._ui(lambda: self._win.set_scanning(enabled, text))
 
     def show_circuit_hud(self, circuit_data: dict):
         self._win._circuit_hud_sig.emit(circuit_data or {})
@@ -132,7 +145,7 @@ class _ShellDelegatesMixin:
         self._win._attention_sig.emit(event or {})
 
     def set_meeting_mode(self, enabled: bool, title: str = "", summary: str = "", answer: str = "", speech: str = ""):
-        self._win.set_meeting_mode(enabled, title, summary, answer, speech)
+        self._ui(lambda: self._win.set_meeting_mode(enabled, title, summary, answer, speech))
 
     def begin_task_workspace(self, command: str, plan: list[str] | str | None = None, source: str = "local"):
         self._win._task_workspace_sig.emit({

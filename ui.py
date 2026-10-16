@@ -425,6 +425,16 @@ class MainWindow(_ApplyStateMixin, _RuntimeMixin, _WiringMixin, _PanelsMixin, _S
     _audio_level_sig = pyqtSignal(float)
     live_mode_changed = pyqtSignal(str)
     live_call_toggled = pyqtSignal(bool)
+    _ui_call_sig = pyqtSignal(object)
+
+    def _on_ui_call(self, fn):
+        fn()
+
+    def _run_on_ui(self, fn):
+        if threading.get_ident() == getattr(self, "_gui_thread_id", None):
+            fn()
+            return
+        self._ui_call_sig.emit(fn)
 
     def _make_window_icon(self) -> QIcon:
         return _logo_icon()
@@ -458,6 +468,8 @@ class MainWindow(_ApplyStateMixin, _RuntimeMixin, _WiringMixin, _PanelsMixin, _S
         self._settings_bridge = None
         self._api_ready = False
         self._app_settings_cache: dict | None = None
+        self._gui_thread_id = threading.get_ident()
+        self._ui_call_sig.connect(self._on_ui_call, Qt.ConnectionType.QueuedConnection)
         self._overlay: QWidget | None = None
         self._remote_overlay: RemoteKeyOverlay | None = None
         self._scan_overlay: ScanningOverlay | None = None
