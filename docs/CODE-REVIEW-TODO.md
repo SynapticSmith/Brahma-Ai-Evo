@@ -434,6 +434,14 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     (`class _ShellDevModeMixin`); `DeveloperModeDialog` injected via `bind()`. `ui.py` 1372 ->
     1351 lines. 148 tests pass (network-dependent auto-heal test deselected), seven harnesses
     green.
+  - **Done - BrahmaUI sidebar/floating mixin (this commit).** Sixth BrahmaUI method-level split:
+    five sidebar / command-bar / floating-icon helpers (`_toggle_command_bar`,
+    `_toggle_workspace_sidebar`, `_show_workspace_sidebar`, `_close_workspace_sidebar`,
+    `_show_floating_icon`; span 852-883 = 32 lines) moved verbatim into
+    `core/ui_shell_sidebar.py` (`class _ShellSidebarMixin`, no injected names). `ui.py` 1351 ->
+    1320 lines. 148 tests pass (network-dependent auto-heal test deselected), seven harnesses
+    green. (See the environment note below: the pytest *process* now exits non-zero on Qt
+    native teardown even when all tests pass — pre-existing, reproduced at the prior commit.)
   - **Done - MainWindow secondary-overlays mixin (this commit).** Tenth method-level split: 10
     contiguous methods (`_apply_circuit_overlay`, `_apply_call_screening`,
     `_take_over_screened_call`, `_hang_up_screened_call`, `_on_confirm_answered`,

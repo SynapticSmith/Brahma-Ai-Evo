@@ -690,7 +690,9 @@ _ui_shell_devmode.bind(
     DeveloperModeDialog=DeveloperModeDialog,
 )
 _ShellDevModeMixin = _ui_shell_devmode._ShellDevModeMixin
-class BrahmaUI(_ShellDevModeMixin, _ShellTrayMixin, _ShellBootMixin, _ShellDiscordMixin, _ShellSettingsMixin):
+from core import ui_shell_sidebar as _ui_shell_sidebar
+_ShellSidebarMixin = _ui_shell_sidebar._ShellSidebarMixin
+class BrahmaUI(_ShellSidebarMixin, _ShellDevModeMixin, _ShellTrayMixin, _ShellBootMixin, _ShellDiscordMixin, _ShellSettingsMixin):
     def __init__(self, face_path: str, size=None, *, show_immediately: bool = True):
         self._app = QApplication.instance() or QApplication(sys.argv)
         self._app.setStyle("Fusion")
@@ -848,39 +850,6 @@ class BrahmaUI(_ShellDevModeMixin, _ShellTrayMixin, _ShellBootMixin, _ShellDisco
             "text": f"💡 {label}",
             "source": "clipboard",
         })
-
-    def _toggle_command_bar(self):
-        if self._command_bar.isVisible():
-            self._command_bar.hide()
-        else:
-            self._command_bar.show_near(self._launcher)
-
-    def _toggle_workspace_sidebar(self):
-        if self._workspace_sidebar.isVisible() and not self._workspace_sidebar.is_collapsed():
-            self._close_workspace_sidebar()
-        else:
-            self._show_workspace_sidebar()
-
-    def _show_workspace_sidebar(self):
-        self._workspace_sidebar.show_workspace()
-        self._workspace_sidebar.focus_input()
-        if self._launcher.isVisible():
-            self._launcher.raise_()
-
-    def _close_workspace_sidebar(self):
-        self._workspace_sidebar.hide_workspace()
-        if self._launcher.isVisible():
-            self._launcher.raise_()
-
-    def _show_floating_icon(self):
-        launcher_pos = self._load_app_settings().get("launcher_pos")
-        if isinstance(launcher_pos, (list, tuple)) and len(launcher_pos) == 2:
-            try:
-                self._launcher.show_at(int(launcher_pos[0]), int(launcher_pos[1]))
-                return
-            except Exception:
-                pass
-        self._launcher.show_at()
 
     def _restart_app(self):
         try:
