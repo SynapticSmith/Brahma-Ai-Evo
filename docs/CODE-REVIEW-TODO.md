@@ -203,8 +203,25 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     class-definition time, so there is no import cycle. Behavior-preserving: full suite 149 passed, all
     seven `accept_*.py` harnesses green (`accept_live_toggle.py`'s footer guard now reads `ui.py` +
     `core/ui_chat.py`). `ui.py` 17247 -> 15153 lines.
-  - Remaining seam: the rest of the `ui.py` panels (settings/avatar/MCP/connectivity panels, launcher,
-    command bar, globe, …).
+  - **Done — connectivity/settings pane seam (this commit).** The connectivity sidebar,
+    `_ModelDiscoveryBridge`, the settings hub page and the `SystemConnectivityPage` settings pane —
+    4 classes, a 4,164-line block — moved verbatim to `core/ui_connectivity.py` (4,234 lines with its
+    header). `ui.py` imports the module, injects the six shared symbols defined outside the cluster
+    (`C`, `BASE_DIR`, `CONFIG_DIR`, `APP_SETTINGS_FILE`, `_default_app_settings`,
+    `_default_discord_settings`) through a `bind()` call, and re-exports the four class names so every
+    `ui.<Class>` reference is unchanged; none of the injected symbols is used at class-definition time,
+    so there is no import cycle. Note the value-injection caveat: `bind()` copies the value, so a harness
+    that rebinds `ui.APP_SETTINGS_FILE` at runtime must mirror it onto the moved module
+    (`ui_mod._ui_connectivity.APP_SETTINGS_FILE = …`) — `accept_providers.py` and `accept_avatar.py` do.
+    `accept_providers.py`, `accept_avatar.py`, `accept_instructions.py` and `accept_local_speech.py`
+    retargeted their source guards to read `ui.py` + `core/ui_connectivity.py`. The moved module's
+    stdlib/Qt header was rebuilt from a **scope-accurate** free-name audit (`symtable`): auditing at
+    class-node granularity wrongly cancels a name that is a local in one method but a module-global read
+    in another (it had silently dropped `json`, `Path`, `QApplication`, `QLineEdit`, `QMessageBox`, and
+    earlier `os`/`threading`/`time`). Behavior-preserving: full suite 149 passed, all seven
+    `accept_*.py` harnesses green. `ui.py` 15153 -> 11004 lines.
+  - Remaining seam: the rest of the `ui.py` panels (launcher, command bar, globe, gesture/floating
+    widgets, device-connect page, …).
 - [x] **P4-20 — Import-time side effects.** Done: the duplicated Qt/env blocks in `main.py`, `ui.py` (two) and
   `core/globe_window.py` collapsed into one idempotent `core/qt_bootstrap.bootstrap()` (importing that module
   has no side effects); `core/boot_sentry` no longer rolls files back on import — `main` calls

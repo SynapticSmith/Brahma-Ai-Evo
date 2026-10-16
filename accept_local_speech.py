@@ -286,7 +286,8 @@ def test_engine_registry() -> None:
               f"played={played} used={used!r}")
 
         # The button must read the combo, not the ambient default.
-        ui_src = (BASE / "ui.py").read_text(encoding="utf-8")
+        ui_src = (BASE / "ui.py").read_text(encoding="utf-8") + "\n" + (
+            BASE / "core" / "ui_connectivity.py").read_text(encoding="utf-8")
         check("the card keeps a reference to the TTS combo",
               "self._tts_box = tts_box" in ui_src)
         check("the test button reads the selected combo",

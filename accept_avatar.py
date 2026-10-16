@@ -283,7 +283,11 @@ def main() -> int:
         # ------------------------------------------------------------------
         m_src = (BASE / "main.py").read_text(encoding="utf-8")
         aio_src = (BASE / "core" / "audio_io.py").read_text(encoding="utf-8")
-        ui_src = (BASE / "ui.py").read_text(encoding="utf-8")
+        # The avatar/settings page methods now live in the extracted panel
+        # module (core/ui_connectivity.py); read both so presence checks and
+        # _method_body lookups cover the move transparently.
+        ui_src = (BASE / "ui.py").read_text(encoding="utf-8") + "\n" + (
+            BASE / "core" / "ui_connectivity.py").read_text(encoding="utf-8")
 
         check("stripped tags route to the registry through one helper",
               "def _deliver_avatar_emotion" in m_src
@@ -1152,6 +1156,11 @@ import ui as ui_mod
 from memory import config_manager as cm
 from core import avatar_runtime as ar
 ui_mod.APP_SETTINGS_FILE = sandbox
+# The settings page lives in the extracted panel module now; patch its copy
+# of the settings path too so the sandbox redirect is transparent.
+_uc = getattr(ui_mod, "_ui_connectivity", None)
+if _uc is not None:
+    _uc.APP_SETTINGS_FILE = sandbox
 cm.SETTINGS_FILE = sandbox
 
 from PyQt6 import QtWidgets
