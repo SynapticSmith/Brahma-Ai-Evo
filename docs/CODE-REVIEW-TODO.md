@@ -669,8 +669,14 @@ Working reference for the code-review improvement pass. Keep this updated as ite
 
 These were listed as incomplete before this pass. **None of them is done, and none is part of P0.**
 
-- [ ] **Optional: add Gemini as an extra TTS engine for the local/modular path.** NOT done. (User note:
-  "if you want to add gemini as an extra tts engine for the local mode, that is fine." Opt-in, not started.)
+- [x] **Optional: add Gemini as an extra TTS engine for the local/modular path.** DONE. Added a `gemini`
+  engine to `core/speech_tts.py` alongside edge/piper/kokoro/sapi: `_probe_gemini()` gates on a configured
+  Gemini API key (config/api_keys.json, env fallback) plus the installed `google-genai` SDK, and
+  `_speak_gemini()` calls `generate_content` with `response_modalities=["AUDIO"]` + a `SpeechConfig`, writing
+  the returned 24 kHz PCM to a WAV for the shared player. It is cloud (`local: False`), so offline mode routes
+  it to SAPI like edge, and it does not join the fallback chain. Settings lists it automatically (the card is
+  built from `available_engines()`). Verified against google-genai 2.19.0. Tests:
+  `tests/test_speech_tts_gemini.py`.
 - [x] **Fix `QPushButton` "Could not parse stylesheet" error.** DONE. Root cause: `smart_home_page_new.py`
   `_soft_button_style()` concatenated an f-string line with a **plain (non-f) string** that ended in `}}`.
   Brace escaping (`{{` / `}}`) only applies inside f-strings, so the plain line emitted a literal `}}`,
@@ -768,3 +774,15 @@ These were listed as incomplete before this pass. **None of them is done, and no
   offscreen harness (wrapped `QWidget.setStyleSheet` + `qInstallMessageHandler`): 2 startup warnings,
   both this button; 0 after the fix. Added `tests/test_smart_home_styles.py`. Full suite **158 passed**.
   Not pushed.
+
+- **2026-10-16 — item 672: Gemini added as an opt-in TTS engine.** `core/speech_tts.py` gains a `gemini`
+  engine (label "Google Gemini (cloud)"): `_gemini_api_key()` reads `config/api_keys.json` (env fallback
+  `GEMINI_API_KEY`/`GOOGLE_API_KEY`); `_probe_gemini()` requires the key + the `google-genai` SDK and makes
+  no network call; `_speak_gemini()` sends `generate_content(model="gemini-2.5-flash-preview-tts",
+  response_modalities=["AUDIO"], speech_config=SpeechConfig(voice_config=VoiceConfig(prebuilt_voice_config=
+  PrebuiltVoiceConfig(voice_name=...))))`, converts the 24 kHz PCM to a WAV via `write_wave()` and plays it.
+  `local: False`, so offline mode routes it to SAPI; it is deliberately outside `_FALLBACK_CHAIN`. The Voice
+  setting is treated as a Gemini voice name only when it is not a path (so a leftover piper file cannot be
+  sent as a voice). Request shape verified against google-genai 2.19.0. Added
+  `tests/test_speech_tts_gemini.py` (7 tests). Full suite **165 passed**; `accept_local_speech.py`
+  ALL CRITERIA PASS; `precommit_check.py --quick` SAFE. Not pushed.

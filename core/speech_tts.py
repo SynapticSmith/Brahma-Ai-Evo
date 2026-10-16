@@ -18,6 +18,8 @@ piper       local neural, ~60 MB voice. Offline, fast, natural cadence.
 kokoro      local neural ONNX. Offline, higher quality, larger download.
 sapi        Windows SAPI via pyttsx3 / the existing native male voice.
             Zero download, instant, robotic. Always present on Windows.
+gemini      Google Gemini cloud TTS (gemini-2.5-flash-preview-tts). Needs a
+            Gemini API key and internet. Opt-in; not part of the fallback chain.
 
 Design rules
 ------------
@@ -126,6 +128,41 @@ def _probe_sapi() -> bool:
             return callable(getattr(attention_monitor, "_speak_sapi_male", None))
         except Exception:
             return False
+
+
+def _gemini_api_key() -> str:
+    """The Gemini API key, from config/api_keys.json or the environment.
+
+    Same source the rest of the app uses (agent/planner, auto_heal, etc.), so a
+    key configured anywhere is honoured here too.
+    """
+    try:
+        import json
+
+        from core.user_paths import get_user_data_dir
+
+        path = get_user_data_dir() / "config" / "api_keys.json"
+        if path.is_file():
+            with open(path, "r", encoding="utf-8") as fh:
+                key = str(json.load(fh).get("gemini_api_key", "") or "").strip()
+            if key:
+                return key
+    except Exception:
+        pass
+    return (os.environ.get("GEMINI_API_KEY", "") or os.environ.get("GOOGLE_API_KEY", "")).strip()
+
+
+def _probe_gemini() -> bool:
+    """Available when the SDK imports AND an API key is configured.
+
+    Deliberately offline: a configured key, not a live request, so rendering the
+    Settings card never fires a network call.
+    """
+    try:
+        import google.genai  # noqa: F401
+    except Exception:
+        return False
+    return bool(_gemini_api_key())
 
 
 def _first_with_suffix(directory: str, suffixes: tuple) -> str:
@@ -259,6 +296,14 @@ ENGINES: Dict[str, Dict[str, Any]] = {
         "detail": "Offline, zero download, instant. Traditional/robotic cadence.",
         "local": True,
     },
+    "gemini": {
+        "label": "Google Gemini (cloud)",
+        "probe": _probe_gemini,
+        "detail": "Cloud neural voice (gemini-2.5-flash-preview-tts). Needs a Gemini API key "
+                  "(config/api_keys.json) and internet. The Voice field is a Gemini voice name "
+                  "(e.g. Kore), not a file. Routed to SAPI in offline mode.",
+        "local": False,
+    },
 }
 
 _FALLBACK_CHAIN = ("edge", "sapi")
@@ -277,6 +322,8 @@ def available_engines() -> List[Dict[str, Any]]:
             detail += " Voice file missing - run install_speech_deps.ps1."
         if engine_id == "kokoro" and not ok and _probe_kokoro():
             detail += " Voice file missing - run install_speech_deps.ps1."
+        if engine_id == "gemini" and not ok:
+            detail += " Add a Gemini API key (config/api_keys.json) or install google-genai."
         out.append({
             "id": engine_id,
             "label": spec["label"],
@@ -423,6 +470,65 @@ def _speak_kokoro(text: str) -> bool:
                 pass
 
 
+_GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts"
+_GEMINI_DEFAULT_VOICE = "Kore"
+
+
+def _speak_gemini(text: str) -> bool:
+    """Gemini cloud TTS: generate_content with response_modalities=["AUDIO"].
+
+    The first inline part carries raw PCM (16-bit, 24 kHz, mono); we wrap it in
+    a WAV for the shared winsound playback. The Gemini voice is taken from the
+    Voice setting when it looks like a voice name, otherwise the default.
+    Verified against google-genai 2.19.0 (SpeechConfig/VoiceConfig/
+    PrebuiltVoiceConfig + GenerateContentConfig).
+    """
+    from google import genai
+    from google.genai import types
+
+    key = _gemini_api_key()
+    if not key:
+        return False
+
+    voice = get_voice()
+    # The Voice field is a *file path* for piper/kokoro but a *name* for Gemini;
+    # only honour it when it is clearly a name so a leftover path cannot be sent
+    # as an invalid voice.
+    if not voice or os.sep in voice or "/" in voice or "." in voice:
+        voice = _GEMINI_DEFAULT_VOICE
+
+    client = genai.Client(api_key=key)
+    config = types.GenerateContentConfig(
+        response_modalities=["AUDIO"],
+        speech_config=types.SpeechConfig(
+            voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice)
+            )
+        ),
+    )
+    response = client.models.generate_content(
+        model=_GEMINI_TTS_MODEL, contents=text, config=config
+    )
+    pcm = response.candidates[0].content.parts[0].inline_data.data
+    if not pcm:
+        return False
+
+    import numpy as np
+
+    rate = 24000
+    samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+    wav_path = os.path.join(tempfile.gettempdir(), f"brahma_gemini_{uuid.uuid4().hex}.wav")
+    try:
+        write_wave(wav_path, samples, rate)
+        _play_wav(wav_path)
+        return True
+    finally:
+        try:
+            os.remove(wav_path)
+        except Exception:
+            pass
+
+
 def write_wave(path: str, samples, rate: int) -> None:
     """Write float32 samples to a 16-bit mono WAV."""
     import wave
@@ -447,6 +553,7 @@ _SPEAKERS: Dict[str, str] = {
     "piper": "_speak_piper",
     "kokoro": "_speak_kokoro",
     "sapi": "_speak_sapi",
+    "gemini": "_speak_gemini",
 }
 
 
