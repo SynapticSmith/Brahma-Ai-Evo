@@ -348,6 +348,14 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     (`BASE_DIR` is that same repo root) but correct from `core/`; the class already used `BASE_DIR`
     in `_browse_folder`. Body verified identical modulo that one documented line. `ui.py`
     3331 -> 3254 lines. Full suite 149 passed, all seven `accept_*.py` harnesses green.
+  - **Done - MainWindow run-at-login/API-defaults mixin (this commit).** Third method-level
+    split: 5 contiguous methods (`_load_api_defaults`, `_startup_enabled`, `_set_startup_enabled`,
+    `_refresh_startup_button`, `_toggle_startup`, 81 lines) moved verbatim into
+    `core/ui_startup_os.py` (`class _StartupOSMixin`, third base of `MainWindow`). Bodies
+    byte-identical; `json`/`platform` direct, Windows-only `winreg` reproduced under the same
+    `if platform.system() == "Windows":` guard, `API_FILE`/`_startup_registry_key`/
+    `_startup_run_value` injected via `bind()`. `ui.py` 3053 -> 2978 lines. 149 tests pass,
+    seven harnesses green.
   - **Done - MainWindow app-settings/startup-animation mixin (this commit).** Second
     method-level split: 8 contiguous methods (`_settings_file_stamp`, `_load_app_settings`,
     `_invalidate_app_settings_cache`, `_save_app_settings`, `_startup_animation_enabled`,
