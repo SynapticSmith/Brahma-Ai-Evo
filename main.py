@@ -3954,331 +3954,6 @@ class BrahmaLive:
         t = (text or "").lower()
         return any(word in t for word in words)
 
-    def _prompt_message_reply(self, event: dict) -> bool:
-        if not isinstance(event, dict):
-            return False
-        with self._attention_lock:
-            self._pending_reply_event = dict(event)
-            self._pending_attention = None
-            self._reply_mode = True
-
-        message = "What would you like to say in reply?"
-        self.ui.write_log(f"Brahma Evo: {message}")
-        if self.session and self._loop:
-            self.speak(message)
-        else:
-            threading.Thread(target=speak_native, args=(message,), daemon=True).start()
-        try:
-            self.ui.begin_task_workspace(
-                "Replying to message",
-                [
-                    "Type your response",
-                    "I will reword it naturally",
-                    f"Send via {event.get('app', 'the app')}",
-                ],
-                source="reply",
-            )
-            self.ui.update_task_workspace(
-                status="Awaiting your reply",
-                output="Type the message you want to send, and I will make it sound natural before sending it as you.",
-                percent=10,
-            )
-        except Exception:
-            pass
-        return True
-
-    def _handle_pending_reply(self, text: str) -> bool:
-        with self._attention_lock:
-            event = dict(self._pending_reply_event or {})
-            self._pending_reply_event = None
-        if not event:
-            return False
-
-        lower = (text or "").lower()
-        if self._attention_matches(lower, ("cancel", "never mind", "skip", "do not send", "don't send")):
-            self._reply_mode = False
-            self.ui.write_log("SYS: Reply cancelled.")
-            try:
-                self.ui.finish_task_workspace("Reply cancelled.", "Cancelled", 100)
-            except Exception:
-                pass
-            return True
-
-        self.ui.write_log(f"SYS: Drafting reply to {event.get('title') or event.get('app')}.")
-        threading.Thread(target=self._draft_and_send_reply, args=(event, text), daemon=True).start()
-        return True
-
-    def _rewrite_reply_text(self, user_text: str, event: dict) -> str:
-        prompt = (
-            "You are a friendly assistant helping a user rewrite their draft reply for a chat message. "
-            "Keep the same meaning and intent, expand the wording slightly, and make it sound natural and human. "
-            "Do not mention the notification, app, or any internal system details. "
-            "Return only the rewritten reply text.\n\n"
-            "Notification context:\n"
-            f"App: {event.get('app', '')}\n"
-            f"Sender: {event.get('title', '')}\n"
-            f"Preview: {event.get('preview', '')}\n\n"
-            "User draft reply:\n"
-            f"{user_text}\n\n"
-            "Reply text:"
-        )
-        try:
-            return _gemini_text_reply(prompt) or user_text
-        except Exception:
-            try:
-                return openrouter_client.chat(
-                    prompt,
-                    system="You are a friendly assistant. Rewrite the reply naturally and humanely.",
-                )
-            except Exception:
-                return user_text
-
-    def _draft_and_send_reply(self, event: dict, text: str):
-        try:
-            reply_text = self._rewrite_reply_text(text, event)
-            if not reply_text:
-                reply_text = text
-            self.ui.update_task_workspace(
-                status="Sending reply",
-                output="Sending your expanded reply now...",
-                percent=70,
-            )
-            receiver = (event.get("title") or "").strip()
-            platform = (event.get("app") or "whatsapp").strip()
-            if not receiver:
-                self.ui.write_log("ERR: Could not determine recipient for reply.")
-                try:
-                    self.ui.finish_task_workspace("Reply failed: recipient not found.", "Reply failed", 100)
-                except Exception:
-                    pass
-                return
-            result = send_message(
-                parameters={
-                    "receiver": receiver,
-                    "message_text": reply_text,
-                    "platform": platform,
-                },
-                player=self.ui,
-            )
-            self._reply_mode = False
-            self.ui.write_log(f"SYS: {result}")
-            try:
-                self.ui.finish_task_workspace(reply_text, "Reply delivered.", 100)
-            except Exception:
-                pass
-        except Exception as e:
-            self._reply_mode = False
-            self.ui.write_log(f"ERR: Reply failed: {e}")
-            try:
-                self.ui.finish_task_workspace(f"Reply failed: {e}", "Reply failed", 100)
-            except Exception:
-                pass
-        finally:
-            if not self.ui.muted:
-                self.ui.set_state("LISTENING")
-
-    def _parse_ig_reply_intent(self, text: str) -> tuple[str, str]:
-        system_prompt = (
-            "You are an intent parser. The user received an Instagram DM. I asked: 'What should I reply, or should I take over?'. "
-            "The user responded. Determine their intent.\n"
-            "1. If they want me to take over/handle it, return TAKE_OVER.\n"
-            "2. If they want to cancel/skip, return CANCEL.\n"
-            "3. If they dictate a specific message to send (e.g. 'tell them I am busy', 'say hi'), return MANUAL_REPLY and the exact text.\n"
-            "4. If they are just greeting me (e.g. 'hi') or making small talk, return IGNORE.\n"
-            "Output ONLY valid JSON: {\"intent\": \"...\", \"reply_text\": \"...\"}"
-        )
-        try:
-            client = genai.Client(api_key=_get_api_key(), http_options={"api_version": "v1beta"})
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=f"{system_prompt}\n\nUser Response: {text}",
-                config={"temperature": 0.1, "response_mime_type": "application/json"}
-            )
-            data = json.loads(response.text.strip())
-            return data.get("intent", "IGNORE"), data.get("reply_text", "")
-        except Exception:
-            lower = text.lower()
-            if any(c in lower for c in ("cancel", "stop", "skip", "never mind", "abort", "don't reply", "do not reply")):
-                return "CANCEL", ""
-            if any(a in lower for a in ("take over", "auto mode", "handle it", "you reply", "auto reply", "take care of it")):
-                return "TAKE_OVER", ""
-            for verb in ("reply", "tell him", "tell her", "tell them", "tell", "say", "send"):
-                if verb in lower:
-                    import re
-                    pattern = rf"^.*?\b{verb}\b(?:\s+(?:him|her|them|that|to\s+say|saying))?\s*"
-                    cleaned = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
-                    if cleaned:
-                        return "MANUAL_REPLY", cleaned
-            if len(text.strip().split()) >= 2 and not any(g in lower for g in ("hello", "hey brahma", "who are you")):
-                return "MANUAL_REPLY", text.strip()
-            return "IGNORE", ""
-
-    def _handle_ig_reply_flow(self, text: str) -> bool:
-        if getattr(self, "_ig_pending_thread", None):
-            thread_id = self._ig_pending_thread.get("thread_id")
-            username = self._ig_pending_thread.get("username")
-            message_text = self._ig_pending_thread.get('message')
-            
-            intent, payload = self._parse_ig_reply_intent(text)
-            
-            if intent == "CANCEL":
-                self._ig_reply_mode = False
-                msg = "Instagram reply cancelled."
-                self.ui.write_log(f"Brahma Evo: {msg}")
-                self.speak(msg)
-                self._ig_pending_thread = None
-                return True
-                
-            if intent == "TAKE_OVER":
-                self.ui.write_log("SYS: Taking over Instagram thread.")
-                self.speak(f"I will now take over the chat with {username}.")
-                from actions.instagram_mcp import add_auto_thread, send_direct_reply
-                add_auto_thread(thread_id)
-                def _generate_and_send():
-                    try:
-                        reply = _ig_gemini_reply(username, message_text)
-                        send_direct_reply(thread_id, reply)
-                    except Exception as e:
-                        print(f"Error taking over thread: {e}")
-                threading.Thread(target=_generate_and_send, daemon=True).start()
-                
-            elif intent == "MANUAL_REPLY":
-                self.ui.write_log(f"SYS: Sending manual reply to @{username}: '{payload}'")
-                self.speak("Message sent.")
-                from actions.instagram_mcp import send_direct_reply
-                def _do_send():
-                    try:
-                        send_direct_reply(thread_id, payload)
-                    except Exception as e:
-                        print(f"Error sending manual reply to @{username}: {e}")
-                threading.Thread(target=_do_send, daemon=True).start()
-                
-            elif intent == "IGNORE":
-                return False
-                
-            self._ig_reply_mode = False
-            self._ig_pending_thread = None
-            return True
-        return False
-
-    def _handle_email_flow(self, text: str) -> bool:
-        lower = text.lower()
-        if any(cancel in lower for cancel in ("cancel", "never mind", "skip", "stop", "abort")):
-            self._email_mode = False
-            self._email_step = 0
-            self._email_profiles = {}
-            msg = "Email sending cancelled, sir."
-            self.ui.write_log(f"Brahma Evo: {msg}")
-            self.speak(msg)
-            try:
-                self.ui.finish_task_workspace("Email sending cancelled.", "Cancelled", 100)
-            except Exception:
-                pass
-            return True
-
-        if self._email_step == 0:
-            # We just collected the recipient
-            self._email_recipient = text.strip()
-            self._email_step = 1
-            prompt = "Which email app would you like to use? (Gmail, default mail app, etc.)"
-            self.ui.write_log(f"Brahma Evo: {prompt}")
-            self.speak(prompt)
-            try:
-                self.ui.update_task_workspace(
-                    status="Selecting email app",
-                    output=f"Recipient: {self._email_recipient}. Asking for email application...",
-                    percent=40,
-                )
-            except Exception:
-                pass
-            return True
-
-        elif self._email_step == 1:
-            # We just collected the app name
-            self._email_app = text.strip()
-            self._email_step = 2
-            
-            prompt = "What is the message you'd like to send?"
-            self.ui.write_log(f"Brahma Evo: {prompt}")
-            self.speak(prompt)
-            try:
-                self.ui.update_task_workspace(
-                    status="Collecting message",
-                    output=f"Recipient: {self._email_recipient} | App: {self._email_app}. Asking for message content...",
-                    percent=70,
-                )
-            except Exception:
-                pass
-            return True
-
-        elif self._email_step == 2:
-            # We just collected the message
-            self._email_message = text.strip()
-            self._email_mode = False
-            self._email_step = 0
-            
-            # Now let's execute composing!
-            msg = f"Opening {self._email_app} and composing email to {self._email_recipient}..."
-            self.ui.write_log(f"Brahma Evo: {msg}")
-            self.speak(msg)
-            try:
-                self.ui.update_task_workspace(
-                    status="Composing email",
-                    output=f"Composing message to {self._email_recipient} via {self._email_app}...",
-                    percent=90,
-                )
-            except Exception:
-                pass
-            
-            try:
-                import urllib.parse
-                import webbrowser
-                subject = "Message from Brahma Evo"
-                quoted_recipient = urllib.parse.quote(self._email_recipient)
-                quoted_subject = urllib.parse.quote(subject)
-                quoted_body = urllib.parse.quote(self._email_message)
-                
-                import os
-                import subprocess
-                import shutil
-
-                app_lower = self._email_app.lower()
-                chrome_opened = False
-
-                if "gmail" in app_lower or "chrome" in app_lower:
-                    import urllib.parse
-                    quoted_recipient = urllib.parse.quote(self._email_recipient)
-                    quoted_subject = urllib.parse.quote("Message from Brahma Evo")
-                    quoted_body = urllib.parse.quote(self._email_message)
-                    url = f"https://mail.google.com/mail/?view=cm&fs=1&to={quoted_recipient}&su={quoted_subject}&body={quoted_body}"
-                    
-                    # Use webbrowser to naturally open a new tab in the already running Chrome window
-                    import webbrowser
-                    webbrowser.open(url)
-
-                elif "outlook" in app_lower:
-                    url = f"https://outlook.live.com/default/?path=/mail/action/compose&to={quoted_recipient}&subject={quoted_subject}&body={quoted_body}"
-                    webbrowser.open(url)
-                else:
-                    url = f"mailto:{quoted_recipient}?subject={quoted_subject}&body={quoted_body}"
-                    webbrowser.open(url)
-                
-                try:
-                    self.ui.finish_task_workspace("Email composed successfully.", "Composed", 100)
-                except Exception:
-                    pass
-            except Exception as e:
-                err_msg = f"Failed to compose email: {e}"
-                self.ui.write_log(f"ERR: {err_msg}")
-                self.speak(err_msg)
-                try:
-                    self.ui.finish_task_workspace(err_msg, "Failed", 100)
-                except Exception:
-                    pass
-            return True
-
-        return False
-
     def _handle_attention_response(self, text: str) -> bool:
         with self._attention_lock:
             event = dict(self._pending_attention or {})
@@ -4382,6 +4057,34 @@ class BrahmaLive:
             )
             self._tool_exec = ex
         return ex
+
+    @property
+    def _reply_flow(self):
+        """Lazily build the reply/IG/email flows (P4-19 seam; see core.reply_flow)."""
+        rf = getattr(self, "_reply_flow_obj", None)
+        if rf is None:
+            from core.reply_flow import ReplyFlow
+
+            rf = ReplyFlow(
+                self,
+                gemini_text_reply=_gemini_text_reply,
+                get_api_key=_get_api_key,
+                ig_gemini_reply=_ig_gemini_reply,
+            )
+            self._reply_flow_obj = rf
+        return rf
+
+    def _prompt_message_reply(self, event: dict) -> bool:
+        return self._reply_flow.prompt_message_reply(event)
+
+    def _handle_pending_reply(self, text: str) -> bool:
+        return self._reply_flow.handle_pending_reply(text)
+
+    def _handle_ig_reply_flow(self, text: str) -> bool:
+        return self._reply_flow.handle_ig_reply_flow(text)
+
+    def _handle_email_flow(self, text: str) -> bool:
+        return self._reply_flow.handle_email_flow(text)
 
     @property
     def _audio_io(self):

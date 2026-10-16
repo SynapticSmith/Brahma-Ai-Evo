@@ -141,8 +141,8 @@ Working reference for the code-review improvement pass. Keep this updated as ite
 ## P4 — maintainability & hygiene
 
 - [ ] **P4-19 — Split god objects.** `ui.py` ~16k lines; `BrahmaLive` ~3.9k lines / 122 methods
-  (`main.py:2162-6068`). Seams: session state machine, audio I/O, provider router, tool executor; and
-  settings/chat/avatar/MCP panels.
+  (`main.py:2162-6068`). Seams: session state machine, audio I/O, provider router, tool executor,
+  reply/IG/email flows; and settings/chat/avatar/MCP panels.
   - **Started — provider failover seam.** The Gemini→OpenRouter throttle policy
     (`_prefer_openrouter`/`_throttled_to_openrouter` + 2 attrs) is now `core.provider_failover.ProviderFailover`,
     unit-tested in `tests/test_provider_failover.py`; `BrahmaLive` keeps thin delegating wrappers (defensive
@@ -164,6 +164,17 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     are local nested functions and stay local to the moved methods. Behavior-preserving: full suite 149 passed,
     `accept_local_speech.py`, `accept_instructions.py` and `accept_avatar.py` green (the latter two retargeted
     their source guards to `core/audio_io.py`).
+  - **Done — reply/IG/email seam (this commit).** `_prompt_message_reply`, `_handle_pending_reply`,
+    `_rewrite_reply_text`, `_draft_and_send_reply`, `_parse_ig_reply_intent`, `_handle_ig_reply_flow` and
+    `_handle_email_flow` (318 lines) moved verbatim to `core/reply_flow.py::ReplyFlow`. `main.py` keeps a
+    lazily-built `self._reply_flow` property plus four thin delegations (the three methods called only from
+    within the cluster lost their names and become public methods on the class). The reply/IG/email state
+    flags (`_reply_mode`, `_pending_reply_event`, `_pending_attention`, `_attention_lock`, `_email_*`,
+    `_ig_*`) stay on the host (`self._host.*`) because `_on_text_command` and the attention handlers also
+    read and set them; the class is handed a host reference plus the three main.py symbols it needs
+    (`_gemini_text_reply`, `_get_api_key`, `_ig_gemini_reply`) so there is no circular import.
+    Behavior-preserving: full suite 149 passed; all seven `accept_*.py` harnesses green (none needed
+    retargeting — no harness guards this cluster's source). `main.py` 5544 -> 5247 lines.
   - Remaining seams: session state machine and the `ui.py` panels.
 - [x] **P4-20 — Import-time side effects.** Done: the duplicated Qt/env blocks in `main.py`, `ui.py` (two) and
   `core/globe_window.py` collapsed into one idempotent `core/qt_bootstrap.bootstrap()` (importing that module
