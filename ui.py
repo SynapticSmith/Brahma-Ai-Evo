@@ -573,7 +573,6 @@ class MainWindow(_ApplyStateMixin, _RuntimeMixin, _WiringMixin, _PanelsMixin, _S
         except Exception:
             pass
 
-        import threading
         self._screen_capture_event = threading.Event()
 
         self._ready = False

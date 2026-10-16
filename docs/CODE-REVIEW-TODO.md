@@ -689,8 +689,18 @@ These were listed as incomplete before this pass. **None of them is done, and no
   blocking LLM/network work); its `self.ui.*` calls were already Qt-signal based, so no marshalling
   is needed there. Verified: `tests/test_ui_thread_marshalling.py` (6 tests), full suite 155 passed,
   all seven `accept_*.py` harnesses green, `scripts/precommit_check.py --quick` SAFE.
-- [ ] **Address the DPI awareness warning (qt.conf).** NOT done. `SetProcessDpiAwarenessContext() failed:
-  Access is denied` — likely related to P4-20 (import-time Qt env / QApplication timing).
+  **Follow-up fix:** the marshaller's `threading.get_ident()` landed *before* a pre-existing-but-redundant
+  local `import threading` inside `MainWindow.__init__` (`ui.py`), which made `threading` a method-local name
+  and raised `UnboundLocalError` at app startup (the crash seen on a real run). Removed the redundant import
+  and added a subprocess startup smoke test; full suite now **156 passed**.
+- [x] **Address the DPI awareness warning (qt.conf).** FIXED. `SetProcessDpiAwarenessContext() failed:
+  Access is denied`. Qt's Windows platform plugin sets `PER_MONITOR_AWARE_V2` while constructing
+  `QGuiApplication`; if anything already fixed the process to a *different* context first (a manifest, or a
+  helper lib such as pywinauto / mss imported earlier in the startup path) Qt's own call fails ACCESS_DENIED
+  and the notice is logged. `bootstrap()` now fixes the process to the same V2 context before `QApplication`
+  exists (`configure_dpi_awareness()` in `core/qt_bootstrap.py`, pseudo-handle `-4`), so Qt's call becomes an
+  idempotent no-op. No behaviour change (V2 is Qt's default), silent on failure, `BRAHMA_DPI_AWARENESS=off`
+  opts out. Verified with `AreDpiAwarenessContextsEqual`: fix → V2, skip → UNAWARE.
 
 ---
 
@@ -726,3 +736,12 @@ These were listed as incomplete before this pass. **None of them is done, and no
 - 2026-10-15 — **P4-22, P4-23 implemented** (docs only). `docs/ONE-391-changes.md` credential note corrected to
   match `config/app_settings.json` (`""` + `mcpServers`); `core/user_paths.get_user_data_dir` docstring now
   states the Windows-first path and the non-Windows fallback. `py_compile` clean. Not pushed.
+- 2026-10-16 — **Item 675 startup regression fixed + DPI warning fixed.** `ui.py`: removed the redundant local
+  `import threading` inside `MainWindow.__init__` that shadowed the module-level import and made the
+  marshaller's `threading.get_ident()` raise `UnboundLocalError` at startup (the real crash). Added a
+  subprocess startup smoke test (`test_main_window_builds_in_subprocess`) that boots the real window offscreen
+  and exercises `_run_on_ui`. `core/qt_bootstrap.py`: new `configure_dpi_awareness()` sets per-monitor-v2
+  before `QApplication` (kills the `SetProcessDpiAwarenessContext() failed` notice). Verification: `py_compile`
+  clean; full suite **156 passed**; all six harnesses (`accept_instructions/live_toggle/providers/wakeword/
+  local_speech/avatar.py`) → ALL CRITERIA PASS; `precommit_check.py --quick` SAFE; DPI proven via
+  `AreDpiAwarenessContextsEqual`. Committed locally (no push).

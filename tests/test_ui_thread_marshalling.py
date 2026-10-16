@@ -14,8 +14,12 @@ GUI-thread marshaller rather than executing inline.
 from __future__ import annotations
 
 import importlib
+import os
+import subprocess
 import sys
+import textwrap
 import types
+from pathlib import Path
 
 
 # --------------------------------------------------------------------------- #
@@ -227,3 +231,47 @@ def test_submit_command_defers_widget_ops(monkeypatch):
     assert list(win._chat_source_queue) == ["discord"]
     assert win.card_ops == ["restart_timer"]
     assert win.on_text_command is None  # no thread spawned when unset
+
+
+# --------------------------------------------------------------------------- #
+# Startup regression: MainWindow.__init__ must build before the GUI exists
+# --------------------------------------------------------------------------- #
+def test_main_window_builds_in_subprocess():
+    """A local ``import threading`` inside ``MainWindow.__init__`` used to shadow
+    the module-level import, so the marshaller's ``threading.get_ident()`` (added
+    earlier in ``__init__``) raised ``UnboundLocalError`` and the whole app died
+    at startup. Build the real window in an isolated subprocess (offscreen) so
+    this is caught without inheriting the known flaky in-process Qt teardown."""
+    root = Path(__file__).resolve().parent.parent
+    script = textwrap.dedent(
+        """
+        import os, sys
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        sys.path.insert(0, sys.argv[1])
+        from core.qt_bootstrap import bootstrap
+        bootstrap()
+        from PyQt6.QtWidgets import QApplication
+        app = QApplication.instance() or QApplication(sys.argv)
+        app.setStyle("Fusion")  # matches BrahmaUI.__init__ before MainWindow
+        from ui import MainWindow
+        win = MainWindow(os.path.join(sys.argv[1], "assets", "Brahma_Lite_Logo.png"))
+        assert win._gui_thread_id is not None, "marshaller captured no GUI thread id"
+        assert callable(win._run_on_ui), "run_on_ui missing"
+        ran = []
+        win._run_on_ui(lambda: ran.append(True))
+        assert ran == [True], "run_on_ui did not run inline on the GUI thread"
+        sys.stdout.write("BUILD_OK\\n")
+        sys.stdout.flush()
+        os._exit(0)
+        """
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", script, str(root)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert "BUILD_OK" in proc.stdout, (
+        f"MainWindow failed to build (rc={proc.returncode})\n"
+        f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr[-3000:]}"
+    )
