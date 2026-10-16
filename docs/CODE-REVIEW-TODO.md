@@ -671,7 +671,14 @@ These were listed as incomplete before this pass. **None of them is done, and no
 
 - [ ] **Optional: add Gemini as an extra TTS engine for the local/modular path.** NOT done. (User note:
   "if you want to add gemini as an extra tts engine for the local mode, that is fine." Opt-in, not started.)
-- [ ] **Fix `QPushButton` "Could not parse stylesheet" error.** NOT done. Cause not yet located.
+- [x] **Fix `QPushButton` "Could not parse stylesheet" error.** DONE. Root cause: `smart_home_page_new.py`
+  `_soft_button_style()` concatenated an f-string line with a **plain (non-f) string** that ended in `}}`.
+  Brace escaping (`{{` / `}}`) only applies inside f-strings, so the plain line emitted a literal `}}`,
+  yielding an unbalanced sheet (`QPushButton { ... } }QPushButton:hover { ... }`) that Qt rejected with
+  `Could not parse stylesheet of object QPushButton(0x...)`. Fixed by making that trailing brace a single
+  `}`. Pinpointed with an offscreen harness that wraps `QWidget.setStyleSheet` + a `qInstallMessageHandler`
+  (2 warnings at startup, both this button; 0 after the fix) and an AST scan for `{{`/`}}` in non-f string
+  constants (4 unrelated JSON/docstring hits). Regression test: `tests/test_smart_home_styles.py`.
 - [x] **Fix `QObject::setParent: Cannot set parent, new parent is in a different thread` (x9).**
   FIXED. The original hypothesis (MainWindow built on a worker thread) was false: `MainWindow` is
   built in `main()` on the main thread, and the post-split `setParent(None)` sites run on the GUI
@@ -755,3 +762,9 @@ These were listed as incomplete before this pass. **None of them is done, and no
   `py -3.12` probe. README already claims 3.11 | 3.12, which is now accurate. Verified:
   `BRAHMA_PRINT_PY=1 EVO.bat` → the `.venv` python when present, else `py -3.11` (3.12 absent on
   this host); both PowerShell scripts parse cleanly. Not pushed.
+- 2026-10-16 — **Item 674 fixed: `QPushButton` "Could not parse stylesheet".** `smart_home_page_new.py`
+  `_soft_button_style()` mixed an f-string line with a plain string ending in `}}`; escaping only works
+  in f-strings, so a literal `}}` unbalanced the sheet. Fixed the trailing brace to `}`. Located with an
+  offscreen harness (wrapped `QWidget.setStyleSheet` + `qInstallMessageHandler`): 2 startup warnings,
+  both this button; 0 after the fix. Added `tests/test_smart_home_styles.py`. Full suite **158 passed**.
+  Not pushed.
