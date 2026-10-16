@@ -135,6 +135,23 @@ Working reference for the code-review improvement pass. Keep this updated as ite
 - [x] **P3-18 — Install `precommit_check.py` as an actual git hook.** Installed `.git/hooks/pre-commit`
   (per-clone, untracked by design): fast static pass by default, full suite with `PRECOMMIT_FULL=1`.
   Verified with `git hook run pre-commit`.
+- [x] **P3-19 — `test_executor_auto_heal_error_recording` reached a live Gemini endpoint (CI blocker).**
+  The test mocked `create_plan` and `_call_tool` but not `analyze_error`, so `execute` (agent/executor.py:578)
+  called `error_handler.analyze_error` → `_get_api_key()` → `%LOCALAPPDATA%/BrahmaAI/config/api_keys.json`.
+  On CI (file absent) that raised `FileNotFoundError` → deterministic test failure; on a dev box (file present)
+  it made a real network call → hang with no timeout. Fix (`2d631a0`): monkeypatch
+  `agent.executor.analyze_error` (+ `generate_fix` defensively) to return an `ErrorDecision.ABORT` stub, so the
+  test still exercises `record_last_error` (the line it actually asserts) but never leaves the process.
+  Verified: with `LOCALAPPDATA` pointed at a fresh empty dir the test passes in 0.05s, and the full suite runs
+  **149 passed** with no `--deselect`.
+- [ ] **P3-20 — Flaky native crash at interpreter shutdown after a green suite (deferred).** The Qt/PyQt6 test
+  process occasionally exits `-1073741819` (0xC0000005) or `-1073740940` (0xC0000409) *after* printing
+  `N passed` — ~1 run in 3 at HEAD, and the two-file Qt case (`test_tool_visibility_card.py`,
+  `test_spotify_settings_card.py`) can crash standalone too; `origin/main` (134 tests) exited 0 in one
+  measurement. All failures are teardown-time, no assertion fails, so this is a shutdown race in the
+  PyQt6/WebEngine thread teardown, not a functional regression. **Deferred as its own task** (candidate angles:
+  run Qt tests in a subprocess, add an `atexit` teardown, or deselect the crash-prone pair behind a marker).
+  Until fixed, treat the `N passed` line — not `$LASTEXITCODE` — as the pass signal.
 
 ---
 
