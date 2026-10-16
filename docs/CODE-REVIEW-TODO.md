@@ -319,13 +319,20 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     `bind()` (runtime-only). `_framed_logo`/`_icon_pixmap`/`qcol` are still re-exported from `ui.py`, so
     the downstream `bind()` calls in `ui_chat`/`ui_commandbar`/etc. keep working. `ui.py`
     3888 -> 3831 lines. Full suite 149 passed, all seven `accept_*.py` harnesses green.
-  - **Done - net-label/MetricBar seam (this commit).** `_active_net_label` and `MetricBar` (635-701,
+  - **Done - net-label/MetricBar seam (prior commit).** `_active_net_label` and `MetricBar` (635-701,
     67 lines) moved verbatim to `core/ui_widgets.py` (80 lines). `psutil`/Qt/`C` direct; `qcol` is now
     imported directly from `core.ui_branding` (no `bind()` needed). `ui.py` 3831 -> 3768 lines. Full
     suite 149 passed, all seven `accept_*.py` harnesses green.
-  - Remaining seam: the rest of the `ui.py` panels (background widget - needs a replicated QtWebEngine
-    conditional import - developer-mode dialog - which needs `__file__` handling - globe, `MainWindow`,
-    `BrahmaUI`).
+  - **Done - startup/defaults helper seam (this commit).** `_quiet_run`, `_quote_cmd_arg`,
+    `_hidden_launch_args`, `_startup_run_value`, `_startup_registry_key`, `_current_boot_stamp`,
+    `_launched_from_windows_startup`, `_default_app_settings`, `_default_discord_settings` (497-605,
+    109 lines) moved verbatim to `core/ui_startup.py` (126 lines). stdlib (`Path`/`platform`/`psutil`/
+    `subprocess`/`sys`/`time`) direct; `BASE_DIR`/`_OS` injected via `bind()`. `accept_providers.py`
+    source-text guard widened to also read `core/ui_startup.py` (the moved `_default_app_settings`
+    holds the `provider_enabled_*` defaults). `ui.py` 3768 -> 3675 lines. Full suite 149 passed, all
+    seven `accept_*.py` harnesses green.
+  - Remaining seam: the rest of the `ui.py` panels (`BackgroundWidget`, `DeveloperModeDialog`,
+    `MainWindow`, `_RootShim`, `BrahmaUI`).
 - [x] **P4-20 — Import-time side effects.** Done: the duplicated Qt/env blocks in `main.py`, `ui.py` (two) and
   `core/globe_window.py` collapsed into one idempotent `core/qt_bootstrap.bootstrap()` (importing that module
   has no side effects); `core/boot_sentry` no longer rolls files back on import — `main` calls
