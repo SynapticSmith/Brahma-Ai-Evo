@@ -319,9 +319,13 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     `bind()` (runtime-only). `_framed_logo`/`_icon_pixmap`/`qcol` are still re-exported from `ui.py`, so
     the downstream `bind()` calls in `ui_chat`/`ui_commandbar`/etc. keep working. `ui.py`
     3888 -> 3831 lines. Full suite 149 passed, all seven `accept_*.py` harnesses green.
-  - Remaining seam: the rest of the `ui.py` panels (`_active_net_label`, `MetricBar`, background widget
-    - needs a replicated QtWebEngine conditional import - developer-mode dialog - which needs
-    `__file__` handling - globe, `MainWindow`, `BrahmaUI`).
+  - **Done - net-label/MetricBar seam (this commit).** `_active_net_label` and `MetricBar` (635-701,
+    67 lines) moved verbatim to `core/ui_widgets.py` (80 lines). `psutil`/Qt/`C` direct; `qcol` is now
+    imported directly from `core.ui_branding` (no `bind()` needed). `ui.py` 3831 -> 3768 lines. Full
+    suite 149 passed, all seven `accept_*.py` harnesses green.
+  - Remaining seam: the rest of the `ui.py` panels (background widget - needs a replicated QtWebEngine
+    conditional import - developer-mode dialog - which needs `__file__` handling - globe, `MainWindow`,
+    `BrahmaUI`).
 - [x] **P4-20 — Import-time side effects.** Done: the duplicated Qt/env blocks in `main.py`, `ui.py` (two) and
   `core/globe_window.py` collapsed into one idempotent `core/qt_bootstrap.bootstrap()` (importing that module
   has no side effects); `core/boot_sentry` no longer rolls files back on import — `main` calls
