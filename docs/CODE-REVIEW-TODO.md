@@ -246,8 +246,20 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     are direct imports. `accept_providers.py` extended its source-guard concatenation to also read
     `core/ui_telemetry.py`. Behavior-preserving: full suite 149 passed, all seven `accept_*.py` harnesses
     green. `ui.py` 9644 -> 8572 lines.
-  - Remaining seam: the rest of the `ui.py` panels (launcher, command bar, globe, gesture/floating
-    widgets, …).
+  - **Done - gesture-camera seam (this commit).** The gesture preview trio - `_camera_available`
+    (probe), `_GestureRenderCanvas` (hand-skeleton canvas) and `GestureCameraPreview` (the camera
+    preview widget) - a 663-line block (3 nodes, fully contiguous) moved verbatim to
+    `core/ui_gesture.py` (682 lines with its header). `ui.py` imports the module, injects the two
+    shared module-level constants (`CONFIG_DIR`, `MODEL_DOWNLOAD_URL`) through a `bind()` call, and
+    re-exports the three names so every existing `ui.<Name>` reference is unchanged; neither constant is
+    used at class-definition time, so there is no import cycle. `GestureCameraPreview` is still
+    referenced by `FloatingGestureCard` and `_camera_available` by `MainWindow` - both now resolve
+    through the `ui.py` re-exports. All heavy imports (`cv2`, `numpy`, `pyautogui`, `urllib.request`,
+    `importlib`, `ctypes`) are method-local; `C` comes from `core.ui_theme` and `GestureTracker` /
+    `estimate_gesture_state` are direct imports. Behavior-preserving: full suite 149 passed, all seven
+    `accept_*.py` harnesses green. `ui.py` 8572 -> 7919 lines.
+  - Remaining seam: the rest of the `ui.py` panels (floating launcher, command bar, globe,
+    file-drop, setup/scanning/boot overlays, ...).
 - [x] **P4-20 — Import-time side effects.** Done: the duplicated Qt/env blocks in `main.py`, `ui.py` (two) and
   `core/globe_window.py` collapsed into one idempotent `core/qt_bootstrap.bootstrap()` (importing that module
   has no side effects); `core/boot_sentry` no longer rolls files back on import — `main` calls
