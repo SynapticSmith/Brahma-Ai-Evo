@@ -102,6 +102,8 @@ def test_executor_auto_heal_error_recording(monkeypatch):
     def failing_tool(*args, **kwargs):
         raise ValueError("Simulated tool crash for Auto-Heal test")
 
+    monkeypatch.setattr("agent.executor._call_tool", failing_tool)
+
     # The recovery-analysis path (agent.executor.analyze_error -> error_handler)
     # calls a live Gemini endpoint, so with no api_keys.json present it raises
     # FileNotFoundError and with one present it makes a real network call. This
@@ -120,6 +122,7 @@ def test_executor_auto_heal_error_recording(monkeypatch):
         },
     )
     monkeypatch.setattr("agent.executor.generate_fix", lambda *args, **kwargs: {})
+    executor = AgentExecutor()
     executor.execute(goal="test auto heal recording", speak=None, player=None)
 
     assert len(captured_errors) > 0
