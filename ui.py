@@ -683,7 +683,9 @@ _ui_shell_boot.bind(
     _current_boot_stamp=_current_boot_stamp,
 )
 _ShellBootMixin = _ui_shell_boot._ShellBootMixin
-class BrahmaUI(_ShellBootMixin, _ShellDiscordMixin, _ShellSettingsMixin):
+from core import ui_shell_tray as _ui_shell_tray
+_ShellTrayMixin = _ui_shell_tray._ShellTrayMixin
+class BrahmaUI(_ShellTrayMixin, _ShellBootMixin, _ShellDiscordMixin, _ShellSettingsMixin):
     def __init__(self, face_path: str, size=None, *, show_immediately: bool = True):
         self._app = QApplication.instance() or QApplication(sys.argv)
         self._app.setStyle("Fusion")
@@ -854,64 +856,6 @@ class BrahmaUI(_ShellBootMixin, _ShellDiscordMixin, _ShellSettingsMixin):
             self._launcher.set_state(state, detail)
         except Exception:
             pass
-
-    def _build_tray_menu(self) -> QMenu:
-        menu = QMenu()
-        menu.setStyleSheet(f"""
-            QMenu {{
-                background: rgba(8, 8, 8, 245);
-                color: {C.WHITE};
-                border: 1px solid {C.BORDER_B};
-                border-radius: 10px;
-                padding: 6px;
-            }}
-            QMenu::item {{
-                padding: 8px 18px;
-                border-radius: 6px;
-            }}
-            QMenu::item:selected {{
-                background: rgba(255,255,255,0.08);
-            }}
-        """)
-
-        open_app_action = menu.addAction("Open App")
-        open_action = menu.addAction("Open Workspace")
-        close_action = menu.addAction("Close Workspace")
-        startup_action = menu.addAction("Show Workspace On Startup")
-        startup_action.setCheckable(True)
-        startup_action.setChecked(bool(self._load_app_settings().get("show_workspace_on_startup", False)))
-        show_icon_action = menu.addAction("Show Floating Icon")
-        hide_icon_action = menu.addAction("Hide Floating Icon")
-        menu.addSeparator()
-        restart_action = menu.addAction("Restart")
-        quit_action = menu.addAction("Quit")
-
-        open_app_action.triggered.connect(self.show_main)
-        open_action.triggered.connect(self._show_workspace_sidebar)
-        close_action.triggered.connect(self._close_workspace_sidebar)
-        startup_action.triggered.connect(lambda: self._toggle_workspace_on_startup(startup_action.isChecked()))
-        show_icon_action.triggered.connect(self._show_floating_icon)
-        hide_icon_action.triggered.connect(self._hide_launcher_with_protection)
-        restart_action.triggered.connect(self._restart_app)
-        quit_action.triggered.connect(self._app.quit)
-        return menu
-
-    def _on_tray_activated(self, reason):
-        if reason == QSystemTrayIcon.ActivationReason.Trigger:
-            self._toggle_workspace_sidebar()
-        elif reason == QSystemTrayIcon.ActivationReason.DoubleClick:
-            self.show_main()
-
-    def _on_minimized(self):
-        self._command_bar.hide()
-        self._show_floating_icon()
-
-    def _on_restored(self):
-        self._launcher.hide()
-
-    def _on_launcher_double_clicked(self):
-        self._workspace_sidebar.hide_workspace(animate=False)
-        self.show_main()
 
     def _on_clipboard_actionable(self, category: str, content: str):
         label = {

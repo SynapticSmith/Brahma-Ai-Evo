@@ -422,6 +422,12 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     reached from `agent/executor.py:execute`) that hangs on this machine's current network. This is
     pre-existing and unrelated (the test does not import `ui`); reproduced identically at the prior
     commit (`4f34b21`). Seven harnesses green.
+  - **Done - BrahmaUI tray mixin (this commit).** Fourth BrahmaUI method-level split: five tray /
+    launcher-activation handlers (`_build_tray_menu`, `_on_tray_activated`, `_on_minimized`,
+    `_on_restored`, `_on_launcher_double_clicked`; span 858-914 = 57 lines) moved verbatim into
+    `core/ui_shell_tray.py` (`class _ShellTrayMixin`, no injected names). `ui.py` 1428 -> 1372
+    lines. 148 tests pass (network-dependent auto-heal test deselected, see prior note), seven
+    harnesses green.
   - **Done - MainWindow secondary-overlays mixin (this commit).** Tenth method-level split: 10
     contiguous methods (`_apply_circuit_overlay`, `_apply_call_screening`,
     `_take_over_screened_call`, `_hang_up_screened_call`, `_on_confirm_answered`,
