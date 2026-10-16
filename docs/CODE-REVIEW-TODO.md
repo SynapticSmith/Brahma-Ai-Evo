@@ -220,8 +220,17 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     in another (it had silently dropped `json`, `Path`, `QApplication`, `QLineEdit`, `QMessageBox`, and
     earlier `os`/`threading`/`time`). Behavior-preserving: full suite 149 passed, all seven
     `accept_*.py` harnesses green. `ui.py` 15153 -> 11004 lines.
+  - **Done — smart-devices / connect-devices seam (this commit).** `SmartDevicesSection` +
+    `_ConnectDeviceCard` + `BrahmaConnectDevicesPage` - 3 classes, a 1,282-line block - moved verbatim
+    to `core/ui_devices.py` (1,306 lines with its header). `ui.py` imports the module, injects the two
+    shared symbols defined outside the cluster (`C`, `APP_SETTINGS_FILE`) through a `bind()` call, and
+    re-exports the three class names so every `ui.<Class>` reference is unchanged; neither injected
+    symbol is used at class-definition time (`QFrame`/`pyqtSignal` are, and are direct Qt imports), so
+    there is no import cycle. Qt, `asyncio`/`json`, and the external `SmartHomeService`/`_DeviceTile`
+    are direct imports. Behavior-preserving: full suite 149 passed, all seven `accept_*.py` harnesses
+    green. `ui.py` 11004 -> 9727 lines.
   - Remaining seam: the rest of the `ui.py` panels (launcher, command bar, globe, gesture/floating
-    widgets, device-connect page, …).
+    widgets, …).
 - [x] **P4-20 — Import-time side effects.** Done: the duplicated Qt/env blocks in `main.py`, `ui.py` (two) and
   `core/globe_window.py` collapsed into one idempotent `core/qt_bootstrap.bootstrap()` (importing that module
   has no side effects); `core/boot_sentry` no longer rolls files back on import — `main` calls
