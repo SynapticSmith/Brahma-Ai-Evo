@@ -306,9 +306,16 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     `ui.py` (used only at runtime, never at def-time) and are injected via `bind()`. `ui.py`
     re-exports the four names. Full suite 149 passed, all seven `accept_*.py` harnesses green.
     `ui.py` 4226 -> 4046 lines.
+  - **Done - system-metrics seam (this commit).** `_SysMetrics` (664-829, 166 lines) moved verbatim to
+    `core/ui_sysmetrics.py` (180 lines). `psutil`/`threading`/`time` direct; `_OS` and `_quiet_run`
+    stay in `ui.py` and are injected via `bind()` (runtime-only use; no def-time free names). Note the
+    surrounding 664-916 span is *not* contiguous-clean - `_metrics = _SysMetrics()`, `_CAM_OK_CACHE`
+    and the `ui_gesture` re-export block (832-847) sit between it and `_active_net_label`/`MetricBar`,
+    so only the class itself was extracted. `ui.py` 4046 -> 3888 lines. Full suite 149 passed, all
+    seven `accept_*.py` harnesses green.
   - Remaining seam: the rest of the `ui.py` panels (background widget - needs a replicated QtWebEngine
-    conditional import - `_SysMetrics`, developer-mode dialog - which needs `__file__` handling -
-    globe, `MainWindow`, `BrahmaUI`).
+    conditional import - developer-mode dialog - which needs `__file__` handling - `_active_net_label`,
+    `MetricBar`, globe, `MainWindow`, `BrahmaUI`).
 - [x] **P4-20 — Import-time side effects.** Done: the duplicated Qt/env blocks in `main.py`, `ui.py` (two) and
   `core/globe_window.py` collapsed into one idempotent `core/qt_bootstrap.bootstrap()` (importing that module
   has no side effects); `core/boot_sentry` no longer rolls files back on import — `main` calls
