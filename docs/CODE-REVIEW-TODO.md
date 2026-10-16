@@ -386,6 +386,12 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     above the bind site, so the injection is exactly equivalent); `psutil`, `time`, `Path`,
     `QFileDialog` imported directly. `ui.py` 1846 -> 1728 lines. 149 tests pass, seven harnesses
     green.
+  - **Done - MainWindow state-applier mixin (this commit).** Sixteenth method-level split: the
+    single 109-line god-method `_apply_state` moved verbatim into `core/ui_apply_state.py`
+    (`class _ApplyStateMixin`); no injected globals, `C` imported directly (the state badge /
+    input-placeholder / chip / task-card maps, including their emoji, verified byte-identical).
+    `accept_live_toggle.py`'s section-9 source guard widened to also read
+    `core/ui_apply_state.py`. `ui.py` 1728 -> 1620 lines. 149 tests pass, seven harnesses green.
   - **Done - MainWindow secondary-overlays mixin (this commit).** Tenth method-level split: 10
     contiguous methods (`_apply_circuit_overlay`, `_apply_call_screening`,
     `_take_over_screened_call`, `_hang_up_screened_call`, `_on_confirm_answered`,
