@@ -258,8 +258,19 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     `importlib`, `ctypes`) are method-local; `C` comes from `core.ui_theme` and `GestureTracker` /
     `estimate_gesture_state` are direct imports. Behavior-preserving: full suite 149 passed, all seven
     `accept_*.py` harnesses green. `ui.py` 8572 -> 7919 lines.
-  - Remaining seam: the rest of the `ui.py` panels (floating launcher, command bar, globe,
-    file-drop, setup/scanning/boot overlays, ...).
+  - **Done - floating-launcher seam (this commit).** `FloatingLauncher` and `FloatingGestureCard`
+    (the floating gesture-card overlay), a 494-line block (2 nodes, fully contiguous), moved verbatim
+    to `core/ui_floating.py` (504 lines with its header). This block needs no `bind()`: its only
+    project symbol, `GestureCameraPreview`, is a direct `from core.ui_gesture import GestureCameraPreview`
+    (a leaf with no back-dependency, so no cycle). All other names are Qt (`PyQt6.QtCore`/`QtGui`/
+    `QtWidgets`) direct imports. `ui.py` imports the module and re-exports the two class names, so the
+    existing references in `MainWindow` (`FloatingGestureCard` at `self._floating_gesture_card`,
+    `FloatingLauncher` at `self._launcher`) are unchanged. `accept_live_toggle.py` extended its
+    `ui.py` source guard to also read `core/ui_floating.py` (the launcher orb-theme / status-text
+    `standby` strings moved with it). Behavior-preserving: full suite 149 passed, all seven
+    `accept_*.py` harnesses green. `ui.py` 7919 -> 7429 lines.
+  - Remaining seam: the rest of the `ui.py` panels (command bar, globe, file-drop,
+    setup/scanning/boot overlays, ...).
 - [x] **P4-20 — Import-time side effects.** Done: the duplicated Qt/env blocks in `main.py`, `ui.py` (two) and
   `core/globe_window.py` collapsed into one idempotent `core/qt_bootstrap.bootstrap()` (importing that module
   has no side effects); `core/boot_sentry` no longer rolls files back on import — `main` calls
