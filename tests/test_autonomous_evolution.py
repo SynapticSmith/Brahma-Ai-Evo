@@ -102,9 +102,24 @@ def test_executor_auto_heal_error_recording(monkeypatch):
     def failing_tool(*args, **kwargs):
         raise ValueError("Simulated tool crash for Auto-Heal test")
 
-    monkeypatch.setattr("agent.executor._call_tool", failing_tool)
+    # The recovery-analysis path (agent.executor.analyze_error -> error_handler)
+    # calls a live Gemini endpoint, so with no api_keys.json present it raises
+    # FileNotFoundError and with one present it makes a real network call. This
+    # test only asserts the crash was recorded for Auto-Heal, so stub the
+    # analysis/fix legs to keep the unit test hermetic and offline.
+    from agent.error_handler import ErrorDecision
 
-    executor = AgentExecutor()
+    monkeypatch.setattr(
+        "agent.executor.analyze_error",
+        lambda step, error, attempt=1, max_attempts=2: {
+            "decision": ErrorDecision.ABORT,
+            "reason": "stubbed for test",
+            "fix_suggestion": "",
+            "max_retries": 0,
+            "user_message": "",
+        },
+    )
+    monkeypatch.setattr("agent.executor.generate_fix", lambda *args, **kwargs: {})
     executor.execute(goal="test auto heal recording", speak=None, player=None)
 
     assert len(captured_errors) > 0
