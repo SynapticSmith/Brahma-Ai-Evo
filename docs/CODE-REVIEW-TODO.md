@@ -374,6 +374,11 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     `core.ui_devices` (they are assigned in ui.py only after the bind site, so `bind()` would
     NameError). `gen_ui_mixin.py` gained a `DIRECT_IMPORTS_JSON` env hook for this case. `ui.py`
     2179 -> 1900 lines. 149 tests pass, seven harnesses green.
+  - **Done - MainWindow feature-wiring mixin (this commit).** Fourteenth method-level split: 3
+    contiguous methods (`set_settings_bridge`, `_set_page`, `set_brahma_connect_service`, 55
+    lines) moved verbatim into `core/ui_wiring.py` (`class _WiringMixin`). No injected globals;
+    `QStackedWidget` imported directly. `ui.py` 1900 -> 1846 lines. 149 tests pass, seven
+    harnesses green.
   - **Done - MainWindow secondary-overlays mixin (this commit).** Tenth method-level split: 10
     contiguous methods (`_apply_circuit_overlay`, `_apply_call_screening`,
     `_take_over_screened_call`, `_hang_up_screened_call`, `_on_confirm_answered`,
