@@ -451,6 +451,15 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     asserted by `accept_providers.py`, so its source-text `panel_start` was widened to also read
     `core/ui_shell_launcher.py`. `ui.py` 1320 -> 1294 lines. 148 tests pass (network-dependent
     auto-heal test deselected), seven harnesses green.
+  - **Done - BrahmaUI control-panel mixin (this commit).** Eighth BrahmaUI method-level split:
+    three control-panel helpers (`_position_control_panel`, `_show_control_panel`,
+    `_handle_launcher_action`; span 941-971 = 31 lines) moved verbatim into
+    `core/ui_shell_controlpanel.py` (`class _ShellControlPanelMixin`). `_position_control_panel`
+    annotates its parameter `panel: LauncherControlPanel`, a def-time reference the generator
+    refuses to bind-inject, so the module gets a direct `from core.ui_telemetry import
+    LauncherControlPanel` instead of a `bind()` (no import cycle: `ui_telemetry` does not import
+    `core.ui`). `ui.py` 1294 -> 1264 lines. 148 tests pass (network-dependent auto-heal test
+    deselected), seven harnesses green.
   - **Done - MainWindow secondary-overlays mixin (this commit).** Tenth method-level split: 10
     contiguous methods (`_apply_circuit_overlay`, `_apply_call_screening`,
     `_take_over_screened_call`, `_hang_up_screened_call`, `_on_confirm_answered`,
