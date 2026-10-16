@@ -282,6 +282,7 @@ def main() -> int:
         section("J. The seam is actually wired into the reply path and the UI")
         # ------------------------------------------------------------------
         m_src = (BASE / "main.py").read_text(encoding="utf-8")
+        aio_src = (BASE / "core" / "audio_io.py").read_text(encoding="utf-8")
         ui_src = (BASE / "ui.py").read_text(encoding="utf-8")
 
         check("stripped tags route to the registry through one helper",
@@ -290,10 +291,12 @@ def main() -> int:
         check("the routing call is guarded - a reply is never lost to it",
               m_src.split("avatar_runtime.handle_emotion_tag(emotion)")[0].count("try:")
               >= 1)
+        deliver_sites = (m_src.count("self._deliver_avatar_emotion(emotion)")
+                         + aio_src.count("self._host._deliver_avatar_emotion(emotion)"))
         check("both the fallback and the live voice paths deliver tags",
-              m_src.count("self._deliver_avatar_emotion(emotion)") >= 2,
-              f"{m_src.count('self._deliver_avatar_emotion(emotion)')} call site(s)")
-        live_recv = m_src.split("async def _receive_audio", 1)[1].split(
+              deliver_sites >= 2,
+              f"{deliver_sites} call site(s)")
+        live_recv = aio_src.split("async def _receive_audio", 1)[1].split(
             "async def ", 1)[0]
         check("the live voice path strips the tag before delivering it",
               "_split_emotion_tag(full_out)" in live_recv

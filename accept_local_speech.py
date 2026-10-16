@@ -473,10 +473,11 @@ def test_offline_mode() -> None:
 def test_gemini_untouched() -> None:
     section("D. Gemini Live path is untouched")
     src = (BASE / "main.py").read_text(encoding="utf-8")
+    audio_src = (BASE / "core" / "audio_io.py").read_text(encoding="utf-8")
 
-    speak_start = src.index("    def speak(self, text: str, proactive: bool = False):")
-    speak_end = src.index("    def speak_error(self", speak_start)
-    body = src[speak_start:speak_end]
+    speak_start = audio_src.index("    def speak(self, text: str, proactive: bool = False):")
+    speak_end = audio_src.index("    def speak_error(self", speak_start)
+    body = audio_src[speak_start:speak_end]
 
     gemini_branch = body.split("else:")[0]
     check("live-session branch still sends to Gemini",

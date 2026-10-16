@@ -155,7 +155,16 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     reference plus the two main.py symbols it needs (`_ig_gemini_reply`, `TOOL_DECLARATIONS`) so there is no
     circular import. Behavior-preserving: full suite 149 passed, `accept_instructions.py` and
     `accept_local_speech.py` green. `main.py` 6551 -> 5813 lines.
-  - Remaining seams: session state machine, audio I/O, and the `ui.py` panels.
+  - **Done — audio I/O seam (this commit).** The mic loop (`_listen_audio`, 112 lines), receive loop
+    (`_receive_audio`, 100 lines), playback (`_play_audio`, 34 lines) and speech (`speak`, `speak_error`)
+    moved verbatim to `core/audio_io.py::AudioIO` (~350 lines). `main.py` keeps a lazily-built `self._audio_io`
+    property plus five thin delegations; the executor takes a host reference and the three module-level symbols
+    it needs (`_LiveReconnect`, `_wakeword_detected`, `_update_memory_async`) plus the audio constants. The
+    speak/listen helpers (`_process_local_speech`, `_fallback`/`_send`/`_speak_edge_native`/`_speak_thread`)
+    are local nested functions and stay local to the moved methods. Behavior-preserving: full suite 149 passed,
+    `accept_local_speech.py`, `accept_instructions.py` and `accept_avatar.py` green (the latter two retargeted
+    their source guards to `core/audio_io.py`).
+  - Remaining seams: session state machine and the `ui.py` panels.
 - [x] **P4-20 — Import-time side effects.** Done: the duplicated Qt/env blocks in `main.py`, `ui.py` (two) and
   `core/globe_window.py` collapsed into one idempotent `core/qt_bootstrap.bootstrap()` (importing that module
   has no side effects); `core/boot_sentry` no longer rolls files back on import — `main` calls
