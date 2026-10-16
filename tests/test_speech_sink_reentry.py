@@ -22,7 +22,7 @@ BASE = Path(__file__).resolve().parent.parent
 
 
 def _speak_body() -> str:
-    src = (BASE / "main.py").read_text(encoding="utf-8")
+    src = (BASE / "core" / "audio_io.py").read_text(encoding="utf-8")
     start = src.index("    def speak(self, text: str, proactive: bool = False):")
     end = src.index("    def speak_error(self", start)
     return src[start:end]

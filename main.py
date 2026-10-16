@@ -2,30 +2,22 @@
 from core.user_paths import get_user_data_dir
 import os
 
-# Hardware acceleration & WebGL flags for smooth 180fps+ rendering in Chromium
-os.environ.setdefault(
-    "QTWEBENGINE_CHROMIUM_FLAGS",
-    "--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist --enable-accelerated-2d-canvas --enable-webgl --enable-webgl2-compute-context --disable-frame-rate-limit --disable-gpu-vsync --num-raster-threads=4 --use-angle=d3d11 --disable-gpu-driver-bug-workarounds"
-)
+from core.qt_bootstrap import bootstrap
 
-try:
-    from PyQt6.QtCore import QCoreApplication, Qt
-    from PyQt6.QtGui import QSurfaceFormat
-    QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
-    fmt = QSurfaceFormat.defaultFormat()
-    fmt.setSwapInterval(0)
-    QSurfaceFormat.setDefaultFormat(fmt)
-except Exception:
-    pass
+# Qt/QtWebEngine runtime settings (Chromium flags + shared GL contexts) must be
+# in place before any module pulls in QtWebEngineWidgets.
+bootstrap()
 
 from core import undo as undo_stack
 from core import audio_devices
 from core.echo import EchoGuard
 from core.hotkey import PushToTalk
+from core.provider_failover import ProviderFailover
 from memory import config_manager
 from memory.memory_manager import search_memory
 
-import core.boot_sentry
+from core import boot_sentry
+boot_sentry.run()
 from core.sensorium import sensorium
 from core.protocols import protocols
 from core.local_brain import local_brain
@@ -131,8 +123,29 @@ LIVE_CONNECT_TIMEOUT = 12
 
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    """Return the Gemini API key, or raise with an actionable message.
+
+    Previously this raised a bare ``KeyError`` from ``json.load(...)["gemini_api_key"]``
+    when the file or key was missing. That escaped ``run()`` and killed the whole
+    voice loop with no visible reason. Callers can now catch one clear RuntimeError.
+    """
+    try:
+        data = json.loads(API_CONFIG_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise RuntimeError(
+            f"Missing {API_CONFIG_PATH}. Add {{\"gemini_api_key\": \"...\"}} or switch "
+            "the AI provider to Local/offline."
+        ) from None
+    except Exception as exc:
+        raise RuntimeError(f"Could not read {API_CONFIG_PATH}: {exc}") from exc
+
+    key = str((data or {}).get("gemini_api_key") or "").strip()
+    if not key:
+        raise RuntimeError(
+            f'No "gemini_api_key" in {API_CONFIG_PATH}. Set it, or switch the AI '
+            "provider to Local/offline to run without Gemini."
+        )
+    return key
 
 
 def _is_port_in_use(port: int, host: str = "127.0.0.1") -> bool:
@@ -490,17 +503,22 @@ def _extract_skill_creation_goal(text: str) -> str | None:
 
 
 def _is_gemini_limit_error(exc: Exception) -> bool:
+    """True only for genuine rate-limit / quota exhaustion.
+
+    Deliberately narrow: the caller uses this to fail over to OpenRouter, so an
+    auth error ("permission denied", "access denied") or an unrelated numeric
+    code ("1008" appears in timestamps and request ids) must NOT be mistaken for
+    a throttle, or a bad key silently disables Gemini.
+    """
     msg = str(exc).lower()
     return any(token in msg for token in (
         "429",
         "resource_exhausted",
+        "resource has been exhausted",
         "quota",
         "rate limit",
         "too many requests",
         "exceeded",
-        "1008",
-        "access denied",
-        "permission denied",
     ))
 
 
@@ -2171,7 +2189,9 @@ class BrahmaLive:
         self._loop          = None
         self._is_speaking   = False
         self._speaking_lock = threading.Lock()
-        self._use_openrouter_first = False
+        # Gemini->OpenRouter failover timing (see core.provider_failover). The
+        # registry of enabled providers lives in core.provider_router.
+        self._provider_failover = ProviderFailover()
         self._pending_attention: dict | None = None
         self._pending_reply_event: dict | None = None
         self._reply_mode = False
@@ -2192,6 +2212,12 @@ class BrahmaLive:
         self._live_suspended = False
         self._disconnect_requested = False
         self._control_lock = threading.Lock()
+        # Every control change (mode, Connect/Disconnect) bumps _control_seq. A
+        # reconnect pause that starts *after* a change would otherwise clear the
+        # wake event and sleep the full backoff, silently ignoring it -- so the
+        # pause compares the sequence it has already consumed.
+        self._control_seq = 0
+        self._pause_seen = 0
         self._ui_loop = None                 # loop running run(); set once by it
         self._connect_event = None           # asyncio.Event, built on that loop
         self._control_wake = None            # asyncio.Event; aborts a reconnect pause
@@ -2199,6 +2225,10 @@ class BrahmaLive:
         self._reconnect_delay = 0.0          # exponential backoff, reset on connect
         self._wake_stop = None               # threading.Event that stops standby mic
         self._wake_thread = None
+        # Strong refs to fire-and-forget loop tasks (dashboard, remote commands,
+        # phone-audio relay). Without this the task can be garbage-collected
+        # mid-flight and its exception is silently lost.
+        self._background_tasks = set()
         # Wire the tool bridge's call_tool escape hatch back into this app's own
         # dispatcher, so a tool the model discovered mid-session runs through
         # exactly the same path as an advertised one.
@@ -2268,34 +2298,6 @@ class BrahmaLive:
     # call_soon_threadsafe -- touching them directly from the GUI thread
     # loses wakeups with no error.
     # ------------------------------------------------------------------
-    def set_live_mode(self, mode: str):
-        """Change ONLY the mode preference.
-
-        This used to also overwrite the connection gate, which made the mode
-        selector and the Connect/Disconnect button fight each other: selecting
-        Always On forced the gate open, and selecting On Call forced it shut.
-        Mode and connection are separate controls, so this touches only the mode
-        and then applies the transition the new mode implies.
-        """
-        mode = "on_call" if str(mode) == "on_call" else "always_on"
-        with self._control_lock:
-            was_on_call = self._live_mode == "on_call"
-            self._live_mode = mode
-            if mode == "on_call":
-                # On Call keeps no live socket unless a call is actually placed.
-                self._manual_call_active = False
-
-        if self._should_standby():
-            # Reflect the change immediately rather than waiting for the session
-            # teardown to reach the loop, so the indicator never sits on
-            # LISTENING while the socket is on its way down.
-            self.ui.set_state("STANDBY")
-            self._disconnect_live()
-        elif was_on_call:
-            self._stop_wakeword_listener()
-            self._request_connect()
-        # Abort any in-flight reconnect backoff so the new mode takes effect now.
-        self._wake_control()
 
     def set_live_call(self, active: bool):
         """Connect / Disconnect. Authoritative in BOTH modes."""
@@ -2313,6 +2315,26 @@ class BrahmaLive:
             self._disconnect_live()
         # Abort any in-flight reconnect backoff so Connect/Disconnect is instant.
         self._wake_control()
+
+    def _provider_failover_or_default(self) -> ProviderFailover:
+        """Return the failover tracker, creating it if ``__init__`` was bypassed.
+
+        Test harnesses build instances by setting attributes rather than calling
+        ``__init__``, so the tracker may not exist yet.
+        """
+        failover = getattr(self, "_provider_failover", None)
+        if failover is None:
+            failover = ProviderFailover()
+            self._provider_failover = failover
+        return failover
+
+    def _prefer_openrouter(self) -> bool:
+        """True while a recent Gemini throttle should keep OpenRouter first."""
+        return self._provider_failover_or_default().prefer_openrouter()
+
+    def _throttled_to_openrouter(self, seconds: float = 300.0) -> None:
+        """Record a Gemini throttle and route to OpenRouter for a cooldown."""
+        self._provider_failover_or_default().throttle_to_openrouter(seconds)
 
     def _should_standby(self) -> bool:
         """True when the session loop must idle instead of holding a session.
@@ -2371,26 +2393,16 @@ class BrahmaLive:
         """
         loop = getattr(self, "_ui_loop", None)
         event = getattr(self, "_control_wake", None)
+        with self._control_lock:
+            self._control_seq = getattr(self, "_control_seq", 0) + 1
         if loop is None or event is None:
-            # run() has not built the pause event yet; it re-reads the flags on
-            # its next pass, so nothing is lost.
+            # run() has not built the pause event yet; the sequence bump makes
+            # the next pause return immediately, so nothing is lost.
             return
         try:
             loop.call_soon_threadsafe(event.set)
         except RuntimeError:
             pass  # loop already closed; nothing left to wake
-
-    async def _pause_until(self, seconds: float) -> None:
-        """Sleep up to ``seconds``, returning early on a control change."""
-        event = getattr(self, "_control_wake", None)
-        if event is None:
-            await asyncio.sleep(seconds)
-            return
-        event.clear()
-        try:
-            await asyncio.wait_for(event.wait(), timeout=seconds)
-        except asyncio.TimeoutError:
-            pass
 
     def _next_reconnect_delay(self) -> float:
         """Exponential backoff for the reconnect pause: 2, 4, 8 ... capped at 30.
@@ -2453,117 +2465,6 @@ class BrahmaLive:
             return "local_loop"
         return "gemini_live"
 
-    async def _run_local_voice_session(self):
-        """Voice session for a local provider: mic -> whisper STT -> local model -> TTS.
-
-        Honours the same connect/disconnect contract as the Gemini socket, so
-        Always On, On Call, Connect and Disconnect all mean the same thing
-        whichever provider is selected.
-        """
-        import numpy as np
-        import sounddevice as sd
-
-        self.session = None
-        self._loop = None
-        mic_name = config_manager.get_input_device()
-        mic_dev = audio_devices.resolve(mic_name, "input") if mic_name else None
-        available = audio_devices.list_devices("input")
-        if mic_dev is None and available:
-            mic_name = available[0]
-            mic_dev = audio_devices.resolve(mic_name, "input")
-        if mic_dev is None:
-            self.ui.write_log(
-                "SYS: No usable microphone at the configured sample rate. "
-                "Local voice is paused; text input still works."
-            )
-            while not self._take_disconnect_request():
-                await asyncio.sleep(1.0)
-            return
-
-        from core import speech_stt
-
-        engine = speech_stt.resolve_available()
-        self.ui.set_state("LISTENING")
-        self._report_voice_status(True, f"mic via {engine}")
-        self.ui.write_log(
-            f"SYS: Local voice active (STT: {engine}). "
-            "Always On / On Call / Connect / Disconnect apply as usual."
-        )
-        print(f"[BRAHMA EVO] 🎤 Local voice session started (STT={engine}).")
-
-        speech_buffer = bytearray()
-        silence_chunks = 0
-        speaking = {"on": False}
-
-        def _callback(indata, frames, time_info, status):
-            # A raise here is swallowed by cffi ("Exception ignored from cffi
-            # callback") and the stream then goes silent forever, which is what
-            # a bad buffer conversion looks like from the outside. Nothing in
-            # this callback is allowed to propagate.
-            try:
-                if self._take_disconnect_request():
-                    return
-                # sd.InputStream, NOT RawInputStream: with RawInputStream + dtype="int16"
-                # sounddevice hands the callback a raw C buffer, and `.tobytes()`
-                # raised AttributeError. Inside a cffi callback that exception is
-                # swallowed ("Exception ignored from cffi callback"), so the mic
-                # went permanently silent with no visible cause. InputStream
-                # converts to a numpy array - which is exactly what the working
-                # Gemini path already uses.
-                raw, level = _pcm_block(indata)
-                try:
-                    self.ui.set_audio_level(min(1.0, level / 1200.0))
-                except Exception:
-                    pass
-                if speaking["on"]:
-                    # While a reply is being spoken, ignore the mic so we do not
-                    # transcribe our own voice.
-                    speech_buffer.clear()
-                    silence_chunks = 0
-                    return
-                if level > 300.0:
-                    speech_buffer.extend(raw)
-                    silence_chunks = 0
-                elif speech_buffer:
-                    silence_chunks += 1
-                    if silence_chunks >= 3:
-                        captured = bytes(speech_buffer)
-                        speech_buffer.clear()
-                        silence_chunks = 0
-                        if len(captured) > (SEND_SAMPLE_RATE * 2 * 0.5):
-                            threading.Thread(
-                                target=self._local_voice_turn,
-                                args=(captured, speaking),
-                                daemon=True, name="local-voice-turn",
-                            ).start()
-            except Exception as exc:
-                # Keep this ASCII and guarded: an exception while reporting an
-                # exception is exactly what cffi cannot survive.
-                try:
-                    print(f"[BRAHMA EVO] Local mic callback error: {exc}")
-                except Exception:
-                    pass
-
-        try:
-            # InputStream (not RawInputStream) so `indata` is a numpy int16
-            # array and .tobytes() exists. The Gemini path has always used
-            # InputStream for this reason.
-            with sd.InputStream(
-                samplerate=SEND_SAMPLE_RATE,
-                blocksize=int(SEND_SAMPLE_RATE * 0.1),
-                device=mic_dev, dtype="int16", channels=1, callback=_callback,
-            ):
-                while not self._take_disconnect_request():
-                    await asyncio.sleep(0.1)
-        finally:
-            self.set_speaking(False)
-            self._report_voice_status(False)
-            try:
-                self.ui.set_audio_level(0.0)
-            except Exception:
-                pass
-            print("[BRAHMA EVO] Local voice session ended.")
-
     def _local_voice_turn(self, pcm_bytes: bytes, speaking: dict):
         """One local voice turn: transcribe, answer, speak. Runs off-loop."""
         try:
@@ -2617,54 +2518,14 @@ class BrahmaLive:
         self._wake_thread.start()
 
     def _stop_wakeword_listener(self):
-        stop, self._wake_stop = self._wake_stop, None
-        self._wake_thread = None
+        # Keep the thread reference until the worker actually exits. Nulling it
+        # here let a still-blocked listener (up to ~3s inside recognizer.listen)
+        # overlap with the next one, and the two then fought over the microphone.
+        # _start refuses to arm while the previous thread is still alive, and the
+        # worker clears its own slot in a finally once it is truly done.
+        stop = self._wake_stop
         if stop is not None:
             stop.set()
-
-    def _wakeword_loop(self):
-        """Local-only microphone listener used while On Call is in standby.
-
-        In standby the Gemini socket is down, so the in-session wake word in
-        _listen_audio can never fire -- this thread is the only path that can
-        bring the session back up. It owns the microphone exclusively while
-        disconnected, which is exactly when the live InputStream is not open,
-        so the two never contend for the device.
-        """
-        stop = self._wake_stop
-        try:
-            import speech_recognition as sr
-        except Exception:
-            try:
-                self.ui.write_log(
-                    "SYS: On Call wake word unavailable (pip install SpeechRecognition); "
-                    "use the Connect button."
-                )
-            except Exception:
-                pass
-            return
-
-        recognizer = sr.Recognizer()
-        recognizer.dynamic_response_threshold = False
-        print("[BRAHMA EVO] ON-CALL: wake word armed.")
-        while stop is not None and not stop.is_set():
-            try:
-                with sr.Microphone() as source:
-                    recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                    while stop is not None and not stop.is_set():
-                        audio = recognizer.listen(
-                            source, timeout=3.0, phrase_time_limit=2.5
-                        )
-                        transcript = self._transcribe_wakeword(recognizer, audio)
-                        if _standby_wakeword_detected(transcript):
-                            print("[BRAHMA EVO] ON-CALL: wake word heard - connecting.")
-                            self.set_live_call(True)
-                            return
-            except Exception as e:
-                if stop is None or stop.is_set():
-                    return
-                print(f"[BRAHMA EVO] ON-CALL: wake word listener retrying: {e}")
-                stop.wait(1.0)
 
     @staticmethod
     def _transcribe_wakeword(recognizer, audio) -> str:
@@ -2682,48 +2543,6 @@ class BrahmaLive:
                 return recognizer.recognize_google(audio) or ""
             except Exception:
                 return ""
-
-    async def _serve_live_session(self, session):
-        """Hold one Gemini Live session open until it errors or is cancelled."""
-        async with asyncio.TaskGroup() as tg:
-            self.session        = session
-            self._loop          = asyncio.get_running_loop()
-            self.audio_in_queue = asyncio.Queue()
-            self.out_queue      = asyncio.Queue()  # Fix: removed maxsize=10 to prevent dropping packets
-
-            print("[BRAHMA EVO] ✅ Connected.")
-            try:
-                self.ui.boot_set_step_status("Connect AI backend", "done")
-                self.ui.boot_set_progress(75, "AI backend connected")
-            except Exception:
-                pass
-            self.ui.set_state("LISTENING")
-            self.ui.write_log("SYS: Brahma Evo online.")
-
-            tg.create_task(self._send_realtime())
-            tg.create_task(self._listen_audio())
-            tg.create_task(self._relay_phone_audio())
-            tg.create_task(self._receive_audio())
-            tg.create_task(self._play_audio())
-            if not self._startup_briefing_started:
-                self._startup_briefing_started = True
-                threading.Thread(
-                    target=_speak_daily_briefing,
-                    args=(self.ui, self.speak),
-                    daemon=True,
-                    name="daily-briefing",
-                ).start()
-            try:
-                self.ui.boot_set_step_status("Initialize audio", "done")
-                self.ui.boot_set_progress(92, "Audio subsystems online")
-            except Exception:
-                pass
-            # finalize
-            try:
-                self.ui.boot_set_step_status("Finalize startup", "done")
-                self.ui.boot_set_progress(100, "Startup complete")
-            except Exception:
-                pass
 
     def set_push_to_talk(self, enabled: bool) -> str:
         self._ptt_enabled = bool(enabled)
@@ -2763,40 +2582,6 @@ class BrahmaLive:
         if time.monotonic() - self._last_activity < 240:
             return False
         return True
-
-    def _idle_speech_loop(self):
-        try:
-            from actions.proactive import ProactiveEngine
-            engine = ProactiveEngine(min_silence_secs=300, check_cooldown=600)  # Shorter defaults for testing
-        except ImportError:
-            engine = None
-
-        while True:
-            time.sleep(60.0)
-            if not engine:
-                continue
-            
-            try:
-                if self.ui.muted or self._is_speaking or self._meeting_active or self._pending_attention:
-                    continue
-                
-                # Check if it should trigger using the engine's time monotonic logic
-                if engine.should_trigger(self._last_activity):
-                    engine.mark_triggered()
-                    prompt = engine.build_prompt(memory={})
-                    
-                    if self.session and self._loop:
-                        import asyncio
-                        async def _send():
-                            try:
-                                await self.session.send_client_content(turns={"parts": [{"text": prompt}]}, turn_complete=True)
-                            except Exception as e:
-                                print(f"[Proactive] Error: {e}")
-                        asyncio.run_coroutine_threadsafe(_send(), self._loop)
-                        self._reset_idle_activity()
-                    
-            except Exception as e:
-                print(f"[Proactive] Error: {e}")
 
     def _make_remote_key(self):
         if self._dashboard is None:
@@ -3460,7 +3245,7 @@ class BrahmaLive:
         else:
             is_local_preferred = False
 
-        if is_local_preferred or self._use_openrouter_first or not self._loop or not self.session:
+        if is_local_preferred or self._prefer_openrouter() or not self._loop or not self.session:
             threading.Thread(target=self._fallback_reply, args=(text, memory_ctx), daemon=True).start()
             return
         self.ui.set_state("THINKING")
@@ -3473,854 +3258,180 @@ class BrahmaLive:
         )
 
 
+    @property
+    def _device_flow(self):
+        """Lazily build the device-routing flows (P4-19 seam; see core.device_flow)."""
+        df = getattr(self, "_device_flow_obj", None)
+        if df is None:
+            from core.device_flow import DeviceFlow
+
+            df = DeviceFlow(self)
+            self._device_flow_obj = df
+        return df
+
     def _handle_smart_home_command(self, text: str, source: str = "local") -> bool:
-        normalized = re.sub(r"\s+", " ", re.sub(r"[^a-z0-9\s%]", " ", text.lower())).strip()
-        
-        # Don't touch commands targeted at phone or mobile
-        mobile_words = (
-            "phone", "mobile", "android", "tablet", "brahma connect",
-            "my phone", "my mobile", "my tablet", "my android", "flashlight", "torch"
-        )
-        if any(word in normalized for word in mobile_words):
-            return False
-
-        # Don't hijack PC screen/monitor brightness
-        if any(w in normalized for w in ("screen", "monitor", "display", "laptop", "pc")) and "brightness" in normalized:
-            return False
-
-        smart_home_words = (
-            "fan", "fans", "light", "lights", "lamp", "plug", "socket", "outlet", "bulb",
-            "kasa", "atomberg", "bedroom", "living room", "kitchen", "office room",
-            "balcony", "bathroom", "hall", "dining", "smart home", "smart-home",
-            "ac", "air conditioner", "thermostat"
-        )
-        has_smart_word = any(word in normalized for word in smart_home_words)
-        if not has_smart_word:
-            try:
-                for d in self._smart_home.list_devices():
-                    d_name = str(d.get("name", "")).lower()
-                    d_room = str(d.get("room", "")).lower()
-                    if (d_name and d_name in normalized) or (d_room and d_room in normalized):
-                        has_smart_word = True
-                        break
-            except Exception:
-                pass
-
-        if not has_smart_word:
-            return False
-        try:
-            result = self._smart_home.execute_command(text)
-            detail = str(result.get("detail") or "Smart-home command completed.")
-            title = f"Smart Home: {result.get('action', 'control')}"
-            plan = [
-                "Identify the target device or room",
-                "Send the command to the smart-home provider",
-                "Verify the new state",
-                "Report the result",
-            ]
-            self.ui.update_task_workspace(
-                title=title,
-                command=text,
-                plan=plan,
-                status="Executing smart-home command",
-                output=detail,
-                percent=100,
-                source=source,
-            )
-            self.ui.write_log(f"Brahma Evo: {detail}")
-            self.speak(detail)
-            if not self.ui.muted:
-                self.ui.set_state("LISTENING")
-            return True
-        except Exception as exc:
-            message = f"I couldn't control the smart home device: {exc}"
-            self.ui.write_log(f"ERR: {message}")
-            self.ui.update_task_workspace(
-                title="Smart Home Control",
-                command=text,
-                plan=[
-                    "Identify the target device or room",
-                    "Send the command to the smart-home provider",
-                    "Verify the new state",
-                ],
-                status="Smart-home command failed",
-                output=message,
-                percent=100,
-                source=source,
-            )
-            self.speak(message)
-            if not self.ui.muted:
-                self.ui.set_state("LISTENING")
-            return True
-
-    def _extract_launch_app_name(self, text: str) -> str:
-        normalized = re.sub(r"\s+", " ", re.sub(r"[^a-z0-9\s%]", " ", text.lower())).strip()
-        if not normalized:
-            return ""
-
-        prefixes = (
-            "launch app ",
-            "open app ",
-            "start app ",
-            "open the app ",
-            "launch the app ",
-            "start the app ",
-            "open ",
-            "launch ",
-            "start ",
-            "run ",
-            "bring up ",
-        )
-
-        candidate = normalized
-        for prefix in prefixes:
-            if candidate.startswith(prefix):
-                candidate = candidate[len(prefix):]
-                break
-
-        candidate = re.sub(r"\s+(?:on|in|to)\s+(?:my\s+)?(?:phone|mobile|tablet|android|device)\b.*$", "", candidate).strip()
-        candidate = re.sub(r"\b(?:app|application|please|the)\b", " ", candidate).strip()
-        candidate = re.sub(r"\s+", " ", candidate)
-        return candidate
+        return self._device_flow.handle_smart_home_command(text, source)
 
     def _handle_brahma_connect_command(self, text: str, source: str = "local") -> bool:
-        normalized = re.sub(r"\s+", " ", re.sub(r"[^a-z0-9\s%]", " ", text.lower())).strip()
-        
-        # Explicit mobile indicators: only route to phone if user explicitly mentions phone/mobile
-        # or asks for a phone-exclusive action (flashlight/torch, ring phone).
-        is_flashlight = "flashlight" in normalized or "torch" in normalized
-        is_ring_phone = any(p in normalized for p in ("ring phone", "ring my phone", "find my phone", "find phone", "locate phone"))
-        has_phone_ref = any(token in normalized for token in (
-            "phone", "mobile", "android", "tablet", "brahma connect",
-            "my phone", "my mobile", "my tablet", "my android"
-        ))
+        return self._device_flow.handle_brahma_connect_command(text, source)
 
-        # Never hijack local PC commands (e.g. open chrome, volume up, pc battery) unless user says 'on phone'
-        if not (has_phone_ref or is_flashlight or is_ring_phone):
-            return False
+    @property
+    def _attention_flow(self):
+        """Lazily build the attention/meeting flows (P4-19 seam; see core.attention_flow)."""
+        af = getattr(self, "_attention_flow_obj", None)
+        if af is None:
+            from core.attention_flow import AttentionFlow
 
-        try:
-            devices_json = connect_list_devices(parameters={}, player=self.ui)
-            devices = json.loads(devices_json).get("devices", [])
-        except Exception:
-            devices = []
-
-        if not devices:
-            return False
-
-        try:
-            target = ""
-            for device in devices:
-                name = str(device.get("name", "")).lower()
-                device_id = str(device.get("device_id", "")).lower()
-                platform = str(device.get("platform", "")).lower()
-                if any(token in normalized for token in (name, device_id, platform, "phone", "mobile", "android", "tablet")):
-                    target = str(device.get("device_id") or device.get("name") or "").strip()
-                    break
-            if not target and (has_phone_ref or is_flashlight or is_ring_phone) and len(devices) == 1:
-                target = str(devices[0].get("device_id") or devices[0].get("name") or "").strip()
-            if not target:
-                return False
-
-            action = None
-            params: dict[str, object] = {}
-            
-            # Check for complex multi-step mobile workflow first
-            # Examples: "open X and do Y", "search for Z on X", "message X on Y"
-            if (" and " in normalized or " search " in normalized or " play " in normalized or " message " in normalized or " tell " in normalized) and ("open " in normalized or "launch " in normalized or "app" in normalized):
-                action = "mobile_autopilot"
-                params["instruction"] = text
-            elif "flashlight" in normalized and ("turn on" in normalized or "switch on" in normalized or "power on" in normalized or "on" == normalized):
-                action = "flashlight_on"
-            elif "flashlight" in normalized and ("turn off" in normalized or "switch off" in normalized or "power off" in normalized or "off" == normalized):
-                action = "flashlight_off"
-            elif "battery" in normalized or "charge" in normalized:
-                action = "get_battery"
-            elif "open url" in normalized or "open website" in normalized or "go to" in normalized:
-                action = "open_url"
-            elif any(word in normalized for word in ("launch app", "open app", "start app", "open ", "launch ", "start ", "run ", "bring up ")):
-                app_name = self._extract_launch_app_name(text)
-                if app_name:
-                    action = "launch_app"
-                    params["app_name"] = app_name
-            elif "volume" in normalized and ("set" in normalized or "change" in normalized or "to " in normalized):
-                action = "volume_set"
-                match = re.search(r"\b(\d{1,3})\b", normalized)
-                if match:
-                    params["value"] = int(match.group(1))
-            elif "volume" in normalized:
-                action = "volume_get"
-            elif "info" in normalized or "status" in normalized:
-                action = "get_device_info"
-                
-            if not action:
-                return False
-
-            if action == "mobile_autopilot":
-                # Route complex commands to the autopilot loop
-                def _run_autopilot():
-                    try:
-                        from actions.mobile_autopilot import mobile_autopilot
-                        result_json = mobile_autopilot({"target": target, "instruction": params["instruction"]}, player=self.ui, speak=self.speak)
-                        print(f"[Autopilot Result]: {result_json}")
-                        try:
-                            result_dict = json.loads(result_json)
-                            if not result_dict.get("success"):
-                                print(f"[Autopilot Error]: {result_dict.get('error') or result_dict}")
-                                self.speak(f"Autopilot encountered an error: {result_dict.get('error', 'unknown error')}")
-                        except Exception:
-                            pass
-                    except Exception as e:
-                        print(f"Autopilot failed: {e}")
-                    finally:
-                        try:
-                            self.ui.set_state("IDLE")
-                        except Exception:
-                            pass
-                threading.Thread(target=_run_autopilot, daemon=True).start()
-                return True
-
-            if action == "launch_app":
-                app_name = str(params.get("app_name") or "").strip()
-                if not app_name:
-                    return False
-            if action == "open_url":
-                m = re.search(r"(https?://\S+)", text, re.IGNORECASE)
-                if m:
-                    params["url"] = m.group(1)
-                else:
-                    return False
-
-            payload = {
-                "device": target,
-                "action": action,
-                "parameters": params,
-            }
-            result_json = connect_execute(parameters=payload, player=self.ui)
-            result = json.loads(result_json)
-            if result.get("success", False):
-                detail = str(result.get("detail") or result.get("error") or "Device command completed.")
-                title = f"Brahma Connect: {action}"
-                self.ui.update_task_workspace(
-                    title=title,
-                    command=text,
-                    plan=[
-                        "Identify the paired phone or device",
-                        "Route the command through Brahma Connect",
-                        "Verify the device response",
-                        "Report the result",
-                    ],
-                    status="Executing device command",
-                    output=detail,
-                    percent=100,
-                    source=source,
-                )
-                self.ui.write_log(f"Brahma Evo: {detail}")
-                self.speak(detail)
-                if not self.ui.muted:
-                    self.ui.set_state("LISTENING")
-                return True
-
-            self.ui.write_log(f"ERR: Brahma Connect command failed: {result.get('error') or 'Unknown error'}")
-            return False
-        except Exception:
-            return False
-
-    def _connect_tool_voice(self, name: str, raw_result: str) -> str | None:
-        if not str(name or "").startswith("connect_"):
-            return None
-        try:
-            data = json.loads(raw_result) if isinstance(raw_result, str) else dict(raw_result or {})
-        except Exception:
-            data = {}
-
-        if name == "connect_list_devices":
-            count = int(data.get("count") or len(data.get("devices") or []))
-            return f"I found {count} connected device{'s' if count != 1 else ''}."
-
-        if name == "connect_get_device":
-            device = data.get("device") or {}
-            label = str(device.get("name") or "the device")
-            status = "online" if device.get("online") else "offline"
-            return f"{label} is {status}."
-
-        if name == "connect_get_capabilities":
-            device = data.get("device") or {}
-            label = str(device.get("name") or "The device")
-            return f"{label} capabilities are ready."
-
-        if name == "connect_pair_device":
-            pairing = data.get("pairing") or data
-            code = str(pairing.get("pairing_code") or "").strip()
-            if code:
-                return f"Pairing code ready: {code}."
-            return "Pairing is ready."
-
-        if name == "connect_disconnect_device":
-            return "The device has been disconnected."
-
-        if name == "connect_execute":
-            if data.get("success", False):
-                detail = data.get("detail")
-                if isinstance(detail, dict):
-                    detail = detail.get("message") or detail.get("status") or detail.get("result")
-                if not detail and isinstance(data.get("data"), dict):
-                    payload = data.get("data") or {}
-                    detail = payload.get("message") or payload.get("status") or payload.get("result")
-                if not detail:
-                    detail = data.get("error") or "Task completed."
-                return str(detail)
-            return str(data.get("error") or "The device command failed.")
-
-        return None
-
-    def _attention_message(self, event: dict) -> str:
-        app = (event.get("app") or "an app").strip()
-        kind = (event.get("kind") or "message").strip().lower()
-        if kind == "call":
-            return f"Incoming call detected on {app}. Should I pick it up, ignore it, or cut the call?"
-        title = (event.get("title") or "").strip()
-        preview = (event.get("preview") or "").strip()
-        if title:
-            return f"You received a message on {app} from {title}. It says: {preview}"
-        return f"You received a message on {app}. It says: {preview}"
-
-    def _announce_attention(self, event: dict):
-        msg = self._attention_message(event)
-        self.ui.write_log(f"Brahma Evo: {msg}")
-        if self.session and self._loop:
-            self.speak(msg)
-        else:
-            threading.Thread(target=speak_native, args=(msg,), daemon=True).start()
-        self.ui.show_attention_alert(event)
+            af = AttentionFlow(self)
+            self._attention_flow_obj = af
+        return af
 
     def _on_external_notification(self, event: dict):
-        if not isinstance(event, dict):
-            return
-        kind = (event.get("kind") or "message").strip().lower()
-        app = (event.get("app") or "App").strip()
-        preview = (event.get("preview") or "").strip()
-        settings = {}
-        try:
-            settings = self.ui._load_app_settings()
-        except Exception:
-            settings = {}
-
-        if kind == "call" and not bool(settings.get("attention_call_prompts", True)):
-            return
-        if kind == "message" and not bool(settings.get("attention_message_prompts", True)):
-            return
-
-        with self._attention_lock:
-            current = self._pending_attention
-            if current:
-                same_app = (current.get("app") or "").strip().lower() == app.lower()
-                same_kind = (current.get("kind") or "").strip().lower() == kind
-                if same_app and same_kind:
-                    return
-            self._pending_attention = dict(event)
-
-        self._announce_attention(event)
-        if preview:
-            self.ui.write_log(f"[Attention] {app}: {preview}")
-        if kind == "call" and app.lower() in {"zoom", "teams", "whatsapp"}:
-            self._start_meeting_mode(event)
-
-    def _start_meeting_mode(self, event: dict):
-        event = dict(event or {})
-        app = (event.get("app") or "Meeting").strip()
-        title = event.get("title") or f"{app} meeting"
-        summary = f"Watching {app} for questions and answers."
-        with self._meeting_lock:
-            self._meeting_active = True
-            self._meeting_event = event
-        self.ui.set_meeting_mode(True, title, summary, "Listening for questions on screen...", self._meeting_assistant.latest_speech())
-        self._meeting_assistant.start(title=title, context=summary)
-        self.ui.write_log(f"SYS: Meeting mode enabled for {app}.")
+        return self._attention_flow.on_external_notification(event)
 
     def _stop_meeting_mode(self, reason: str = "Meeting mode stopped."):
-        with self._meeting_lock:
-            was_active = self._meeting_active
-            self._meeting_active = False
-            self._meeting_event = None
-        if was_active:
-            self._meeting_assistant.stop()
-            self.ui.set_meeting_mode(False, "", "", "")
-            self.ui.write_log(f"SYS: {reason}")
+        return self._attention_flow.stop_meeting_mode(reason)
 
     def _on_meeting_update(self, payload: dict):
-        if not isinstance(payload, dict):
-            return
-        active = bool(payload.get("active"))
-        title = payload.get("title") or "Meeting mode"
-        summary = payload.get("summary") or ""
-        answer = payload.get("answer") or ""
-        speech = payload.get("speech") or ""
-        self.ui.set_meeting_mode(active, title, summary, answer, speech)
-        if summary:
-            self.ui.write_log(f"[Meeting] {summary}")
-        if answer:
-            self.ui.write_log(f"Brahma Evo: {answer}")
+        return self._attention_flow.on_meeting_update(payload)
 
     def _on_meeting_state(self, state: str):
-        if state == "LISTENING":
-            self.ui.set_state("LISTENING")
-        elif state == "MEETING":
-            self.ui.set_state("THINKING")
-
-    def _attention_matches(self, text: str, words: tuple[str, ...]) -> bool:
-        t = (text or "").lower()
-        return any(word in t for word in words)
-
-    def _prompt_message_reply(self, event: dict) -> bool:
-        if not isinstance(event, dict):
-            return False
-        with self._attention_lock:
-            self._pending_reply_event = dict(event)
-            self._pending_attention = None
-            self._reply_mode = True
-
-        message = "What would you like to say in reply?"
-        self.ui.write_log(f"Brahma Evo: {message}")
-        if self.session and self._loop:
-            self.speak(message)
-        else:
-            threading.Thread(target=speak_native, args=(message,), daemon=True).start()
-        try:
-            self.ui.begin_task_workspace(
-                "Replying to message",
-                [
-                    "Type your response",
-                    "I will reword it naturally",
-                    f"Send via {event.get('app', 'the app')}",
-                ],
-                source="reply",
-            )
-            self.ui.update_task_workspace(
-                status="Awaiting your reply",
-                output="Type the message you want to send, and I will make it sound natural before sending it as you.",
-                percent=10,
-            )
-        except Exception:
-            pass
-        return True
-
-    def _handle_pending_reply(self, text: str) -> bool:
-        with self._attention_lock:
-            event = dict(self._pending_reply_event or {})
-            self._pending_reply_event = None
-        if not event:
-            return False
-
-        lower = (text or "").lower()
-        if self._attention_matches(lower, ("cancel", "never mind", "skip", "do not send", "don't send")):
-            self._reply_mode = False
-            self.ui.write_log("SYS: Reply cancelled.")
-            try:
-                self.ui.finish_task_workspace("Reply cancelled.", "Cancelled", 100)
-            except Exception:
-                pass
-            return True
-
-        self.ui.write_log(f"SYS: Drafting reply to {event.get('title') or event.get('app')}.")
-        threading.Thread(target=self._draft_and_send_reply, args=(event, text), daemon=True).start()
-        return True
-
-    def _rewrite_reply_text(self, user_text: str, event: dict) -> str:
-        prompt = (
-            "You are a friendly assistant helping a user rewrite their draft reply for a chat message. "
-            "Keep the same meaning and intent, expand the wording slightly, and make it sound natural and human. "
-            "Do not mention the notification, app, or any internal system details. "
-            "Return only the rewritten reply text.\n\n"
-            "Notification context:\n"
-            f"App: {event.get('app', '')}\n"
-            f"Sender: {event.get('title', '')}\n"
-            f"Preview: {event.get('preview', '')}\n\n"
-            "User draft reply:\n"
-            f"{user_text}\n\n"
-            "Reply text:"
-        )
-        try:
-            return _gemini_text_reply(prompt) or user_text
-        except Exception:
-            try:
-                return openrouter_client.chat(
-                    prompt,
-                    system="You are a friendly assistant. Rewrite the reply naturally and humanely.",
-                )
-            except Exception:
-                return user_text
-
-    def _draft_and_send_reply(self, event: dict, text: str):
-        try:
-            reply_text = self._rewrite_reply_text(text, event)
-            if not reply_text:
-                reply_text = text
-            self.ui.update_task_workspace(
-                status="Sending reply",
-                output="Sending your expanded reply now...",
-                percent=70,
-            )
-            receiver = (event.get("title") or "").strip()
-            platform = (event.get("app") or "whatsapp").strip()
-            if not receiver:
-                self.ui.write_log("ERR: Could not determine recipient for reply.")
-                try:
-                    self.ui.finish_task_workspace("Reply failed: recipient not found.", "Reply failed", 100)
-                except Exception:
-                    pass
-                return
-            result = send_message(
-                parameters={
-                    "receiver": receiver,
-                    "message_text": reply_text,
-                    "platform": platform,
-                },
-                player=self.ui,
-            )
-            self._reply_mode = False
-            self.ui.write_log(f"SYS: {result}")
-            try:
-                self.ui.finish_task_workspace(reply_text, "Reply delivered.", 100)
-            except Exception:
-                pass
-        except Exception as e:
-            self._reply_mode = False
-            self.ui.write_log(f"ERR: Reply failed: {e}")
-            try:
-                self.ui.finish_task_workspace(f"Reply failed: {e}", "Reply failed", 100)
-            except Exception:
-                pass
-        finally:
-            if not self.ui.muted:
-                self.ui.set_state("LISTENING")
-
-    def _parse_ig_reply_intent(self, text: str) -> tuple[str, str]:
-        system_prompt = (
-            "You are an intent parser. The user received an Instagram DM. I asked: 'What should I reply, or should I take over?'. "
-            "The user responded. Determine their intent.\n"
-            "1. If they want me to take over/handle it, return TAKE_OVER.\n"
-            "2. If they want to cancel/skip, return CANCEL.\n"
-            "3. If they dictate a specific message to send (e.g. 'tell them I am busy', 'say hi'), return MANUAL_REPLY and the exact text.\n"
-            "4. If they are just greeting me (e.g. 'hi') or making small talk, return IGNORE.\n"
-            "Output ONLY valid JSON: {\"intent\": \"...\", \"reply_text\": \"...\"}"
-        )
-        try:
-            client = genai.Client(api_key=_get_api_key(), http_options={"api_version": "v1beta"})
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=f"{system_prompt}\n\nUser Response: {text}",
-                config={"temperature": 0.1, "response_mime_type": "application/json"}
-            )
-            data = json.loads(response.text.strip())
-            return data.get("intent", "IGNORE"), data.get("reply_text", "")
-        except Exception:
-            lower = text.lower()
-            if any(c in lower for c in ("cancel", "stop", "skip", "never mind", "abort", "don't reply", "do not reply")):
-                return "CANCEL", ""
-            if any(a in lower for a in ("take over", "auto mode", "handle it", "you reply", "auto reply", "take care of it")):
-                return "TAKE_OVER", ""
-            for verb in ("reply", "tell him", "tell her", "tell them", "tell", "say", "send"):
-                if verb in lower:
-                    import re
-                    pattern = rf"^.*?\b{verb}\b(?:\s+(?:him|her|them|that|to\s+say|saying))?\s*"
-                    cleaned = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
-                    if cleaned:
-                        return "MANUAL_REPLY", cleaned
-            if len(text.strip().split()) >= 2 and not any(g in lower for g in ("hello", "hey brahma", "who are you")):
-                return "MANUAL_REPLY", text.strip()
-            return "IGNORE", ""
-
-    def _handle_ig_reply_flow(self, text: str) -> bool:
-        if getattr(self, "_ig_pending_thread", None):
-            thread_id = self._ig_pending_thread.get("thread_id")
-            username = self._ig_pending_thread.get("username")
-            message_text = self._ig_pending_thread.get('message')
-            
-            intent, payload = self._parse_ig_reply_intent(text)
-            
-            if intent == "CANCEL":
-                self._ig_reply_mode = False
-                msg = "Instagram reply cancelled."
-                self.ui.write_log(f"Brahma Evo: {msg}")
-                self.speak(msg)
-                self._ig_pending_thread = None
-                return True
-                
-            if intent == "TAKE_OVER":
-                self.ui.write_log("SYS: Taking over Instagram thread.")
-                self.speak(f"I will now take over the chat with {username}.")
-                from actions.instagram_mcp import add_auto_thread, send_direct_reply
-                add_auto_thread(thread_id)
-                def _generate_and_send():
-                    try:
-                        reply = _ig_gemini_reply(username, message_text)
-                        send_direct_reply(thread_id, reply)
-                    except Exception as e:
-                        print(f"Error taking over thread: {e}")
-                threading.Thread(target=_generate_and_send, daemon=True).start()
-                
-            elif intent == "MANUAL_REPLY":
-                self.ui.write_log(f"SYS: Sending manual reply to @{username}: '{payload}'")
-                self.speak("Message sent.")
-                from actions.instagram_mcp import send_direct_reply
-                def _do_send():
-                    try:
-                        send_direct_reply(thread_id, payload)
-                    except Exception as e:
-                        print(f"Error sending manual reply to @{username}: {e}")
-                threading.Thread(target=_do_send, daemon=True).start()
-                
-            elif intent == "IGNORE":
-                return False
-                
-            self._ig_reply_mode = False
-            self._ig_pending_thread = None
-            return True
-        return False
-
-    def _handle_email_flow(self, text: str) -> bool:
-        lower = text.lower()
-        if any(cancel in lower for cancel in ("cancel", "never mind", "skip", "stop", "abort")):
-            self._email_mode = False
-            self._email_step = 0
-            self._email_profiles = {}
-            msg = "Email sending cancelled, sir."
-            self.ui.write_log(f"Brahma Evo: {msg}")
-            self.speak(msg)
-            try:
-                self.ui.finish_task_workspace("Email sending cancelled.", "Cancelled", 100)
-            except Exception:
-                pass
-            return True
-
-        if self._email_step == 0:
-            # We just collected the recipient
-            self._email_recipient = text.strip()
-            self._email_step = 1
-            prompt = "Which email app would you like to use? (Gmail, default mail app, etc.)"
-            self.ui.write_log(f"Brahma Evo: {prompt}")
-            self.speak(prompt)
-            try:
-                self.ui.update_task_workspace(
-                    status="Selecting email app",
-                    output=f"Recipient: {self._email_recipient}. Asking for email application...",
-                    percent=40,
-                )
-            except Exception:
-                pass
-            return True
-
-        elif self._email_step == 1:
-            # We just collected the app name
-            self._email_app = text.strip()
-            self._email_step = 2
-            
-            prompt = "What is the message you'd like to send?"
-            self.ui.write_log(f"Brahma Evo: {prompt}")
-            self.speak(prompt)
-            try:
-                self.ui.update_task_workspace(
-                    status="Collecting message",
-                    output=f"Recipient: {self._email_recipient} | App: {self._email_app}. Asking for message content...",
-                    percent=70,
-                )
-            except Exception:
-                pass
-            return True
-
-        elif self._email_step == 2:
-            # We just collected the message
-            self._email_message = text.strip()
-            self._email_mode = False
-            self._email_step = 0
-            
-            # Now let's execute composing!
-            msg = f"Opening {self._email_app} and composing email to {self._email_recipient}..."
-            self.ui.write_log(f"Brahma Evo: {msg}")
-            self.speak(msg)
-            try:
-                self.ui.update_task_workspace(
-                    status="Composing email",
-                    output=f"Composing message to {self._email_recipient} via {self._email_app}...",
-                    percent=90,
-                )
-            except Exception:
-                pass
-            
-            try:
-                import urllib.parse
-                import webbrowser
-                subject = "Message from Brahma Evo"
-                quoted_recipient = urllib.parse.quote(self._email_recipient)
-                quoted_subject = urllib.parse.quote(subject)
-                quoted_body = urllib.parse.quote(self._email_message)
-                
-                import os
-                import subprocess
-                import shutil
-
-                app_lower = self._email_app.lower()
-                chrome_opened = False
-
-                if "gmail" in app_lower or "chrome" in app_lower:
-                    import urllib.parse
-                    quoted_recipient = urllib.parse.quote(self._email_recipient)
-                    quoted_subject = urllib.parse.quote("Message from Brahma Evo")
-                    quoted_body = urllib.parse.quote(self._email_message)
-                    url = f"https://mail.google.com/mail/?view=cm&fs=1&to={quoted_recipient}&su={quoted_subject}&body={quoted_body}"
-                    
-                    # Use webbrowser to naturally open a new tab in the already running Chrome window
-                    import webbrowser
-                    webbrowser.open(url)
-
-                elif "outlook" in app_lower:
-                    url = f"https://outlook.live.com/default/?path=/mail/action/compose&to={quoted_recipient}&subject={quoted_subject}&body={quoted_body}"
-                    webbrowser.open(url)
-                else:
-                    url = f"mailto:{quoted_recipient}?subject={quoted_subject}&body={quoted_body}"
-                    webbrowser.open(url)
-                
-                try:
-                    self.ui.finish_task_workspace("Email composed successfully.", "Composed", 100)
-                except Exception:
-                    pass
-            except Exception as e:
-                err_msg = f"Failed to compose email: {e}"
-                self.ui.write_log(f"ERR: {err_msg}")
-                self.speak(err_msg)
-                try:
-                    self.ui.finish_task_workspace(err_msg, "Failed", 100)
-                except Exception:
-                    pass
-            return True
-
-        return False
+        return self._attention_flow.on_meeting_state(state)
 
     def _handle_attention_response(self, text: str) -> bool:
-        with self._attention_lock:
-            event = dict(self._pending_attention or {})
-        if not event:
-            return False
-
-        kind = (event.get("kind") or "message").strip().lower()
-        lower = (text or "").lower()
-
-        if kind == "message":
-            if self._attention_matches(lower, ("reply", "respond", "answer", "write back", "send reply", "send a reply")):
-                return self._prompt_message_reply(event)
-            if self._attention_matches(lower, ("hear", "read", "what is it", "tell me", "show it", "open it")):
-                preview = read_event_preview(event)
-                self.ui.write_log(f"Brahma Evo: {preview}")
-                threading.Thread(target=speak_native, args=(preview,), daemon=True).start()
-                with self._attention_lock:
-                    self._pending_attention = None
-                return True
-            if self._attention_matches(lower, ("ignore", "dismiss", "skip", "no", "not now")):
-                self.ui.write_log("SYS: Message alert dismissed.")
-                with self._attention_lock:
-                    self._pending_attention = None
-                return True
-            return False
-
-        if kind == "call":
-            if self._attention_matches(lower, ("pick up", "answer", "accept", "take it", "join")):
-                result = handle_call_action(event, "accept")
-                self.ui.write_log(f"SYS: {result}")
-                threading.Thread(target=speak_native, args=(result,), daemon=True).start()
-                with self._attention_lock:
-                    self._pending_attention = None
-                return True
-            if self._attention_matches(lower, ("ignore", "decline", "reject", "cut", "hang up", "end")):
-                result = handle_call_action(event, "decline")
-                self.ui.write_log(f"SYS: {result}")
-                threading.Thread(target=speak_native, args=(result,), daemon=True).start()
-                with self._attention_lock:
-                    self._pending_attention = None
-                return True
-            if self._attention_matches(lower, ("x", "nothing", "do nothing", "close")):
-                self.ui.write_log("SYS: Call alert dismissed.")
-                with self._attention_lock:
-                    self._pending_attention = None
-                return True
-            return False
-
-        return False
+        return self._attention_flow.handle_attention_response(text)
 
     def _on_attention_action(self, event: dict, decision: str):
-        if not isinstance(event, dict):
-            return
-        kind = (event.get("kind") or "message").strip().lower()
-        decision = (decision or "").strip().lower()
+        return self._attention_flow.on_attention_action(event, decision)
 
-        if kind == "meeting":
-            if decision == "stop":
-                self._stop_meeting_mode()
-            return
+    @property
+    def _session_lifecycle(self):
+        """Lazily build the session state machine (P4-19 seam; see core.session_lifecycle)."""
+        sl = getattr(self, "_session_lifecycle_obj", None)
+        if sl is None:
+            from core.session_lifecycle import SessionLifecycle
 
-        if kind == "message":
-            if decision == "hear":
-                preview = read_event_preview(event)
-                self.ui.write_log(f"Brahma Evo: {preview}")
-                threading.Thread(target=speak_native, args=(preview,), daemon=True).start()
-            elif decision == "reply":
-                self._prompt_message_reply(event)
-                return
-            else:
-                self.ui.write_log("SYS: Message alert dismissed.")
-            with self._attention_lock:
-                self._pending_attention = None
-            return
+            sl = SessionLifecycle(
+                self,
+                deps={
+                    "SEND_SAMPLE_RATE": SEND_SAMPLE_RATE,
+                    "LIVE_MODEL": LIVE_MODEL,
+                    "LIVE_CONNECT_TIMEOUT": LIVE_CONNECT_TIMEOUT,
+                    "TOOL_DECLARATIONS": TOOL_DECLARATIONS,
+                    "_load_system_prompt": _load_system_prompt,
+                    "_injected_instructions": _injected_instructions,
+                    "_standby_wakeword_detected": _standby_wakeword_detected,
+                    "_speak_daily_briefing": _speak_daily_briefing,
+                    "_pcm_block": _pcm_block,
+                    "_get_api_key": _get_api_key,
+                    "_is_gemini_limit_error": _is_gemini_limit_error,
+                    "_is_transient_live_error": _is_transient_live_error,
+                    "_live_error_reason": _live_error_reason,
+                    "_startup_log": _startup_log,
+                },
+            )
+            self._session_lifecycle_obj = sl
+        return sl
 
-        if kind == "call":
-            if decision in {"accept", "answer", "pick_up"}:
-                result = handle_call_action(event, "accept")
-                self.ui.write_log(f"SYS: {result}")
-                threading.Thread(target=speak_native, args=(result,), daemon=True).start()
-            elif decision in {"noop", "x", "none"}:
-                self.ui.write_log("SYS: Call alert dismissed.")
-            else:
-                result = handle_call_action(event, "decline")
-                self.ui.write_log(f"SYS: {result}")
-                threading.Thread(target=speak_native, args=(result,), daemon=True).start()
-            with self._attention_lock:
-                self._pending_attention = None
+    async def run(self):
+        await self._session_lifecycle.run()
 
+    async def _serve_live_session(self, session):
+        await self._session_lifecycle._serve_live_session(session)
+
+    def _wakeword_loop(self):
+        self._session_lifecycle._wakeword_loop()
+
+    def _idle_speech_loop(self):
+        self._session_lifecycle._idle_speech_loop()
+
+    def set_live_mode(self, mode: str):
+        self._session_lifecycle.set_live_mode(mode)
+
+    def _connect_tool_voice(self, name: str, raw_result: str) -> str | None:
+        return self._session_lifecycle._connect_tool_voice(name, raw_result)
+
+    def _tool_executor(self):
+        """Lazily build the tool-call executor (P4-19 seam; see core.tool_exec)."""
+        ex = getattr(self, "_tool_exec", None)
+        if ex is None:
+            from core.tool_exec import ToolExecutor
+
+            ex = ToolExecutor(
+                self,
+                ig_gemini_reply=_ig_gemini_reply,
+                tool_declarations=TOOL_DECLARATIONS,
+            )
+            self._tool_exec = ex
+        return ex
+
+    @property
+    def _reply_flow(self):
+        """Lazily build the reply/IG/email flows (P4-19 seam; see core.reply_flow)."""
+        rf = getattr(self, "_reply_flow_obj", None)
+        if rf is None:
+            from core.reply_flow import ReplyFlow
+
+            rf = ReplyFlow(
+                self,
+                gemini_text_reply=_gemini_text_reply,
+                get_api_key=_get_api_key,
+                ig_gemini_reply=_ig_gemini_reply,
+            )
+            self._reply_flow_obj = rf
+        return rf
+
+    def _prompt_message_reply(self, event: dict) -> bool:
+        return self._reply_flow.prompt_message_reply(event)
+
+    def _handle_pending_reply(self, text: str) -> bool:
+        return self._reply_flow.handle_pending_reply(text)
+
+    def _handle_ig_reply_flow(self, text: str) -> bool:
+        return self._reply_flow.handle_ig_reply_flow(text)
+
+    def _handle_email_flow(self, text: str) -> bool:
+        return self._reply_flow.handle_email_flow(text)
+
+    @property
+    def _audio_io(self):
+        aio = getattr(self, "_audio_io_obj", None)
+        if aio is None:
+            from core.audio_io import AudioIO
+            aio = AudioIO(
+                self,
+                channels=CHANNELS,
+                send_sample_rate=SEND_SAMPLE_RATE,
+                recv_sample_rate=RECEIVE_SAMPLE_RATE,
+                chunk_size=CHUNK_SIZE,
+                LiveReconnect=_LiveReconnect,
+                wakeword_detected=_wakeword_detected,
+                update_memory_async=_update_memory_async,
+            )
+            self._audio_io_obj = aio
+        return aio
+
+    async def _listen_audio(self):
+        return await self._audio_io._listen_audio()
+
+    async def _receive_audio(self):
+        return await self._audio_io._receive_audio()
+
+    async def _play_audio(self):
+        return await self._audio_io._play_audio()
+
+    def speak(self, text: str, proactive: bool = False):
+        return self._audio_io.speak(text, proactive=proactive)
+
+    def speak_error(self, tool_name: str, error: str):
+        return self._audio_io.speak_error(tool_name, error)
 
     def _execute_tool_via_bridge(self, name: str, args: dict) -> str:
-        """Runs a tool on behalf of the tool bridge's `call_tool` meta-tool.
-
-        Reuses `_execute_tool_sync`, so a discovered-but-unadvertised tool goes
-        through the identical dispatch, UI feedback and speech path as a tool
-        that was in the setup frame. There is deliberately no second execution
-        path to keep in sync.
-        """
-        return self._execute_tool_sync(name, args, call_id=f"call_bridge_{name}")
+        """Runs a tool on behalf of the tool bridge's `call_tool` meta-tool."""
+        return self._tool_executor().execute_via_bridge(name, args)
 
     def _execute_tool_sync(self, name: str, args: dict, call_id: str = "call_local") -> str:
-        class LocalFC:
-            def __init__(self, n, a, cid):
-                self.name = n
-                self.args = a
-                self.id = cid
-                self.silent_completion = True
-
-        fc = LocalFC(name, args, call_id)
-        if self._loop and self._loop.is_running():
-            try:
-                future = asyncio.run_coroutine_threadsafe(self._execute_tool(fc), self._loop)
-                fr = future.result(timeout=None)
-                res_obj = getattr(fr, "response", {})
-                return res_obj.get("result", str(res_obj))
-            except Exception as e:
-                return f"Tool execution failed: {e}"
-        else:
-            try:
-                fr = asyncio.run(self._execute_tool(fc))
-                res_obj = getattr(fr, "response", {})
-                return res_obj.get("result", str(res_obj))
-            except Exception as e:
-                return f"Tool execution failed: {e}"
+        return self._tool_executor().execute_sync(name, args, call_id)
 
     @staticmethod
     def _split_emotion_tag(text: str) -> tuple:
@@ -4380,7 +3491,7 @@ class BrahmaLive:
             except Exception:
                 pass
             reply = ""
-            gemini_first = not self._use_openrouter_first
+            gemini_first = not self._prefer_openrouter()
             request_text = f"{memory_ctx}\n\nCurrent User Request:\n{text}" if memory_ctx else text
 
             app_settings = config_manager.load_settings()
@@ -4424,7 +3535,7 @@ class BrahmaLive:
                 except Exception as e_gem:
                     print(f"[BRAHMA EVO] ⚠️ Gemini failed: {e_gem}")
                     if _is_gemini_limit_error(e_gem):
-                        self._use_openrouter_first = True
+                        self._throttled_to_openrouter()
 
             # 2. If user explicitly selected OpenRouter, run OpenRouter FIRST
             elif is_cloud_openrouter and not is_offline_mode and "openrouter" in active_chain:
@@ -4566,7 +3677,7 @@ class BrahmaLive:
 
             # 4. Fallback cascading: if primary cloud choice failed, try secondary cloud choice
             if not reply and not is_offline_mode:
-                if is_cloud_gemini and self._use_openrouter_first and "openrouter" in active_chain:
+                if is_cloud_gemini and self._prefer_openrouter() and "openrouter" in active_chain:
                     try:
                         reply = openrouter_client.chat(request_text)
                     except Exception:
@@ -4671,63 +3782,7 @@ class BrahmaLive:
         if hasattr(self, "ui") and self.ui and not self.ui.muted:
             self.ui.set_state("LISTENING")
 
-    def speak(self, text: str, proactive: bool = False):
-        text = (text or "").strip()
-        if not text:
-            return
 
-        if self.session and self._loop:
-            # Route text through Gemini Live API for the unified native Charon voice
-            import asyncio
-            async def _send():
-                try:
-                    prompt = f"System Alert / Context: {text}\n\nPlease relay this information to me naturally now."
-                    await self.session.send_client_content(turns={"parts": [{"text": prompt}]}, turn_complete=True)
-                except Exception as e:
-                    print(f"[BRAHMA EVO] Unified Speak (Charon) err: {e}")
-                    def _fallback():
-                        try:
-                            self.set_speaking(True)
-                            from actions.attention_monitor import _speak_edge_native
-                            _speak_edge_native(text)
-                        except Exception as exc:
-                            print(f"[Brahma Speak] Fallback TTS failed: {exc}")
-                        finally:
-                            self.set_speaking(False)
-                    threading.Thread(target=_fallback, daemon=True).start()
-            asyncio.run_coroutine_threadsafe(_send(), self._loop)
-        else:
-            # No live Gemini session: this is the modular speech path, so the
-            # user-selectable engine applies. edge-tts stays the default and the
-            # pre-existing offline_mode -> SAPI routing is preserved inside
-            # speech_tts. The Gemini branch above is deliberately untouched.
-            #
-            # use_sink=False is required, not cosmetic: this method IS the
-            # installed speech sink (set_speech_sink(self.speak) at init), and
-            # the modular engine honours an installed sink when one is present.
-            # Passing the default (True) made speak() re-enter through the sink
-            # (itself) on a fresh thread, forever: an unbounded thread-spawning
-            # loop. With no live session that is the only path, so every
-            # offline/local reply froze the UI (not responding) and pinned
-            # CPU/RAM while the speech engines flooded the audio device.
-            # Skipping the sink here breaks the re-entry; the engine selection
-            # and the offline_mode -> SAPI routing below are unchanged.
-            def _speak_thread():
-                try:
-                    self.set_speaking(True)
-                    from core import speech_tts
-
-                    speech_tts.speak(text, use_sink=False)
-                except Exception as exc:
-                    print(f"[Brahma Speak] Unified TTS failed: {exc}")
-                finally:
-                    self.set_speaking(False)
-            threading.Thread(target=_speak_thread, daemon=True).start()
-
-    def speak_error(self, tool_name: str, error: str):
-        short = str(error)[:120]
-        self.ui.write_log(f"ERR: {tool_name} — {short}")
-        self.speak(f"Sir, {tool_name} encountered an error. {short}")
 
     def _forge_skill(self, goal: str, skill_name: str | None = None) -> str:
         from core.skill_forge import SkillForge
@@ -4795,1276 +3850,35 @@ class BrahmaLive:
             pass
         return message
 
-    def _build_config(self) -> types.LiveConnectConfig:
-        from datetime import datetime
-
-        memory     = load_memory()
-        mem_str    = format_memory_for_prompt(memory)
-        sys_prompt = _load_system_prompt()
-
-        now      = datetime.now()
-        time_str = now.strftime("%A, %B %d, %Y — %I:%M %p")
-        time_ctx = (
-            f"[CURRENT DATE & TIME]\n"
-            f"Right now it is: {time_str}\n"
-            f"Use this to calculate exact times for reminders.\n\n"
-        )
-
-        loc_ctx = ""
-        try:
-            from core.device_location import get_device_city
-            dev_city = get_device_city(default="")
-            if dev_city and dev_city != "Local Area":
-                loc_ctx = (
-                    f"[DEVICE PHYSICAL LOCATION]\n"
-                    f"Current device location: {dev_city}\n"
-                    f"Use this location for local weather, time zone, and neighborhood context.\n\n"
-                )
-        except Exception:
-            pass
-
-        parts = [time_ctx]
-        if loc_ctx:
-            parts.append(loc_ctx)
-        if mem_str:
-            parts.append(mem_str)
-        parts.append(sys_prompt)
-        parts.append(
-            "Wake-word mode: if the microphone is muted, still listen for the words 'Brahma Evo', 'hey', 'hi', and 'hello'. "
-            "When you hear one of these activation cues, keep the session friendly and concise, "
-            "and wait for the user's next command. "
-            "IMPORTANT: Do NOT speak an unprompted generic greeting (like 'Thank you, how can I help you?') upon connecting. "
-            "Remain completely silent until the user speaks to you or asks a question."
-        )
-
-        # Optional instruction blocks for the LIVE layer. This is the only place
-        # Gemini Live's system instruction is assembled, so anything a voice
-        # session is meant to follow has to be composed here.
-        live_extra = _injected_instructions("live")
-        if live_extra:
-            print(f"[BRAHMA EVO] 💉 live prompt += {len(live_extra)} chars of instructions")
-            parts.append(live_extra.strip())
-
-        # --- Tool index: advertise a bounded, relevant tool surface ---------
-        # Every tool used to be sent on the setup frame. With Calyx + Synapse
-        # connected that was 173 declarations, past Gemini's hard 128 limit, and
-        # the handshake failed with 1007 / Invalid Argument. Gemini Live also
-        # cannot swap tools mid-session, so the surface must be small *and* the
-        # rest reachable through search_tools / call_tool.
-        last_intent = (getattr(self, "_last_user_text", "") or "")
-        try:
-            from core import tool_bridge
-
-            payload = tool_bridge.build_session_payload(last_intent)
-        except Exception as exc:
-            print(f"[BRAHMA EVO] ⚠️ Tool index unavailable ({exc}); using legacy tool list.")
-            payload = {
-                "declarations": list(TOOL_DECLARATIONS),
-                "skill_context": "",
-                "deferred": 0,
-                "indexed": False,
-            }
-
-        tool_declarations = payload["declarations"]
-        if payload.get("skill_context"):
-            # Just-in-time context: usage rules for the tool groups actually
-            # advertised this session, and nothing else.
-            parts.append(payload["skill_context"])
-
-        print(
-            f"[BRAHMA EVO] 🧰 Advertising {len(tool_declarations)} tool(s); "
-            f"{payload.get('deferred', 0)} deferred and reachable via search_tools."
-        )
-
-        return types.LiveConnectConfig(
-            response_modalities=["AUDIO"],
-            output_audio_transcription={},
-            input_audio_transcription={},
-            system_instruction="\n".join(parts),
-            tools=[{"function_declarations": tool_declarations}],
-            session_resumption=types.SessionResumptionConfig(handle=getattr(self, '_resume_handle', None)),
-            speech_config=types.SpeechConfig(
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                        voice_name="Charon"
-                    )
-                )
-            ),
-        )
-
     async def _execute_tool(self, fc) -> types.FunctionResponse:
-        name = fc.name
-        args = dict(fc.args or {})
+        return await self._tool_executor().execute(fc)
 
-        # Discovery meta-tools are handled here, before the HUD/speech noise:
-        # they are plumbing the model uses to reach unadvertised capabilities,
-        # and narrating "working on search tools" to the user is just wrong.
-        try:
-            from core import tool_bridge
+    @property
+    def _realtime_flow(self):
+        """Lazily build the realtime/dashboard flows (P4-19 seam; see core.realtime_flow)."""
+        rf = getattr(self, "_realtime_flow_obj", None)
+        if rf is None:
+            from core.realtime_flow import RealtimeFlow
 
-            if tool_bridge.is_meta_tool(name):
-                call_id = getattr(fc, "id", None) or f"call_{name}"
-                text = await tool_bridge.execute_meta(name, args)
-                print(f"[BRAHMA EVO] 🧭 {name} -> {text[:200].replace(chr(10), ' ')}")
-                return types.FunctionResponse(name=name, id=call_id, response={"result": text})
-        except Exception as exc:
-            print(f"[BRAHMA EVO] ⚠️ Meta-tool '{name}' unavailable: {exc}")
+            rf = RealtimeFlow(self)
+            self._realtime_flow_obj = rf
+        return rf
 
-        print(f"[BRAHMA EVO] 🔧 {name}  {args}")
-        self.speak(f"Working on {name.replace('_', ' ')}...")
-        self.ui.set_state("THINKING")
-
-        # Trigger Brahma Right Wing: Live Operations & Sources Telemetry
-        tool_title = name.replace("_", " ").title()
-        brief_query = (
-            args.get("query")
-            or args.get("description")
-            or args.get("topic")
-            or args.get("prompt")
-            or args.get("title")
-            or args.get("action")
-            or ""
-        )
-        sources = []
-        if "url" in args:
-            sources.append(args["url"])
-        if "file_path" in args:
-            sources.append(Path(args["file_path"]).name)
-        elif "path" in args:
-            sources.append(Path(args["path"]).name)
-        elif "query" in args and name in ("web_search", "flight_finder", "youtube_video"):
-            sources.append(f"Query: {str(args['query'])[:28]}")
-
-        try:
-            self.ui.show_hud_operation(
-                title=f"{tool_title.upper()} ACTIVE",
-                step=f"Processing: {brief_query[:75]}" if brief_query else f"Executing {tool_title}...",
-                sources=sources,
-                tool=name
-            )
-        except Exception:
-            pass
-
-        try:
-            self.ui.update_task_workspace(
-                title=f"Running {name}",
-                status=f"Executing {name}",
-                output="Waiting for the tool to finish.",
-                percent=45,
-            )
-        except Exception:
-            pass
-        if name == "undo":
-            action = args.get("action", "undo")
-            if action == "list":
-                items = undo_stack.history()
-                result = ("Things I can undo, most recent first:\n" +
-                          "\n".join(f"  • {item}" for item in items)
-                         ) if items else "I have not changed anything I can undo yet."
-            else:
-                loop = asyncio.get_event_loop()
-                result = await loop.run_in_executor(None, undo_stack.undo_last)
-            self.speak("Undone.")
-            self.ui.set_state("LISTENING")
-            return types.FunctionResponse(name=name, id=fc.id, response={"result": result})
-
-        elif name == "recall_memory":
-            query = args.get("query", "")
-            result = search_memory(query, limit=8)
-            self.ui.set_state("LISTENING")
-            return types.FunctionResponse(name=name, id=fc.id, response={"result": result})
-
-        elif name == "execute_protocol":
-            protocol_name = args.get("protocol", "")
-            res = protocols.execute(protocol_name)
-            msg = res.get("result", res.get("error", "Protocol completed."))
-            self.speak(msg)
-            self.ui.set_state("LISTENING")
-            return types.FunctionResponse(name=name, id=fc.id, response={"result": res})
-
-        elif name == "get_sensorium_telemetry":
-            snapshot = sensorium.get_snapshot()
-            self.ui.set_state("LISTENING")
-            return types.FunctionResponse(name=name, id=fc.id, response={"result": snapshot})
-
-        elif name == "manage_local_model":
-            action = args.get("action", "status")
-            model_target = args.get("model_name", "")
-            if action == "status":
-                avail = local_brain.is_available()
-                models = local_brain.list_installed_models()
-                res = {
-                    "server_online": avail,
-                    "active_model": local_brain.default_model,
-                    "local_mode_enabled": local_brain.enabled,
-                    "installed_models": models,
-                }
-                msg = f"Local brain is {'online' if avail else 'offline'}. Installed models: {', '.join(models) if models else 'none'}."
-            elif action == "pull" and model_target:
-                local_brain.pull_model_async(model_target)
-                msg = f"Initiated background download of local model: {model_target}."
-                res = {"status": "downloading", "model": model_target}
-            elif action == "toggle_offline":
-                local_brain.enabled = not local_brain.enabled
-                msg = f"Offline local inference mode {'engaged' if local_brain.enabled else 'disengaged'}."
-                res = {"local_mode_enabled": local_brain.enabled}
-            elif action == "set_active" and model_target:
-                local_brain.default_model = model_target
-                msg = f"Active local model set to {model_target}."
-                res = {"active_model": local_brain.default_model}
-            else:
-                msg = "Invalid action."
-                res = {"error": msg}
-
-            self.speak(msg)
-            self.ui.set_state("LISTENING")
-            return types.FunctionResponse(name=name, id=fc.id, response={"result": res})
-
-        if name == "save_memory":
-            category = args.get("category", "notes")
-            key      = args.get("key", "")
-            value    = args.get("value", "")
-            if key and value:
-                update_memory({category: {key: {"value": value}}})
-                print(f"[Memory] 💾 save_memory: {category}/{key} = {value}")
-                try:
-                    self.ui.finish_task_workspace("Memory saved.", "Memory updated.", 100)
-                except Exception:
-                    pass
-            if not self.ui.muted:
-                self.ui.set_state("LISTENING")
-            return types.FunctionResponse(
-                id=fc.id, name=name,
-                response={"result": "ok", "silent": True}
-            )
-
-        loop   = asyncio.get_event_loop()
-        result = "Done."
-
-        try:
-            if name == "computer_settings":
-                from actions.computer_settings import computer_settings as cs_run
-                r = await loop.run_in_executor(None, lambda: cs_run(parameters=args, player=self.ui))
-                result = r or "Settings updated."
-
-            elif name == "dev_agent":
-                from actions.dev_agent import dev_agent as da_run
-                r = await loop.run_in_executor(None, lambda: da_run(parameters=args, player=self.ui, speak=self.speak))
-                result = r or "Done."
-
-            elif name == "open_app":
-                r = await loop.run_in_executor(None, lambda: open_app(parameters=args, response=None, player=self.ui))
-                result = r or f"Opened {args.get('app_name')}."
-                
-            elif name == "check_instagram_messages":
-                self.ui.write_log("SYS: Checking Instagram messages...")
-                if hasattr(self.ui, "show_hud_operation"):
-                    self.ui.show_hud_operation("Instagram Inbox", "Fetching recent direct messages...", sources=["instagram.com"])
-                from actions.instagram_mcp import get_recent_messages, InstagramService
-                amount = int(args.get("amount", 5)) if args else 5
-                result = await loop.run_in_executor(None, get_recent_messages, amount)
-                if hasattr(self.ui, "show_hud_deliverable"):
-                    try:
-                        inbox_data = InstagramService.instance().get_inbox(amount=amount)
-                        bullets = [f"@{item['sender']}: {item['last_message']}" for item in inbox_data[:4]]
-                        self.ui.show_hud_deliverable("Instagram Inbox", summary=f"Retrieved {len(inbox_data)} recent conversations", bullets=bullets, kind="result")
-                    except Exception:
-                        pass
-
-            elif name == "instagram_send_dm":
-                recipient = args.get("recipient", "")
-                message = args.get("message", "")
-                open_browser = args.get("open_in_browser", True)
-                self.ui.write_log(f"SYS: Sending Instagram DM to @{recipient}...")
-                if hasattr(self.ui, "show_hud_operation"):
-                    self.ui.show_hud_operation("Instagram DM", f"Messaging @{recipient}...", sources=["instagram.com"])
-                from actions.instagram_mcp import InstagramService
-                def _do_send():
-                    return InstagramService.instance().send_dm(recipient, message, open_in_browser=open_browser)
-                res = await loop.run_in_executor(None, _do_send)
-                if hasattr(self.ui, "show_hud_deliverable"):
-                    self.ui.show_hud_deliverable("Instagram DM Sent", summary=f"Direct message sent to @{res.get('recipient')}", bullets=[f"Message: {message[:60]}...", "Opened in browser for verification"], kind="result")
-                result = f"Direct message sent to @{recipient}. Chat opened in browser: {res.get('browser_url')}"
-
-            elif name == "instagram_post_photo":
-                image_path = args.get("image_path", "")
-                caption = args.get("caption", "")
-                open_browser = args.get("open_in_browser", True)
-                self.ui.write_log(f"SYS: Publishing photo to Instagram...")
-                if hasattr(self.ui, "show_hud_operation"):
-                    self.ui.show_hud_operation("Instagram Post", f"Uploading {Path(image_path).name}...", sources=["instagram.com"])
-                from actions.instagram_mcp import InstagramService
-                def _do_post():
-                    return InstagramService.instance().post_photo(image_path, caption=caption, open_in_browser=open_browser)
-                res = await loop.run_in_executor(None, _do_post)
-                if hasattr(self.ui, "show_hud_deliverable"):
-                    self.ui.show_hud_deliverable("Instagram Post Published", summary="Photo published live to Instagram!", bullets=[f"URL: {res.get('post_url')}", f"Caption: {caption[:60]}..."], kind="deliverable")
-                result = f"Successfully published photo to Instagram! Post URL: {res.get('post_url')}"
-
-            elif name == "instagram_post_reel":
-                video_path = args.get("video_path", "")
-                caption = args.get("caption", "")
-                thumb = args.get("thumbnail_path")
-                open_browser = args.get("open_in_browser", True)
-                self.ui.write_log(f"SYS: Publishing Reel to Instagram...")
-                if hasattr(self.ui, "show_hud_operation"):
-                    self.ui.show_hud_operation("Instagram Reel", f"Uploading {Path(video_path).name}...", sources=["instagram.com"])
-                from actions.instagram_mcp import InstagramService
-                def _do_reel():
-                    return InstagramService.instance().post_reel(video_path, caption=caption, thumbnail_path=thumb, open_in_browser=open_browser)
-                res = await loop.run_in_executor(None, _do_reel)
-                if hasattr(self.ui, "show_hud_deliverable"):
-                    self.ui.show_hud_deliverable("Instagram Reel Published", summary="Reel published live to Instagram!", bullets=[f"URL: {res.get('reel_url')}", f"Caption: {caption[:60]}..."], kind="deliverable")
-                result = f"Successfully published Reel to Instagram! Reel URL: {res.get('reel_url')}"
-
-            elif name == "instagram_get_user_info":
-                username = args.get("username", "")
-                self.ui.write_log(f"SYS: Looking up Instagram user @{username}...")
-                if hasattr(self.ui, "show_hud_operation"):
-                    self.ui.show_hud_operation("Instagram Intelligence", f"Looking up @{username}...", sources=["instagram.com"])
-                from actions.instagram_mcp import InstagramService
-                def _do_lookup():
-                    return InstagramService.instance().get_user_profile(username)
-                res = await loop.run_in_executor(None, _do_lookup)
-                if hasattr(self.ui, "show_hud_deliverable"):
-                    self.ui.show_hud_deliverable(f"@{res.get('username')} Profile", summary=res.get("bio", "No bio"), bullets=[f"Followers: {res.get('followers', 0):,}", f"Following: {res.get('following', 0):,}", f"Posts: {res.get('posts_count', 0):,}", f"Verified: {'Yes' if res.get('is_verified') else 'No'}"], kind="result")
-                result = json.dumps(res, indent=2)
-
-            elif name == "instagram_reply":
-                action = args.get("action")
-                reply_text = args.get("reply_text")
-                if getattr(self, "_ig_pending_thread", None):
-                    thread_id = self._ig_pending_thread.get("thread_id")
-                    username = self._ig_pending_thread.get("username")
-                    from actions.instagram_mcp import add_auto_thread, send_direct_reply
-                    if action == "take_over":
-                        self.ui.write_log("SYS: Taking over Instagram thread via tool.")
-                        add_auto_thread(thread_id)
-                        message_text = self._ig_pending_thread.get('message')
-                        def _generate_and_send():
-                            try:
-                                reply = _ig_gemini_reply(username, message_text)
-                                send_direct_reply(thread_id, reply)
-                            except Exception as e:
-                                print(f"Error taking over thread: {e}")
-                        threading.Thread(target=_generate_and_send, daemon=True).start()
-                        result = f"Successfully took over the chat with @{username}. The backend will now automatically reply to them."
-                    else:
-                        self.ui.write_log(f"SYS: Sending manual reply to @{username}.")
-                        send_direct_reply(thread_id, reply_text)
-                        result = f"Successfully sent manual reply to @{username} and opened thread in browser."
-                        
-                    self._ig_reply_mode = False
-                    self._ig_pending_thread = None
-                else:
-                    recipient = args.get("recipient") or args.get("username")
-                    from actions.instagram_mcp import InstagramService, add_auto_thread
-                    thread_id = None
-                    if not recipient:
-                        try:
-                            inbox = InstagramService.instance().get_inbox(amount=1)
-                            if inbox:
-                                recipient = inbox[0].get("sender")
-                                thread_id = inbox[0].get("thread_id")
-                        except Exception:
-                            pass
-
-                    if recipient:
-                        if action == "take_over":
-                            add_auto_thread(thread_id or recipient)
-                            result = f"Successfully took over the chat with @{recipient}. Brahma Evo will now automatically reply."
-                        else:
-                            res = InstagramService.instance().send_dm(recipient, reply_text, open_in_browser=True)
-                            result = f"Sent reply to @{recipient}: '{reply_text}'. Thread opened in browser."
-                        self._ig_reply_mode = False
-                    else:
-                        result = "Could not find a recent conversation to reply to. Please specify who you want to message."
-
-            elif name == "system_manager":
-                from actions.system_manager import run as sm_run
-                r = await loop.run_in_executor(None, lambda: sm_run(parameters=args, player=self.ui))
-                result = r or "System status retrieved."
-
-            elif name == "background_monitor":
-                from actions.background_monitor import run as bm_run
-                r = await loop.run_in_executor(None, lambda: bm_run(parameters=args, player=self.ui))
-                result = r or "Done."
-
-            elif name == "clipboard_processor":
-                from actions.clipboard_processor import process_clipboard
-                r = await loop.run_in_executor(None, lambda: process_clipboard(parameters=args, player=self.ui))
-                result = r or "Clipboard read."
-
-            elif name == "weather_report":
-                r = await loop.run_in_executor(None, lambda: weather_action(parameters=args, player=self.ui))
-                result = r or "Weather delivered."
-
-            elif name == "browser_control":
-                r = await loop.run_in_executor(None, lambda: browser_control(parameters=args, player=self.ui))
-                result = r or "Done."
-
-            elif name == "file_controller":
-                r = await loop.run_in_executor(None, lambda: file_controller(parameters=args, player=self.ui))
-                result = r or "Done."
-
-            elif name == "send_message":
-                r = await loop.run_in_executor(None, lambda: send_message(parameters=args, response=None, player=self.ui, session_memory=None))
-                result = r or f"Message sent to {args.get('receiver')}."
-
-            elif name == "reminder":
-                r = await loop.run_in_executor(None, lambda: reminder(parameters=args, response=None, player=self.ui))
-                result = r or "Reminder set."
-
-            elif name == "youtube_video":
-                r = await loop.run_in_executor(None, lambda: youtube_video(parameters=args, response=None, player=self.ui))
-                result = r or "Done."
-            elif name == "file_processor":
-                if not args.get("file_path") and self.ui.current_file:
-                    args["file_path"] = self.ui.current_file
-                r = await loop.run_in_executor(
-                    None,
-                    lambda: file_processor(parameters=args, player=self.ui, speak=self.speak)
-                )
-                result = r or "Done."
-
-            elif name == "presentation_builder":
-                if not args.get("slides") and not args.get("outline"):
-                    from actions.office_generator import generate_presentation_from_prompt
-                    topic = args.get("topic") or args.get("title") or "Presentation"
-                    r = await loop.run_in_executor(
-                        None,
-                        lambda: generate_presentation_from_prompt(topic, player=self.ui, speak=self.speak)
-                    )
-                else:
-                    r = await loop.run_in_executor(
-                        None,
-                        lambda: create_presentation(parameters=args, player=self.ui)
-                    )
-                result = r or "Presentation created."
-
-            elif name == "spreadsheet_builder":
-                if not args.get("worksheets") and not args.get("sheets"):
-                    from actions.office_generator import generate_spreadsheet_from_prompt
-                    topic = args.get("topic") or args.get("title") or "Spreadsheet"
-                    r = await loop.run_in_executor(
-                        None,
-                        lambda: generate_spreadsheet_from_prompt(topic, player=self.ui, speak=self.speak)
-                    )
-                else:
-                    r = await loop.run_in_executor(
-                        None,
-                        lambda: create_spreadsheet(parameters=args, player=self.ui)
-                    )
-                result = r or "Spreadsheet created."
-
-
-            elif name == "word_document":
-                if not args.get("file_path") and self.ui.current_file:
-                    current_file = Path(self.ui.current_file)
-                    if current_file.suffix.lower() == ".docx":
-                        args["file_path"] = self.ui.current_file
-                r = await loop.run_in_executor(
-                    None,
-                    lambda: word_document(parameters=args, player=self.ui, speak=self.speak)
-                )
-                result = r or "Word document handled."
-
-            elif name == "pdf_document":
-                r = await loop.run_in_executor(
-                    None,
-                    lambda: create_pdf(parameters=args, player=self.ui)
-                )
-                result = r or "PDF created."
-
-            elif name == "screen_process":
-                if hasattr(self, "set_scanning"):
-                    self.ui.set_scanning(True, "SCANNING SCREEN")
-                threading.Thread(
-                    target=screen_process,
-                    kwargs={
-                        "parameters": args,
-                        "response": None,
-                        "player": self.ui,
-                        "session_memory": None,
-                    },
-                    daemon=True,
-                ).start()
-                result = "Vision module activated. Stay completely silent — vision module will speak directly."
-
-            elif name == "computer_settings":
-                r = await loop.run_in_executor(None, lambda: computer_settings(parameters=args, response=None, player=self.ui))
-                result = r or "Done."
-
-            elif name == "smart_home_control":
-                command_text = str(args.get("command") or "").strip()
-                r = await loop.run_in_executor(None, lambda: self._smart_home.execute_command(command_text))
-                result = str((r or {}).get("detail") or "Smart-home command completed.")
-
-            elif name in ("smart_organizer", "desktop_organizer"):
-                from actions.desktop_organizer_mcp import smart_organizer
-                r = await loop.run_in_executor(None, lambda: smart_organizer(parameters=args, player=self.ui, speak=self.speak))
-                result = r or "Done."
-
-            elif name == "desktop_control":
-                r = await loop.run_in_executor(None, lambda: desktop_control(parameters=args, player=self.ui))
-                result = r or "Done."
-
-            elif name == "agent_task":
-                from agent.task_queue import get_queue, TaskPriority
-                priority_map = {"low": TaskPriority.LOW, "normal": TaskPriority.NORMAL, "high": TaskPriority.HIGH}
-                priority = priority_map.get(args.get("priority", "normal").lower(), TaskPriority.NORMAL)
-                task_id  = get_queue().submit(
-                    goal=args.get("goal", ""),
-                    priority=priority,
-                    speak=self.speak,
-                    player=self.ui
-                )
-                result   = f"Task started (ID: {task_id})."
-
-            elif name == "web_search":
-                r = await loop.run_in_executor(None, lambda: web_search_action(parameters=args, player=self.ui))
-                result = r or "Done."
-
-            elif name == "computer_control":
-                r = await loop.run_in_executor(None, lambda: computer_control(parameters=args, player=self.ui))
-                result = r or "Done."
-
-            elif name == "game_updater":
-                r = await loop.run_in_executor(None, lambda: game_updater(parameters=args, player=self.ui, speak=self.speak))
-                result = r or "Done."
-
-            elif name == "flight_finder":
-                r = await loop.run_in_executor(None, lambda: flight_finder(parameters=args, player=self.ui))
-                result = r or "Done."
-            elif name == "circuit_assembler":
-                from actions.circuit_assembler import circuit_assembler
-                r = await loop.run_in_executor(
-                    None,
-                    lambda: circuit_assembler(parameters=args, player=self.ui, speak=self.speak)
-                )
-                result = r.get("summary", "Circuit schematic ready.") if isinstance(r, dict) else (r or "Circuit schematic ready.")
-            elif name == "geospatial_globe":
-                from core.globe_window import GlobeWindow
-                globe = GlobeWindow.get_instance(parent=self.ui._win)
-                action = (args.get("action") or "open").lower().strip()
-                location = args.get("location") or "current"
-                if action == "open":
-                    globe.open_globe(location if args.get("location") else None)
-                    result = "Opened the interactive Brahma map."
-                elif action == "route":
-                    r = await loop.run_in_executor(None, lambda: globe.show_route(args.get("origin", ""), args.get("destination", "")))
-                    result = f"Flight route: {r.get('origin')} to {r.get('destination')}, {r.get('distance_km')} km, about {r.get('flight_time')}."
-                elif action == "drive":
-                    r = await loop.run_in_executor(None, lambda: globe.show_driving_route(args.get("origin", ""), args.get("destination", "")))
-                    result = f"Driving route: {r.get('origin')} to {r.get('destination')}, {r.get('distance_km')} km, {r.get('duration_str')}."
-                elif action in ("location", "fly_to"):
-                    r = await loop.run_in_executor(None, lambda: globe.show_location(location) if action == "location" else globe.fly_to(location))
-                    result = f"Map focused on {r.get('location', location)}."
-                elif action == "weather":
-                    r = await loop.run_in_executor(None, lambda: globe.show_weather(location))
-                    result = f"Weather for {r.get('location')}: {r.get('weather')}."
-                elif action == "flights":
-                    r = await loop.run_in_executor(None, lambda: globe.show_live_flights(args.get("location")))
-                    result = f"Showing {len(r)} live aircraft on the map."
-                elif action == "iss":
-                    r = await loop.run_in_executor(None, globe.show_iss_tracker)
-                    result = f"ISS location: {r.get('lat')}, {r.get('lon')}; altitude {r.get('altitude_km')} km."
-                elif action == "earthquakes":
-                    r = await loop.run_in_executor(None, lambda: globe.show_earthquakes(float(args.get("min_magnitude", 2.5))))
-                    result = f"Showing {len(r)} recent earthquakes on the map."
-                elif action == "nearby":
-                    r = await loop.run_in_executor(None, lambda: globe.show_nearby(args.get("query") or "hospitals", args.get("location")))
-                    result = f"Found {len(r)} nearby places."
-                elif action == "radar":
-                    enabled = bool(args.get("enable", True))
-                    await loop.run_in_executor(None, lambda: globe.toggle_weather_radar(enabled))
-                    result = f"Weather radar {'enabled' if enabled else 'disabled'}."
-                else:
-                    result = f"Unsupported map action: {action}."
-            elif name == "call_screening":
-                action = (args.get("action") or "start").lower().strip()
-                from actions.call_assistant import hang_up_active_call, start_call_proxy, take_over_active_call
-                if action == "take_over":
-                    take_over_active_call()
-                    result = "Taking over the screened call."
-                elif action == "hang_up":
-                    hang_up_active_call()
-                    result = "Ended the screened call."
-                elif action == "start":
-                    event = {"title": args.get("caller") or "Incoming call", "app": args.get("app") or "Phone / Call"}
-                    from core.confirm import request
-                    result = request(
-                        "start-call-screening",
-                        "Answer this call as Brahma Evo",
-                        f"Brahma will answer {event['title']} in {event['app']}, listen to the caller, and prepare a transcript and summary.",
-                        lambda: (start_call_proxy(event, ui=self.ui, speak_fn=self.speak) and "Call screening started.")
-                    )
-                    self.ui.set_state("LISTENING")
-                    return types.FunctionResponse(id=fc.id, name=name, response={"result": result})
-                else:
-                    result = "Choose start, take_over, or hang_up."
-            elif name == "skill_forge":
-                action = (args.get("action") or "forge").lower().strip()
-                from core.dynamic_registry import DynamicToolRegistry
-                if action == "list":
-                    skills = DynamicToolRegistry.list_skills()
-                    result = "Installed skills: " + (", ".join(skill["name"] for skill in skills) or "none")
-                elif action == "forge":
-                    goal = (args.get("goal") or "").strip()
-                    if not goal:
-                        result = "Describe the capability you want Brahma to learn."
-                    else:
-                        threading.Thread(
-                            target=self._forge_skill,
-                            args=(goal, args.get("skill_name")),
-                            daemon=True,
-                            name="skill-forge",
-                        ).start()
-                        result = f"Started creating the requested skill: {goal}"
-                        self.ui.set_state("LISTENING")
-                        return types.FunctionResponse(id=fc.id, name=name, response={"result": result})
-                else:
-                    result = "Choose forge or list."
-            elif name == "dynamic_skill":
-                action = (args.get("action") or "list").lower().strip()
-                from core.dynamic_registry import DynamicToolRegistry
-                if action == "list":
-                    skills = DynamicToolRegistry.list_skills()
-                    result = "Installed skills: " + (", ".join(skill["name"] for skill in skills) or "none")
-                elif action == "run":
-                    skill_name = (args.get("skill_name") or "").strip()
-                    if not DynamicToolRegistry.has_tool(skill_name):
-                        result = f"No active skill named '{skill_name}'."
-                    else:
-                        run_res = await loop.run_in_executor(
-                            None,
-                            lambda: DynamicToolRegistry.execute_sync(skill_name, args.get("arguments") or args or {})
-                        )
-                        if isinstance(run_res, dict):
-                            out_text = str(run_res.get("summary") or run_res.get("output") or run_res.get("text") or run_res).strip()
-                        else:
-                            out_text = str(run_res).strip()
-                        self.ui.write_log(f"Brahma Evo [{skill_name}]:\n{out_text}")
-                        result = out_text
-                else:
-                    result = "Choose list or run."
-            elif name and name not in {tool.get("name") for tool in TOOL_DECLARATIONS}:
-                from core.dynamic_registry import DynamicToolRegistry
-                if DynamicToolRegistry.has_tool(name):
-                    run_res = await loop.run_in_executor(
-                        None,
-                        lambda: DynamicToolRegistry.execute_sync(name, args or {})
-                    )
-                    if isinstance(run_res, dict):
-                        out_text = str(run_res.get("summary") or run_res.get("output") or run_res.get("text") or run_res).strip()
-                    else:
-                        out_text = str(run_res).strip()
-                    self.ui.write_log(f"Brahma Evo [{name}]:\n{out_text}")
-                    result = out_text
-                else:
-                    result = f"Unknown tool: {name}"
-            elif name == "connect_list_devices":
-                r = await loop.run_in_executor(None, lambda: connect_list_devices(parameters=args, player=self.ui))
-                result = r or "Done."
-            elif name == "connect_get_device":
-                r = await loop.run_in_executor(None, lambda: connect_get_device(parameters=args, player=self.ui))
-                result = r or "Done."
-            elif name == "connect_get_capabilities":
-                r = await loop.run_in_executor(None, lambda: connect_get_capabilities(parameters=args, player=self.ui))
-                result = r or "Done."
-            elif name == "connect_execute":
-                r = await loop.run_in_executor(None, lambda: connect_execute(parameters=args, player=self.ui))
-                result = r or "Done."
-            elif name == "connect_pair_device":
-                r = await loop.run_in_executor(None, lambda: connect_pair_device(parameters=args, player=self.ui))
-                result = r or "Done."
-            elif name == "connect_disconnect_device":
-                r = await loop.run_in_executor(None, lambda: connect_disconnect_device(parameters=args, player=self.ui))
-                result = r or "Done."
-            elif name in ("spotify_controller", "spotify", "music"):
-                from actions.spotify_controller import spotify_controller
-                r = await loop.run_in_executor(None, lambda: spotify_controller(parameters=args, player=self.ui, speak=self.speak))
-                result = r or "Done."
-            elif name in ("calendar_scheduler", "calendar", "schedule"):
-                from actions.calendar_scheduler import calendar_scheduler
-                r = await loop.run_in_executor(None, lambda: calendar_scheduler(parameters=args, player=self.ui, speak=self.speak))
-                result = r or "Done."
-            elif name in ("google_workspace", "gmail", "google_calendar", "google_drive", "workspace") or name.startswith("workspace_"):
-                from actions.google_workspace_mcp import google_workspace
-                p = dict(args or {})
-                if name.startswith("workspace_"):
-                    parts = name.split("_", 2)
-                    if len(parts) > 1:
-                        p.setdefault("service", parts[1])
-                    if len(parts) > 2:
-                        p.setdefault("action", parts[2])
-                r = await loop.run_in_executor(None, lambda: google_workspace(parameters=p, player=self.ui, speak=self.speak))
-                result = r or "Google Workspace task completed."
-            elif name in ("system_diagnostics", "diagnostics", "os_hardware", "hardware_control", "ram_hogs", "kill_process", "brightness_control"):
-                from actions.system_diagnostics_mcp import system_diagnostics
-                p = dict(args or {})
-                if name == "ram_hogs":
-                    p.setdefault("action", "ram_hogs")
-                elif name == "kill_process":
-                    p.setdefault("action", "kill")
-                elif name == "brightness_control":
-                    p.setdefault("action", "brightness")
-                r = await loop.run_in_executor(None, lambda: system_diagnostics(parameters=p, player=self.ui, speak=self.speak))
-                result = r or "Diagnostics completed."
-            elif name in ("daily_briefing", "briefing"):
-                from actions.daily_briefing import daily_briefing
-                r = await loop.run_in_executor(None, lambda: daily_briefing(parameters=args, player=self.ui, speak=self.speak))
-                result = r or "Delivered daily briefing."
-            elif name == "unlock_device":
-                from actions.unlock_device import unlock_device
-                r = await loop.run_in_executor(None, lambda: unlock_device(parameters=args, player=self.ui))
-                result = r or "Done."
-            elif name in ("auto_heal", "self_patch", "rollback"):
-                from actions.auto_heal_engine import auto_heal
-                p = dict(args or {})
-                if name == "rollback":
-                    p.setdefault("action", "rollback")
-                r = await loop.run_in_executor(None, lambda: auto_heal(parameters=p, player=self.ui, speak=self.speak))
-                result = r or "Auto-heal completed."
-            elif name in ("calorie_counter", "nutrition_scan", "food_analysis"):
-                from actions.calorie_counter import calorie_counter
-                r = await loop.run_in_executor(None, lambda: calorie_counter(parameters=args, player=self.ui, speak=self.speak))
-                result = r or "Nutrition analysis complete."
-            elif name in ("pushup_counter", "workout_tracker", "rep_counter"):
-                from actions.pushup_counter import pushup_counter
-                r = await loop.run_in_executor(None, lambda: pushup_counter(parameters=args, player=self.ui, speak=self.speak))
-                result = r or "Workout session complete."
-            elif name in ("upload_video", "video_publisher", "publish_video"):
-                from actions.upload_video import upload_video
-                r = await loop.run_in_executor(None, lambda: upload_video(parameters=args, player=self.ui, speak=self.speak))
-                result = r or "Video publishing ready."
-            elif name == "shutdown_brahma":
-                self.ui.write_log("SYS: Shutdown requested.")
-                self.speak("Goodbye, sir.")
-
-                def _shutdown():
-                    import time, sys, os
-                    time.sleep(1)
-                    os._exit(0)
-
-                threading.Thread(target=_shutdown, daemon=True).start()
-            else:
-                result = f"Unknown tool: {name}"
-
-        except Exception as e:
-            result = f"Tool '{name}' failed: {e}"
-            tb_str = traceback.format_exc()
-            traceback.print_exc()
-            try:
-                from actions.auto_heal_engine import AutoHealEngine
-                AutoHealEngine.record_last_error(tb_str)
-            except Exception:
-                pass
-            self.speak_error(name, e)
-
-        try:
-            if not getattr(fc, "silent_completion", False):
-                self.speak(f"{name.replace('_', ' ')} completed.")
-            self.ui.finish_task_workspace(result, "Task completed.", 100)
-        except Exception:
-            pass
-
-        # Trigger Brahma Left Wing: Final Deliverables & Results
-        try:
-            import re
-            file_match = re.search(r'([A-Za-z]:\\[^\s"\'<>`\r\n]+\.(?:pdf|docx|xlsx|pptx|png|jpg|mp4|py|html|json|txt))', str(result))
-            detected_file = file_match.group(1).strip() if file_match else None
-            if not detected_file and "file_path" in args:
-                p_cand = Path(args["file_path"])
-                if p_cand.exists():
-                    detected_file = str(p_cand.resolve())
-
-            res_str = str(result)
-            bullets = []
-            for l in res_str.splitlines():
-                cl = l.strip()
-                if (cl.startswith(("-", "*", "•", ">")) or cl.startswith(tuple("123456789."))) and len(cl) > 3:
-                    bullets.append(cl.lstrip("-*•>0123456789. ").strip())
-                elif len(cl) > 15 and not cl.startswith("#") and len(bullets) < 4:
-                    bullets.append(cl)
-
-            self.ui.show_hud_deliverable(
-                title=f"{tool_title.upper()} DELIVERABLE",
-                summary=res_str[:160] if not bullets else "",
-                bullets=bullets[:5],
-                file_path=detected_file,
-                kind=name
-            )
-        except Exception:
-            pass
-
-        tool_voice = self._connect_tool_voice(name, result)
-        if tool_voice:
-            try:
-                self.ui.write_log(f"Brahma Evo: {tool_voice}")
-            except Exception:
-                pass
-            try:
-                self.speak(tool_voice)
-            except Exception:
-                pass
-
-        if not self.ui.muted:
-            self.ui.set_state("LISTENING")
-
-        print(f"[BRAHMA EVO] 📤 {name} → {str(result)[:80]}")
-
-        return types.FunctionResponse(
-            id=fc.id, name=name,
-            response={"result": result}
-        )
+    def _spawn_background(self, coro, name: str):
+        return self._realtime_flow.spawn_background(coro, name)
 
     async def _serve_dashboard(self):
-        if self._dashboard is None:
-            self.ui.write_log("ERR: Mobile Connect disabled because dashboard dependencies are missing.")
-            return
-        try:
-            self._dashboard.set_connect_callback(self._on_phone_connected)
-            self._dashboard.set_wake_callback(lambda: None)
-            await self._dashboard.serve()
-        except Exception as e:
-            self.ui.write_log(f"ERR: Mobile Connect server failed: {e}")
-            traceback.print_exc()
+        return await self._realtime_flow.serve_dashboard()
 
     async def _consume_remote_commands(self):
-        if self._dashboard is None:
-            return
-        while True:
-            text = await self._dashboard._command_queue.get()
-            if text:
-                try:
-                    self.ui.submit_external_command(text, source="mobile")
-                except Exception:
-                    self._on_text_command(text, source="mobile")
+        return await self._realtime_flow.consume_remote_commands()
 
     async def _relay_phone_audio(self):
-        if self._dashboard is None:
-            return
-        while True:
-            frame = await self._dashboard._phone_audio_queue.get()
-            if not self.out_queue:
-                continue
-            self._phone_active = True
-            try:
-                await self.out_queue.put(frame)
-            finally:
-                await asyncio.sleep(0.08)
-                if self._dashboard._phone_audio_queue.empty():
-                    self._phone_active = False
+        return await self._realtime_flow.relay_phone_audio()
 
     async def _send_realtime(self):
-        while True:
-            msg = await self.out_queue.get()
-            await self.session.send_realtime_input(media=msg)
+        return await self._realtime_flow.send_realtime()
 
-    async def _listen_audio(self):
-        print("[BRAHMA EVO] 🎤 Mic started")
-        loop = asyncio.get_event_loop()
-        import numpy as np
-
-        _mic_name = config_manager.get_input_device()
-        _mic_dev = audio_devices.resolve(_mic_name, "input") if _mic_name else None
-        available_inputs = audio_devices.list_devices("input")
-        if _mic_dev is None and available_inputs:
-            _mic_name = available_inputs[0]
-            _mic_dev = audio_devices.resolve(_mic_name, "input")
-        if _mic_dev is None:
-            self.ui.write_log(
-                "SYS: No usable microphone is available at the configured sample rate. "
-                "Voice input is paused; text and mobile remote remain available."
-            )
-            while True:
-                await asyncio.sleep(60)
-
-        speech_buffer = bytearray()
-        silence_chunks = 0
-
-        def callback(indata, frames, time_info, status):
-            nonlocal silence_chunks
-            with self._speaking_lock:
-                brahma_speaking = self._is_speaking
-            if self._phone_active:
-                return
-
-            if getattr(self, "_ptt_enabled", False) and not getattr(self, "_ptt_held", False):
-                data = np.zeros_like(indata).tobytes()
-                loop.call_soon_threadsafe(
-                    self.out_queue.put_nowait,
-                    {"data": data, "mime_type": "audio/pcm"}
-                )
-                return
-            
-            if not self.ui.muted or getattr(self.ui, "_wakeword_listening", False):
-                lvl = float(np.sqrt(np.mean(np.square(indata, dtype=np.float32))))
-                
-                # Handle Local AI voice input when in Local or Offline mode
-                app_cfg = config_manager.load_settings()
-                if app_cfg.get("default_ai_provider") == "Local" or app_cfg.get("offline_mode_enabled", False):
-                    if not brahma_speaking and not self.ui.muted:
-                        if lvl > 22.0:
-                            speech_buffer.extend(indata.tobytes())
-                            silence_chunks = 0
-                        elif len(speech_buffer) > 0:
-                            silence_chunks += 1
-                            # ~0.7s of silence (each chunk is ~30ms -> 20 chunks)
-                            if silence_chunks > 18:
-                                captured = bytes(speech_buffer)
-                                speech_buffer.clear()
-                                silence_chunks = 0
-                                if len(captured) > (SEND_SAMPLE_RATE * 2 * 0.5):
-                                    def _process_local_speech(pcm_bytes):
-                                        try:
-                                            # Pluggable STT: cloud Google by
-                                            # default, faster-whisper when the
-                                            # user selects it. Same PCM in,
-                                            # same command string out.
-                                            from core import speech_stt
-
-                                            text_cmd = speech_stt.transcribe_pcm(
-                                                pcm_bytes, SEND_SAMPLE_RATE
-                                            )
-                                            if text_cmd and len(text_cmd.strip()) > 1:
-                                                print(f"[Local AI Voice] 🎙️ Heard: {text_cmd}")
-                                                self._on_text_command(text_cmd, source="mic")
-                                        except Exception:
-                                            pass
-                                    threading.Thread(target=_process_local_speech, args=(captured,), daemon=True).start()
-
-                if brahma_speaking:
-                    if self._echo.is_user_speech(indata, SEND_SAMPLE_RATE, lvl) and lvl > 28.0:
-                        loop.call_soon_threadsafe(self.trigger_barge_in)
-                        data = indata.tobytes()
-                    else:
-                        data = np.zeros_like(indata).tobytes()
-                else:
-                    if not self.ui.muted:
-                        try:
-                            self.ui.set_audio_level(min(1.0, lvl / 1200.0))
-                        except Exception:
-                            pass
-                    if self._echo._hist:
-                        self._echo.reset()
-                    if lvl > 10.0:
-                        data = indata.tobytes()
-                    else:
-                        data = np.zeros_like(indata).tobytes()
-                    
-                loop.call_soon_threadsafe(
-                    self.out_queue.put_nowait,
-                    {"data": data, "mime_type": "audio/pcm"}
-                )
-
-        try:
-            with sd.InputStream(
-                samplerate=SEND_SAMPLE_RATE,
-                channels=CHANNELS,
-                dtype="int16",
-                blocksize=CHUNK_SIZE,
-                device=_mic_dev,
-                callback=callback,
-            ):
-                print(f"[BRAHMA EVO] 🎤 Mic stream open ({_mic_name or 'Default'})")
-                while True:
-                    await asyncio.sleep(0.1)
-        except Exception as e:
-            print(f"[BRAHMA EVO] ❌ Mic: {e}")
-            raise
-
-    async def _receive_audio(self):
-        print("[BRAHMA EVO] 👂 Recv started")
-        out_buf, in_buf = [], []
-
-        try:
-            while True:
-                async for response in self.session.receive():
-                    _go = getattr(response, "go_away", None)
-                    if _go is not None:
-                        # The server is rotating the session (e.g. before a
-                        # planned restart). Reconnect on our terms now instead of
-                        # waiting for the socket to be cut mid-turn and surfacing
-                        # as a bare 1006.
-                        _left = getattr(_go, "time_left", None)
-                        raise _LiveReconnect(
-                            f"server GoAway (time_left={_left})"
-                            if _left is not None else "server GoAway"
-                        )
-                    _sru = getattr(response, "session_resumption_update", None)
-                    if _sru is not None:
-                        if getattr(_sru, "resumable", False) and getattr(_sru, "new_handle", None):
-                            self._resume_handle = _sru.new_handle
-
-                    if response.data:
-                        self.set_speaking(True)
-                        self.audio_in_queue.put_nowait(response.data)
-
-                    if response.server_content:
-                        sc = response.server_content
-
-                        if sc.output_transcription and sc.output_transcription.text:
-                            self.set_speaking(True)
-                            txt = sc.output_transcription.text.strip()
-                            if txt:
-                                out_buf.append(txt)
-
-                        if sc.input_transcription and sc.input_transcription.text:
-                            txt = sc.input_transcription.text.strip()
-                            if txt:
-                                try:
-                                    from actions.attention_monitor import stop_native_speech
-                                    stop_native_speech()
-                                except Exception:
-                                    pass
-                                in_buf.append(txt)
-                                # Seed the next session's tool selection with what
-                                # the user is actually asking about.
-                                self._last_user_text = txt
-                                if self.ui.muted and _wakeword_detected(txt):
-                                    try:
-                                        self.ui.set_muted_state(False, wakeword=True)
-                                        self.ui.write_log("SYS: Wake word detected. Mic active.")
-                                    except Exception:
-                                        pass
-
-                        if sc.turn_complete:
-                            self.set_speaking(False)
-
-                            full_in = " ".join(in_buf).strip()
-                            if full_in:
-                                self.ui.write_log(f"You: {full_in}")
-                            in_buf = []
-
-                            full_out = " ".join(out_buf).strip()
-                            if full_out:
-                                # The model emits its mood as a leading
-                                # [EMOTION] tag on the injected live layer. This
-                                # path used to log the turn verbatim and drop
-                                # the tag, so in the default voice mode the
-                                # avatar never reacted at all. Strip it, deliver
-                                # it, and log the clean turn.
-                                full_out, emotion = self._split_emotion_tag(full_out)
-                                self._deliver_avatar_emotion(emotion)
-                                if full_out:
-                                    self.ui.write_log(f"Brahma Evo: {full_out}")
-                            out_buf = []
-
-                            if full_in and len(full_in) > 5:
-                                threading.Thread(
-                                    target=_update_memory_async,
-                                    args=(full_in, full_out),
-                                    daemon=True
-                                ).start()
-
-                    if response.tool_call:
-                        self.ui.set_state("EXECUTING")
-                        fn_responses = []
-                        for fc in response.tool_call.function_calls:
-                            print(f"[BRAHMA EVO] 📞 {fc.name}")
-                            fr = await self._execute_tool(fc)
-                            fn_responses.append(fr)
-                        self.ui.set_state("THINKING")
-                        await self.session.send_tool_response(
-                            function_responses=fn_responses
-                        )
-
-        except Exception as e:
-            print(f"[BRAHMA EVO] ❌ Recv: {e}")
-            traceback.print_exc()
-            raise
-
-    async def _play_audio(self):
-        print("[BRAHMA EVO] 🔊 Play started")
-        loop = asyncio.get_event_loop()
-        import numpy as np
-
-        _spk_name = config_manager.get_output_device()
-        _spk_dev = audio_devices.resolve(_spk_name, "output") if _spk_name else None
-
-        stream = sd.RawOutputStream(
-            samplerate=RECEIVE_SAMPLE_RATE,
-            channels=CHANNELS,
-            dtype="int16",
-            blocksize=CHUNK_SIZE,
-            device=_spk_dev,
-        )
-        stream.start()
-        try:
-            while True:
-                chunk = await self.audio_in_queue.get()
-                try:
-                    pcm = np.frombuffer(chunk, dtype=np.int16)
-                    lvl = float(np.sqrt(np.mean(np.square(pcm, dtype=np.float32))))
-                    self._echo.note_output(pcm, RECEIVE_SAMPLE_RATE, lvl)
-                    self.ui.set_audio_level(min(1.0, lvl / 2500.0))
-                except Exception:
-                    pass
-                await asyncio.to_thread(stream.write, chunk)
-        except Exception as e:
-            print(f"[BRAHMA EVO] ❌ Play: {e}")
-            raise
-        finally:
-            self.set_speaking(False)
-            stream.stop()
-            stream.close()
-
-    async def run(self):
-        # announce boot steps to UI overlay (thread-safe wrappers)
-        try:
-            self.ui.boot_add_step("Load configuration")
-            self.ui.boot_add_step("Start attention monitor")
-            self.ui.boot_add_step("Start dashboard server")
-            self.ui.boot_add_step("Initialize audio")
-            self.ui.boot_add_step("Connect AI backend")
-            self.ui.boot_add_step("Finalize startup")
-            self.ui.boot_set_progress(3, "Preparing startup...")
-        except Exception:
-            pass
-
-        self._attention_monitor.start()
-        try:
-            self.ui.boot_set_step_status("Start attention monitor", "done")
-            self.ui.boot_set_progress(12, "Attention monitor online")
-        except Exception:
-            pass
-        if self._dashboard is not None:
-            if not self._dashboard_started:
-                self._dashboard_started = True
-                asyncio.create_task(self._serve_dashboard())
-                try:
-                    self.ui.boot_set_step_status("Start dashboard server", "done")
-                    self.ui.boot_set_progress(22, "Mobile connect server running")
-                except Exception:
-                    pass
-            asyncio.create_task(self._consume_remote_commands())
-            asyncio.create_task(self._relay_phone_audio())
-        try:
-            self.ui.boot_set_progress(36, "Initializing AI client")
-        except Exception:
-            pass
-
-        client = genai.Client(
-            api_key=_get_api_key(),
-            http_options={"api_version": "v1beta"}
-        )
-
-        self._ui_loop = asyncio.get_running_loop()
-        # Built on the loop that awaits it. A control change fires it to cut a
-        # reconnect pause short, so On Call / Disconnect apply without waiting
-        # out the backoff.
-        self._control_wake = asyncio.Event()
-        self._reconnect_delay = 0.0
-
-        while True:
-            # --- DISCONNECT CONSTANT BACKGROUND CONNECTION TO GEMINI LIVE FOR OFFLINE MODE---
-            # Backend choice is an axis of the session, not a bypass of it: a local
-            # provider runs a local voice loop instead of the Gemini socket, so
-            # Always On / On Call / Connect / Disconnect keep working. Previously
-            # this `continue` meant the mic handler that pipes whisper STT into the
-            # local model never ran when Local was selected.
-            app_cfg = config_manager.load_settings()
-            backend = self._voice_backend()
-            if backend == "local_loop":
-                try:
-                    if self._should_standby():
-                        await self._wait_for_connect_request()
-                        continue
-                    self._clear_disconnect_request()
-                    await self._session_task_guard(
-                        self._run_local_voice_session()
-                    )
-                except asyncio.CancelledError:
-                    raise
-                except Exception as e:
-                    print(f"[BRAHMA EVO] ⚠️ Local voice session error: {e}")
-                self.set_speaking(False)
-                self.ui.set_state("STANDBY" if self._should_standby() else "LISTENING")
-                if not self._should_standby():
-                    print("[BRAHMA EVO] 🔄 Re-attaching local mic in 5s...")
-                    await self._pause_until(5)
-                continue
-            # -------------------------
-
-            try:
-                if self._should_standby():
-                    await self._wait_for_connect_request()
-                    continue
-
-                self._clear_disconnect_request()
-                print("[BRAHMA EVO] 🔌 Connecting...")
-                self._report_voice_status(False, "connecting")
-                self.ui.set_state("THINKING")
-                config = self._build_config()
-
-                connect_cm = client.aio.live.connect(model=LIVE_MODEL, config=config)
-                session = await asyncio.wait_for(connect_cm.__aenter__(), timeout=LIVE_CONNECT_TIMEOUT)
-                try:
-                    if self._should_standby():
-                        # The user hit Disconnect / switched to On Call while the
-                        # handshake was in flight. _disconnect_live() had no task
-                        # to cancel yet, so without this guard the session would
-                        # arm anyway and the socket the user just dismissed stays
-                        # up. Drop it here instead.
-                        print("[BRAHMA EVO] 📴 Connect cancelled during handshake.")
-                    else:
-                        # The session runs as its own task so _disconnect_live() has
-                        # something to cancel. Awaiting it inline would leave no
-                        # handle at all and "End Call" would silently do nothing.
-                        self._session_task = asyncio.create_task(
-                            self._serve_live_session(session)
-                        )
-                        self._report_voice_status(True)
-                        self._reconnect_delay = 0.0  # a good connect resets backoff
-                        try:
-                            await self._session_task
-                        except asyncio.CancelledError:
-                            # CancelledError is a BaseException, so `except Exception`
-                            # below cannot see it. Swallow it only when this was our
-                            # own On Call teardown; a real shutdown must still
-                            # propagate and end run().
-                            if not self._take_disconnect_request():
-                                raise
-                            print("[BRAHMA EVO] 📴 Session closed by On Call control.")
-                        finally:
-                            self._session_task = None
-                finally:
-                    try:
-                        await connect_cm.__aexit__(None, None, None)
-                    except Exception:
-                        pass
-
-            except Exception as e:
-                if _is_transient_live_error(e):
-                    # A dropped link / DNS blip is expected, not a crash: log one
-                    # line instead of dumping a TaskGroup ExceptionGroup.
-                    print(f"[BRAHMA EVO] 🔌 Live link dropped ({_live_error_reason(e)}); will retry.")
-                else:
-                    print(f"[BRAHMA EVO] ⚠️ {e}")
-                    traceback.print_exc()
-                if _is_gemini_limit_error(e):
-                    self._use_openrouter_first = True
-                if "1008" in str(e):
-                    self._resume_handle = None
-                self.session = None
-                self._loop = None
-            self.set_speaking(False)
-            if self._should_standby():
-                # No reconnect delay, and never a LISTENING flash on a UI that
-                # is no longer listening -- that flash is what made the status
-                # indicator look stuck.
-                self._report_voice_status(False, "standby")
-                self.ui.set_state("STANDBY")
-                continue
-            self._report_voice_status(False, "reconnecting")
-            self.ui.set_state("LISTENING")
-            # Exponential backoff with a cap: fast first retry, then settle down
-            # so a broken network is not hammered. Reset to 0 on a good connect.
-            delay = self._next_reconnect_delay()
-            print(f"[BRAHMA EVO] 🔄 Reconnecting in {delay:.0f}s...")
-            await self._pause_until(delay)
 
 def main():
     _startup_log("main entered")

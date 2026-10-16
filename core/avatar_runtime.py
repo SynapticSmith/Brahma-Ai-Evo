@@ -52,6 +52,7 @@ not require editing this module.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import struct
 import threading
@@ -59,6 +60,8 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 from memory import config_manager
+
+logger = logging.getLogger("AvatarRuntime")
 
 _lock = threading.RLock()
 
@@ -167,7 +170,8 @@ def describe() -> str:
 def _setting(key: str, default: Any = None) -> Any:
     try:
         return config_manager.get_setting(key, default)
-    except Exception:
+    except Exception as exc:
+        logger.debug("[Avatar] setting '%s' unavailable, using default: %s", key, exc)
         return default
 
 
@@ -467,8 +471,8 @@ def runtime_present() -> List[str]:
             if os.path.isfile(os.path.join(base, name)) and \
                     os.path.getsize(os.path.join(base, name)) > 0:
                 out.append(name)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("[Avatar] skipping unreadable runtime file '%s': %s", name, exc)
     return out
 
 
@@ -844,8 +848,8 @@ def vrm_vendor_present() -> List[str]:
         try:
             if os.path.isfile(path) and os.path.getsize(path) > 0:
                 out.append(name)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("[Avatar] skipping unreadable runtime file '%s': %s", name, exc)
     return out
 
 

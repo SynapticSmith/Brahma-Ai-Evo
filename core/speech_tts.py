@@ -212,6 +212,10 @@ def _kokoro_probe_subprocess(model_path: str, voices_path: str, timeout: float =
 
 
 _probe_cache: Dict[str, bool] = {}
+# Small ceiling: the key is a model|voices path pair, so this only ever holds a
+# handful of entries, but a bounded cache cannot grow without limit if a user
+# keeps pointing at new voice packs.
+_PROBE_CACHE_LIMIT = 16
 
 
 def _kokoro_model_usable() -> bool:
@@ -223,6 +227,8 @@ def _kokoro_model_usable() -> bool:
     cached = _probe_cache.get(key)
     if cached is None:
         cached = _kokoro_probe_subprocess(model, voices)
+        if len(_probe_cache) >= _PROBE_CACHE_LIMIT:
+            _probe_cache.clear()
         _probe_cache[key] = cached
     return cached
 

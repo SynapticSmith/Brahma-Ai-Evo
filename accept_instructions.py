@@ -16,17 +16,7 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE))
 
-FAILURES = []
-
-
-def check(label, ok, detail=""):
-    print(f"  [{'PASS' if ok else 'FAIL'}] {label}" + (f" -- {detail}" if detail else ""))
-    if not ok:
-        FAILURES.append(label)
-
-
-def section(name):
-    print(f"\n{name}")
+from accept_util import check, section, report
 
 
 def main() -> int:
@@ -198,7 +188,9 @@ def main() -> int:
         # ------------------------------------------------------------------
         section("G. Settings card exists for blocks and layers")
         # ------------------------------------------------------------------
-        ui_src = (BASE / "ui.py").read_text(encoding="utf-8")
+        ui_src = (BASE / "ui.py").read_text(encoding="utf-8") + "\n" + (
+            BASE / "core" / "ui_connectivity.py").read_text(encoding="utf-8") + "\n" + (
+            BASE / "core" / "ui_bg.py").read_text(encoding="utf-8")
         check("injector module is importable from ui.py path",
               "instruction_injector" in ui_src or True)
         check("providers card added to the settings hub",
@@ -261,7 +253,10 @@ def main() -> int:
         check("braces balanced after the edit", html.count("{") == html.count("}"),
               f"delta={html.count('{') - html.count('}')}")
 
-        ui_src2 = (BASE / "ui.py").read_text(encoding="utf-8")
+        ui_src2 = (BASE / "ui.py").read_text(encoding="utf-8") + "\n" + (
+            BASE / "core" / "ui_connectivity.py").read_text(encoding="utf-8") + "\n" + (
+            BASE / "core" / "ui_bg.py").read_text(encoding="utf-8") + "\n" + (
+            BASE / "core" / "ui_shell_panel_settings.py").read_text(encoding="utf-8")
         check("background honours the saved setting at construction",
               'get_setting("enable_3d_background", True)' in ui_src2)
         check("set_animation_enabled reports a readback instead of returning None",
@@ -311,9 +306,10 @@ def main() -> int:
         check("MEMORY layer stays empty (no avatar there)", memory_txt == "")
 
         src3 = (BASE / "main.py").read_text(encoding="utf-8")
-        bc_start = src3.index("def _build_config")
-        bc_end = src3.index("async def _execute_tool", bc_start)
-        bc_body = src3[bc_start:bc_end]
+        lsrc = (BASE / "core" / "session_lifecycle.py").read_text(encoding="utf-8")
+        bc_start = lsrc.index("def _build_config")
+        bc_end = lsrc.index("async def run(", bc_start)
+        bc_body = lsrc[bc_start:bc_end]
         check("_build_config composes the live layer (the only live prompt site)",
               '_injected_instructions("live")' in bc_body)
         check("Gemini text reply composes a layer",
@@ -323,7 +319,7 @@ def main() -> int:
         check("local leg still composes local",
               'instruction_injector.compose("local")' in src3)
         check("every provider leg is covered", all(
-            marker in src3 for marker in (
+            marker in (src3 + lsrc) for marker in (
                 '_injected_instructions("live")',
                 '_injected_instructions("fallback")',
                 'instruction_injector.compose("local")',
@@ -351,8 +347,14 @@ def main() -> int:
         _json.dump({"enable_3d_background": True,
                     "provider_enabled_openrouter": True,
                     "sound_effects_volume": 70}, open(_sandbox, "w"))
+        _apps = getattr(ui_mod, "_ui_appsettings", None)
         _real_ui_file, _real_cm_file = ui_mod.APP_SETTINGS_FILE, _cm.SETTINGS_FILE
+        _real_apps_file = getattr(_apps, "APP_SETTINGS_FILE", None)
         ui_mod.APP_SETTINGS_FILE = _sandbox
+        # The MainWindow settings methods live in the extracted mixin module now;
+        # patch its copy of the path too so the sandbox redirect is transparent.
+        if _apps is not None:
+            _apps.APP_SETTINGS_FILE = _sandbox
         _cm.SETTINGS_FILE = _sandbox
         try:
             class _Win:
@@ -406,7 +408,11 @@ def main() -> int:
                   _check["enable_3d_background"] is False)
 
             # Explicit invalidation helper exists on both settings owners.
-            _ui_src = (BASE / "ui.py").read_text(encoding="utf-8")
+            _ui_src = (BASE / "ui.py").read_text(encoding="utf-8") + "\n" + (
+                BASE / "core" / "ui_connectivity.py").read_text(encoding="utf-8") + "\n" + (
+                BASE / "core" / "ui_bg.py").read_text(encoding="utf-8") + "\n" + (
+                BASE / "core" / "ui_appsettings.py").read_text(encoding="utf-8") + "\n" + (
+                BASE / "core" / "ui_shell_settings.py").read_text(encoding="utf-8")
             check("both settings owners expose cache invalidation",
                   _ui_src.count("def _invalidate_app_settings_cache") >= 2)
             check("the cache is stamped against the file, not trusted blindly",
@@ -418,6 +424,8 @@ def main() -> int:
                   _ui_src.count("merged = on_disk") >= 2)
         finally:
             ui_mod.APP_SETTINGS_FILE = _real_ui_file
+            if _apps is not None:
+                _apps.APP_SETTINGS_FILE = _real_apps_file
             _cm.SETTINGS_FILE = _real_cm_file
 
         # Avatar switches follow the 3D background.
@@ -445,11 +453,7 @@ def main() -> int:
         settings_path.write_text(json.dumps(data, indent=4), encoding="utf-8")
 
     print("\n" + "=" * 74)
-    if FAILURES:
-        print(f"RESULT: {len(FAILURES)} FAILED -> {FAILURES}")
-        return 1
-    print("RESULT: ALL CRITERIA PASS")
-    return 0
+    return report()
 
 
 if __name__ == "__main__":

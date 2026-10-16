@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict
 
-from core.user_paths import get_user_data_dir
+from core.user_paths import get_user_data_dir, atomic_write_json
 
 BSE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_DIR = get_user_data_dir() / "config"
@@ -37,8 +37,7 @@ def save_settings(data: Dict[str, Any]) -> None:
     current = load_settings()
     current.update(data)
     try:
-        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-            json.dump(current, f, indent=4)
+        atomic_write_json(SETTINGS_FILE, current)
     except Exception as e:
         print(f"[CONFIG] Error saving settings: {e}")
 

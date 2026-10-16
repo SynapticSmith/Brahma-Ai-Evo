@@ -287,6 +287,9 @@ class MCPServerManager:
     _registered_tools: Dict[str, str] = {}  # tool_name -> server_name
     _status: Dict[str, Dict[str, Any]] = {}
     _call_timeout = DEFAULT_CALL_TIMEOUT_SECONDS
+    # Consecutive connect failures (never having reached "ready") before a
+    # server is parked in a "failed" state instead of retried forever.
+    _max_connect_failures = 5
 
     # ------------------------------------------------------------------ config
 
@@ -482,8 +485,8 @@ class MCPServerManager:
                     if pending:
                         loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
                     loop.run_until_complete(loop.shutdown_asyncgens())
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("[MCP Manager] loop teardown left work behind: %s", exc)
                 finally:
                     loop.close()
 
@@ -502,12 +505,15 @@ class MCPServerManager:
             tasks = list(cls._tasks.items())
             cls._tasks.clear()
 
-        for name, _task in tasks:
+        # Cancel the exact task objects captured above: _tasks was already
+        # cleared, so a name lookup inside the loop would find nothing and the
+        # cancel would silently be a no-op.
+        for _name, task in tasks:
             try:
                 if loop and not loop.is_closed():
-                    loop.call_soon_threadsafe(_cancel_task, name)
-            except Exception:
-                pass
+                    loop.call_soon_threadsafe(_cancel_task, task)
+            except Exception as exc:
+                logger.debug("[MCP Manager] Could not schedule cancel for '%s': %s", _name, exc)
 
         if loop is not None and not loop.is_closed():
             deadline = time.time() + timeout
@@ -517,8 +523,8 @@ class MCPServerManager:
                 time.sleep(0.05)
             try:
                 loop.call_soon_threadsafe(loop.stop)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("[MCP Manager] loop.stop during shutdown: %s", exc)
 
         thread = cls._thread
         if thread is not None and thread.is_alive():
@@ -543,17 +549,38 @@ class MCPServerManager:
         """Keeps one server connected, registering its tools and restarting on exit."""
         name = str(config.get("name")).strip()
         delay = 1.0
+        connect_failures = 0
         while not cls._stopping:
             try:
                 cls._set_state(name, "connecting")
                 await cls._connect_once(config)
-                # _connect_once only returns on failure or shutdown.
+                # _connect_once only returns on failure or shutdown. Reaching
+                # "ready" at any point means the server *can* work, so its
+                # failure streak resets and a later crash is just a restart.
+                if cls._status.get(name, {}).get("state") == "ready":
+                    connect_failures = 0
                 delay = 1.0
             except asyncio.CancelledError:
                 cls._set_state(name, "stopped")
                 raise
             except Exception as exc:
                 reason = " -> ".join(_flatten_exception_messages(exc))
+                connect_failures += 1
+                if connect_failures >= cls._max_connect_failures:
+                    # Give up: a config that never connected once (bad command,
+                    # missing package, wrong URL) will not start on retry #100.
+                    cls._set_state(
+                        name,
+                        "failed",
+                        error=reason,
+                        detail=f"Gave up after {connect_failures} attempts",
+                    )
+                    logger.error(
+                        f"[MCP Manager] Server '{name}' permanently failed after "
+                        f"{connect_failures} attempts: {reason}"
+                    )
+                    cls.unregister_server_tools(name)
+                    break
                 cls._set_state(name, "error", error=reason)
                 logger.error(f"[MCP Manager] Server '{name}' failed: {reason}")
 
@@ -671,8 +698,8 @@ class MCPServerManager:
             raw = getattr(init, "instructions", None) or getattr(init, "server_instructions", None)
             if isinstance(raw, str) and raw.strip():
                 sections.append(("Usage", raw.strip()))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("[MCP Manager] could not read '%s' init instructions: %s", name, exc)
 
         info = getattr(init, "serverInfo", None) or getattr(init, "server_info", None)
         if info is not None and getattr(info, "name", None):
@@ -742,6 +769,11 @@ class MCPServerManager:
     async def _register_server_tools(cls, name: str, session: Any) -> None:
         listed = await session.list_tools()
         tools = getattr(listed, "tools", None) or []
+        # Sanitizing mcp_<server>_<tool> can fold two distinct raw names onto one
+        # advertised name (`.`/`-`/space all become `_`). Registering both would
+        # silently shadow the first, so track what this response has already
+        # claimed and skip the collision instead of overwriting.
+        seen: Dict[str, str] = {}
         for tool in tools:
             raw_name = getattr(tool, "name", None)
             if not raw_name:
@@ -749,6 +781,34 @@ class MCPServerManager:
             description = getattr(tool, "description", "") or f"MCP tool '{raw_name}' from '{name}'"
             schema = getattr(tool, "inputSchema", None)
             tool_name = _sanitize_name("mcp", name, raw_name)
+
+            claimed = seen.get(tool_name)
+            if claimed is not None and claimed != raw_name:
+                logger.warning(
+                    "[MCP Manager] '%s' tools '%s' and '%s' both map to '%s'; "
+                    "keeping '%s' and skipping the collision.",
+                    name, claimed, raw_name, tool_name, claimed,
+                )
+                continue
+            other_server = cls._registered_tools.get(tool_name)
+            if other_server and other_server != name:
+                logger.warning(
+                    "[MCP Manager] Tool '%s' from '%s' is already provided by '%s'; "
+                    "refusing to shadow it.",
+                    tool_name, name, other_server,
+                )
+                continue
+            if (
+                not DynamicToolRegistry.is_external_tool(tool_name)
+                and DynamicToolRegistry.get_skill(tool_name) is not None
+            ):
+                logger.warning(
+                    "[MCP Manager] Tool '%s' from '%s' collides with a built-in skill; "
+                    "refusing to shadow it.",
+                    tool_name, name,
+                )
+                continue
+            seen[tool_name] = raw_name
 
             try:
                 DynamicToolRegistry.register_external_tool(
@@ -781,17 +841,22 @@ class MCPServerManager:
         tools: Optional[List[str]] = None,
         detail: Optional[str] = None,
     ) -> None:
-        entry = cls._status.setdefault(
-            name, {"name": name, "state": state, "tools": [], "error": None, "transport": None}
-        )
-        entry["state"] = state
-        entry["updated_at"] = time.time()
-        if error is not None:
-            entry["error"] = error
-        if tools is not None:
-            entry["tools"] = tools
-        if detail is not None:
-            entry["detail"] = detail
+        # Written from the manager's loop thread, read from the UI thread.
+        # status() holds _lock while it iterates, so the write must take the same
+        # lock or the reader can still observe a half-built row / a key added
+        # mid-iteration. RLock, so the startup call already holding it is fine.
+        with cls._lock:
+            entry = cls._status.setdefault(
+                name, {"name": name, "state": state, "tools": [], "error": None, "transport": None}
+            )
+            entry["state"] = state
+            entry["updated_at"] = time.time()
+            if error is not None:
+                entry["error"] = error
+            if tools is not None:
+                entry["tools"] = tools
+            if detail is not None:
+                entry["detail"] = detail
 
     # ---------------------------------------------------------------- removal
 
@@ -803,8 +868,8 @@ class MCPServerManager:
             cls._registered_tools.pop(tool_name, None)
             try:
                 DynamicToolRegistry.unregister_external_tool(tool_name)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("[MCP Manager] unregister '%s' failed: %s", tool_name, exc)
         # Drop the index entries too, or a server that crashed and restarts
         # leaves duplicate/stale rows the model could still retrieve.
         _drop_from_index({f"mcp:{server_name}"})
@@ -821,8 +886,8 @@ class MCPServerManager:
             try:
                 DynamicToolRegistry.unregister_external_tool(tool_name)
                 removed += 1
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("[MCP Manager] unregister '%s' failed: %s", tool_name, exc)
         _drop_from_index(sources)
         return removed
 
@@ -841,7 +906,7 @@ class MCPServerManager:
                     "transport": entry.get("transport"),
                     "detail": entry.get("detail"),
                 }
-                for name, entry in cls._status.items()
+                for name, entry in list(cls._status.items())
             }
 
     @classmethod
@@ -992,8 +1057,8 @@ def _publish_manual(manual: Any) -> None:
         logger.debug("[MCP Manager] Tool index not ready to accept a manual: %s", exc)
 
 
-def _cancel_task(name: str) -> None:
-    task = MCPServerManager._tasks.get(name)
+def _cancel_task(task: "asyncio.Task") -> None:
+    """Cancel one concrete server task. Runs on the manager's loop thread."""
     if task is not None and not task.done():
         task.cancel()
 

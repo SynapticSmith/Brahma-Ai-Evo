@@ -24,17 +24,7 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE))
 
-FAILURES = []
-
-
-def check(label: str, ok: bool, detail: str = "") -> None:
-    print(f"  [{'PASS' if ok else 'FAIL'}] {label}" + (f" -- {detail}" if detail else ""))
-    if not ok:
-        FAILURES.append(label)
-
-
-def section(name: str) -> None:
-    print(f"\n{name}")
+from accept_util import check, section, report
 
 
 # ---------------------------------------------------------------------------
@@ -296,7 +286,8 @@ def test_engine_registry() -> None:
               f"played={played} used={used!r}")
 
         # The button must read the combo, not the ambient default.
-        ui_src = (BASE / "ui.py").read_text(encoding="utf-8")
+        ui_src = (BASE / "ui.py").read_text(encoding="utf-8") + "\n" + (
+            BASE / "core" / "ui_connectivity.py").read_text(encoding="utf-8")
         check("the card keeps a reference to the TTS combo",
               "self._tts_box = tts_box" in ui_src)
         check("the test button reads the selected combo",
@@ -483,10 +474,12 @@ def test_offline_mode() -> None:
 def test_gemini_untouched() -> None:
     section("D. Gemini Live path is untouched")
     src = (BASE / "main.py").read_text(encoding="utf-8")
+    lsrc = (BASE / "core" / "session_lifecycle.py").read_text(encoding="utf-8")
+    audio_src = (BASE / "core" / "audio_io.py").read_text(encoding="utf-8")
 
-    speak_start = src.index("    def speak(self, text: str, proactive: bool = False):")
-    speak_end = src.index("    def speak_error(self", speak_start)
-    body = src[speak_start:speak_end]
+    speak_start = audio_src.index("    def speak(self, text: str, proactive: bool = False):")
+    speak_end = audio_src.index("    def speak_error(self", speak_start)
+    body = audio_src[speak_start:speak_end]
 
     gemini_branch = body.split("else:")[0]
     check("live-session branch still sends to Gemini",
@@ -499,9 +492,9 @@ def test_gemini_untouched() -> None:
           "Charon" in gemini_branch)
 
     check("no STT/TTS engine import inside _build_config",
-          "speech_stt" not in src[src.index("def _build_config"):src.index("async def _execute_tool")])
+          "speech_stt" not in lsrc[lsrc.index("def _build_config"):lsrc.index("async def run(")])
     check("Live handshake config untouched by speech work",
-          "tool_bridge.build_session_payload(last_intent)" in src)
+          "tool_bridge.build_session_payload(last_intent)" in lsrc)
 
 
 def main() -> int:
@@ -514,11 +507,7 @@ def main() -> int:
     test_offline_mode()
     test_gemini_untouched()
     print("\n" + "=" * 74)
-    if FAILURES:
-        print(f"RESULT: {len(FAILURES)} FAILED -> {FAILURES}")
-        return 1
-    print("RESULT: ALL CRITERIA PASS")
-    return 0
+    return report()
 
 
 if __name__ == "__main__":

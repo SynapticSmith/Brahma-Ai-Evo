@@ -20,22 +20,21 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE))
 
-FAILURES = []
-
-
-def check(label, ok, detail=""):
-    print(f"  [{'PASS' if ok else 'FAIL'}] {label}" + (f" -- {detail}" if detail else ""))
-    if not ok:
-        FAILURES.append(label)
-
-
-def section(name):
-    print(f"\n{name}")
+from accept_util import check, section, report
 
 
 def _ui_source(marker: str) -> str:
-    """The source of the ui.py class/method starting at `marker`."""
-    text = (BASE / "ui.py").read_text(encoding="utf-8")
+    """The source of the ui.py class/method starting at `marker`.
+
+    The class may live in ui.py or in an extracted panel module
+    (core/ui_connectivity.py, core/ui_telemetry.py); read all so the
+    move is transparent.
+    """
+    text = (BASE / "ui.py").read_text(encoding="utf-8") + "\n" + (
+        BASE / "core" / "ui_connectivity.py").read_text(encoding="utf-8") + "\n" + (
+        BASE / "core" / "ui_telemetry.py").read_text(encoding="utf-8") + "\n" + (
+        BASE / "core" / "ui_startup.py").read_text(encoding="utf-8") + "\n" + (
+        BASE / "core" / "ui_bg.py").read_text(encoding="utf-8")
     start = text.index(marker)
     nxt = text.find("\nclass ", start + 1)
     return text[start:] if nxt == -1 else text[start:nxt]
@@ -95,6 +94,11 @@ import ui as ui_mod
 from memory import config_manager as cm
 from core import provider_router as pr
 ui_mod.APP_SETTINGS_FILE = sandbox
+# The settings page lives in the extracted panel module now; patch its copy
+# of the settings path too so the sandbox redirect is transparent.
+_uc = getattr(ui_mod, "_ui_connectivity", None)
+if _uc is not None:
+    _uc.APP_SETTINGS_FILE = sandbox
 cm.SETTINGS_FILE = sandbox
 
 from PyQt6 import QtWidgets
@@ -373,7 +377,16 @@ def main() -> int:
         # ------------------------------------------------------------------
         section("F. Launcher control panel toggles")
         # ------------------------------------------------------------------
-        panel_start = src and (BASE / "ui.py").read_text(encoding="utf-8")
+        # Panels may live in ui.py or an extracted module
+        # (core/ui_connectivity.py, core/ui_telemetry.py); read all so the
+        # move is transparent.
+        panel_start = src and (
+            (BASE / "ui.py").read_text(encoding="utf-8") + "\n" + (
+                BASE / "core" / "ui_connectivity.py").read_text(encoding="utf-8") + "\n" + (
+                BASE / "core" / "ui_telemetry.py").read_text(encoding="utf-8") + "\n" + (
+                BASE / "core" / "ui_startup.py").read_text(encoding="utf-8") + "\n" + (
+                BASE / "core" / "ui_bg.py").read_text(encoding="utf-8") + "\n" + (
+                BASE / "core" / "ui_shell_launcher.py").read_text(encoding="utf-8"))
         pc_start = panel_start.index("class LauncherControlPanel")
         pc_end = panel_start.index("def _invoke(self, fn, *args)", pc_start)
         pc_body = panel_start[pc_start:pc_end]
@@ -552,12 +565,10 @@ def main() -> int:
                     )
 
     print("\n" + "=" * 74)
-    if FAILURES:
-        print(f"RESULT: {len(FAILURES)} FAILED -> {FAILURES}")
-        return 1
-    print("RESULT: ALL CRITERIA PASS")
-    print("provider settings restored to their pre-test values")
-    return 0
+    code = report()
+    if code == 0:
+        print("provider settings restored to their pre-test values")
+    return code
 
 
 if __name__ == "__main__":

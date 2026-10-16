@@ -27,17 +27,7 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE))
 
-FAILURES: list[str] = []
-
-
-def check(label: str, ok: bool, detail: str = "") -> None:
-    print(f"  [{'PASS' if ok else 'FAIL'}] {label}" + (f" -- {detail}" if detail else ""))
-    if not ok:
-        FAILURES.append(label)
-
-
-def section(name: str) -> None:
-    print(f"\n{name}")
+from accept_util import check, section, report
 
 
 def main() -> int:
@@ -292,7 +282,14 @@ def main() -> int:
         section("J. The seam is actually wired into the reply path and the UI")
         # ------------------------------------------------------------------
         m_src = (BASE / "main.py").read_text(encoding="utf-8")
-        ui_src = (BASE / "ui.py").read_text(encoding="utf-8")
+        aio_src = (BASE / "core" / "audio_io.py").read_text(encoding="utf-8")
+        # The avatar/settings page methods now live in the extracted panel
+        # module (core/ui_connectivity.py); read both so presence checks and
+        # _method_body lookups cover the move transparently.
+        ui_src = (BASE / "ui.py").read_text(encoding="utf-8") + "\n" + (
+            BASE / "core" / "ui_connectivity.py").read_text(encoding="utf-8") + "\n" + (
+            BASE / "core" / "ui_bg.py").read_text(encoding="utf-8") + "\n" + (
+            BASE / "core" / "ui_avatar_audio.py").read_text(encoding="utf-8")
 
         check("stripped tags route to the registry through one helper",
               "def _deliver_avatar_emotion" in m_src
@@ -300,10 +297,12 @@ def main() -> int:
         check("the routing call is guarded - a reply is never lost to it",
               m_src.split("avatar_runtime.handle_emotion_tag(emotion)")[0].count("try:")
               >= 1)
+        deliver_sites = (m_src.count("self._deliver_avatar_emotion(emotion)")
+                         + aio_src.count("self._host._deliver_avatar_emotion(emotion)"))
         check("both the fallback and the live voice paths deliver tags",
-              m_src.count("self._deliver_avatar_emotion(emotion)") >= 2,
-              f"{m_src.count('self._deliver_avatar_emotion(emotion)')} call site(s)")
-        live_recv = m_src.split("async def _receive_audio", 1)[1].split(
+              deliver_sites >= 2,
+              f"{deliver_sites} call site(s)")
+        live_recv = aio_src.split("async def _receive_audio", 1)[1].split(
             "async def ", 1)[0]
         check("the live voice path strips the tag before delivering it",
               "_split_emotion_tag(full_out)" in live_recv
@@ -1093,12 +1092,10 @@ def main() -> int:
         cm.SETTINGS_FILE = real_cm_file
 
     print("\n" + "=" * 74)
-    if FAILURES:
-        print(f"RESULT: {len(FAILURES)} FAILED -> {FAILURES}")
-        return 1
-    print("RESULT: ALL CRITERIA PASS")
-    print("sandboxed settings restored; user configuration untouched")
-    return 0
+    code = report()
+    if code == 0:
+        print("sandboxed settings restored; user configuration untouched")
+    return code
 
 
 def _drop(bid: str) -> None:
@@ -1161,6 +1158,11 @@ import ui as ui_mod
 from memory import config_manager as cm
 from core import avatar_runtime as ar
 ui_mod.APP_SETTINGS_FILE = sandbox
+# The settings page lives in the extracted panel module now; patch its copy
+# of the settings path too so the sandbox redirect is transparent.
+_uc = getattr(ui_mod, "_ui_connectivity", None)
+if _uc is not None:
+    _uc.APP_SETTINGS_FILE = sandbox
 cm.SETTINGS_FILE = sandbox
 
 from PyQt6 import QtWidgets
