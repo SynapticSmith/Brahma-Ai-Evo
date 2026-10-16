@@ -3511,193 +3511,34 @@ class BrahmaLive:
         except Exception:
             return False
 
-    def _attention_message(self, event: dict) -> str:
-        app = (event.get("app") or "an app").strip()
-        kind = (event.get("kind") or "message").strip().lower()
-        if kind == "call":
-            return f"Incoming call detected on {app}. Should I pick it up, ignore it, or cut the call?"
-        title = (event.get("title") or "").strip()
-        preview = (event.get("preview") or "").strip()
-        if title:
-            return f"You received a message on {app} from {title}. It says: {preview}"
-        return f"You received a message on {app}. It says: {preview}"
+    @property
+    def _attention_flow(self):
+        """Lazily build the attention/meeting flows (P4-19 seam; see core.attention_flow)."""
+        af = getattr(self, "_attention_flow_obj", None)
+        if af is None:
+            from core.attention_flow import AttentionFlow
 
-    def _announce_attention(self, event: dict):
-        msg = self._attention_message(event)
-        self.ui.write_log(f"Brahma Evo: {msg}")
-        if self.session and self._loop:
-            self.speak(msg)
-        else:
-            threading.Thread(target=speak_native, args=(msg,), daemon=True).start()
-        self.ui.show_attention_alert(event)
+            af = AttentionFlow(self)
+            self._attention_flow_obj = af
+        return af
 
     def _on_external_notification(self, event: dict):
-        if not isinstance(event, dict):
-            return
-        kind = (event.get("kind") or "message").strip().lower()
-        app = (event.get("app") or "App").strip()
-        preview = (event.get("preview") or "").strip()
-        settings = {}
-        try:
-            settings = self.ui._load_app_settings()
-        except Exception:
-            settings = {}
-
-        if kind == "call" and not bool(settings.get("attention_call_prompts", True)):
-            return
-        if kind == "message" and not bool(settings.get("attention_message_prompts", True)):
-            return
-
-        with self._attention_lock:
-            current = self._pending_attention
-            if current:
-                same_app = (current.get("app") or "").strip().lower() == app.lower()
-                same_kind = (current.get("kind") or "").strip().lower() == kind
-                if same_app and same_kind:
-                    return
-            self._pending_attention = dict(event)
-
-        self._announce_attention(event)
-        if preview:
-            self.ui.write_log(f"[Attention] {app}: {preview}")
-        if kind == "call" and app.lower() in {"zoom", "teams", "whatsapp"}:
-            self._start_meeting_mode(event)
-
-    def _start_meeting_mode(self, event: dict):
-        event = dict(event or {})
-        app = (event.get("app") or "Meeting").strip()
-        title = event.get("title") or f"{app} meeting"
-        summary = f"Watching {app} for questions and answers."
-        with self._meeting_lock:
-            self._meeting_active = True
-            self._meeting_event = event
-        self.ui.set_meeting_mode(True, title, summary, "Listening for questions on screen...", self._meeting_assistant.latest_speech())
-        self._meeting_assistant.start(title=title, context=summary)
-        self.ui.write_log(f"SYS: Meeting mode enabled for {app}.")
+        return self._attention_flow.on_external_notification(event)
 
     def _stop_meeting_mode(self, reason: str = "Meeting mode stopped."):
-        with self._meeting_lock:
-            was_active = self._meeting_active
-            self._meeting_active = False
-            self._meeting_event = None
-        if was_active:
-            self._meeting_assistant.stop()
-            self.ui.set_meeting_mode(False, "", "", "")
-            self.ui.write_log(f"SYS: {reason}")
+        return self._attention_flow.stop_meeting_mode(reason)
 
     def _on_meeting_update(self, payload: dict):
-        if not isinstance(payload, dict):
-            return
-        active = bool(payload.get("active"))
-        title = payload.get("title") or "Meeting mode"
-        summary = payload.get("summary") or ""
-        answer = payload.get("answer") or ""
-        speech = payload.get("speech") or ""
-        self.ui.set_meeting_mode(active, title, summary, answer, speech)
-        if summary:
-            self.ui.write_log(f"[Meeting] {summary}")
-        if answer:
-            self.ui.write_log(f"Brahma Evo: {answer}")
+        return self._attention_flow.on_meeting_update(payload)
 
     def _on_meeting_state(self, state: str):
-        if state == "LISTENING":
-            self.ui.set_state("LISTENING")
-        elif state == "MEETING":
-            self.ui.set_state("THINKING")
-
-    def _attention_matches(self, text: str, words: tuple[str, ...]) -> bool:
-        t = (text or "").lower()
-        return any(word in t for word in words)
+        return self._attention_flow.on_meeting_state(state)
 
     def _handle_attention_response(self, text: str) -> bool:
-        with self._attention_lock:
-            event = dict(self._pending_attention or {})
-        if not event:
-            return False
-
-        kind = (event.get("kind") or "message").strip().lower()
-        lower = (text or "").lower()
-
-        if kind == "message":
-            if self._attention_matches(lower, ("reply", "respond", "answer", "write back", "send reply", "send a reply")):
-                return self._prompt_message_reply(event)
-            if self._attention_matches(lower, ("hear", "read", "what is it", "tell me", "show it", "open it")):
-                preview = read_event_preview(event)
-                self.ui.write_log(f"Brahma Evo: {preview}")
-                threading.Thread(target=speak_native, args=(preview,), daemon=True).start()
-                with self._attention_lock:
-                    self._pending_attention = None
-                return True
-            if self._attention_matches(lower, ("ignore", "dismiss", "skip", "no", "not now")):
-                self.ui.write_log("SYS: Message alert dismissed.")
-                with self._attention_lock:
-                    self._pending_attention = None
-                return True
-            return False
-
-        if kind == "call":
-            if self._attention_matches(lower, ("pick up", "answer", "accept", "take it", "join")):
-                result = handle_call_action(event, "accept")
-                self.ui.write_log(f"SYS: {result}")
-                threading.Thread(target=speak_native, args=(result,), daemon=True).start()
-                with self._attention_lock:
-                    self._pending_attention = None
-                return True
-            if self._attention_matches(lower, ("ignore", "decline", "reject", "cut", "hang up", "end")):
-                result = handle_call_action(event, "decline")
-                self.ui.write_log(f"SYS: {result}")
-                threading.Thread(target=speak_native, args=(result,), daemon=True).start()
-                with self._attention_lock:
-                    self._pending_attention = None
-                return True
-            if self._attention_matches(lower, ("x", "nothing", "do nothing", "close")):
-                self.ui.write_log("SYS: Call alert dismissed.")
-                with self._attention_lock:
-                    self._pending_attention = None
-                return True
-            return False
-
-        return False
+        return self._attention_flow.handle_attention_response(text)
 
     def _on_attention_action(self, event: dict, decision: str):
-        if not isinstance(event, dict):
-            return
-        kind = (event.get("kind") or "message").strip().lower()
-        decision = (decision or "").strip().lower()
-
-        if kind == "meeting":
-            if decision == "stop":
-                self._stop_meeting_mode()
-            return
-
-        if kind == "message":
-            if decision == "hear":
-                preview = read_event_preview(event)
-                self.ui.write_log(f"Brahma Evo: {preview}")
-                threading.Thread(target=speak_native, args=(preview,), daemon=True).start()
-            elif decision == "reply":
-                self._prompt_message_reply(event)
-                return
-            else:
-                self.ui.write_log("SYS: Message alert dismissed.")
-            with self._attention_lock:
-                self._pending_attention = None
-            return
-
-        if kind == "call":
-            if decision in {"accept", "answer", "pick_up"}:
-                result = handle_call_action(event, "accept")
-                self.ui.write_log(f"SYS: {result}")
-                threading.Thread(target=speak_native, args=(result,), daemon=True).start()
-            elif decision in {"noop", "x", "none"}:
-                self.ui.write_log("SYS: Call alert dismissed.")
-            else:
-                result = handle_call_action(event, "decline")
-                self.ui.write_log(f"SYS: {result}")
-                threading.Thread(target=speak_native, args=(result,), daemon=True).start()
-            with self._attention_lock:
-                self._pending_attention = None
-
+        return self._attention_flow.on_attention_action(event, decision)
 
     @property
     def _session_lifecycle(self):

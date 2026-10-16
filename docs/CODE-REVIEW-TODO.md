@@ -210,6 +210,20 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     `accept_local_speech.py` and `tests/test_tool_bridge.py` retargeted their source guards to
     `core/session_lifecycle.py`; `accept_live_toggle.py` retargeted too and its method-copying `Surface`
     harness now binds the new property). `main.py` 5247 -> 4668 lines.
+  - **Done — attention/meeting seam (this commit).** The attention/meeting handlers — `_attention_message`,
+    `_announce_attention`, `_on_external_notification`, `_start_meeting_mode`, `_stop_meeting_mode`,
+    `_on_meeting_update`, `_on_meeting_state`, `_attention_matches`, `_handle_attention_response` and
+    `_on_attention_action` (188 lines) — moved verbatim to `core/attention_flow.py::AttentionFlow` (a host
+    reference; `threading` and the `actions.attention_monitor` symbols `speak_native`/`read_event_preview`/
+    `handle_call_action` imported directly, so no injection and no circular import). `main.py` keeps a
+    lazily-built `self._attention_flow` property plus six thin delegations (`_on_external_notification`,
+    `_stop_meeting_mode`, `_on_meeting_update`, `_on_meeting_state`, `_handle_attention_response`,
+    `_on_attention_action`); the four helpers called only from within the cluster (`_attention_message`,
+    `_announce_attention`, `_start_meeting_mode`, `_attention_matches`) lost their names and become public
+    methods on the class. The attention/meeting state (`_pending_attention`, `_attention_lock`, `_meeting_lock`,
+    `_meeting_active`, `_meeting_event`, `_meeting_assistant`) stays on the host (`self._host.*`) because the Qt
+    surface and `_on_text_command` also read and set it. Behavior-preserving: full suite 149 passed, all seven
+    `accept_*.py` harnesses green (none guard this cluster's source). `main.py` 4668 -> 4509 lines.
   - **Done — chat/workspace widget seam (this commit).** The conversation feed, the message/task/
     attachment/event/artifact cards, the history item, the task dock, the workspace sidebar and the
     inline chat workspace — 11 classes plus the two helpers `_fmt_time_stamp` and `_markdown_to_html`
