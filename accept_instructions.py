@@ -189,7 +189,8 @@ def main() -> int:
         section("G. Settings card exists for blocks and layers")
         # ------------------------------------------------------------------
         ui_src = (BASE / "ui.py").read_text(encoding="utf-8") + "\n" + (
-            BASE / "core" / "ui_connectivity.py").read_text(encoding="utf-8")
+            BASE / "core" / "ui_connectivity.py").read_text(encoding="utf-8") + "\n" + (
+            BASE / "core" / "ui_bg.py").read_text(encoding="utf-8")
         check("injector module is importable from ui.py path",
               "instruction_injector" in ui_src or True)
         check("providers card added to the settings hub",
@@ -253,7 +254,8 @@ def main() -> int:
               f"delta={html.count('{') - html.count('}')}")
 
         ui_src2 = (BASE / "ui.py").read_text(encoding="utf-8") + "\n" + (
-            BASE / "core" / "ui_connectivity.py").read_text(encoding="utf-8")
+            BASE / "core" / "ui_connectivity.py").read_text(encoding="utf-8") + "\n" + (
+            BASE / "core" / "ui_bg.py").read_text(encoding="utf-8")
         check("background honours the saved setting at construction",
               'get_setting("enable_3d_background", True)' in ui_src2)
         check("set_animation_enabled reports a readback instead of returning None",
@@ -400,7 +402,8 @@ def main() -> int:
 
             # Explicit invalidation helper exists on both settings owners.
             _ui_src = (BASE / "ui.py").read_text(encoding="utf-8") + "\n" + (
-                BASE / "core" / "ui_connectivity.py").read_text(encoding="utf-8")
+                BASE / "core" / "ui_connectivity.py").read_text(encoding="utf-8") + "\n" + (
+                BASE / "core" / "ui_bg.py").read_text(encoding="utf-8")
             check("both settings owners expose cache invalidation",
                   _ui_src.count("def _invalidate_app_settings_cache") >= 2)
             check("the cache is stamped against the file, not trusted blindly",

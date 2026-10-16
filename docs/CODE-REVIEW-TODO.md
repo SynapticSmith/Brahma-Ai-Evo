@@ -323,7 +323,7 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     67 lines) moved verbatim to `core/ui_widgets.py` (80 lines). `psutil`/Qt/`C` direct; `qcol` is now
     imported directly from `core.ui_branding` (no `bind()` needed). `ui.py` 3831 -> 3768 lines. Full
     suite 149 passed, all seven `accept_*.py` harnesses green.
-  - **Done - startup/defaults helper seam (this commit).** `_quiet_run`, `_quote_cmd_arg`,
+  - **Done - startup/defaults helper seam (prior commit).** `_quiet_run`, `_quote_cmd_arg`,
     `_hidden_launch_args`, `_startup_run_value`, `_startup_registry_key`, `_current_boot_stamp`,
     `_launched_from_windows_startup`, `_default_app_settings`, `_default_discord_settings` (497-605,
     109 lines) moved verbatim to `core/ui_startup.py` (126 lines). stdlib (`Path`/`platform`/`psutil`/
@@ -331,8 +331,19 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     source-text guard widened to also read `core/ui_startup.py` (the moved `_default_app_settings`
     holds the `provider_enabled_*` defaults). `ui.py` 3768 -> 3675 lines. Full suite 149 passed, all
     seven `accept_*.py` harnesses green.
-  - Remaining seam: the rest of the `ui.py` panels (`BackgroundWidget`, `DeveloperModeDialog`,
-    `MainWindow`, `_RootShim`, `BrahmaUI`).
+  - **Done - BackgroundWidget seam (this commit).** `BackgroundWidget` (121-471, 351 lines) moved
+    verbatim to `core/ui_bg.py` (377 lines). Qt/stdlib (`C`/`Path`/`QColor`/`QPainter`/`QPixmap`/
+    `QTimer`/`QUrl`/`QWidget`/`Qt`/`json`/`os`/`pyqtSignal`/`time`) direct; the handle-based
+    QtWebEngine import (`QWebEngineView`/`WEB_ENGINE_AVAILABLE`) is replicated verbatim as a
+    conditional try/except in the module header (not an unconditional import, so a missing
+    QtWebEngine still degrades); `BASE_DIR` injected via `bind()`. `accept_avatar.py`,
+    `accept_instructions.py` and `accept_providers.py` source-text guards widened to also read
+    `core/ui_bg.py` (the moved class holds the avatar/emotion JS and the 3D-toggle web-view hide).
+    `ui.py` 3675 -> 3331 lines. Full suite 149 passed, all seven `accept_*.py` harnesses green.
+  - Remaining seam: the rest of the `ui.py` panels (`DeveloperModeDialog`, `MainWindow`,
+    `_RootShim`, `BrahmaUI`). Note `_base_dir` and `_new_setStyleSheet` are deliberately left in
+    `ui.py`: `_base_dir` uses `__file__` (moving it to `core/` would change `BASE_DIR`) and
+    `_new_setStyleSheet` is an order-sensitive import-time monkeypatch.
 - [x] **P4-20 — Import-time side effects.** Done: the duplicated Qt/env blocks in `main.py`, `ui.py` (two) and
   `core/globe_window.py` collapsed into one idempotent `core/qt_bootstrap.bootstrap()` (importing that module
   has no side effects); `core/boot_sentry` no longer rolls files back on import — `main` calls

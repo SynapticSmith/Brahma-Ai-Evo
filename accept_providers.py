@@ -33,7 +33,8 @@ def _ui_source(marker: str) -> str:
     text = (BASE / "ui.py").read_text(encoding="utf-8") + "\n" + (
         BASE / "core" / "ui_connectivity.py").read_text(encoding="utf-8") + "\n" + (
         BASE / "core" / "ui_telemetry.py").read_text(encoding="utf-8") + "\n" + (
-        BASE / "core" / "ui_startup.py").read_text(encoding="utf-8")
+        BASE / "core" / "ui_startup.py").read_text(encoding="utf-8") + "\n" + (
+        BASE / "core" / "ui_bg.py").read_text(encoding="utf-8")
     start = text.index(marker)
     nxt = text.find("\nclass ", start + 1)
     return text[start:] if nxt == -1 else text[start:nxt]
@@ -383,7 +384,8 @@ def main() -> int:
             (BASE / "ui.py").read_text(encoding="utf-8") + "\n" + (
                 BASE / "core" / "ui_connectivity.py").read_text(encoding="utf-8") + "\n" + (
                 BASE / "core" / "ui_telemetry.py").read_text(encoding="utf-8") + "\n" + (
-                BASE / "core" / "ui_startup.py").read_text(encoding="utf-8"))
+                BASE / "core" / "ui_startup.py").read_text(encoding="utf-8") + "\n" + (
+                BASE / "core" / "ui_bg.py").read_text(encoding="utf-8"))
         pc_start = panel_start.index("class LauncherControlPanel")
         pc_end = panel_start.index("def _invoke(self, fn, *args)", pc_start)
         pc_body = panel_start[pc_start:pc_end]
