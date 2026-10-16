@@ -348,6 +348,12 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     (`BASE_DIR` is that same repo root) but correct from `core/`; the class already used `BASE_DIR`
     in `_browse_folder`. Body verified identical modulo that one documented line. `ui.py`
     3331 -> 3254 lines. Full suite 149 passed, all seven `accept_*.py` harnesses green.
+  - **Done - MainWindow nav/sidebar mixin (this commit).** Eighth method-level split: 7
+    contiguous methods (`_toggle_fullscreen`, `_toggle_left_sidebar`, `_toggle_right_sidebar`,
+    `_apply_sidebar_state`, `_on_nav_dashboard`, `_on_nav_settings`, `_update_nav_styles`,
+    78 lines) moved verbatim into `core/ui_nav.py` (`class _NavMixin`). `_LEFT_W`/`_RIGHT_W`
+    injected via `bind()`, `C` imported directly. `ui.py` 2604 -> 2531 lines. 149 tests pass,
+    seven harnesses green.
   - **Done - MainWindow meeting/attention mixin (this commit).** Seventh method-level split: 6
     contiguous methods (`_on_discord_status_update`, `_request_stop_meeting`,
     `_toggle_meeting_overlay`, `_position_meeting_overlay`, `_show_attention_alert`,
