@@ -348,6 +348,14 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     (`BASE_DIR` is that same repo root) but correct from `core/`; the class already used `BASE_DIR`
     in `_browse_folder`. Body verified identical modulo that one documented line. `ui.py`
     3331 -> 3254 lines. Full suite 149 passed, all seven `accept_*.py` harnesses green.
+  - **Done - MainWindow overlay-cards mixin (this commit).** Fifth method-level split: 14
+    contiguous methods (`_restart_card_hide_timer`, `_hide_command_cards`, `_apply_hud_operation`,
+    `_apply_hud_deliverable`, `_apply_daily_briefing`, `_position_briefing_overlay`,
+    `_hide_daily_briefing_card`, `_schedule_daily_briefing_hide`, `show_daily_briefing`,
+    `hide_daily_briefing`, `schedule_daily_briefing_hide`, `show_confirm`, `hide_confirm`,
+    `_apply_confirm_overlay`, 139 lines) moved verbatim into `core/ui_overlays_cards.py`
+    (`class _OverlayCardsMixin`). `DailyBriefingOverlay`/`ConfirmationOverlay` injected via
+    `bind()`; no new imports. `ui.py` 2923 -> 2789 lines. 149 tests pass, seven harnesses green.
   - **Done - MainWindow avatar/audio mixin (this commit).** Fourth method-level split: 4
     contiguous methods (`_attach_avatar_renderer`, `refresh_avatar_renderer`,
     `_on_audio_level_sig`, `set_audio_level`, 56 lines) moved verbatim into
