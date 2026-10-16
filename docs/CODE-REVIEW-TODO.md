@@ -348,6 +348,12 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     (`BASE_DIR` is that same repo root) but correct from `core/`; the class already used `BASE_DIR`
     in `_browse_folder`. Body verified identical modulo that one documented line. `ui.py`
     3331 -> 3254 lines. Full suite 149 passed, all seven `accept_*.py` harnesses green.
+  - **Done - MainWindow meeting/attention mixin (this commit).** Seventh method-level split: 6
+    contiguous methods (`_on_discord_status_update`, `_request_stop_meeting`,
+    `_toggle_meeting_overlay`, `_position_meeting_overlay`, `_show_attention_alert`,
+    `_attention_choice`, 76 lines) moved verbatim into `core/ui_meeting.py` (`class _MeetingMixin`).
+    `IncomingAlertDialog` injected via `bind()`, `QApplication` imported directly. `ui.py`
+    2676 -> 2604 lines. 149 tests pass, seven harnesses green.
   - **Done - MainWindow mute/send mixin (this commit).** Sixth method-level split: 6
     contiguous methods (`_toggle_mute`, `set_muted_state`, `_style_mute_btn`, `_send`,
     `submit_command`, `_on_log_text`, 114 lines) moved verbatim into `core/ui_mute_send.py`
