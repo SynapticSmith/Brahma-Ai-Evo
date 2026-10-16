@@ -379,6 +379,13 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     lines) moved verbatim into `core/ui_wiring.py` (`class _WiringMixin`). No injected globals;
     `QStackedWidget` imported directly. `ui.py` 1900 -> 1846 lines. 149 tests pass, seven
     harnesses green.
+  - **Done - MainWindow runtime-tick mixin (this commit).** Fifteenth method-level split: 3
+    contiguous methods (`_tick_clock`, `_update_metrics`, `_browse_attachment`, 124 lines) moved
+    verbatim into `core/ui_runtime.py` (`class _RuntimeMixin`). `_metrics`, `_active_net_label`,
+    `_camera_available` injected via `bind()` (none is ever rebound in ui.py, and all are defined
+    above the bind site, so the injection is exactly equivalent); `psutil`, `time`, `Path`,
+    `QFileDialog` imported directly. `ui.py` 1846 -> 1728 lines. 149 tests pass, seven harnesses
+    green.
   - **Done - MainWindow secondary-overlays mixin (this commit).** Tenth method-level split: 10
     contiguous methods (`_apply_circuit_overlay`, `_apply_call_screening`,
     `_take_over_screened_call`, `_hang_up_screened_call`, `_on_confirm_answered`,
