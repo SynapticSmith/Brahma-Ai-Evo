@@ -175,7 +175,25 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     (`_gemini_text_reply`, `_get_api_key`, `_ig_gemini_reply`) so there is no circular import.
     Behavior-preserving: full suite 149 passed; all seven `accept_*.py` harnesses green (none needed
     retargeting — no harness guards this cluster's source). `main.py` 5544 -> 5247 lines.
-  - Remaining seams: session state machine and the `ui.py` panels.
+  - **Done — session state machine seam (this commit).** The Live lifecycle — `set_live_mode`, `run`,
+    `_serve_live_session`, `_wakeword_loop`, `_idle_speech_loop`, `_run_local_voice_session`, `_pause_until`,
+    `_connect_tool_voice` and `_build_config` (618 lines) — moved verbatim to
+    `core/session_lifecycle.py::SessionLifecycle`. `main.py` keeps a lazily-built `self._session_lifecycle`
+    property plus six thin delegations (`run`, `set_live_mode`, `_serve_live_session`, `_wakeword_loop`,
+    `_idle_speech_loop`, `_connect_tool_voice`); the three helpers called only from within the cluster
+    (`_pause_until`, `_run_local_voice_session`, `_build_config`) stay module-local with no delegation. The
+    class is handed a host reference plus the fourteen main.py symbols it needs (`SEND_SAMPLE_RATE`,
+    `LIVE_MODEL`, `LIVE_CONNECT_TIMEOUT`, `TOOL_DECLARATIONS`, `_load_system_prompt`,
+    `_injected_instructions`, `_standby_wakeword_detected`, `_speak_daily_briefing`, `_pcm_block`,
+    `_get_api_key`, `_is_gemini_limit_error`, `_is_transient_live_error`, `_live_error_reason`,
+    `_startup_log`) so there is no circular import; the session/lifecycle state (`self.session`, `_live_mode`,
+    `_live_suspended`, `_manual_call_active`, `_session_task`, `_wake_thread`, `_wake_stop`, …) stays on the
+    host (`self._host.*`) because the Qt surface and the wake-word path also read and set it. Behavior-
+    preserving: full suite 149 passed, all eight `accept_*.py` harnesses green (`accept_instructions.py`,
+    `accept_local_speech.py` and `tests/test_tool_bridge.py` retargeted their source guards to
+    `core/session_lifecycle.py`; `accept_live_toggle.py` retargeted too and its method-copying `Surface`
+    harness now binds the new property). `main.py` 5247 -> 4668 lines.
+  - Remaining seam: the `ui.py` panels.
 - [x] **P4-20 — Import-time side effects.** Done: the duplicated Qt/env blocks in `main.py`, `ui.py` (two) and
   `core/globe_window.py` collapsed into one idempotent `core/qt_bootstrap.bootstrap()` (importing that module
   has no side effects); `core/boot_sentry` no longer rolls files back on import — `main` calls

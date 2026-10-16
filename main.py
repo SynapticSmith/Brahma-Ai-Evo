@@ -2298,34 +2298,6 @@ class BrahmaLive:
     # call_soon_threadsafe -- touching them directly from the GUI thread
     # loses wakeups with no error.
     # ------------------------------------------------------------------
-    def set_live_mode(self, mode: str):
-        """Change ONLY the mode preference.
-
-        This used to also overwrite the connection gate, which made the mode
-        selector and the Connect/Disconnect button fight each other: selecting
-        Always On forced the gate open, and selecting On Call forced it shut.
-        Mode and connection are separate controls, so this touches only the mode
-        and then applies the transition the new mode implies.
-        """
-        mode = "on_call" if str(mode) == "on_call" else "always_on"
-        with self._control_lock:
-            was_on_call = self._live_mode == "on_call"
-            self._live_mode = mode
-            if mode == "on_call":
-                # On Call keeps no live socket unless a call is actually placed.
-                self._manual_call_active = False
-
-        if self._should_standby():
-            # Reflect the change immediately rather than waiting for the session
-            # teardown to reach the loop, so the indicator never sits on
-            # LISTENING while the socket is on its way down.
-            self.ui.set_state("STANDBY")
-            self._disconnect_live()
-        elif was_on_call:
-            self._stop_wakeword_listener()
-            self._request_connect()
-        # Abort any in-flight reconnect backoff so the new mode takes effect now.
-        self._wake_control()
 
     def set_live_call(self, active: bool):
         """Connect / Disconnect. Authoritative in BOTH modes."""
@@ -2432,33 +2404,6 @@ class BrahmaLive:
         except RuntimeError:
             pass  # loop already closed; nothing left to wake
 
-    async def _pause_until(self, seconds: float) -> None:
-        """Sleep up to ``seconds``, returning early on a control change.
-
-        Order matters: clear the event *before* sampling the sequence, so a
-        control change that lands between the two is either seen in the sequence
-        (and we return now) or sets the event after the clear (and ``wait``
-        returns now). Sampling first would let a change be cleared away unseen.
-        """
-        event = getattr(self, "_control_wake", None)
-        if event is None:
-            await asyncio.sleep(seconds)
-            return
-        event.clear()
-        with self._control_lock:
-            seen = getattr(self, "_control_seq", 0)
-        if seen != getattr(self, "_pause_seen", 0):
-            # A control change arrived while we were connecting; honour it now
-            # instead of sleeping through the whole backoff.
-            self._pause_seen = seen
-            return
-        try:
-            await asyncio.wait_for(event.wait(), timeout=seconds)
-        except asyncio.TimeoutError:
-            pass
-        with self._control_lock:
-            self._pause_seen = getattr(self, "_control_seq", 0)
-
     def _next_reconnect_delay(self) -> float:
         """Exponential backoff for the reconnect pause: 2, 4, 8 ... capped at 30.
 
@@ -2519,117 +2464,6 @@ class BrahmaLive:
         if str(cfg.get("default_ai_provider", "") or "").strip().lower() == "local":
             return "local_loop"
         return "gemini_live"
-
-    async def _run_local_voice_session(self):
-        """Voice session for a local provider: mic -> whisper STT -> local model -> TTS.
-
-        Honours the same connect/disconnect contract as the Gemini socket, so
-        Always On, On Call, Connect and Disconnect all mean the same thing
-        whichever provider is selected.
-        """
-        import numpy as np
-        import sounddevice as sd
-
-        self.session = None
-        self._loop = None
-        mic_name = config_manager.get_input_device()
-        mic_dev = audio_devices.resolve(mic_name, "input") if mic_name else None
-        available = audio_devices.list_devices("input")
-        if mic_dev is None and available:
-            mic_name = available[0]
-            mic_dev = audio_devices.resolve(mic_name, "input")
-        if mic_dev is None:
-            self.ui.write_log(
-                "SYS: No usable microphone at the configured sample rate. "
-                "Local voice is paused; text input still works."
-            )
-            while not self._take_disconnect_request():
-                await asyncio.sleep(1.0)
-            return
-
-        from core import speech_stt
-
-        engine = speech_stt.resolve_available()
-        self.ui.set_state("LISTENING")
-        self._report_voice_status(True, f"mic via {engine}")
-        self.ui.write_log(
-            f"SYS: Local voice active (STT: {engine}). "
-            "Always On / On Call / Connect / Disconnect apply as usual."
-        )
-        print(f"[BRAHMA EVO] 🎤 Local voice session started (STT={engine}).")
-
-        speech_buffer = bytearray()
-        silence_chunks = 0
-        speaking = {"on": False}
-
-        def _callback(indata, frames, time_info, status):
-            # A raise here is swallowed by cffi ("Exception ignored from cffi
-            # callback") and the stream then goes silent forever, which is what
-            # a bad buffer conversion looks like from the outside. Nothing in
-            # this callback is allowed to propagate.
-            try:
-                if self._take_disconnect_request():
-                    return
-                # sd.InputStream, NOT RawInputStream: with RawInputStream + dtype="int16"
-                # sounddevice hands the callback a raw C buffer, and `.tobytes()`
-                # raised AttributeError. Inside a cffi callback that exception is
-                # swallowed ("Exception ignored from cffi callback"), so the mic
-                # went permanently silent with no visible cause. InputStream
-                # converts to a numpy array - which is exactly what the working
-                # Gemini path already uses.
-                raw, level = _pcm_block(indata)
-                try:
-                    self.ui.set_audio_level(min(1.0, level / 1200.0))
-                except Exception:
-                    pass
-                if speaking["on"]:
-                    # While a reply is being spoken, ignore the mic so we do not
-                    # transcribe our own voice.
-                    speech_buffer.clear()
-                    silence_chunks = 0
-                    return
-                if level > 300.0:
-                    speech_buffer.extend(raw)
-                    silence_chunks = 0
-                elif speech_buffer:
-                    silence_chunks += 1
-                    if silence_chunks >= 3:
-                        captured = bytes(speech_buffer)
-                        speech_buffer.clear()
-                        silence_chunks = 0
-                        if len(captured) > (SEND_SAMPLE_RATE * 2 * 0.5):
-                            threading.Thread(
-                                target=self._local_voice_turn,
-                                args=(captured, speaking),
-                                daemon=True, name="local-voice-turn",
-                            ).start()
-            except Exception as exc:
-                # Keep this ASCII and guarded: an exception while reporting an
-                # exception is exactly what cffi cannot survive.
-                try:
-                    print(f"[BRAHMA EVO] Local mic callback error: {exc}")
-                except Exception:
-                    pass
-
-        try:
-            # InputStream (not RawInputStream) so `indata` is a numpy int16
-            # array and .tobytes() exists. The Gemini path has always used
-            # InputStream for this reason.
-            with sd.InputStream(
-                samplerate=SEND_SAMPLE_RATE,
-                blocksize=int(SEND_SAMPLE_RATE * 0.1),
-                device=mic_dev, dtype="int16", channels=1, callback=_callback,
-            ):
-                while not self._take_disconnect_request():
-                    await asyncio.sleep(0.1)
-        finally:
-            self.set_speaking(False)
-            self._report_voice_status(False)
-            try:
-                self.ui.set_audio_level(0.0)
-            except Exception:
-                pass
-            print("[BRAHMA EVO] Local voice session ended.")
 
     def _local_voice_turn(self, pcm_bytes: bytes, speaking: dict):
         """One local voice turn: transcribe, answer, speak. Runs off-loop."""
@@ -2693,62 +2527,6 @@ class BrahmaLive:
         if stop is not None:
             stop.set()
 
-    def _wakeword_loop(self):
-        """Local-only microphone listener used while On Call is in standby.
-
-        In standby the Gemini socket is down, so the in-session wake word in
-        _listen_audio can never fire -- this thread is the only path that can
-        bring the session back up. It owns the microphone exclusively while
-        disconnected, which is exactly when the live InputStream is not open,
-        so the two never contend for the device.
-        """
-        stop = self._wake_stop
-        try:
-            import speech_recognition as sr
-        except Exception:
-            try:
-                self.ui.write_log(
-                    "SYS: On Call wake word unavailable (pip install SpeechRecognition); "
-                    "use the Connect button."
-                )
-            except Exception:
-                pass
-            return
-
-        recognizer = sr.Recognizer()
-        recognizer.dynamic_response_threshold = False
-        print("[BRAHMA EVO] ON-CALL: wake word armed.")
-        try:
-            while stop is not None and not stop.is_set():
-                try:
-                    with sr.Microphone() as source:
-                        recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                        while stop is not None and not stop.is_set():
-                            audio = recognizer.listen(
-                                source, timeout=3.0, phrase_time_limit=2.5
-                            )
-                            # A Disconnect / mode change may have landed while
-                            # listen() was blocking. Don't resurrect a session the
-                            # user just dropped.
-                            if stop.is_set() or self._wake_stop is not stop:
-                                return
-                            transcript = self._transcribe_wakeword(recognizer, audio)
-                            if _standby_wakeword_detected(transcript):
-                                print("[BRAHMA EVO] ON-CALL: wake word heard - connecting.")
-                                self.set_live_call(True)
-                                return
-                except Exception as e:
-                    if stop is None or stop.is_set():
-                        return
-                    print(f"[BRAHMA EVO] ON-CALL: wake word listener retrying: {e}")
-                    stop.wait(1.0)
-        finally:
-            # Only clear the slot if we are still the current listener, so a
-            # freshly started one is never clobbered by a slow predecessor.
-            if self._wake_thread is threading.current_thread():
-                self._wake_thread = None
-                self._wake_stop = None
-
     @staticmethod
     def _transcribe_wakeword(recognizer, audio) -> str:
         # Capture still comes from SpeechRecognition (it owns the mic and the
@@ -2765,47 +2543,6 @@ class BrahmaLive:
                 return recognizer.recognize_google(audio) or ""
             except Exception:
                 return ""
-
-    async def _serve_live_session(self, session):
-        """Hold one Gemini Live session open until it errors or is cancelled."""
-        async with asyncio.TaskGroup() as tg:
-            self.session        = session
-            self._loop          = asyncio.get_running_loop()
-            self.audio_in_queue = asyncio.Queue()
-            self.out_queue      = asyncio.Queue()  # Fix: removed maxsize=10 to prevent dropping packets
-
-            print("[BRAHMA EVO] ✅ Connected.")
-            try:
-                self.ui.boot_set_step_status("Connect AI backend", "done")
-                self.ui.boot_set_progress(75, "AI backend connected")
-            except Exception:
-                pass
-            self.ui.set_state("LISTENING")
-            self.ui.write_log("SYS: Brahma Evo online.")
-
-            tg.create_task(self._send_realtime())
-            tg.create_task(self._listen_audio())
-            tg.create_task(self._receive_audio())
-            tg.create_task(self._play_audio())
-            if not self._startup_briefing_started:
-                self._startup_briefing_started = True
-                threading.Thread(
-                    target=_speak_daily_briefing,
-                    args=(self.ui, self.speak),
-                    daemon=True,
-                    name="daily-briefing",
-                ).start()
-            try:
-                self.ui.boot_set_step_status("Initialize audio", "done")
-                self.ui.boot_set_progress(92, "Audio subsystems online")
-            except Exception:
-                pass
-            # finalize
-            try:
-                self.ui.boot_set_step_status("Finalize startup", "done")
-                self.ui.boot_set_progress(100, "Startup complete")
-            except Exception:
-                pass
 
     def set_push_to_talk(self, enabled: bool) -> str:
         self._ptt_enabled = bool(enabled)
@@ -2845,40 +2582,6 @@ class BrahmaLive:
         if time.monotonic() - self._last_activity < 240:
             return False
         return True
-
-    def _idle_speech_loop(self):
-        try:
-            from actions.proactive import ProactiveEngine
-            engine = ProactiveEngine(min_silence_secs=300, check_cooldown=600)  # Shorter defaults for testing
-        except ImportError:
-            engine = None
-
-        while True:
-            time.sleep(60.0)
-            if not engine:
-                continue
-            
-            try:
-                if self.ui.muted or self._is_speaking or self._meeting_active or self._pending_attention:
-                    continue
-                
-                # Check if it should trigger using the engine's time monotonic logic
-                if engine.should_trigger(self._last_activity):
-                    engine.mark_triggered()
-                    prompt = engine.build_prompt(memory={})
-                    
-                    if self.session and self._loop:
-                        import asyncio
-                        async def _send():
-                            try:
-                                await self.session.send_client_content(turns={"parts": [{"text": prompt}]}, turn_complete=True)
-                            except Exception as e:
-                                print(f"[Proactive] Error: {e}")
-                        asyncio.run_coroutine_threadsafe(_send(), self._loop)
-                        self._reset_idle_activity()
-                    
-            except Exception as e:
-                print(f"[Proactive] Error: {e}")
 
     def _make_remote_key(self):
         if self._dashboard is None:
@@ -3808,54 +3511,6 @@ class BrahmaLive:
         except Exception:
             return False
 
-    def _connect_tool_voice(self, name: str, raw_result: str) -> str | None:
-        if not str(name or "").startswith("connect_"):
-            return None
-        try:
-            data = json.loads(raw_result) if isinstance(raw_result, str) else dict(raw_result or {})
-        except Exception:
-            data = {}
-
-        if name == "connect_list_devices":
-            count = int(data.get("count") or len(data.get("devices") or []))
-            return f"I found {count} connected device{'s' if count != 1 else ''}."
-
-        if name == "connect_get_device":
-            device = data.get("device") or {}
-            label = str(device.get("name") or "the device")
-            status = "online" if device.get("online") else "offline"
-            return f"{label} is {status}."
-
-        if name == "connect_get_capabilities":
-            device = data.get("device") or {}
-            label = str(device.get("name") or "The device")
-            return f"{label} capabilities are ready."
-
-        if name == "connect_pair_device":
-            pairing = data.get("pairing") or data
-            code = str(pairing.get("pairing_code") or "").strip()
-            if code:
-                return f"Pairing code ready: {code}."
-            return "Pairing is ready."
-
-        if name == "connect_disconnect_device":
-            return "The device has been disconnected."
-
-        if name == "connect_execute":
-            if data.get("success", False):
-                detail = data.get("detail")
-                if isinstance(detail, dict):
-                    detail = detail.get("message") or detail.get("status") or detail.get("result")
-                if not detail and isinstance(data.get("data"), dict):
-                    payload = data.get("data") or {}
-                    detail = payload.get("message") or payload.get("status") or payload.get("result")
-                if not detail:
-                    detail = data.get("error") or "Task completed."
-                return str(detail)
-            return str(data.get("error") or "The device command failed.")
-
-        return None
-
     def _attention_message(self, event: dict) -> str:
         app = (event.get("app") or "an app").strip()
         kind = (event.get("kind") or "message").strip().lower()
@@ -4043,6 +3698,53 @@ class BrahmaLive:
             with self._attention_lock:
                 self._pending_attention = None
 
+
+    @property
+    def _session_lifecycle(self):
+        """Lazily build the session state machine (P4-19 seam; see core.session_lifecycle)."""
+        sl = getattr(self, "_session_lifecycle_obj", None)
+        if sl is None:
+            from core.session_lifecycle import SessionLifecycle
+
+            sl = SessionLifecycle(
+                self,
+                deps={
+                    "SEND_SAMPLE_RATE": SEND_SAMPLE_RATE,
+                    "LIVE_MODEL": LIVE_MODEL,
+                    "LIVE_CONNECT_TIMEOUT": LIVE_CONNECT_TIMEOUT,
+                    "TOOL_DECLARATIONS": TOOL_DECLARATIONS,
+                    "_load_system_prompt": _load_system_prompt,
+                    "_injected_instructions": _injected_instructions,
+                    "_standby_wakeword_detected": _standby_wakeword_detected,
+                    "_speak_daily_briefing": _speak_daily_briefing,
+                    "_pcm_block": _pcm_block,
+                    "_get_api_key": _get_api_key,
+                    "_is_gemini_limit_error": _is_gemini_limit_error,
+                    "_is_transient_live_error": _is_transient_live_error,
+                    "_live_error_reason": _live_error_reason,
+                    "_startup_log": _startup_log,
+                },
+            )
+            self._session_lifecycle_obj = sl
+        return sl
+
+    async def run(self):
+        await self._session_lifecycle.run()
+
+    async def _serve_live_session(self, session):
+        await self._session_lifecycle._serve_live_session(session)
+
+    def _wakeword_loop(self):
+        self._session_lifecycle._wakeword_loop()
+
+    def _idle_speech_loop(self):
+        self._session_lifecycle._idle_speech_loop()
+
+    def set_live_mode(self, mode: str):
+        self._session_lifecycle.set_live_mode(mode)
+
+    def _connect_tool_voice(self, name: str, raw_result: str) -> str | None:
+        return self._session_lifecycle._connect_tool_voice(name, raw_result)
 
     def _tool_executor(self):
         """Lazily build the tool-call executor (P4-19 seam; see core.tool_exec)."""
@@ -4543,103 +4245,6 @@ class BrahmaLive:
             pass
         return message
 
-    def _build_config(self) -> types.LiveConnectConfig:
-        from datetime import datetime
-
-        memory     = load_memory()
-        mem_str    = format_memory_for_prompt(memory)
-        sys_prompt = _load_system_prompt()
-
-        now      = datetime.now()
-        time_str = now.strftime("%A, %B %d, %Y — %I:%M %p")
-        time_ctx = (
-            f"[CURRENT DATE & TIME]\n"
-            f"Right now it is: {time_str}\n"
-            f"Use this to calculate exact times for reminders.\n\n"
-        )
-
-        loc_ctx = ""
-        try:
-            from core.device_location import get_device_city
-            dev_city = get_device_city(default="")
-            if dev_city and dev_city != "Local Area":
-                loc_ctx = (
-                    f"[DEVICE PHYSICAL LOCATION]\n"
-                    f"Current device location: {dev_city}\n"
-                    f"Use this location for local weather, time zone, and neighborhood context.\n\n"
-                )
-        except Exception:
-            pass
-
-        parts = [time_ctx]
-        if loc_ctx:
-            parts.append(loc_ctx)
-        if mem_str:
-            parts.append(mem_str)
-        parts.append(sys_prompt)
-        parts.append(
-            "Wake-word mode: if the microphone is muted, still listen for the words 'Brahma Evo', 'hey', 'hi', and 'hello'. "
-            "When you hear one of these activation cues, keep the session friendly and concise, "
-            "and wait for the user's next command. "
-            "IMPORTANT: Do NOT speak an unprompted generic greeting (like 'Thank you, how can I help you?') upon connecting. "
-            "Remain completely silent until the user speaks to you or asks a question."
-        )
-
-        # Optional instruction blocks for the LIVE layer. This is the only place
-        # Gemini Live's system instruction is assembled, so anything a voice
-        # session is meant to follow has to be composed here.
-        live_extra = _injected_instructions("live")
-        if live_extra:
-            print(f"[BRAHMA EVO] 💉 live prompt += {len(live_extra)} chars of instructions")
-            parts.append(live_extra.strip())
-
-        # --- Tool index: advertise a bounded, relevant tool surface ---------
-        # Every tool used to be sent on the setup frame. With Calyx + Synapse
-        # connected that was 173 declarations, past Gemini's hard 128 limit, and
-        # the handshake failed with 1007 / Invalid Argument. Gemini Live also
-        # cannot swap tools mid-session, so the surface must be small *and* the
-        # rest reachable through search_tools / call_tool.
-        last_intent = (getattr(self, "_last_user_text", "") or "")
-        try:
-            from core import tool_bridge
-
-            payload = tool_bridge.build_session_payload(last_intent)
-        except Exception as exc:
-            print(f"[BRAHMA EVO] ⚠️ Tool index unavailable ({exc}); using legacy tool list.")
-            payload = {
-                "declarations": list(TOOL_DECLARATIONS),
-                "skill_context": "",
-                "deferred": 0,
-                "indexed": False,
-            }
-
-        tool_declarations = payload["declarations"]
-        if payload.get("skill_context"):
-            # Just-in-time context: usage rules for the tool groups actually
-            # advertised this session, and nothing else.
-            parts.append(payload["skill_context"])
-
-        print(
-            f"[BRAHMA EVO] 🧰 Advertising {len(tool_declarations)} tool(s); "
-            f"{payload.get('deferred', 0)} deferred and reachable via search_tools."
-        )
-
-        return types.LiveConnectConfig(
-            response_modalities=["AUDIO"],
-            output_audio_transcription={},
-            input_audio_transcription={},
-            system_instruction="\n".join(parts),
-            tools=[{"function_declarations": tool_declarations}],
-            session_resumption=types.SessionResumptionConfig(handle=getattr(self, '_resume_handle', None)),
-            speech_config=types.SpeechConfig(
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                        voice_name="Charon"
-                    )
-                )
-            ),
-        )
-
     async def _execute_tool(self, fc) -> types.FunctionResponse:
         return await self._tool_executor().execute(fc)
 
@@ -4717,190 +4322,6 @@ class BrahmaLive:
 
 
 
-
-    async def run(self):
-        # announce boot steps to UI overlay (thread-safe wrappers)
-        try:
-            self.ui.boot_add_step("Load configuration")
-            self.ui.boot_add_step("Start attention monitor")
-            self.ui.boot_add_step("Start dashboard server")
-            self.ui.boot_add_step("Initialize audio")
-            self.ui.boot_add_step("Connect AI backend")
-            self.ui.boot_add_step("Finalize startup")
-            self.ui.boot_set_progress(3, "Preparing startup...")
-        except Exception:
-            pass
-
-        self._attention_monitor.start()
-        try:
-            self.ui.boot_set_step_status("Start attention monitor", "done")
-            self.ui.boot_set_progress(12, "Attention monitor online")
-        except Exception:
-            pass
-        if self._dashboard is not None:
-            if not self._dashboard_started:
-                self._dashboard_started = True
-                self._spawn_background(self._serve_dashboard(), "dashboard")
-                try:
-                    self.ui.boot_set_step_status("Start dashboard server", "done")
-                    self.ui.boot_set_progress(22, "Mobile connect server running")
-                except Exception:
-                    pass
-            self._spawn_background(self._consume_remote_commands(), "remote-commands")
-            self._spawn_background(self._relay_phone_audio(), "phone-audio-relay")
-        try:
-            self.ui.boot_set_progress(36, "Initializing AI client")
-        except Exception:
-            pass
-
-        # Built lazily inside the Gemini branch. A Local/offline provider must
-        # not require a Gemini key, and a missing key must surface as a bounded
-        # retry instead of killing the voice loop before its first iteration.
-        client = None
-        api_key_warned = False
-
-        self._ui_loop = asyncio.get_running_loop()
-        # Built on the loop that awaits it. A control change fires it to cut a
-        # reconnect pause short, so On Call / Disconnect apply without waiting
-        # out the backoff.
-        self._control_wake = asyncio.Event()
-        self._reconnect_delay = 0.0
-
-        while True:
-            # --- DISCONNECT CONSTANT BACKGROUND CONNECTION TO GEMINI LIVE FOR OFFLINE MODE---
-            # Backend choice is an axis of the session, not a bypass of it: a local
-            # provider runs a local voice loop instead of the Gemini socket, so
-            # Always On / On Call / Connect / Disconnect keep working. Previously
-            # this `continue` meant the mic handler that pipes whisper STT into the
-            # local model never ran when Local was selected.
-            app_cfg = config_manager.load_settings()
-            backend = self._voice_backend()
-            if backend == "local_loop":
-                try:
-                    if self._should_standby():
-                        await self._wait_for_connect_request()
-                        continue
-                    self._clear_disconnect_request()
-                    try:
-                        await self._session_task_guard(
-                            self._run_local_voice_session()
-                        )
-                    except asyncio.CancelledError:
-                        # CancelledError is a BaseException, so the `except
-                        # Exception` below cannot see it. Swallow it only when
-                        # this was our own On Call / Disconnect teardown; a real
-                        # shutdown must still propagate and end run(). The Gemini
-                        # path does exactly this; without it, disconnecting in
-                        # Local mode killed the whole voice loop.
-                        if not self._take_disconnect_request():
-                            raise
-                        print("[BRAHMA EVO] 📴 Local session closed by On Call control.")
-                except asyncio.CancelledError:
-                    raise
-                except Exception as e:
-                    print(f"[BRAHMA EVO] ⚠️ Local voice session error: {e}")
-                self.set_speaking(False)
-                self.ui.set_state("STANDBY" if self._should_standby() else "LISTENING")
-                if not self._should_standby():
-                    print("[BRAHMA EVO] 🔄 Re-attaching local mic in 5s...")
-                    await self._pause_until(5)
-                continue
-            # -------------------------
-
-            try:
-                if self._should_standby():
-                    await self._wait_for_connect_request()
-                    continue
-
-                self._clear_disconnect_request()
-                print("[BRAHMA EVO] 🔌 Connecting...")
-                self._report_voice_status(False, "connecting")
-                self.ui.set_state("THINKING")
-                if client is None:
-                    try:
-                        client = genai.Client(
-                            api_key=_get_api_key(),
-                            http_options={"api_version": "v1beta"},
-                        )
-                    except Exception as e:
-                        if not api_key_warned:
-                            api_key_warned = True
-                            msg = f"Gemini client unavailable: {e}"
-                            print(f"[BRAHMA EVO] ⚠️ {msg}")
-                            _startup_log(msg)
-                        self._report_voice_status(False, "no-api-key")
-                        self.ui.set_state("STANDBY")
-                        await self._pause_until(10)
-                        continue
-
-                config = self._build_config()
-
-                connect_cm = client.aio.live.connect(model=LIVE_MODEL, config=config)
-                session = await asyncio.wait_for(connect_cm.__aenter__(), timeout=LIVE_CONNECT_TIMEOUT)
-                try:
-                    if self._should_standby():
-                        # The user hit Disconnect / switched to On Call while the
-                        # handshake was in flight. _disconnect_live() had no task
-                        # to cancel yet, so without this guard the session would
-                        # arm anyway and the socket the user just dismissed stays
-                        # up. Drop it here instead.
-                        print("[BRAHMA EVO] 📴 Connect cancelled during handshake.")
-                    else:
-                        # The session runs as its own task so _disconnect_live() has
-                        # something to cancel. Awaiting it inline would leave no
-                        # handle at all and "End Call" would silently do nothing.
-                        self._session_task = asyncio.create_task(
-                            self._serve_live_session(session)
-                        )
-                        self._report_voice_status(True)
-                        self._reconnect_delay = 0.0  # a good connect resets backoff
-                        try:
-                            await self._session_task
-                        except asyncio.CancelledError:
-                            # CancelledError is a BaseException, so `except Exception`
-                            # below cannot see it. Swallow it only when this was our
-                            # own On Call teardown; a real shutdown must still
-                            # propagate and end run().
-                            if not self._take_disconnect_request():
-                                raise
-                            print("[BRAHMA EVO] 📴 Session closed by On Call control.")
-                        finally:
-                            self._session_task = None
-                finally:
-                    try:
-                        await connect_cm.__aexit__(None, None, None)
-                    except Exception:
-                        pass
-
-            except Exception as e:
-                if _is_transient_live_error(e):
-                    # A dropped link / DNS blip is expected, not a crash: log one
-                    # line instead of dumping a TaskGroup ExceptionGroup.
-                    print(f"[BRAHMA EVO] 🔌 Live link dropped ({_live_error_reason(e)}); will retry.")
-                else:
-                    print(f"[BRAHMA EVO] ⚠️ {e}")
-                    traceback.print_exc()
-                if _is_gemini_limit_error(e):
-                    self._throttled_to_openrouter()
-                if "1008" in str(e):
-                    self._resume_handle = None
-                self.session = None
-                self._loop = None
-            self.set_speaking(False)
-            if self._should_standby():
-                # No reconnect delay, and never a LISTENING flash on a UI that
-                # is no longer listening -- that flash is what made the status
-                # indicator look stuck.
-                self._report_voice_status(False, "standby")
-                self.ui.set_state("STANDBY")
-                continue
-            self._report_voice_status(False, "reconnecting")
-            self.ui.set_state("LISTENING")
-            # Exponential backoff with a cap: fast first retry, then settle down
-            # so a broken network is not hammered. Reset to 0 on a good connect.
-            delay = self._next_reconnect_delay()
-            print(f"[BRAHMA EVO] 🔄 Reconnecting in {delay:.0f}s...")
-            await self._pause_until(delay)
 
 def main():
     _startup_log("main entered")

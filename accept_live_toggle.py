@@ -166,6 +166,7 @@ def _control_surface(mode: str):
 
     class Surface:
         _should_standby = _main.BrahmaLive._should_standby
+        _session_lifecycle = _main.BrahmaLive._session_lifecycle
         set_live_mode = _main.BrahmaLive.set_live_mode
         set_live_call = _main.BrahmaLive.set_live_call
         _wake_control = _main.BrahmaLive._wake_control
@@ -438,12 +439,13 @@ def main() -> int:
     # mode forced the gate open again. Walk the whole state space and assert
     # every transition has one defined outcome.
     m_src = (BASE / "main.py").read_text(encoding="utf-8")
+    lsrc = (BASE / "core" / "session_lifecycle.py").read_text(encoding="utf-8")
     check("an explicit Disconnect is tracked separately from the mode",
           "self._live_suspended = False" in m_src)
     check("set_live_mode only changes the mode, not the connection gate",
           m_src.count("self._manual_call_active") >= 1
-          and "_live_suspended" not in m_src.split("def set_live_mode")[1]
-                                .split("def set_live_call")[0])
+          and "_live_suspended" not in lsrc.split("def set_live_mode")[1]
+                                .split("def _pause_until")[0])
     check("Connect clears an earlier Disconnect and Disconnect latches it",
           "self._live_suspended = not active" in m_src)
     check("standby honours the Disconnect latch before anything else",
@@ -486,18 +488,18 @@ def main() -> int:
     check("backend choice is a session axis, not a bypass",
           "def _voice_backend" in m_src)
     check("a local provider runs a local voice loop",
-          "def _run_local_voice_session" in m_src
-          and 'backend == "local_loop"' in m_src)
+          "def _run_local_voice_session" in lsrc
+          and 'backend == "local_loop"' in lsrc)
     # Scope the "skip is gone" check to the session loop. A Local/Offline check
     # inside _listen_audio is a routing decision for the Gemini mic path, not a
     # session bypass, and removing it would be wrong.
-    loop_at = m_src.index("while True:", m_src.index("async def run("))
-    loop_body = m_src[loop_at:loop_at + 2400]
+    loop_at = lsrc.index("while True:", lsrc.index("async def run("))
+    loop_body = lsrc[loop_at:loop_at + 2400]
     check("the session loop no longer skips when Local is selected",
           'app_cfg.get("default_ai_provider") == "Local"' not in loop_body
           and "self.session = None\n                await asyncio.sleep(5)\n                continue" not in loop_body)
     check("the local loop honours standby like the Gemini path",
-          m_src.count("self._should_standby()") >= 4)
+          (m_src + lsrc).count("_should_standby(") >= 4)
     check("local voice transcribes with the pluggable STT",
           "speech_stt.transcribe_pcm" in m_src
           and "def _local_voice_turn" in m_src)
@@ -518,16 +520,16 @@ def main() -> int:
     # delivers a numpy array. Because the raise happens inside a cffi callback
     # the exception is swallowed and the mic goes permanently silent.
     check("the local loop uses InputStream, not RawInputStream",
-          "sd.InputStream(" in m_src
-          and "sd.RawInputStream(" not in m_src.split("def _run_local_voice_session")[1]
-                                     .split("async def _wait_for_connect_request")[0])
+          "sd.InputStream(" in lsrc
+          and "sd.RawInputStream(" not in lsrc.split("def _run_local_voice_session")[1]
+                                     .split("def _wakeword_loop")[0])
     check("block conversion is a module-level, testable helper",
           "def _pcm_block(" in m_src)
     check("the callback never lets an exception reach cffi",
-          "Local mic callback error" in m_src)
+          "Local mic callback error" in lsrc)
     check("no callback calls .tobytes() on a raw sounddevice block",
-          "indata.tobytes()" not in m_src.split("def _run_local_voice_session")[1]
-                                        .split("async def _wait_for_connect_request")[0])
+          "indata.tobytes()" not in lsrc.split("def _run_local_voice_session")[1]
+                                        .split("def _wakeword_loop")[0])
 
     import numpy as _np
 
@@ -566,7 +568,7 @@ def main() -> int:
     check("standby text is no longer On-Call-specific",
           '"standby": "On Call - waiting' not in ui_src2)
     check("the main loop reports connectivity from every transition",
-          m_src.count("_report_voice_status(") >= 4)
+          (m_src + lsrc).count("_report_voice_status(") >= 4)
     check("both backends report through the one function",
           "def _report_voice_status" in m_src
           and '"Local voice"' in m_src and '"Gemini Live"' in m_src)

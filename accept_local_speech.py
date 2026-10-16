@@ -473,6 +473,7 @@ def test_offline_mode() -> None:
 def test_gemini_untouched() -> None:
     section("D. Gemini Live path is untouched")
     src = (BASE / "main.py").read_text(encoding="utf-8")
+    lsrc = (BASE / "core" / "session_lifecycle.py").read_text(encoding="utf-8")
     audio_src = (BASE / "core" / "audio_io.py").read_text(encoding="utf-8")
 
     speak_start = audio_src.index("    def speak(self, text: str, proactive: bool = False):")
@@ -490,9 +491,9 @@ def test_gemini_untouched() -> None:
           "Charon" in gemini_branch)
 
     check("no STT/TTS engine import inside _build_config",
-          "speech_stt" not in src[src.index("def _build_config"):src.index("async def _execute_tool")])
+          "speech_stt" not in lsrc[lsrc.index("def _build_config"):lsrc.index("async def run(")])
     check("Live handshake config untouched by speech work",
-          "tool_bridge.build_session_payload(last_intent)" in src)
+          "tool_bridge.build_session_payload(last_intent)" in lsrc)
 
 
 def main() -> int:

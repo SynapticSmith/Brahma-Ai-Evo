@@ -301,9 +301,10 @@ def main() -> int:
         check("MEMORY layer stays empty (no avatar there)", memory_txt == "")
 
         src3 = (BASE / "main.py").read_text(encoding="utf-8")
-        bc_start = src3.index("def _build_config")
-        bc_end = src3.index("async def _execute_tool", bc_start)
-        bc_body = src3[bc_start:bc_end]
+        lsrc = (BASE / "core" / "session_lifecycle.py").read_text(encoding="utf-8")
+        bc_start = lsrc.index("def _build_config")
+        bc_end = lsrc.index("async def run(", bc_start)
+        bc_body = lsrc[bc_start:bc_end]
         check("_build_config composes the live layer (the only live prompt site)",
               '_injected_instructions("live")' in bc_body)
         check("Gemini text reply composes a layer",
@@ -313,7 +314,7 @@ def main() -> int:
         check("local leg still composes local",
               'instruction_injector.compose("local")' in src3)
         check("every provider leg is covered", all(
-            marker in src3 for marker in (
+            marker in (src3 + lsrc) for marker in (
                 '_injected_instructions("live")',
                 '_injected_instructions("fallback")',
                 'instruction_injector.compose("local")',
