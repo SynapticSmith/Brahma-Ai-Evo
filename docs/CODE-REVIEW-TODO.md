@@ -278,8 +278,16 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     (`self._remote_overlay`, plus the daily-briefing/confirmation/memory-inspector instantiations and
     the `RemoteKeyOverlay | None` annotation) are unchanged. Behavior-preserving: full suite 149
     passed, all seven `accept_*.py` harnesses green. `ui.py` 7429 -> 6514 lines.
-  - Remaining seam: the rest of the `ui.py` panels (command bar, developer-mode dialog,
-    scanning/boot/meeting overlays, globe, file-drop, `SetupOverlay`, ...).
+  - **Done - setup-overlay seam (this commit).** `SetupOverlay` (the first-run setup wizard), a
+    1051-line single-node block, moved verbatim to `core/ui_setup.py` (1068 lines with its header).
+    Its two project-global dependencies, `APP_SETTINGS_FILE` and `_OS`, are injected through
+    `bind()` (both are runtime-only uses); everything else is Qt / `json` / `pyqtSignal`, plus direct
+    `from core.identity import identity` and `from core.ui_theme import C`. `ui.py` imports the
+    module, calls `bind(...)`, and re-exports `SetupOverlay`, so the `BrahmaUI` instantiation is
+    unchanged. Behavior-preserving: full suite 149 passed, all seven `accept_*.py` harnesses green.
+    `ui.py` 6514 -> 5471 lines.
+  - Remaining seam: the rest of the `ui.py` panels (background widget, command bar, developer-mode
+    dialog, scanning/boot/meeting overlays, globe, file-drop, `_SysMetrics`, ...).
 - [x] **P4-20 — Import-time side effects.** Done: the duplicated Qt/env blocks in `main.py`, `ui.py` (two) and
   `core/globe_window.py` collapsed into one idempotent `core/qt_bootstrap.bootstrap()` (importing that module
   has no side effects); `core/boot_sentry` no longer rolls files back on import — `main` calls
