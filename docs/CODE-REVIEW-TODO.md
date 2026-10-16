@@ -286,8 +286,18 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     module, calls `bind(...)`, and re-exports `SetupOverlay`, so the `BrahmaUI` instantiation is
     unchanged. Behavior-preserving: full suite 149 passed, all seven `accept_*.py` harnesses green.
     `ui.py` 6514 -> 5471 lines.
-  - Remaining seam: the rest of the `ui.py` panels (background widget, command bar, developer-mode
-    dialog, scanning/boot/meeting overlays, globe, file-drop, `_SysMetrics`, ...).
+  - **Done - transient-overlay seam (this commit).** `_ease_out_expo`, `_ease_in_out_sine`,
+    `ScanningOverlay`, `BootSequenceOverlay`, `IncomingAlertDialog`, and `MeetingOverlay` - a
+    contiguous 1053-line span - moved verbatim to `core/ui_transients.py` (1067 lines with its
+    header). No globals needed injecting: everything is Qt / `math` / `random` plus direct
+    `from core.ui_theme import C`. `np`/`cv2` are referenced only inside a `try/except` in
+    `ScanningOverlay`; they are undefined in `ui.py` too, so they are deliberately left undeclared
+    (a verbatim move keeps the same soft-fail path). `ui.py` imports the module and re-exports all six
+    names. Behavior-preserving: full suite 149 passed, all seven `accept_*.py` harnesses green.
+    `ui.py` 5471 -> 4426 lines.
+  - Remaining seam: the rest of the `ui.py` panels (background widget, `_SysMetrics`, command bar,
+    developer-mode dialog - which needs `__file__` handling - file-drop, globe, `MainWindow`,
+    `BrahmaUI`).
 - [x] **P4-20 — Import-time side effects.** Done: the duplicated Qt/env blocks in `main.py`, `ui.py` (two) and
   `core/globe_window.py` collapsed into one idempotent `core/qt_bootstrap.bootstrap()` (importing that module
   has no side effects); `core/boot_sentry` no longer rolls files back on import — `main` calls
