@@ -348,6 +348,11 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     (`BASE_DIR` is that same repo root) but correct from `core/`; the class already used `BASE_DIR`
     in `_browse_folder`. Body verified identical modulo that one documented line. `ui.py`
     3331 -> 3254 lines. Full suite 149 passed, all seven `accept_*.py` harnesses green.
+  - **Done - MainWindow remote-connect mixin (this commit).** Ninth method-level split: 4
+    contiguous methods (`show_app`, `_show_remote_connect`, `_position_remote_overlay`,
+    `notify_phone_connected`, 50 lines) moved verbatim into `core/ui_remote.py`
+    (`class _RemoteMixin`). `RemoteKeyOverlay` injected via `bind()`, `Qt` imported directly.
+    `ui.py` 2531 -> 2485 lines. 149 tests pass, seven harnesses green.
   - **Done - MainWindow nav/sidebar mixin (this commit).** Eighth method-level split: 7
     contiguous methods (`_toggle_fullscreen`, `_toggle_left_sidebar`, `_toggle_right_sidebar`,
     `_apply_sidebar_state`, `_on_nav_dashboard`, `_on_nav_settings`, `_update_nav_styles`,
