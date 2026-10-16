@@ -586,10 +586,14 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     byte-identical; `C`/`json`/`os` direct, `CONFIG_DIR`/`DISCORD_SETTINGS_FILE`/
     `_default_discord_settings` injected via `bind()`; signals resolve via MRO. `ui.py`
     3254 -> 3146 lines. 149 tests pass, seven harnesses green.
-  - Remaining seam: the rest of `MainWindow` (90 methods), `_RootShim` (7 lines),
-    `BrahmaUI` (952 lines). Note `_base_dir` and `_new_setStyleSheet` are deliberately left in
-    `ui.py`: `_base_dir` uses `__file__` (moving it to `core/` would change `BASE_DIR`) and
-    `_new_setStyleSheet` is an order-sensitive import-time monkeypatch.
+  - **ui.py god-object split complete.** Both god classes are now decomposed: `MainWindow`
+    (97 methods / 1945 lines) is `__init__` + three lifecycle methods + `_make_window_icon` on top
+    of 16 mixins, and `BrahmaUI` (952 lines) is `__init__` only on top of 12 mixins - the same
+    "constructor + mixins only" shape. The irreducible remainder: the two `__init__` bodies
+    (MainWindow 161 lines, BrahmaUI 95), `_RootShim` (7 lines), and the module-level bootstrap.
+    `_base_dir` and `_new_setStyleSheet` are deliberately left in `ui.py`: `_base_dir` uses
+    `__file__` (moving it to `core/` would change `BASE_DIR`) and `_new_setStyleSheet` is an
+    order-sensitive import-time monkeypatch. `ui.py` is 816 lines (down from 17247).
 - [x] **P4-20 — Import-time side effects.** Done: the duplicated Qt/env blocks in `main.py`, `ui.py` (two) and
   `core/globe_window.py` collapsed into one idempotent `core/qt_bootstrap.bootstrap()` (importing that module
   has no side effects); `core/boot_sentry` no longer rolls files back on import — `main` calls
