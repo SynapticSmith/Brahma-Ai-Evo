@@ -375,7 +375,14 @@ _ui_state_appliers.bind(
     ScanningOverlay=ScanningOverlay,
 )
 _StateAppliersMixin = _ui_state_appliers._StateAppliersMixin
-class MainWindow(_StateAppliersMixin, _SecondaryOverlaysMixin, _RemoteMixin, _NavMixin, _MeetingMixin, _MuteSendMixin, _OverlayCardsMixin, _AvatarAudioMixin, _StartupOSMixin, _AppSettingsMixin, _DiscordMixin, QMainWindow):
+from core import ui_setup_flow as _ui_setup_flow
+_ui_setup_flow.bind(
+    API_FILE=API_FILE,
+    CONFIG_DIR=CONFIG_DIR,
+    SetupOverlay=SetupOverlay,
+)
+_SetupFlowMixin = _ui_setup_flow._SetupFlowMixin
+class MainWindow(_SetupFlowMixin, _StateAppliersMixin, _SecondaryOverlaysMixin, _RemoteMixin, _NavMixin, _MeetingMixin, _MuteSendMixin, _OverlayCardsMixin, _AvatarAudioMixin, _StartupOSMixin, _AppSettingsMixin, _DiscordMixin, QMainWindow):
     _log_sig   = pyqtSignal(str)
     _state_sig = pyqtSignal(str)
     _scan_sig  = pyqtSignal(bool, str)
@@ -890,62 +897,6 @@ class MainWindow(_StateAppliersMixin, _SecondaryOverlaysMixin, _RemoteMixin, _Na
                 self._result_card.set_body("Waiting for wake word")
             else:
                 self._result_card.set_body("Action completed")
-
-    def _show_setup(self, defaults: dict | None = None):
-        try:
-            if hasattr(self, '_floating_gesture_card'):
-                self._floating_gesture_card.hide()
-            if self._overlay:
-                self._overlay.hide()
-                self._overlay.deleteLater()
-                self._overlay = None
-            
-            # Maximize the main window for the cinematic experience
-            self.showMaximized()
-            
-            ov = SetupOverlay(self.centralWidget(), defaults=defaults or self._load_api_defaults())
-            cw = self.centralWidget()
-            ov.setGeometry(0, 0, cw.width(), cw.height())
-            ov.done.connect(self._on_setup_done)
-            ov.show()
-            ov.raise_()
-            ov.activateWindow()
-            self._overlay = ov
-        except Exception as e:
-            import traceback
-            with open('setup_crash.log', 'w') as err_f:
-                err_f.write(traceback.format_exc())
-            raise
-
-
-    # Change signature:
-    def _on_setup_done(self, key: str, or_key: str, os_name: str):
-        try:
-            os.makedirs(CONFIG_DIR, exist_ok=True)
-            existing = self._load_api_defaults()
-            API_FILE.write_text(
-                json.dumps({
-                    "gemini_api_key":    key,
-                    "openrouter_api_key": or_key,
-                    "anthropic_api_key": existing.get("anthropic_api_key", ""),
-                    "os_system":         os_name,
-                }, indent=4),
-                encoding="utf-8",
-            )
-            self._ready = True
-            self._api_ready = True
-            if self._overlay:
-                self._overlay.hide()
-                self._overlay.deleteLater()
-                self._overlay = None
-            if hasattr(self, '_floating_gesture_card'):
-                self._floating_gesture_card.show()
-            self.showNormal()
-            self._apply_state("LISTENING")
-            self._log.append_log(f"SYS: Initialised. OS={os_name.upper()}. Brahma Evo online.")
-        except Exception as e:
-            self._log.append_log(f"ERR: setup failed: {e}")
-            traceback.print_exc()
 
     def _build_center_panel_modern(self, face_path: str) -> QWidget:
         w = QWidget()

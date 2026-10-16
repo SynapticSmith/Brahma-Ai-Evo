@@ -356,6 +356,14 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     `ScanningOverlay` injected via `bind()`; `json` imported directly. `accept_live_toggle.py`
     source read widened to include the new module (`def set_voice_status` check). `ui.py`
     2357 -> 2228 lines. 149 tests pass, seven harnesses green.
+  - **Done - MainWindow setup-flow mixin (this commit).** Twelfth method-level split: 2
+    contiguous methods (`_show_setup`, `_on_setup_done`, 55 lines) moved verbatim into
+    `core/ui_setup_flow.py` (`class _SetupFlowMixin`). `API_FILE`, `CONFIG_DIR`, `SetupOverlay`
+    injected via `bind()`; `json`, `os`, `traceback` imported directly. Module named
+    `ui_setup_flow` (not `ui_setup`) because `core/ui_setup.py` already holds the earlier
+    `SetupOverlay` seam; `gen_ui_mixin.py` now refuses to overwrite an existing module that does
+    not define the target mixin. `ui.py` 2228 -> 2179 lines. 149 tests pass, seven harnesses
+    green.
   - **Done - MainWindow secondary-overlays mixin (this commit).** Tenth method-level split: 10
     contiguous methods (`_apply_circuit_overlay`, `_apply_call_screening`,
     `_take_over_screened_call`, `_hang_up_screened_call`, `_on_confirm_answered`,
