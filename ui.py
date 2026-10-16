@@ -711,7 +711,12 @@ from core import ui_shell_actions as _ui_shell_actions
 _ShellActionsMixin = _ui_shell_actions._ShellActionsMixin
 from core import ui_shell_delegates as _ui_shell_delegates
 _ShellDelegatesMixin = _ui_shell_delegates._ShellDelegatesMixin
-class BrahmaUI(_ShellDelegatesMixin, _ShellActionsMixin, _ShellPanelSettingsMixin, _ShellControlPanelMixin, _ShellLauncherMixin, _ShellSidebarMixin, _ShellDevModeMixin, _ShellTrayMixin, _ShellBootMixin, _ShellDiscordMixin, _ShellSettingsMixin):
+from core import ui_shell_window as _ui_shell_window
+_ui_shell_window.bind(
+    _logo_icon=_logo_icon,
+)
+_ShellWindowMixin = _ui_shell_window._ShellWindowMixin
+class BrahmaUI(_ShellWindowMixin, _ShellDelegatesMixin, _ShellActionsMixin, _ShellPanelSettingsMixin, _ShellControlPanelMixin, _ShellLauncherMixin, _ShellSidebarMixin, _ShellDevModeMixin, _ShellTrayMixin, _ShellBootMixin, _ShellDiscordMixin, _ShellSettingsMixin):
     def __init__(self, face_path: str, size=None, *, show_immediately: bool = True):
         self._app = QApplication.instance() or QApplication(sys.argv)
         self._app.setStyle("Fusion")
@@ -806,42 +811,6 @@ class BrahmaUI(_ShellDelegatesMixin, _ShellActionsMixin, _ShellPanelSettingsMixi
         else:
             self._show_floating_icon()
         self.root = _RootShim(self._app)
-
-    def _make_app_icon(self) -> QIcon:
-        return _logo_icon()
-
-    def set_brahma_connect_service(self, service):
-        self._win.set_brahma_connect_service(service)
-
-
-    
-
-    def show_main(self):
-        if self._boot_overlay is not None and not getattr(self._boot_overlay, "_boot_finished", False):
-            return
-        try:
-            self._win.setWindowState(
-                (self._win.windowState() & ~Qt.WindowState.WindowMinimized) | Qt.WindowState.WindowActive
-            )
-            self._win.showNormal()
-        except Exception:
-            self._win.show()
-        self._win.raise_()
-        self._win.activateWindow()
-        self._launcher.hide()
-
-    def set_dashboard_page(self, enabled: bool):
-        try:
-            if not enabled:
-                self._command_bar.hide()
-                self._workspace_sidebar.hide_workspace(animate=False)
-        except Exception:
-            pass
-
-    def hide_main(self):
-        self._command_bar.hide()
-        self._launcher.hide()
-        self._win.hide()
 
 
 

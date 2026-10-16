@@ -505,6 +505,14 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     and to collect all defs sharing a name. `accept_live_toggle.py`'s `src` guard was widened to
     also read `core/ui_shell_delegates.py` (the `stop_speaking` body carries its `"STANDBY"` guard).
     `ui.py` 1101 -> 847 lines. 149 tests pass, seven harnesses green.
+  - **Done - BrahmaUI window/facade mixin (this commit).** Twelfth (final) BrahmaUI method-level
+    split: the last five directly-defined methods (`_make_app_icon`, `set_brahma_connect_service`,
+    `show_main`, `set_dashboard_page`, `hide_main`; span 810-844 = 35 lines) moved verbatim into
+    `core/ui_shell_window.py` (`class _ShellWindowMixin`, `bind(_logo_icon=_logo_icon)`; `Qt`/`QIcon`
+    imported directly, the `QIcon` return annotation is lazy under `from __future__ import
+    annotations`). `BrahmaUI` now defines **only `__init__`** on top of its twelve mixins - the same
+    "constructor + mixins only" shape as `MainWindow`. `ui.py` 847 -> 816 lines. 149 tests pass,
+    seven harnesses green.
   - **Done - MainWindow secondary-overlays mixin (this commit).** Tenth method-level split: 10
     contiguous methods (`_apply_circuit_overlay`, `_apply_call_screening`,
     `_take_over_screened_call`, `_hang_up_screened_call`, `_on_confirm_answered`,
