@@ -340,8 +340,16 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     `accept_instructions.py` and `accept_providers.py` source-text guards widened to also read
     `core/ui_bg.py` (the moved class holds the avatar/emotion JS and the 3D-toggle web-view hide).
     `ui.py` 3675 -> 3331 lines. Full suite 149 passed, all seven `accept_*.py` harnesses green.
-  - Remaining seam: the rest of the `ui.py` panels (`DeveloperModeDialog`, `MainWindow`,
-    `_RootShim`, `BrahmaUI`). Note `_base_dir` and `_new_setStyleSheet` are deliberately left in
+  - **Done - DeveloperModeDialog seam (this commit).** `DeveloperModeDialog` (293-376, 84 lines)
+    moved to `core/ui_devmode.py` (98 lines). Qt/core imports (`C`/`QCheckBox`/`QDialog`/
+    `QFileDialog`/`QFont`/`QHBoxLayout`/`QLabel`/`QLineEdit`/`QPushButton`/`QVBoxLayout`) direct;
+    `BASE_DIR` injected via `bind()`. The single body change replaces
+    `str(Path(__file__).resolve().parent)` with `str(BASE_DIR)` — semantically identical
+    (`BASE_DIR` is that same repo root) but correct from `core/`; the class already used `BASE_DIR`
+    in `_browse_folder`. Body verified identical modulo that one documented line. `ui.py`
+    3331 -> 3254 lines. Full suite 149 passed, all seven `accept_*.py` harnesses green.
+  - Remaining seam: the rest of the `ui.py` panels (`MainWindow` 1945 lines, `_RootShim` 7 lines,
+    `BrahmaUI` 952 lines). Note `_base_dir` and `_new_setStyleSheet` are deliberately left in
     `ui.py`: `_base_dir` uses `__file__` (moving it to `core/` would change `BASE_DIR`) and
     `_new_setStyleSheet` is an order-sensitive import-time monkeypatch.
 - [x] **P4-20 — Import-time side effects.** Done: the duplicated Qt/env blocks in `main.py`, `ui.py` (two) and
