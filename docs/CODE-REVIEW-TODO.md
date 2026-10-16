@@ -492,6 +492,19 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     `_on_discord_config_changed`, `_open_app`; span 842-931 = 90 lines) moved verbatim into
     `core/ui_shell_actions.py` (`class _ShellActionsMixin`, no injected or imported names). `ui.py`
     1190 -> 1101 lines. 149 tests pass, seven harnesses green.
+  - **Done - BrahmaUI delegates/forwarders mixin (this commit).** Eleventh BrahmaUI method-level
+    split: the 45-def forwarding/state surface (`muted` property+setter, `set_muted`,
+    `set_muted_state`, `current_file`, the `on_text_command`/`on_remote_clicked`/`on_attention_action`/
+    `on_chat_event` property pairs, `set_state`, `live_mode_changed`, `live_call_toggled`,
+    `set_audio_level`, `write_log`, the confirm/memory/daily-briefing/hud/call-screening overlays,
+    `submit_external_command`, `notify_phone_connected`, `set_scanning`, `show_circuit_hud`,
+    `set_meeting_mode`, the task-workspace helpers, `show_content`, `wait_for_api_key`,
+    `start_speaking`, `stop_speaking`; span 844-1098 = 255 lines) moved verbatim into
+    `core/ui_shell_delegates.py` (`class _ShellDelegatesMixin`); no injected names, `Path`/`time`
+    imported directly. The generator was extended to keep `@property`/`@x.setter` decorator lines
+    and to collect all defs sharing a name. `accept_live_toggle.py`'s `src` guard was widened to
+    also read `core/ui_shell_delegates.py` (the `stop_speaking` body carries its `"STANDBY"` guard).
+    `ui.py` 1101 -> 847 lines. 149 tests pass, seven harnesses green.
   - **Done - MainWindow secondary-overlays mixin (this commit).** Tenth method-level split: 10
     contiguous methods (`_apply_circuit_overlay`, `_apply_call_screening`,
     `_take_over_screened_call`, `_hang_up_screened_call`, `_on_confirm_answered`,

@@ -415,7 +415,8 @@ def main() -> int:
     # ------------------------------------------------------------------
     src = ((BASE / "ui.py").read_text(encoding="utf-8")
            + (BASE / "core" / "ui_floating.py").read_text(encoding="utf-8")
-           + (BASE / "core" / "ui_apply_state.py").read_text(encoding="utf-8"))
+           + (BASE / "core" / "ui_apply_state.py").read_text(encoding="utf-8")
+           + (BASE / "core" / "ui_shell_delegates.py").read_text(encoding="utf-8"))
     check("status badge knows STANDBY", '"STANDBY":    ("◌ STANDBY"' in src)
     check("launcher orb theme knows standby", '"standby": (110, 122, 138)' in src)
     # Standby is no longer phrased as an On-Call-only state: it is also what an
