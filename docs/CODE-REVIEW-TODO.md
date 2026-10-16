@@ -364,6 +364,16 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     `SetupOverlay` seam; `gen_ui_mixin.py` now refuses to overwrite an existing module that does
     not define the target mixin. `ui.py` 2228 -> 2179 lines. 149 tests pass, seven harnesses
     green.
+  - **Done - MainWindow panel-builder mixin (this commit).** Thirteenth method-level split: 3
+    contiguous methods (`_build_center_panel_modern`, `_build_right_panel_modern`,
+    `_build_command_row`, 287 lines) moved verbatim into `core/ui_panels.py`
+    (`class _PanelsMixin`). `BrahmaResultWing`, `BrahmaTelemetryWing`, `InlineChatWorkspace`,
+    `_RIGHT_W`, `_icon_pixmap` injected via `bind()`; `SettingsHubPage`,
+    `SystemConnectivityPage`, `SystemConnectivitySidebar`, `SmartDevicesSection`,
+    `BrahmaConnectDevicesPage` are imported directly from `core.ui_connectivity` /
+    `core.ui_devices` (they are assigned in ui.py only after the bind site, so `bind()` would
+    NameError). `gen_ui_mixin.py` gained a `DIRECT_IMPORTS_JSON` env hook for this case. `ui.py`
+    2179 -> 1900 lines. 149 tests pass, seven harnesses green.
   - **Done - MainWindow secondary-overlays mixin (this commit).** Tenth method-level split: 10
     contiguous methods (`_apply_circuit_overlay`, `_apply_call_screening`,
     `_take_over_screened_call`, `_hang_up_screened_call`, `_on_confirm_answered`,
