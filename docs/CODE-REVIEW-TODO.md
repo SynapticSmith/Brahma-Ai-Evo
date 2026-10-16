@@ -409,6 +409,19 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     into `core/ui_shell_discord.py` (`class _ShellDiscordMixin`); `CONFIG_DIR` /
     `DISCORD_SETTINGS_FILE` / `_default_discord_settings` injected via `bind()`, `C` imported from
     `core.ui_theme`. `ui.py` 1570 -> 1522 lines. 149 tests pass, seven harnesses green.
+  - **Done - BrahmaUI startup/boot mixin (this commit).** Third BrahmaUI method-level split: ten
+    startup-animation + boot-overlay methods (`_startup_animation_enabled`,
+    `_set_startup_animation_enabled`, `_refresh_startup_animation_button`,
+    `_toggle_startup_animation`, `_should_play_boot_sequence`, `_mark_boot_sequence_played`,
+    `play_boot_sequence`, `boot_add_step`, `boot_set_step_status`, `boot_set_progress`; span
+    852-950 = 99 lines, one comment-only gap) moved verbatim into `core/ui_shell_boot.py`
+    (`class _ShellBootMixin`); `BootSequenceOverlay` / `_current_boot_stamp` injected via
+    `bind()`. `ui.py` 1522 -> 1428 lines. Verification note: 148 tests pass; the single
+    `test_executor_auto_heal_error_recording` was deselected because it makes a **live Gemini API
+    call** (`agent/error_handler.py:analyze_error` -> `google.generativeai.generate_content`,
+    reached from `agent/executor.py:execute`) that hangs on this machine's current network. This is
+    pre-existing and unrelated (the test does not import `ui`); reproduced identically at the prior
+    commit (`4f34b21`). Seven harnesses green.
   - **Done - MainWindow secondary-overlays mixin (this commit).** Tenth method-level split: 10
     contiguous methods (`_apply_circuit_overlay`, `_apply_call_screening`,
     `_take_over_screened_call`, `_hang_up_screened_call`, `_on_confirm_answered`,
