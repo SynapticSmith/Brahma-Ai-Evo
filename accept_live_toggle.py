@@ -560,7 +560,8 @@ def main() -> int:
     # ------------------------------------------------------------------
     section("Connectivity is reported, not inferred from the microphone")
     # ------------------------------------------------------------------
-    ui_src2 = (BASE / "ui.py").read_text(encoding="utf-8")
+    ui_src2 = ((BASE / "ui.py").read_text(encoding="utf-8")
+               + (BASE / "core" / "ui_state_appliers.py").read_text(encoding="utf-8"))
     chat_src = (BASE / "core" / "ui_chat.py").read_text(encoding="utf-8")
     check("the window exposes set_voice_status",
           "def set_voice_status" in ui_src2)

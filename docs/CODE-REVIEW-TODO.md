@@ -348,6 +348,14 @@ Working reference for the code-review improvement pass. Keep this updated as ite
     (`BASE_DIR` is that same repo root) but correct from `core/`; the class already used `BASE_DIR`
     in `_browse_folder`. Body verified identical modulo that one documented line. `ui.py`
     3331 -> 3254 lines. Full suite 149 passed, all seven `accept_*.py` harnesses green.
+  - **Done - MainWindow state-appliers mixin (this commit).** Eleventh method-level split: 9
+    contiguous methods (`set_voice_status`, `_check_config`, `_apply_scan_state`, `set_scanning`,
+    `set_meeting_mode`, `_on_screen_capture_requested`, `capture_screen_threadsafe`,
+    `_apply_meeting_state`, `_apply_task_workspace`, 135 lines) moved verbatim into
+    `core/ui_state_appliers.py` (`class _StateAppliersMixin`). `API_FILE`, `MeetingOverlay`,
+    `ScanningOverlay` injected via `bind()`; `json` imported directly. `accept_live_toggle.py`
+    source read widened to include the new module (`def set_voice_status` check). `ui.py`
+    2357 -> 2228 lines. 149 tests pass, seven harnesses green.
   - **Done - MainWindow secondary-overlays mixin (this commit).** Tenth method-level split: 10
     contiguous methods (`_apply_circuit_overlay`, `_apply_call_screening`,
     `_take_over_screened_call`, `_hang_up_screened_call`, `_on_confirm_answered`,
