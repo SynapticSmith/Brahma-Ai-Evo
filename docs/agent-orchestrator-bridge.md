@@ -19,13 +19,15 @@ becomes first-class tools inside the assistant.
 `core/tool_index.py`, `core/mcp_manager.py`, `core/provider_router.py`,
 `plugin_manager.py`, `main.py` boot path, `ui.py`/`core/ui_connectivity.py` settings.
 
-**⚠️ Refactor note (read first):** all `file:line` references below were captured against
-the **current (pre-refactor)** tree. A separate code-review pass (see
-`docs/CODE-REVIEW-TODO.md`) moves many of these symbols into new modules
-(`core/tool_exec.py`, `core/ui_connectivity.py`, `core/ui_startup.py`, `core/audio_io.py`,
+**✅ Refactor note (read first):** the god-object split this note anticipated has now
+**LANDED** (verified 2026-10-16; see `docs/CODE-REVIEW-TODO.md`). `main.py` is **3882 lines**
+(was ~6450) and `ui.py` is **692 lines** (was ~17000); the named symbols moved into
+`core/tool_exec.py`, `core/ui_connectivity.py`, `core/ui_startup.py`, `core/audio_io.py`,
 `core/session_lifecycle.py`, `core/provider_failover.py`, `core/reply_flow.py`,
-`core/qt_bootstrap.py`, `core/user_paths.py`). **Trust the symbol names, not the line
-numbers.** §2.7 is the old→new mapping table.
+`core/qt_bootstrap.py`, `core/user_paths.py`. **Every symbol this document names still
+resolves** — nothing was deleted or renamed. Inline `file:line` references are now *indications*;
+**Appendix A is the canonical, re-pinned quick reference** and §2.7 is the old→new mapping.
+**Trust the symbol names, not the line numbers.**
 
 ---
 
@@ -46,7 +48,8 @@ pointed at locally-installed AI tools, or at the orchestrators that run them.
 - It has a **generic stdio JSON-RPC client** (`actions/playwright_mcp_client.py`) that is
   already the template for driving an external CLI process.
 - It has an **HTTP local-model probe** (`llm_client.py poll_opencode_models`) wired to a
-  **"Discover Local Agents" button** (`ui.py:13101`) — correct plumbing, single-URL breadth.
+  **"Discover Local Agents" button** (`core/ui_connectivity.py:2338`) — correct plumbing,
+  single-URL breadth.
 
 What is **missing** is the discovery layer (finding `claude` / `codex` / `gemini` / Ollama /
 LM Studio / MCP servers as they exist on *this* machine) and per-agent adapters. This
@@ -143,8 +146,8 @@ hierarchy with Brahma at the top, matching the existing supervisor pattern.
 
 ### 2.1 The integration model: why agents need no handshake change
 
-Brahma Evo orchestrates Gemini Live from `BrahmaLive` (`main.py:2162`, loop `main.py:5914`,
-boot `main.py:6069`). The model's tool surface is **not** the full catalog: it is a
+Brahma Evo orchestrates Gemini Live from `BrahmaLive` (`main.py:2149`, `run()` loop `main.py:3305`,
+boot `asyncio.run(brahma_evo.run())` `main.py:4142`). The model's tool surface is **not** the full catalog: it is a
 **retrieved, budgeted subset**.
 
 **The chain, end to end:**
@@ -160,16 +163,18 @@ boot `main.py:6069`). The model's tool surface is **not** the full catalog: it i
    three meta-tools `search_tools` / `call_tool` / `get_skill_manual`
    (`META_TOOLS`, `core/tool_index.py:106`).
 3. `core/tool_bridge.py` builds the per-session payload
-   (`build_session_payload`, `core/tool_bridge.py:205`; budget clamps at
+   (`build_session_payload`, `core/tool_bridge.py:204`; budget clamps at
    `core/tool_index.py:1315-1316`) and executes the meta-tools
-   (`is_meta_tool` `:297`, `execute_meta` `:301`).
-4. `call_tool` routes a discovered-but-unadvertised tool back through
-   `BrahmaLive._execute_tool_via_bridge` (`main.py:4290`) → `_execute_tool_sync`
-   (`main.py:4300`) → `_execute_tool` (`main.py:4895`). The comment at `main.py:4293-4296`
-   is explicit: *"There is deliberately no second execution path."*
-5. In `_execute_tool`, unknown names fall through to
-   `DynamicToolRegistry.execute_sync` (`main.py:5451-5456`).
-6. `core/dynamic_registry.py:121 register_external_tool(...)` is the **durable overlay**
+   (`is_meta_tool` `:296`, `execute_meta` `:300`).
+4. `call_tool` routes a discovered-but-unadvertised tool back through the **single** bridged
+   execution path, now extracted into `core/tool_exec.py::ToolExecutor`:
+   `execute_via_bridge` (`core/tool_exec.py:69`) → `execute_sync` (`:73`) → `execute`
+   (`:91`); `main.py` keeps thin delegates (`_execute_tool_via_bridge` `main.py:3398`,
+   `_execute_tool_sync` `:3402`, `_execute_tool` `:3821`). The *"deliberately no second
+   execution path"* invariant is preserved by the extraction.
+5. In the executor, unknown names fall through to `DynamicToolRegistry.execute_sync`
+   (`core/tool_exec.py:604-652`).
+6. `core/dynamic_registry.py:120 register_external_tool(...)` is the **durable overlay**
    (survives `initialize()`, which clears `_skills` — see the design note at
    `core/mcp_manager.py:22-24`).
 
@@ -177,7 +182,7 @@ boot `main.py:6069`). The model's tool surface is **not** the full catalog: it i
 `source="agent:<id>"`. They are indexed, retrievable by `search_tools`, invocable through
 `call_tool`, and executed through the registry — **with zero edits to `main.py`'s guard
 chain, zero new declarations, and no risk to the Live handshake.** This is exactly how
-custom MCP servers are onboarded today (`core/mcp_manager.py:754-767`).
+custom MCP servers are onboarded today (`core/mcp_manager.py:769 _register_server_tools`).
 
 **Cold-start placement (a refinement worth stating).** At connect time (no user intent),
 `tool_index._cold_start_order` (`core/tool_index.py:1345-1361`) advertises in strict tiers:
@@ -189,41 +194,41 @@ monopolize the advertised slots. Both behaviors are desirable defaults for this 
 
 ### 2.2 Reusable assets (detailed)
 
-| Asset | Exact location | What it gives us | Reuse for |
+| Asset | Exact location (post-refactor) | What it gives us | Reuse for |
 |---|---|---|---|
-| Tool publication | `core/dynamic_registry.py:121` `register_external_tool(name, description, parameters, executor, *, version, active, source)`; `:163` unregister; `:200` initialize | Durable external-tool overlay; executor is any callable taking `**kwargs` | Publish every agent tool |
-| Index registration helpers | `core/mcp_manager.py:762 _index_tool(...)`; `_drop_from_index({...})` (`:810`) | Adds/removes `ToolEntry` rows for a source | Agent tools, agent skill manuals |
-| Manuals | `core/tool_index.py:283 SkillManual`; `_publish_manual` (`core/mcp_manager.py:733`); `render_skill_context` (`core/tool_index.py:1363`) | A per-group usage guide injected **only** on turns where a tool of that group is advertised | Ingest per-agent usage docs as `agent:<id>` manuals |
+| Tool publication | `core/dynamic_registry.py:120` `register_external_tool(name, description, parameters, executor, *, version, active, source)`; `:166` unregister; `:199` initialize | Durable external-tool overlay; executor is any callable taking `**kwargs` | Publish every agent tool |
+| Index registration helpers | `core/mcp_manager.py:969 _index_tool(...)`; `_drop_from_index({...})` (`:954`) | Adds/removes `ToolEntry` rows for a source | Agent tools, agent skill manuals |
+| Manuals | `core/tool_index.py:283 SkillManual`; `_publish_manual` (`core/mcp_manager.py:1046`); `render_skill_context` (`core/tool_index.py:1363`) | A per-group usage guide injected **only** on turns where a tool of that group is advertised | Ingest per-agent usage docs as `agent:<id>` manuals |
 | Name sanitization | `core/mcp_manager.py:75 _sanitize_name(*parts)` | Provider-safe tool names, collapses illegal chars/separators | `agent_<id>_<tool>` naming |
 | Schema normalization | `core/mcp_manager.py:105 normalize_parameters(schema)` | JSON Schema → Gemini `FunctionDeclaration` subset (drops `anyOf`/`$ref`, upper-cases types) | Agent tool schemas |
-| MCP transports | `core/mcp_manager.py:578-592` stdio, `:625` streamable-HTTP, `:628` SSE; `:864 _transport_for` | Ready-made clients via the official `mcp` SDK | Every MCP-class agent, incl. those discovered from vendor configs |
-| Supervision | `core/mcp_manager.py:542 _supervise`; `:832 status`; `:420 start_servers`; `:495 stop_all` | Reconnect loop + UI-safe status snapshot + lifecycle | Agent lifecycle management |
-| Manual ingestion | `core/mcp_manager.py:643 _ingest_instructions` | Reads `initialize.instructions`, `prompts/list`+`get`, `resources/list` | Automatic per-agent docs (and a template for CLI agents) |
-| Generic stdio JSON-RPC | `actions/playwright_mcp_client.py:29-251` | Long-lived `Popen` (`:80`), MCP handshake (`:104-129`), reader thread with id correlation (`:135-162`), `_send_request` (`:179`), `call_tool` (`:216`), `close` (`:424`) | CLI agent drivers |
-| One-shot stdio | `actions/spotify_controller.py:358-399` | Spawn → write JSON-RPC lines → read → tear down in `finally` | Cheap/short-lived agents |
+| MCP client transport | `core/mcp_manager.py:946 _stdio_connect`, `:644 _http_connectors` (streamable-HTTP/SSE), `:929 _transport_for` | Ready-made clients via the official `mcp` SDK | Every MCP-class agent, incl. those discovered from vendor configs. **Extract the transport, not the manager** (§4.1) |
+| Supervision | `core/mcp_manager.py:548 _supervise`; `:897 status`; `:423 start_servers`; `:498 stop_all` | Reconnect loop + UI-safe status snapshot + lifecycle | Agent lifecycle management (adopt the *pattern*, not the class) |
+| Manual ingestion | `core/mcp_manager.py:670 _ingest_instructions` | Reads `initialize.instructions`, `prompts/list`+`get`, `resources/list` | Automatic per-agent docs (and a template for CLI agents) |
+| Generic stdio JSON-RPC | `actions/playwright_mcp_client.py:29-430` | Long-lived `Popen` (`:79`), MCP handshake, reader thread with id correlation, `_send_request`, `call_tool`, `close` | CLI agent drivers |
+| One-shot stdio | `actions/spotify_controller.py:358-408` | Spawn (`Popen` `:364`) → write JSON-RPC lines → read → tear down in `finally` (`:396`) | Cheap/short-lived agents |
 | HTTP model probe | `llm_client.py:162 poll_opencode_models(url)` | Tolerant `/v1/models` parse; never raises | HTTP-agent capability probe |
-| Local runtime probe | `core/local_brain.py:53 is_available`, `:63 list_installed_models`, `:68 pull_model_async` | Ollama `/api/tags`, `/api/pull` | Ollama adapter |
-| OpenAI-compatible chat | `llm_client.py:80 _openai_chat_completion` (`:67` — auth header only when a key exists), `core/local_brain.py:159 generate_chat_stream` (SSE) | Streaming + non-streaming local chat | HTTP-agent invocation |
+| Local runtime probe | `core/local_brain.py:50 is_available`, `:63 list_installed_models`, `:68 pull_model_async` | Ollama `/api/tags`, `/api/pull` | Ollama adapter |
+| OpenAI-compatible chat | `llm_client.py:80 _openai_chat_completion` (`:68 _auth_headers` — auth header only when a key exists), `core/local_brain.py:159 generate_chat_stream` (SSE) | Streaming + non-streaming local chat | HTTP-agent invocation |
 | Process enumeration | `actions/open_app.py:67-81` (`psutil.process_iter`) | Detect already-running agents | Discovery Layer E |
-| Registry App Paths | `actions/browser_control.py:83-104` (HKLM+HKCU, `...\App Paths\<x>.exe`) | Find installed executables via registry | Discovery Layer B |
-| `which` + candidate paths | `actions/open_app.py:92,128`; `actions/browser_control.py:117-162`; `actions/dev_agent.py:273-296` | Locate executables | Discovery Layer A/C |
-| Port check | `main.py:138 _is_port_in_use(port, host)` (`connect_ex`, 0.25 s timeout) | Detect live services | Discovery Layer E |
-| Confirmation gate | `core/confirm.py:82 request(key,title,detail,run)`, `:115 resolve`; bound to HUD via `bind()` | Parks irreversible actions behind an on-screen confirm | Any agent that runs shell/files |
-| Provider registry | `core/provider_router.py:39-68 PROVIDERS`, `:180 guard`, `:126 provider_spec`, `:141 _configured` | Declarative provider list + kill switches | If agents should join LLM fallback |
-| Settings | `memory/config_manager.py:24 load_settings`, `:35 save_settings`, `:50 set_setting` | JSON persistence under `%LOCALAPPDATA%\BrahmaAI\config` | Persist `local_agents` |
-| Plugin seam | `plugin_manager.py:14 load_plugins`, `:46 dispatch`; wired `main.py:6237` (+`on_startup` `:6279`, `on_text_command` `:2836`) | Hook-based, `plugins/` currently **empty** | Ship the bridge with zero core edits first |
-| Boot + resync pattern | `main.py:6086` (start MCP in a thread) + `main.py:6091-6111` (poll `status()`, `tool_bridge.sync_all` every 2 s for 30 s) | Background boot with progressive index refresh | Copy verbatim for agent discovery |
-| Status → UI grouping | `core/tool_bridge.py:490-541` groups index entries by source: `mcp:*` → kind `"mcp"`, else `"default"` | Extend to recognize `agent:*` as its own group | "Tools & MCP Access" card |
+| Registry App Paths | `actions/browser_control.py:85-86` (HKLM+HKCU, `...\App Paths\<x>.exe`) | Find installed executables via registry | Discovery Layer B |
+| `which` + candidate paths | `actions/open_app.py:186-188`; `actions/browser_control.py:120`; `actions/dev_agent.py:274` | Locate executables | Discovery Layer A/C |
+| Port check | `main.py:120 _is_port_in_use(port, host)` (`connect_ex`, 0.25 s timeout) | Detect live services | Discovery Layer E |
+| Confirmation gate | `core/confirm.py:82 request(key,title,detail,run)`, `:115 resolve`; bound to HUD via `bind()` (`:68`) | Parks irreversible actions behind an on-screen confirm | Any agent that runs shell/files |
+| Provider registry | `core/provider_router.py:39-68 PROVIDERS`, `:70 _BY_ID`, `:95 is_enabled` | Declarative provider list + kill switches | If agents should join LLM fallback |
+| Settings | `memory/config_manager.py:24 load_settings`, `:35 save_settings`, `:49 set_setting` | JSON persistence under `%LOCALAPPDATA%\BrahmaAI\config` | Persist `local_agents` |
+| Plugin seam | `plugin_manager.py load_plugins` / `dispatch`; wired in `main.py:4020` (`load_plugins`), `on_startup` dispatch `:4061`, `on_text_command` dispatch `:2570` | Hook-based, `plugins/` currently **empty** | Ship the bridge with zero core edits first |
+| Boot + resync pattern | `main.py:3868-3891` (start MCP in a thread) + poll `status()`, `tool_bridge.sync_all` every 2 s for 30 s | Background boot with progressive index refresh | Copy verbatim for agent discovery |
+| Status → UI grouping | `core/tool_bridge.py:497-532` groups index entries by source: `mcp:*` → kind `"mcp"`, else `"default"` | Extend to recognize `agent:*` as its own group | "Tools & MCP Access" card |
 
 ### 2.3 The existing "Discover Local Agents" path (to be extended, not replaced)
 
-- Button: `ui.py:13101` (`🤖 Discover Local Agents`), worker `_ModelDiscoveryBridge`
-  (`ui.py:11007`), signal `finished = pyqtSignal(list, str, str)` (models, url, error),
+- Button: `core/ui_connectivity.py:2338` (`🤖 Discover Local Agents`), worker `_ModelDiscoveryBridge`
+  (`core/ui_connectivity.py:244`), signal `finished = pyqtSignal(list, str, str)` (models, url, error),
   `discover(url)` spawns a daemon thread and calls
-  `UnifiedAIClient.poll_opencode_models(url)` (`ui.py:11021`).
+  `UnifiedAIClient.poll_opencode_models(url)` (`core/ui_connectivity.py:258`, impl `llm_client.py:162`).
 - Default URL: `OPENCODE_DEFAULT_URL = "http://localhost:4096/v1"` (`llm_client.py:22`).
 - On success the panel fills a model combo and auto-adopts the URL if blank
-  (`ui.py:13123-13134`).
+  (card region `core/ui_connectivity.py:~2200-2400`).
 
 This is the correct UI entry point. The refinement is to make it discover **many** agents,
 not one URL's models, and to render a **list** rather than a combo box — while keeping the
@@ -234,12 +239,12 @@ exact worker/signal pattern.
 This is the single most error-prone area, so the bridge must copy the existing conventions:
 
 - **The Live session runs on one asyncio loop** created by `asyncio.run(brahma_evo.run())`
-  in the runner thread (`main.py:6360`). `BrahmaLive._loop` is that loop.
+  in the runner thread (`main.py:4142`). `BrahmaLive._loop` is that loop.
 - **Tool calls can arrive from arbitrary threads.** Sync tools hand work back with
   `asyncio.run_coroutine_threadsafe(self._execute_tool(fc), self._loop)` and block
-  (`main.py:4311-4313`).
+  (`main.py:3221`).
 - **Blocking work is fanned out to daemon threads**, e.g. `threading.Thread(target=...,
-  daemon=True)` throughout `_on_text_command` (`main.py:2931,3017,3464,...`).
+  daemon=True)` throughout `_on_text_command` (`main.py:2570 ff`).
 - **MCP uses one dedicated loop + thread** with a *synchronous* executor that hops onto it
   (`core/mcp_manager.py:13-21` design note; `_call_sync` `:1010-1021`). The explicit
   warning: calling `asyncio.run` on an MCP session from another thread deadlocks or raises
@@ -257,7 +262,7 @@ another loop. Discovery is pure/blocking and runs in its own daemon thread.
 not merged. Therefore the bridge must **read-modify-write** the `local_agents` key itself
 (load full list, merge by `id`, save), rather than relying on `set_setting` to merge entries.
 
-Precedent for a one-time seed + migration guard: `core/mcp_manager.py:339-369`
+Precedent for a one-time seed + migration guard: `core/mcp_manager.py:343-369`
 (`_seed_from_template`, flag `custom_mcp_servers_migrated`). The bridge should use the same
 pattern (`local_agents_seeded`).
 
@@ -275,16 +280,16 @@ pattern (`local_agents_seeded`).
    first-class verbs like `list_local_agents` are wanted in every session regardless of
    retrieval. Avoid unless necessary.
 
-### 2.7 Post-refactor module mapping (from `docs/CODE-REVIEW-TODO.md`)
+### 2.7 Seam ownership — post-refactor (LANDED)
 
-**IMPORTANT:** all `file:line` references in this document were taken from the current
-(pre-refactor) tree. The refactor moves many symbols into dedicated modules. **Trust the
-symbol names, not the line numbers.** Use this table to locate post-refactor code.
+**Status: the split has landed** (verified 2026-10-16). The table records where the seams this
+document depends on now live. **Trust the symbol names, not the line numbers**; Appendix A
+carries the re-pinned `file:line` quick reference.
 
 | Document reference (pre-refactor) | Post-refactor location (target) | Notes |
 |---|---|---|
 | `main.py:_execute_tool`, `_execute_tool_via_bridge`, `_execute_tool_sync` | `core/tool_exec.py::ToolExecutor` | `main.py` keeps thin `self._tool_exec` delegations; validate with `py -3.11 -m py_compile` after review. |
-| `BrahmaLive` in `main.py` (audio I/O paths) | `core/audio_io.py::AudioIO` | Loop/IG paths moved out of `main.py:2162` vicinity. |
+| `BrahmaLive` in `main.py` (audio I/O paths) | `core/audio_io.py::AudioIO` | Loop/IG paths moved out of `main.py:2149` vicinity. |
 | Reply/IG/email/reply flow | `core/reply_flow.py::ReplyFlow` | Keeps reply branching outside the Live loop. |
 | Session state machine / lifecycle | `core/session_lifecycle.py::SessionLifecycle` | Decouples lifecycle from execution. |
 | Provider failover, loopback logic | `core/provider_failover.py::ProviderFailover` | Routes to chain/guard paths. |
@@ -310,23 +315,23 @@ Verified by repo-wide search (excluding `.venv`, `__pycache__`, `assets`):
 2. **No reading of other vendors' config files.** No
    `%APPDATA%\Claude\claude_desktop_config.json`, no `~/.claude/`, `~/.codex/`,
    `~/.gemini/`, `~/.cursor/mcp.json`, no `%APPDATA%\Code\User\mcp.json`. `mcpServers` is
-   read only from Brahma's *own* `app_settings.json` (`core/mcp_manager.py:324-337`).
+   read only from Brahma's *own* `app_settings.json` (`core/mcp_manager.py:327 _configured_servers`).
 3. **No installed-software enumeration.** No Uninstall-key sweep, no
    `winget`/`npm -g`/`Get-Package`/Appx, no `%ProgramFiles%` or `%LOCALAPPDATA%\Programs`
-   walk. Registry is used only for Opera (`actions/browser_control.py:83-104`), autostart
-   (`ui.py:9325`), Desktop path (`ui.py:14893`).
+   walk. Registry is used only for Opera (`actions/browser_control.py:82-97`), autostart
+   (`core/ui_startup_os.py:45`), Desktop path (`core/ui_connectivity.py:4134`).
 4. **No PATH/PATHEXT inspection or manipulation.**
 5. **No localhost service scanner.** Only Brahma's own ports 8000/8765 are checked
-   (`main.py:138,6139,6184`). Nothing probes LM Studio `:1234` or sweeps a port table.
+   (`main.py:120 _is_port_in_use`; calls `:3921` / `:3966`). Nothing probes LM Studio `:1234` or sweeps a port table.
 6. **No LM Studio-specific client.** Only the generic OpenAI-compatible URL.
 7. **No named-pipe / Unix-socket IPC.**
 8. **No auto-start/watchdog for agent CLIs.** `MCPServerManager._supervise`
-   (`core/mcp_manager.py:542`) only supervises *configured* MCP servers.
+   (`core/mcp_manager.py:548`) only supervises *configured* MCP servers.
 9. **No agent-to-agent protocol (A2A), agent cards, or subagent runtime.** `agent/` is one
    in-process plan→execute loop (`agent/executor.py:478`).
 10. **No PTY/interactive-TTY capture.** No `pty`, no raw-mode handling——which matters
     because several target CLIs crash without a TTY (see §5.6).
-11. **No UI listing detected agents.** Only manual MCP entry (`ui.py:12609-12722`) and the
+11. **No UI listing detected agents.** Only manual MCP entry (`core/ui_connectivity.py:1853`) and the
     single-URL model probe.
 12. **No tests for discovery or real external-process communication.** All MCP/gateway
     tests use fakes or tmp files.
@@ -343,28 +348,45 @@ Verified by repo-wide search (excluding `.venv`, `__pycache__`, `assets`):
 ```
 core/agent_bridge/
     __init__.py          # facade: discover(), connect(), list_agents(), call(), shutdown()
+    adapter.py           # AgentAdapter ABC (detect/probe/connect/verbs/call/close)
     detectors.py         # Layers A-F; pure, side-effect-free, never raises
     registry.py          # AgentRecord store + persistence (read-modify-write)
-    bridge.py            # dedicated event loop/thread; sync facade over transports
+    bridge.py            # dedicated event loop/thread; sync facade over adapters
     transports/
         stdio_jsonrpc.py # generalization of playwright_mcp_client.py
-        mcp_adapter.py   # thin reuse of core/mcp_manager's stdio/HTTP/SSE helpers
+        mcp_client.py    # EXTRACTED MCP client transport (stdio/HTTP/SSE) — see rule 1
         http_openai.py   # reuse llm_client._openai_chat_completion / local_brain
         http_agent.py    # A2A agent-card probe / streamable-HTTP
     adapters/
+        mcp_server.py    # AgentAdapter impl over transports/mcp_client.py
         claude_code.py
         codex_cli.py
         gemini_cli.py
         ollama.py
         lm_studio.py
         generic_mcp.py   # any MCP server found in vendor configs
+        orca.py          # Tier 2 orchestrator connectors (one small class each)
+        multica.py
+        paperclip.py
 tests/
     test_agent_discovery.py
     test_agent_registry.py
     test_agent_bridge_transports.py
+    test_agent_adapter_contract.py   # every adapter passes the same contract suite
 ```
 
 Design rules:
+- **One uniform adapter contract.** Every backend implements a single `AgentAdapter` ABC
+  (`detect()`, `probe()`, `connect()`, `verbs()`, `call()`, `close()`), so discovery, publish,
+  supervision and UI all talk to one interface. MCP, CLI agents, local model servers and
+  orchestrator connectors are all just adapters; the differences live inside the adapter, not
+  in the bridge.
+- **MCP is one adapter kind — not the container.** The bridge must **not** fold into
+  `MCPServerManager`. Extract MCP's *client transport* (stdio/HTTP/SSE via the official SDK)
+  into `transports/mcp_client.py` and wrap it as `adapters/mcp_server.py`; do **not** inherit
+  the manager's lifecycle/supervisor, which is built for reconnect-and-retry servers — the
+  opposite of the one-shot, non-idempotent mutating verbs (`create_task`, `assign_task`) that
+  orchestrator connectors expose. Rationale in the "Architecture decision" note below.
 - **Discovery is read-only and cheap** — target < 1.5 s warm, on a daemon thread; returns
   data, never raises, never spawns.
 - **Connection is lazy** — record `found` first; only spawn/probe when the user hits
@@ -374,6 +396,25 @@ Design rules:
   (`DynamicToolRegistry.execute_sync`).
 - **Failure isolation** — a broken agent logs and is skipped; it never blocks startup
   (same contract as `MCPServerManager`, `core/mcp_manager.py:25-26`).
+
+**Architecture decision (2026-10-16) — do NOT fold the bridge into `MCPServerManager`.**
+Decided alongside the god-object split this document's review triggered. `MCPServerManager`
+stays the MCP-**server** supervisor; the agent bridge is a **separate** `core/agent_bridge/`
+package that *reuses MCP's client transport* but **not** its manager. Reasons:
+
+1. **Only one of three adapter families is MCP-shaped.** CLI agents and orchestrator connectors
+   have no `initialize`/`tools/list` handshake; forcing them through the manager would encode a
+   false assumption in the type system.
+2. **Opposite failure semantics.** The manager is built to *reconnect and retry* (supervision,
+   backoff) for long-lived idempotent servers; Tier-2 verbs (`create_task`, `assign_task`) are
+   **one-shot and non-idempotent**, so auto-retry risks double-creating work.
+3. **Blast radius.** `MCPServerManager` is a load-bearing startup singleton with its own event
+   loop (`core/mcp_manager.py:276-289`); discovered agents must not be able to destabilise it.
+
+**Consequence:** extract the transport into `transports/mcp_client.py` and wrap it as
+`adapters/mcp_server.py`; discovered MCP servers are **not** written into `custom_mcp_servers`
+(keeps `AgentRecord` provenance and the user's hand-authored config clean). The publish seam is
+unchanged: `DynamicToolRegistry.register_external_tool` + `tool_bridge` indexing (§4.5).
 
 ### 4.2 Data model
 
@@ -431,7 +472,7 @@ Candidate names per agent: `claude`/`claude.cmd`/`claude.exe`, `codex*`, `gemini
 
 **Layer B — Registry (catches GUI installers)**
 
-Reuse the exact hive/key walk at `actions/browser_control.py:83-104`. Add a read-only scan
+Reuse the exact hive/key walk at `actions/browser_control.py:82-97`. Add a read-only scan
 of Uninstall keys:
 `HKLM`/`HKCU` × `SOFTWARE\…\Uninstall\*` (and the `WOW6432Node` mirror), matching
 `DisplayName`/`InstallLocation` against an agent pattern table (Ollama, LM Studio, Claude,
@@ -440,7 +481,7 @@ Cursor, Windsurf, VS Code, …).
 **Layer C — Known install directories (bounded probes, never a recursive crawl)**
 
 `%LOCALAPPDATA%\Programs\Ollama`, `…\LM Studio`, `…\Cursor`, `%ProgramFiles%\Ollama`, plus
-the existing VS Code candidate list (`actions/dev_agent.py:273-296`).
+the existing VS Code candidate list (`actions/dev_agent.py:274`).
 
 **Layer D — Vendor config files (finds agents + their MCP servers + auth presence)**
 
@@ -456,17 +497,17 @@ Parse tolerantly (missing file / bad JSON ⇒ skip silently, record nothing):
 | `%APPDATA%\Code\User\mcp.json` | VS Code MCP servers |
 
 Dedupe discovered MCP servers against Brahma's own `custom_mcp_servers` /
-`mcpServers` (`core/mcp_manager.py:380`) by a hash of `(command, args)` or `url` so an
-agent is not configured twice.
+`mcpServers` (`core/mcp_manager.py:327 _configured_servers`) by a hash of `(command, args)` or
+`url` so an agent is not configured twice.
 
 **Layer E — Live runtime probes (finds agents already running)**
 
-1. **Port sweep** using `main.py:138 _is_port_in_use` over a fixed table, then a protocol
+1. **Port sweep** using `main.py:120 _is_port_in_use` over a fixed table, then a protocol
    probe on hit:
 
    | Port | Service | Probe |
    |---|---|---|
-   | 11434 | Ollama | `GET /api/tags` (`core/local_brain.py:53`) |
+   | 11434 | Ollama | `GET /api/tags` (`core/local_brain.py:63`) |
    | 1234 | LM Studio | `GET /v1/models` (`poll_opencode_models`) |
    | 4096 | OpenCode | `GET /v1/models` (already the default, `llm_client.py:22`) |
    | 3000/8000/8080 | assorted agent UIs | best-effort `GET /v1/models` and `/mcp`; ignore failures |
@@ -503,17 +544,21 @@ probing.
 
 #### 4.4.1 MCP servers (preferred path)
 
-Discovered MCP servers are handed to the existing MCP machinery. Two options:
-- **Register into the same `MCPServerManager`** by writing them into
-  `custom_mcp_servers` (`core/mcp_manager.py:380` validates; `:578-592` connects), so tools,
-  manuals, supervision and status all come for free.
-- Or run a **sibling manager** with identical mechanics to avoid mixing user-authored and
-  discovered servers.
+Discovered MCP servers are reached through **`adapters/mcp_server.py`**, which wraps an
+**extracted MCP client transport** (`transports/mcp_client.py`) over the official SDK. Do
+**not** sign the bridge up as a second `MCPServerManager`, and do not push discovered servers
+into `custom_mcp_servers`: the manager's contract (persistent sessions, reconnect/backoff
+supervision, retry-on-failure) is the wrong shape for one-shot, mutating agent verbs, and
+mixing machine-discovered servers into the user's hand-authored `custom_mcp_servers` list
+blurs provenance (§2.7, §4.1 boundary rule). Reuse the *transport helpers* and the
+*publish/indexing seam*, not the manager object.
 
-Command: stdio (`{"command","args","env"}`) or remote (`{"url","headers"}`); transport
-inferred by `core/mcp_manager.py:864 _transport_for`. Handshake uses the official SDK; the
-hand-rolled variant in `actions/playwright_mcp_client.py:104-129` uses
-`protocolVersion: "2024-11-05"` — keep the SDK path to stay current.
+- Precedent to extract from: `core/mcp_manager.py:946 _stdio_connect` / `:644 _http_connectors`
+  (streamable-HTTP + SSE), transport selection at `:929 _transport_for`.
+- Command shape: stdio (`{"command","args","env"}`) or remote (`{"url","headers"}`).
+- Handshake uses the official SDK; the hand-rolled variant in
+  `actions/playwright_mcp_client.py` uses `protocolVersion: "2024-11-05"` — keep the SDK path
+  to stay current.
 
 #### 4.4.2 CLI coding agents (spawned, non-interactive)
 
@@ -574,14 +619,14 @@ All three emit a `--version`/version string that the adapter should read once to
   `[DONE]`).
 - Capability probe: `poll_opencode_models` (`llm_client.py:162`) → model list; then optionally
   a 1-token completion to confirm the model answers.
-- Ollama extras: `core/local_brain.py:53,63,68` (`/api/tags`, `/api/pull`).
+- Ollama extras: `core/local_brain.py:50,63,68` (`is_available`, `/api/tags`, `/api/pull`).
 
 #### 4.4.4 Generic agent daemons
 
 - **A2A / agent-card**: `GET /.well-known/agent.json` (or `/agent-card`), then a JSON-RPC
   `message/send` POST. New code in `transports/http_agent.py`; validate the response is a
   well-formed task result before treating the endpoint as an agent.
-- **MCP over HTTP**: reuse `core/mcp_manager.py:625/628`.
+- **MCP over HTTP**: reuse `core/mcp_manager.py:644 _http_connectors`.
 
 #### 4.4.5 Generic stdio JSON-RPC daemons
 
@@ -613,45 +658,51 @@ For each connected agent capability, mirror the MCP publication path exactly:
 1. `DynamicToolRegistry.register_external_tool(name=agent_<id>_<tool>,
    description="[AGENT:<id>] …", parameters=normalize_parameters(schema),
    executor=bridge.make_executor(...), source=f"agent:{id}")`
-   (`core/dynamic_registry.py:121`; naming via `core/mcp_manager.py:75`; schema via `:105`).
-2. Add the index row (`core/mcp_manager.py:762 _index_tool`).
+   (`core/dynamic_registry.py:120`; naming via `core/mcp_manager.py:75`; schema via `:105`).
+2. Add the index row (`core/mcp_manager.py:969 _index_tool`).
 3. Publish a `SkillManual(skill_id=f"agent:{id}")` from the agent's own docs/`--help`/MCP
-   instructions (`core/mcp_manager.py:643` is the template; `core/tool_index.py:1363`
-   renders it only when an agent tool is advertised).
-4. `tool_bridge.sync_registry(registry)` (`core/tool_bridge.py:140`) — same as the MCP
-   resync loop (`main.py:6091-6111`).
-5. On disconnect, mirror `unregister_server_tools` (`core/mcp_manager.py:798-811`):
+   instructions (`core/mcp_manager.py:670 _ingest_instructions` is the template, published via
+   `_publish_manual` `:1046`; `core/tool_index.py:1363` renders it only when an agent tool is
+   advertised).
+4. `tool_bridge.sync_registry(registry)` (`core/tool_bridge.py:139`) — same as the MCP
+   resync loop (`main.py:3868-3891`).
+5. On disconnect, mirror `unregister_server_tools` (`core/mcp_manager.py:864`):
    unregister every tool for the source and drop its index rows
-   (`_drop_from_index`), or a restarted agent leaves duplicates.
+   (`_drop_from_index` `:954`), or a restarted agent leaves duplicates.
+6. **Dispatch provenance (added 2026-10-16).** Every adapter call must record the originating
+   `AgentRecord.id`, the verb, and the `source="agent:<id>"` once, so a Tier-2 delegated action
+   (`assign_goal`, `create_issue`, …) is attributable in logs/audit. Without this, orchestration
+   below the top-level model is opaque *and untraceable*.
 
 **UI grouping refinement:** `tool_bridge.status()` currently buckets `mcp:*` as kind
-`"mcp"` and everything else as `"default"` (`core/tool_bridge.py:490-541`). Extend the
+`"mcp"` and everything else as `"default"` (`core/tool_bridge.py:497-532`). Extend the
 bucket logic so `agent:*` becomes its own `kind: "agent"` group with an `agent:<id>` label
 and a state line sourced from `AgentBridge.status()` — the same way MCP server state is
-read at `core/tool_bridge.py:516-535`.
+read earlier in that grouping block.
 
 ### 4.6 Health, lifecycle, and supervision
 
-Adopt the `MCPServerManager` contract:
+Adopt the `MCPServerManager` **contract** (the pattern, not the class — §4.1):
 
 - **Three-stage health probe:** (1) liveness (path exists / TCP connect), (2) protocol
   (MCP `initialize` / HTTP `/v1/models` / `--version` runs), (3) capability (≥1 tool or
   ≥1 model). Record which stage failed in `status`.
-- **Supervision loop** mirroring `core/mcp_manager.py:542 _supervise` — reconnect with
+- **Supervision loop** mirroring `core/mcp_manager.py:548 _supervise` — reconnect with
   backoff for persistent transports; do **not** auto-restart one-shot spawns.
-- **UI-safe status snapshot** — return plain dicts (the MCP `status()` at `:832` is
+- **UI-safe status snapshot** — return plain dicts (the MCP `status()` at `:897` is
   explicitly documented as safe to call from the UI thread).
 - **Shutdown** — kill every spawned child next to `MCPServerManager.stop_all()`
-  (`main.py:6375`). Track PIDs and use a job object or `taskkill /T`-equivalent to avoid
-  orphan `node`/`claude` children (the class `actions/spotify_controller.py:391` handles
+  (`main.py:4157`). Track PIDs and use a job object or `taskkill /T`-equivalent to avoid
+  orphan `node`/`claude` children (the class `actions/spotify_controller.py:396` handles
   with `finally`).
 
 ### 4.7 Security & governance
 
 1. **Confirmation gate.** Any agent able to run shell commands or write files is wrapped in
-   `core/confirm.py:82 request(...)` (`main.py:5395` is the precedent). The gate is bound to
-   the HUD via `confirm.bind()`; with no interface bound it **refuses** rather than
-   proceeding (`core/confirm.py` headless branch) — correct default.
+   `core/confirm.py:82 request(...)` (the in-repo precedent for a gated mutation is
+   `BrahmaLive._run_confirmed_skill`, `main.py:3809`). The gate is bound to
+   the HUD via `confirm.bind()` (`core/confirm.py:68`); with no interface bound it **refuses**
+   rather than proceeding (`core/confirm.py` headless branch) — correct default.
 2. **Workspace sandbox.** Constrain `cwd` the way `actions/brahma_dev_agent.py:28`
    (`NativeTools`) sandboxes file operations. Never let an agent default to `C:\`.
 3. **No auto-spawn.** Discovery never starts anything. Connecting is explicit.
@@ -672,9 +723,26 @@ Adopt the `MCPServerManager` contract:
    plaintext on LAN — `SECURITY.md:52-58` — do not inherit that for cloud-routed agents;
    for Tier 3, use `https` and/or mTLS, with a `verify_ssl` toggle defaulting to `true`.)
 
+**4.7.1 Guards — recursion, fan-out, and per-verb gating (added 2026-10-16).**
+
+Three failure modes the single base gate does not cover:
+
+- **Self-target / recursion.** Brahma is itself an orchestrator (§0); pointing a Tier-2/3 adapter
+  back at Brahma (a peer, or a second local instance) can open a delegation loop. **Refuse to
+  publish** an adapter whose detected identity is Brahma, and tag peers so a peer cannot be
+  dispatched a verb that opens a bridge back. (Peer orchestration stays deferred — §8 item 3.)
+- **Fan-out budget.** A top-level `create_task` / `assign_task` / `run_automation` can spawn an
+  unbounded fleet. Give each adapter a **concurrency + spend cap**; default `assign*` / `run_*`
+  to `dry_run`; require explicit confirmation for every fleet-spawning verb (base doc gates only
+  Paperclip `run_heartbeat`).
+- **Per-verb confirmation.** Route *every* mutating orchestrator verb (`create_*`, `assign_*`,
+  `update_*status`, `run_*`) through `core/confirm.py:82 request(...)` with a per-adapter policy,
+  and record `source="agent:orchestrator:<id>"` provenance for each dispatched unit (§4.5 step 6).
+
 ### 4.8 UI design (extend, don't rebuild)
 
-Turn the "Discover Local Agents" card (`ui.py:13043-13145`) into a two-part page:
+Turn the "Discover Local Agents" card (now `SystemConnectivityPage`,
+`core/ui_connectivity.py:342`; button `:2338`) into a two-part page:
 
 - **Detected Local Agents** list: icon, `display_name`, `kind`, `status` pill
   (`found` / `connected` / `needs login` / `disabled`), `sources` tooltip (evidence),
@@ -682,19 +750,20 @@ Turn the "Discover Local Agents" card (`ui.py:13043-13145`) into a two-part page
 - **Actions:** "Scan again" (re-run detectors), "Connect all (safe classes)" (HTTP/MCP
   only), and for CLI agents an explicit "Allow to run commands" checkbox that arms the
   confirmation gate for that agent.
-- Reuse `_ModelDiscoveryBridge` (`ui.py:11007`) verbatim as the worker-thread + Qt-signal
-  pattern; add an `_AgentScanBridge` with an analogous `finished(list, error)` signal.
+- Reuse `_ModelDiscoveryBridge` (`core/ui_connectivity.py:244`) verbatim as the
+  worker-thread + Qt-signal pattern; add an `_AgentScanBridge` with an analogous
+  `finished(list, error)` signal.
 - Precedent for a grouped list card: the "Tools & MCP Access" page
-  (`ui.py:11627-11770`) and the "Custom MCP Servers" card (`ui.py:12609-12722`).
+  (`core/ui_connectivity.py:875`) and the "Custom MCP Servers" card (`:1853`).
 
 ### 4.9 Observability
 
 - One module logger (`logging.getLogger("AgentBridge")`) following the existing convention
-  (`core/mcp_manager.py:43`).
+  (`core/mcp_manager.py:43`, `logger = logging.getLogger("MCPManager")`).
 - Expose a `status()` dict shaped like `MCPServerManager.status()` so it can be surfaced in
   the same UI and (optionally) via `tool_bridge.status()` (`core/tool_bridge.py:440-461`
-  already embeds `mcp_servers`).
-- Startup log line via the existing `_startup_log` helper (`main.py:145`).
+  already embeds `mcp_servers` at `:460`).
+- Startup log line via the existing `_startup_log` helper (`main.py:126`).
 
 ### 4.10 Config schema + migration
 
@@ -703,7 +772,7 @@ New key in `%LOCALAPPDATA%\BrahmaAI\config\app_settings.json`:
 ```jsonc
 {
   "local_agents": [ /* AgentRecord[], see 4.2 */ ],
-  "local_agents_seeded": true,        // migration guard (pattern: core/mcp_manager.py:339)
+  "local_agents_seeded": true,        // migration guard (pattern: core/mcp_manager.py:343)
   "local_agent_bridge_enabled": true, // master kill switch (pattern: provider_enabled_*)
   "local_agent_scan": {
     "port_sweep": true,
@@ -714,8 +783,8 @@ New key in `%LOCALAPPDATA%\BrahmaAI\config\app_settings.json`:
 }
 ```
 
-Defaults authored in the settings schema at `ui.py:1605-1670`. Persist with
-read-modify-write (§2.5). A master kill switch mirrors the provider flags
+Defaults authored in the settings schema at `core/ui_startup.py:66 _default_app_settings()`.
+Persist with read-modify-write (§2.5). A master kill switch mirrors the provider flags
 (`core/provider_router.py:95 is_enabled`).
 
 ---
@@ -724,7 +793,7 @@ read-modify-write (§2.5). A master kill switch mirrors the provider flags
 
 1. **Gemini Live ceiling is a hard protocol limit** (`GEMINI_MAX_TOOLS = 128`,
    `core/tool_index.py:88`; `docs/ONE-391-tool-index.md`). Agent tools must go through the
-   index + meta-tools budget — never into `TOOL_DECLARATIONS` (`main.py:752`).
+   index + meta-tools budget — never into `TOOL_DECLARATIONS` (`main.py:739`).
 2. **Thinner PATH under GUI launch.** A shortcut-launched process often lacks
    `%APPDATA%\npm` and `~/.local/bin`. Layer A must merge explicit prefixes. (The same trap
    is documented for the interpreter in `scripts/install_optional_deps.ps1:44-60`.)
@@ -732,15 +801,18 @@ read-modify-write (§2.5). A master kill switch mirrors the provider flags
    (`or_client.py:133`, `llm_client.py:103`, `core/local_brain.py` `urlopen(..., timeout=None)`).
    A hung local agent could stall a tool call. Bridge calls need explicit short timeouts,
    shaped like `DEFAULT_CALL_TIMEOUT_SECONDS` (`core/mcp_manager.py:57`).
-4. **Windows console window flash.** No `creationflags`/`CREATE_NO_WINDOW`/`startupinfo`
-   appears anywhere in the repo. A GUI app spawning a console process will **flash a console
-   window** (and can steal focus). The bridge must set `subprocess.CREATE_NO_WINDOW` on
-   Windows and route `.cmd`/`.bat` through `cmd /c`. (The existing spawn at
-   `actions/playwright_mcp_client.py:80` uses `shell=(platform.system()=="Windows")` — a new
-   bridge should use the explicit, windowless form instead.)
+4. **Windows console window flash.** A GUI app spawning a console process can **flash a
+   console window** (and steal focus). The repo already has the windowless pattern
+   (`subprocess.CREATE_NO_WINDOW` on `os.name=="nt"`) at `actions/attention_monitor.py:443`,
+   `actions/computer_settings.py:30`, `dashboard/server.py:79`, and
+   `core/ui_shell_panel_settings.py:21` — adopt it for every agent spawn and route
+   `.cmd`/`.bat` through `cmd /c`. The existing agent spawn at
+   `actions/playwright_mcp_client.py:79` does **not** set it (it uses
+   `shell=(platform.system()=="Windows")` only); the bridge should use the explicit,
+   windowless form instead.
 5. **Subprocess I/O encoding.** Follow the house pattern: `text=True`,
    `encoding="utf-8"`, `errors="replace"`, `bufsize=0`
-   (`actions/playwright_mcp_client.py:80-88`; console reconfig `main.py:47-48`). Never trust
+   (`actions/playwright_mcp_client.py:79-89`; console reconfig `main.py:35-36`). Never trust
    the OEM codepage for agent output.
 6. **Headless/TTY crashes.** Some agent CLIs fail without a TTY
    (Claude Code Ink raw-mode crash) and some version-hop on `stream-json` blank-line/CRLF
@@ -748,7 +820,7 @@ read-modify-write (§2.5). A master kill switch mirrors the provider flags
    auth errors in non-interactive mode as "needs login", not a crash.
 7. **No PTY support.** Rich TUI-only agents are out of scope until a PTY layer is added.
 8. **Orphan processes.** Track every spawned child and kill the tree on shutdown next to
-   `MCPServerManager.stop_all()` (`main.py:6375`).
+   `MCPServerManager.stop_all()` (`main.py:4157`).
 9. **Name collisions.** Two agents may expose the same tool name; `_sanitize_name`
    (`core/mcp_manager.py:75`) plus an `agent_<id>_` prefix and a registry duplicate check
    are required.
@@ -770,10 +842,11 @@ read-modify-write (§2.5). A master kill switch mirrors the provider flags
     (`core/tool_index.py:1206,1247`) and cold-start tiers (`:1345-1361`) already bound this,
     but a machine with many agents can still inflate the index. Consider a per-agent
     `advertise_budget` and deprioritizing agents the user rarely uses.
-13. **Monolith risk.** `main.py` (6.4k lines) and `ui.py` (~17k) are already large; keep the
-    bridge a self-contained package and prefer the plugin seam (`plugin_manager.py`) for
-    first delivery so no core file grows.
-14. **Uninstall-sweep performance.** Reading the full Uninstall hive is fast but the
+16. **Monolith risk.** `main.py` (3882 lines) and `ui.py` (692) were both shrunk by the
+    refactor this document's own review prompted; keep the bridge a self-contained package and
+    prefer the plugin seam (`plugin_manager.py:14 load_plugins`, `:46 dispatch`) for first
+    delivery so no core file grows again.
+17. **Uninstall-sweep performance.** Reading the full Uninstall hive is fast but the
     `WOW6432Node` mirror and per-key `QueryValueEx` can add up; bound it and cache results
     with a TTL.
 
@@ -781,7 +854,16 @@ read-modify-write (§2.5). A master kill switch mirrors the provider flags
 
 ## 6. Phased plan with acceptance criteria
 
-**Phase 0 — pure discovery (read-only, default-off flag)**
+> **Status (2026-10-16):** intent unchanged, but note what the refactor already gives us so no
+> phase rebuilds it. **Already present:** single-URL model discovery (`_ModelDiscoveryBridge`
+> + `poll_opencode_models`, `core/ui_connectivity.py:244`), the provider registry + failover
+> (`core/provider_router.py`, `core/provider_failover.py`), the MCP manager
+> (connect/publish/index/supervise), the `DynamicToolRegistry` overlay, `tool_bridge`
+> indexing/grouping, and the `confirm` gate. **Not yet built:** `detectors.py` (Layers A–F),
+> the `AgentRecord` registry/persistence, `AgentAdapter` implementations, and the orchestrator
+> connectors — so Phase 0 is *greenfield* while Phases 1–2 lean on existing assets.
+
+**Phase 0 — pure discovery (read-only, default-off flag)** — *greenfield; no foundation yet*
 Deliver `detectors.py` Layers A–F + `AgentRecord` persistence + tests. No spawns, no
 network writes.
 *Accept:* on a machine with Claude Code + Ollama installed, `discover()` returns both with
@@ -790,7 +872,8 @@ runs in < 1.5 s warm.
 
 **Phase 1 — connect safe classes (HTTP + MCP)**
 Ollama / LM Studio / OpenCode via `llm_client` + `poll_opencode_models`; MCP servers from
-Layer D via `MCPServerManager`. Publish tools + resync. Extend the existing button into a
+Layer D via the extracted MCP client transport (`agents/mcp_server.py`, §4.4.1 — **not** a
+second `MCPServerManager`). Publish tools + resync. Extend the existing button into a
 real agent list.
 *Accept:* a discovered Ollama shows its models and answers a routed prompt; a discovered
 MCP server's tools answer through `search_tools`→`call_tool`; the Live handshake still
@@ -836,6 +919,11 @@ Follow the house style (fakes + tmp paths, no real processes — cf.
 - **Publishing** — agent-sourced entries appear in `build_session_payload` within budget,
   group under `kind == "agent"`, and are removed on disconnect (mirror
   `tests/test_tool_bridge.py`, `tests/test_tool_index.py` MCP-source assertions).
+- **Adapter contract** — one shared suite (`tests/test_agent_adapter_contract.py`) that every
+  adapter (real + fake) must pass: `detect/probe/connect/verbs/call/close` shape, per-call
+  timeout honored, `close()` leaves no orphan child, and a **golden `--json` fixture** pins each
+  CLI/orchestrator adapter's parse (a mismatch → `degraded`, never mis-parsed data). Repeated
+  `create_task`/`assign_task` must dedupe on `(adapter_id, title)`.
 - **Security** — an agent tool that runs a command does not execute without confirmation
   (fake `confirm`), and output is never spliced into the system prompt.
 - **Manual acceptance script** — mirror `accept_providers.py` / `accept_391.py`: launch,
@@ -847,10 +935,12 @@ Follow the house style (fakes + tmp paths, no real processes — cf.
 ## 8. Open questions / decisions needed
 
 1. **Where do discovered MCP servers live** — merged into `custom_mcp_servers` (shared
-   supervision) or a parallel manager (isolation)? (Recommend: parallel, to avoid surprising
-   the user's hand-authored config.)
+   supervision) or a parallel manager (isolation)? **DECIDED §4.1 (2026-10-16): parallel.**
+   Discovered servers are **not** merged into `custom_mcp_servers`; they stay `AgentRecord`s
+   published through the same tool seam (the manager is the wrong lifecycle for one-shot verbs).
 2. **First delivery form** — plugin (`plugins/local_agent_bridge.py`, zero core edits) vs
-   core package from day one? (Recommend: plugin first.)
+   core package from day one? **Leaning:** a self-contained `core/agent_bridge/` package
+   (§4.1), optionally shipped first as a plugin so no core file grows (constraint 16).
 3. **Scope of "agents"** — local model servers + MCP + coding CLIs, or also LAN peer agents
    (`brahma_connect`)? (Recommend: defer peers.)
 4. **Confirmation policy** — per-agent arm, or global "local agents may run commands"?
@@ -863,39 +953,45 @@ Follow the house style (fakes + tmp paths, no real processes — cf.
 
 ## 9. Appendix A — exact seams (quick reference)
 
+*Line numbers verified against the working tree on 2026-10-16 (`main.py` = 3882 lines,
+`ui.py` = 692). Trust the **symbol names** — they are the anchor; lines drift.*
+
 ```
-boot / background discovery  → main.py:6086  (copy the MCP start + resync pattern)
-tool registration            → core/dynamic_registry.py:121  register_external_tool
-tool unregistration          → core/dynamic_registry.py:163  unregister_external_tool
-index row add/drop           → core/mcp_manager.py:762 _index_tool / :810 _drop_from_index
-index resync                 → core/tool_bridge.py:140 sync_registry / :181 sync_all
-budgeted session payload     → core/tool_bridge.py:205 build_session_payload
+boot + MCP resync seam       → main.py:3868 MCPServerManager.start_servers() → :3887 tool_bridge.sync_all
+tool registration            → core/dynamic_registry.py:120  register_external_tool
+tool unregistration          → core/dynamic_registry.py:166  unregister_external_tool
+index row add/drop           → core/mcp_manager.py:969 _index_tool / :954 _drop_from_index
+index resync                 → core/tool_bridge.py:139 sync_registry / :180 sync_all
+budgeted session payload     → core/tool_bridge.py:204 build_session_payload
 budget clamp / tiers         → core/tool_index.py:1315-1316, :1345-1361
 per-source retrieval cap     → core/tool_index.py:1206, :1247
-meta-tool reachability       → core/tool_bridge.py:297 is_meta_tool / :301 execute_meta
-bridged execution path       → main.py:4290 _execute_tool_via_bridge / :4300 _execute_tool_sync
-registry fall-through        → main.py:5451-5456
-MCP transports + supervision → core/mcp_manager.py:276, :420, :542, :578-592, :625, :628, :864
-MCP instruction ingestion    → core/mcp_manager.py:643 _ingest_instructions
-MCP status snapshot          → core/mcp_manager.py:832 status
+meta-tool reachability       → core/tool_bridge.py:296 is_meta_tool / :300 execute_meta
+bridged execution path       → core/tool_exec.py:69 execute_via_bridge / :73 execute_sync
+                               (delegates main.py:3398/:3402; instance wrapper main.py:3821)
+registry fall-through        → core/tool_exec.py:604-652
+MCP transports + supervision → core/mcp_manager.py:946 _stdio_connect, :644 _http_connectors,
+                               :929 _transport_for, :548 _supervise, :595 _connect_once, :864 unregister_server_tools
+MCP instruction ingestion    → core/mcp_manager.py:670 _ingest_instructions
+MCP status snapshot          → core/mcp_manager.py:897 status
 name/schema normalization    → core/mcp_manager.py:75 _sanitize_name / :105 normalize_parameters
-stdio JSON-RPC reference     → actions/playwright_mcp_client.py:29-251
+stdio JSON-RPC reference     → actions/playwright_mcp_client.py:79 (Popen; hygiene :79-89)
 HTTP model probe             → llm_client.py:162 poll_opencode_models
-OpenAI-compatible chat       → llm_client.py:80 _openai_chat_completion (auth :67)
+OpenAI-compatible chat       → llm_client.py:80 _openai_chat_completion
 SSE stream                   → core/local_brain.py:159 generate_chat_stream
-Ollama probe                 → core/local_brain.py:53, :63
-port check                   → main.py:138 _is_port_in_use
-registry App Paths pattern   → actions/browser_control.py:83-104
-which/candidate-path pattern → actions/open_app.py:84-150
-process scan pattern         → actions/open_app.py:67-81 (psutil)
-provider registry (LLM only) → core/provider_router.py:39-68, guard :180, _configured :141
-plugin hook (zero core edit) → plugin_manager.py:14/:46, main.py:6237, main.py:2836
-confirmation gate            → core/confirm.py:82 request / :115 resolve / bind()
-settings persistence         → memory/config_manager.py:24/:35/:50  (key: local_agents)
+Ollama probe                 → core/local_brain.py:50 is_available / :63 list_installed_models
+port check                   → main.py:120 _is_port_in_use
+registry App Paths pattern   → actions/browser_control.py:82-97
+which/candidate-path pattern → actions/open_app.py:186-188
+process scan pattern         → actions/open_app.py:67-72 (psutil.process_iter)
+provider registry (LLM only) → core/provider_router.py:39-68, is_enabled :95
+plugin hook (zero core edit) → plugin_manager.py:14 load_plugins / :46 dispatch;
+                               wired main.py:4020 / :4061; text-command main.py:2570
+confirmation gate            → core/confirm.py:68 bind / :82 request / :115 resolve
+settings persistence         → memory/config_manager.py:24/:35/:49  (key: local_agents)
 settings shallow-merge caveat→ memory/config_manager.py:37-38
-UI entry point + worker      → ui.py:13101 button, ui.py:11007 _ModelDiscoveryBridge
-UI status grouping           → core/tool_bridge.py:490-541 (add kind "agent")
-shutdown                     → main.py:6375 (next to MCPServerManager.stop_all)
+UI entry point + worker      → core/ui_connectivity.py:2338 button, :244 _ModelDiscoveryBridge
+UI status grouping           → core/tool_bridge.py:497-532 (add kind "agent")
+shutdown                     → main.py:4157 (next to MCPServerManager.stop_all)
 ```
 
 ## 10. Appendix B — adapter command cheat-sheet
@@ -1023,7 +1119,7 @@ cloud box, Paperclip cloud/sandbox adapters, remote MCP servers, remote Brahma).
 - Multica: `runtimes` advertised via daemon or a pre-configured `remote_runtimes` list in settings
   (manual add first; auto-mDNS later, optional Phase 5).
 - Paperclip: `PAPERCLIP_API_URL` points to remote host.
-- MCP: streamable-HTTP/SSE to remote host (reuse `core/mcp_manager.py:625/628`).
+- MCP: streamable-HTTP/SSE to remote host (reuse `core/mcp_manager.py:644 _http_connectors`).
 - Peer Brahma: `brahma_connect` LAN (Phase 5).
 
 **Publishing:** same as Tier 1/2 — `source=f"agent:{id}"` but stamped `tier=3`, `transport=remote_http`.
@@ -1059,3 +1155,136 @@ Extend `AgentRecord` with fields (backward-compatible, defaults):
 Migration: on load, if `tier` missing, default 1; if `kind` missing, infer from class.
 
 *End of analysis document (revision 3). No code was modified.*
+
+---
+
+# Review pass — post-refactor verification (2026-10-16)
+
+**Reviewer note.** This section was appended after the CODE-REVIEW-TODO god-object split
+landed. `main.py` is now **3882 lines** (was ~6450) and `ui.py` is **692 lines** (was ~17000);
+the extracted modules in §2.7 (`core/tool_exec.py`, `core/ui_connectivity.py`,
+`core/ui_startup.py`, `core/session_lifecycle.py`, `core/audio_io.py`,
+`core/provider_failover.py`, `core/reply_flow.py`, `core/qt_bootstrap.py`,
+`core/user_paths.py`) all exist. The rev-3 body above is left untouched; findings are recorded
+here.
+
+## 11. Verdict
+
+The design is **sound, and the refactor strengthened its seams rather than invalidating them.**
+Every symbol the document depends on still resolves in the working tree — most into the exact
+modules §2.7 predicted. The stale artifacts are **line numbers, not architecture**. The doc's
+own "trust the symbol names, not the line numbers" warning is correct and, per the matrix
+below, sufficient: a reader who follows symbols lands in the right place.
+
+## 12. Symbol survival & relocation (verified against the working tree)
+
+| Doc reference (rev 3) | Current location | Status |
+|---|---|---|
+| boot + MCP resync seam `main.py:6086` | `main.py:3868 start_servers()` → `:3887 tool_bridge.sync_all` | moved |
+| `_is_port_in_use` `main.py:138` | `main.py:120` | moved |
+| `_execute_tool_via_bridge` `main.py:4290` | `core/tool_exec.py:69 execute_via_bridge` (thin delegate `main.py:3398`) | **relocated** |
+| `_execute_tool_sync` `main.py:4300` | `core/tool_exec.py:73 execute_sync` (delegate `main.py:3402`) | **relocated** |
+| registry fall-through `main.py:5451-5456` | `core/tool_exec.py:604-652` (`DynamicToolRegistry` fallback inside the executor) | **relocated** |
+| `MCPServerManager.stop_all` `main.py:6375` | `main.py:4157` | moved |
+| plugin wiring `main.py:6237` | `main.py:4020 load_plugins()` + `main.py:4061 dispatch("on_startup", …)`; `_on_text_command` dispatch `main.py:2570` | moved |
+| "Discover Local Agents" button `ui.py:13101` | `core/ui_connectivity.py:2338` | **relocated** |
+| `_ModelDiscoveryBridge` `ui.py:11007` | `core/ui_connectivity.py:244` (calls `UnifiedAIClient.poll_opencode_models`, `:258`) | **relocated** |
+| `register_external_tool` / `unregister_external_tool` `dynamic_registry.py:121/:163` | `:120` / `:166` (`execute_sync` classmethod `:543`) | symbol OK, ±3 |
+| `_index_tool` / `_drop_from_index` `mcp_manager.py:762/:810` | `:969` / `:954` | moved |
+| `_ingest_instructions` `mcp_manager.py:643`; `status` `:832` | `:670` / `:897`; `_supervise` `:548`, `_transport_for` `:929` | moved |
+| `sync_registry` / `sync_all` `tool_bridge.py:140/:181` | `:139` / `:180` | ±1 |
+| `build_session_payload` `tool_bridge.py:205` | `:204` | ±1 |
+| meta-tool `is_meta_tool` / `execute_meta` `tool_bridge.py:297/:301` | `:296` / `:300` | ±1 |
+| UI status grouping `tool_bridge.py:490-541` | grouping at `:497-532` (`kind "mcp"`/`"default"`) | OK |
+| budget clamp `tool_index.py:1315-1316`; cold-start `:1345-1361` | `:1315-1316`; `_cold_start_order` `:1345` | unchanged |
+| per-source retrieval cap `tool_index.py:1206/:1247` | `:1206` / `:1247` | unchanged |
+| provider registry `provider_router.py:39-68` | `PROVIDERS` `:39`; `_setting` `:73` | unchanged |
+| settings `config_manager.py:24/:35/:50`; caveat `:37-38` | `:24` / `:35` / `:49`; `:37-38` | ±1 |
+| confirm gate `confirm.py:82/:115` | `:82` / `:115` | unchanged |
+| Ollama probe `local_brain.py:53/:63` | `is_available` `:50` / `list_installed_models` `:63` | ±3 |
+| SSE `local_brain.py:159`; HTTP model probe `llm_client.py:162`; OpenAI chat `:80` | unchanged | unchanged |
+| stdio JSON-RPC ref `playwright_mcp_client.py:29-251` | `Popen` at `:79` (hygiene `shell=Windows`, `encoding=`, `bufsize=`; **no** `CREATE_NO_WINDOW` — see §5 constraint 4) | moved |
+| App Paths `browser_control.py:83-104` | `:85-86`; `shutil.which` `:120` | ±2 |
+| which / process-scan `open_app.py:84-150` / `:67-81` | `shutil.which` `:186-188`; `psutil.process_iter` `:72` | moved |
+
+**Takeaway:** the two seams the bridge *actually* hangs off — the external-tool registry
+(`core/dynamic_registry.py`) and the single bridged execution path (now
+`core/tool_exec.py`) — are exactly where the doc says they are. Relocations are confined to
+`main.py` boot/shutdown, the `ui.py` → `core/ui_connectivity.py` settings move, and a
+~100-200 line drift inside `core/mcp_manager.py`. **No symbol named in the doc has been
+deleted or renamed.**
+
+## 13. Substantive findings (design-level, independent of line drift)
+
+1. **Two transports, one missing abstraction.** The doc proposes both a
+   `stdio_jsonrpc` line-reader (§4.3) and "one-shot spawn-per-call" for immutable commands,
+   while `core/mcp_manager.py` already implements stdio/streamable-HTTP/SSE with a supervision
+   loop and timeouts. Risk: a second, subtly different supervision/timeout implementation.
+   **Recommend:** a single `AgentAdapter` interface with two concrete families — MCP-shaped
+   agents routed through the **extracted MCP client transport** (`transports/mcp_client.py` →
+   `adapters/mcp_server.py`, per the §4.1 architecture decision — **reuse the transport, never
+   `MCPServerManager` itself**) and a thin `cli_adapter` (borrowing `playwright_mcp_client.py`
+   spawn hygiene) for CLI agents. Reuse `DEFAULT_CALL_TIMEOUT_SECONDS` rather than re-deriving
+   per-call budgets.
+
+2. **Orchestrator CLI contracts are guessed, not pinned (highest delivery risk).** The Tier-2
+   verb lists (Orca `assign_goal`/`list_worktrees`; Multica `issue *`; Paperclip `/api/*`) are
+   inferred from skills/notes, and the JSON shapes are not specified. Version drift will break
+   parsing silently. **Recommend:** per-adapter *contract tests* that pin `--version` and a
+   golden `--json` sample, plus a hard **`degraded`** state (the doc has status=degraded, but
+   not schema pinning) that disables the adapter rather than returning mis-parsed data.
+
+3. **Recursion / self-target is unguarded.** Brahma is itself an orchestrator (§0). Pointing a
+   Tier-2/3 adapter at Brahma (a peer, or a second local instance) can create a delegation
+   loop. **Recommend:** refuse to publish an adapter whose detected identity is Brahma, and tag
+   peers so a peer cannot be dispatched a task that opens a bridge back. Defer real peer
+   orchestration (consistent with open-question 3).
+
+4. **Fan-out has no budget ceiling.** A top-level model that can call `create_task`/`assign_task`
+   on a Tier-2 orchestrator can spawn an unbounded fleet. **Recommend:** per-adapter
+   concurrency + spend caps, `dry_run` default for `assign`/`run_*`, and a confirmation gate
+   for every fleet-spawning verb (the doc gates only Paperclip `run_heartbeat`).
+
+5. **Secrets in the registry JSON.** §4.14 persists endpoints (and, by implication, adapter
+   env) into a registry file. **Recommend:** store *references* (env var names / keyring ids),
+   never tokens; re-fetch short-lived JWTs on 401/403 (already stated) and never persist them.
+
+6. **Published-surface growth.** N orchestrators × M verbs is the exact pressure the
+   budgeted tool surface exists to absorb. The doc relies on §5 constraint 14 + the three
+   meta-tools; make explicit that adapter verbs are **unadvertised by default** (meta-tool
+   reachable) and only a tiny pinned set is always-advertised, or the 128-ceiling assumption
+   in §0 goes stale.
+
+7. **Phase 0 is already delivered.** The doc frames model discovery, provider
+   failover, the tool bridge and the settings surface as work to build; post-refactor they are
+   **done** (`core/ui_connectivity.py:_ModelDiscoveryBridge`, `core/provider_failover.py`,
+   `core/tool_bridge.py`, `core/ui_startup.py::_default_app_settings`). A Phase-1 plan should
+   treat these as *existing seams to extend*, not deliverables — otherwise scope is double-counted.
+
+8. **Tests section is strong but omits adapter contract tests** (§7 covers registry, transports,
+   publishing, security). Add: golden `--json` fixtures per CLI adapter, a fake orchestrator
+   binary for the spawn path, and repeated-run idempotence for `create_task`/`assign_task`
+   (dedupe on orchestrator id + title).
+
+9. **Governance plumbing for Tier-2 is heavier than one gate.** `run_heartbeat` alone is gated.
+   Every mutating orchestrator verb (create/assign/status-write/run-automation) should share the
+   `core/confirm.py` path with a per-adapter policy, and the audit log should record
+   `agent:orchestrator:<id>` provenance for each dispatched unit (rev-3 has provenance for
+   publishing, not for dispatch).
+
+## 14. Recommended edits — APPLIED (2026-10-16)
+
+All five were folded into the body in this pass:
+
+- **Appendix A (§9)** — fully rewritten to the §12 line numbers (header now states "verified
+  2026-10-16").
+- **§2.7** — retitled "Seam ownership — post-refactor (LANDED)".
+- **§4.1** — added the uniform `AgentAdapter` ABC, the module layout (`adapter.py`,
+  `transports/mcp_client.py`, `adapters/*`), and the *Architecture decision (do not fold into
+  `MCPServerManager`)* note; §7 gained the adapter contract-test bullet (findings 1-2, 8).
+- **§4.7.1 Guards (new)** — self-target refusal, fan-out caps, per-verb confirmation
+  (findings 3-4, 9); §4.5 step 6 records dispatch provenance.
+- **§6** — the plan now opens with an *Already present / Not yet built* status note, so Phase 0
+  is framed as greenfield while Phase 1+ extends existing seams (finding 7).
+
+*Review pass complete. No code was modified.*
