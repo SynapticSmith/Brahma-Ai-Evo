@@ -7,8 +7,8 @@ _wakeword_loop, with a real microphone in section A and a scripted sounddevice
 capture in sections B/C.
 
   A. hardware + network path -- the real mic opens and recognize_google is
-     actually invoked on captured audio (needs ambient sound above the speech
-     energy gate, so it can legitimately report 0 calls in a silent room)
+     actually invoked on captured audio (the speech gate is forced open for
+     this check so the result does not depend on the room's noise floor)
   B. detection  -- "Brahma Evo" (and only that) flips the session to connected
   C. no false positives -- "hi", "hello" and unrelated chatter do NOT connect
   D. shutdown -- the listener stops promptly and releases the microphone
@@ -92,9 +92,16 @@ def test_real_microphone() -> None:
     # spy proves nothing. Pin the cloud engine for this specific assertion and
     # restore it; the local path is covered by the offline STT verification.
     from core import speech_stt
+    from core import session_lifecycle
 
     original_engine = speech_stt.get_engine_id
     speech_stt.get_engine_id = lambda: "google"
+    # A quiet room never crosses the speech gate on its own, so the assertion
+    # would measure ambient noise rather than the code. Force the gate open for
+    # this check: REAL mic audio is still sealed into a phrase and handed to the
+    # REAL recognize_google. Production keeps the 300.0 default.
+    original_gate = session_lifecycle._SPEECH_ENERGY_THRESHOLD
+    session_lifecycle._SPEECH_ENERGY_THRESHOLD = -1.0
 
     sr.Recognizer.recognize_google = spy
     try:
@@ -114,6 +121,7 @@ def test_real_microphone() -> None:
     finally:
         sr.Recognizer.recognize_google = original
         speech_stt.get_engine_id = original_engine
+        session_lifecycle._SPEECH_ENERGY_THRESHOLD = original_gate
 
 
 # ---------------------------------------------------------------------------

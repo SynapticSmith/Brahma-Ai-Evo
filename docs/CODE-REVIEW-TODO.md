@@ -852,5 +852,7 @@ These were listed as incomplete before this pass. **None of them is done, and no
   sound never crosses the energy gate. `bootstrap.ps1` now hard-fails (`exit 1`, red message + install link) on an
   interpreter that is not 3.11/3.12 - previously a bare `py` default (e.g. 3.14) still produced an out-of-range venv
   - and auto-downloads 3.11.8 only when no Python exists at all. Verified: `ruff check .` -> **All checks passed!**;
-  `pytest` -> **167 passed** (offscreen); `accept_wakeword.py` -> B/C/C2 pass (section A reports 0 STT calls on this
-  box's silent input); `accept_live_toggle.py` -> **ALL CRITERIA PASS**. Not pushed.
+  `pytest` -> **167 passed** (offscreen); `accept_wakeword.py` -> **ALL CRITERIA PASS** (section A forces
+  the speech gate open so the real-mic check no longer depends on the room's noise floor; that gate is now
+  the shared module constant `_SPEECH_ENERGY_THRESHOLD`, used by both the wake-word and local-voice loops);
+  `accept_live_toggle.py` -> **ALL CRITERIA PASS**. Not pushed.

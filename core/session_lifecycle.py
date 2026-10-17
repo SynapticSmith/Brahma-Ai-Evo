@@ -25,6 +25,13 @@ from google.genai import types
 from memory.memory_manager import load_memory, format_memory_for_prompt
 
 
+# Capture-level energy gate shared by the local-voice and standby wake-word
+# loops: a block louder than this counts as speech. Kept module-level so the
+# acceptance harness that drives the REAL microphone can force phrase sealing
+# (a quiet room never crosses it) instead of depending on ambient noise.
+_SPEECH_ENERGY_THRESHOLD = 300.0
+
+
 class SessionLifecycle:
     """Session state machine / lifecycle seam of :class:`main.BrahmaLive`."""
 
@@ -152,7 +159,7 @@ class SessionLifecycle:
                     speech_buffer.clear()
                     silence_chunks = 0
                     return
-                if level > 300.0:
+                if level > _SPEECH_ENERGY_THRESHOLD:
                     speech_buffer.extend(raw)
                     silence_chunks = 0
                 elif speech_buffer:
@@ -268,7 +275,7 @@ class SessionLifecycle:
                                 raw, level = blocks.get(timeout=0.1)
                             except queue.Empty:
                                 continue
-                            if level > 300.0:
+                            if level > _SPEECH_ENERGY_THRESHOLD:
                                 speech_buffer.extend(raw)
                                 silence_chunks = 0
                             elif speech_buffer:
