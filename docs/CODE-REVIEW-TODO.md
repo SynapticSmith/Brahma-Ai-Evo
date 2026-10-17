@@ -170,7 +170,7 @@ Working reference for the code-review improvement pass. Keep this updated as ite
 
 - [x] **P4-19 — Split god objects. COMPLETE — independently re-verified against the tree this session.**
   `MainWindow` (16 mixins + `QMainWindow`) is 7 methods / 235 lines, `BrahmaUI` is `__init__`-only / 95
-  lines on 12 mixins, and `BrahmaLive` is 72 methods / 1,701 lines; `ui.py` is 830 lines (from 17,247).
+  lines on 12 mixins, and `BrahmaLive` is 72 methods / 1,701 lines; `ui.py` is 809 lines (from 17,247).
   Originally reported as: `ui.py` ~16k lines; `BrahmaLive` ~3.9k lines / 122 methods
   (`main.py:2162-6068`). Seams: session state machine, audio I/O, provider router, tool executor,
   reply/IG/email flows; and settings/chat/avatar/MCP panels.
@@ -813,7 +813,7 @@ These were listed as incomplete before this pass. **None of them is done, and no
   sub-entries declared the work done. Independently re-verified against the working tree with an AST
   census: `BrahmaLive` is 72 methods / 1,701 lines (was ~3.9k / 122); `MainWindow` is `__init__` +
   six Qt/lifecycle methods / 235 lines on 16 mixins; `BrahmaUI` is `__init__`-only / 95 lines on 12
-  mixins; `ui.py` is 830 lines (from 17,247). Every `core/ui_*.py`/`core/*_flow.py` seam module named
+  mixins; `ui.py` is 809 lines (from 17,247). Every `core/ui_*.py`/`core/*_flow.py` seam module named
   in the bullet is present. Flipped P4-19 to `[x]` with the verified figures; no code changed, so no
   re-test needed beyond `precommit_check.py --quick`. **With this, every item in this TODO is `[x]`.**
 - 2026-10-16 — **P3-14 lint gate landed (ruff).** Added `pyproject.toml` (curated blocking ruleset: `F401`,
