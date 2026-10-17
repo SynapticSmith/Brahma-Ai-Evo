@@ -47,8 +47,11 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+      # Runtime deps (PyQt6, pywin32, mcp, ...) plus the dev tooling that
+      # provides pytest. requirements.txt alone is not enough: the suite
+      # imports the app, and tests/conftest.py bootstraps the Qt runtime.
       - name: Install dependencies
-        run: python -m pip install --upgrade pip -r requirements.txt
+        run: python -m pip install --upgrade pip -r requirements.txt -r requirements-dev.txt
       - name: Run pytest
         env:
           # Qt widgets are exercised headlessly; no display exists on the runner.
