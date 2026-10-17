@@ -457,3 +457,64 @@ not shipped behavior).
 5. Build both installers and smoke-test the wizard
    (`installer/install_wizard.py`).
 6. Tag the release; do not push without explicit authorization.
+
+---
+
+## 13. Addendum (post-log): upstream issue #2 - PyAudio to `sounddevice`
+
+Added after this log was written; covers the commits that landed after the
+inventory in section 10.
+
+### 13.1 The report
+
+Upstream issue #2 (`titechprabhasolutions/Brahma-Ai-Evo`) reports
+`pip install -r requirements.txt` dying while building `pyaudio==0.2.14` with
+`fatal error C1083: portaudio.h: No such file or directory`. Root cause: the
+reporter's interpreter is **Python 3.14** (`cpython-314` / `cp314`). PyAudio
+0.2.14 publishes Windows wheels only for cp38-cp313, so 3.14 falls back to a
+source build, and that build needs PortAudio headers that are not bundled on
+Windows. `README.md` already requires Python 3.11 or 3.12, so the install was
+simply outside the supported interpreter window.
+
+### 13.2 The fix (fork)
+
+Instead of chasing a C extension, the standby wake-word path now uses the same
+`sounddevice` backend the live and local-voice paths already use, which removes
+PyAudio from the dependency set entirely:
+
+- `core/session_lifecycle.py` - `_wakeword_loop` rewritten around
+  `sd.InputStream(..., dtype="int16", channels=1, callback=...)` feeding a
+  bounded `queue.Queue`. The energy gate shared with the local-voice loop is now
+  a single module constant (`_SPEECH_ENERGY_THRESHOLD = 300.0`, used by both);
+  it seals a phrase on ~0.3 s of silence or a 4 s cap. The captured block is
+  wrapped as `sr.AudioData(pcm, SEND_SAMPLE_RATE, 2)` so the downstream STT path
+  is unchanged. Device resolution, re-arm, and prompt stop are preserved.
+- `requirements.txt` - PyAudio removed from the dependency set.
+- `accept_wakeword.py` - the real-mic harness now forces that gate open for its
+  capture assertion, so the check depends on the capture/STT path and not on the
+  room's noise floor.
+- `bootstrap.ps1` - spliced in a Python gate: it requires **3.11 or 3.12** and
+  auto-downloads 3.11.8 only when no Python exists at all, so the reporter's
+  3.14 case fails fast with a clear message instead of a PortAudio build error.
+
+### 13.3 Commits
+
+| Commit | Subject |
+| --- | --- |
+| `d5fe4d5` | fix(voice): capture standby wake word via sounddevice (drop PyAudio); enforce Python 3.11/3.12 in bootstrap |
+| `7c44152` | test(wakeword): make the real-mic harness deterministic via a shared speech-energy gate |
+
+Post-log commits not otherwise listed in section 10, in order: `ebc38d5` (this
+log), `3bab287` (correct `ui.py` line count), `ab25f8c` (re-pin
+agent-orchestrator-bridge refs), `6cd00f5` (pin pytest for the unit suite),
+`d5fe4d5`, `7c44152`.
+
+### 13.4 Verification at `7c44152`
+
+- `ruff check .` - **All checks passed!**
+- `pytest` - **167 passed**, 3 warnings (~90 s, offscreen).
+- `scripts/precommit_check.py` (full run) - **SAFE TO COMMIT**; all seven
+  acceptance harnesses `ALL CRITERIA PASS`, including `accept_wakeword.py`
+  (previously the one blocker on a silent input device).
+- CI run **38999772123** on `main` - **success** (`static-gate`, `lint`,
+  `tests`).
