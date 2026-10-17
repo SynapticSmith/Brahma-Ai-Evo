@@ -144,14 +144,22 @@ Working reference for the code-review improvement pass. Keep this updated as ite
   test still exercises `record_last_error` (the line it actually asserts) but never leaves the process.
   Verified: with `LOCALAPPDATA` pointed at a fresh empty dir the test passes in 0.05s, and the full suite runs
   **149 passed** with no `--deselect`.
-- [ ] **P3-20 — Flaky native crash at interpreter shutdown after a green suite (deferred).** The Qt/PyQt6 test
-  process occasionally exits `-1073741819` (0xC0000005) or `-1073740940` (0xC0000409) *after* printing
-  `N passed` — ~1 run in 3 at HEAD, and the two-file Qt case (`test_tool_visibility_card.py`,
-  `test_spotify_settings_card.py`) can crash standalone too; `origin/main` (134 tests) exited 0 in one
-  measurement. All failures are teardown-time, no assertion fails, so this is a shutdown race in the
-  PyQt6/WebEngine thread teardown, not a functional regression. **Deferred as its own task** (candidate angles:
-  run Qt tests in a subprocess, add an `atexit` teardown, or deselect the crash-prone pair behind a marker).
-  Until fixed, treat the `N passed` line — not `$LASTEXITCODE` — as the pass signal.
+- [x] **P3-20 — Flaky native crash at interpreter shutdown after a green suite (fixed).** The Qt/PyQt6 test
+  process occasionally exited `-1073741819` (0xC0000005) or `-1073740940` (0xC0000409) *after* printing
+  `N passed` (~1 run in 3), and the two-file Qt pair (`test_tool_visibility_card.py`,
+  `test_spotify_settings_card.py`) crashed standalone 4/10. Root cause: UI modules started QtWebEngine at
+  **import** time — module-level `from PyQt6.QtWebEngineWidgets import QWebEngineView` in `core/ui_bg.py`
+  (reachable via `ui.py`'s `from core import ui_bg`) and `core/circuit_hud.py` (imported by
+  `tests/test_evo_integrations.py`), a bare `import PyQt6.QtWebEngineWidgets` in `core/globe_window.py`
+  (imported by `tests/test_globe_performance.py`), plus a dead eager import in `ui.py` itself (the view
+  actually lives in `core/ui_bg`). Chromium's global threads were then alive at interpreter finalize and raced
+  the Qt teardown, corrupting the heap. Fix: probe availability with `importlib.util.find_spec` (which does
+  **not** execute the module) and import `QWebEngineView` lazily at first real use
+  (`core/ui_bg._new_web_engine_view`, `core/circuit_hud._new_webengine_view`; `globe_window` already imported it
+  locally inside the globe dialog). The `WEB_ENGINE_AVAILABLE` / `_WEBENGINE_OK` flags are unchanged, so the
+  feature is still offered. Measured: crash-prone pair **4/10 → 0/10**; full suite **~1-in-3 → 0/5**. Added
+  `tests/test_webengine_lazy_import.py` (subprocess: importing the modules must not load WebEngine; the lazy
+  helper must still build a real view). Full suite **167 passed**.
 
 ---
 
@@ -786,3 +794,12 @@ These were listed as incomplete before this pass. **None of them is done, and no
   sent as a voice). Request shape verified against google-genai 2.19.0. Added
   `tests/test_speech_tts_gemini.py` (7 tests). Full suite **165 passed**; `accept_local_speech.py`
   ALL CRITERIA PASS; `precommit_check.py --quick` SAFE. Not pushed.
+- 2026-10-16 — **P3-20 fixed: flaky native crash at interpreter shutdown.** Traced the post-`N passed`
+  `0xC0000374` heap corruption to QtWebEngine being initialised at import time by `core/ui_bg.py`,
+  `core/circuit_hud.py` and `core/globe_window.py` (and a dead eager import in `ui.py`). Made every
+  `QWebEngineView` import lazy behind an `importlib.util.find_spec` probe, so importing the UI modules never
+  starts Chromium. Files: `ui.py` (drop dead import), `core/ui_bg.py` (+`_new_web_engine_view`),
+  `core/circuit_hud.py` (+`_new_webengine_view`), `core/globe_window.py` (drop bare import),
+  `tests/test_webengine_lazy_import.py` (new, 2 subprocess tests). Verified: lazy helper still builds a real
+  `QWebEngineView` (feature intact); crash-prone pair 4/10 → **0/10**; full suite ~1-in-3 → **0/5** and now
+  **167 passed**; `precommit_check.py --quick` → SAFE. Not pushed.

@@ -14,11 +14,33 @@ from PyQt6.QtWidgets import (QWidget)
 from core.ui_theme import (C)
 from pathlib import (Path)
 
-try:
-    from PyQt6.QtWebEngineWidgets import QWebEngineView
-    WEB_ENGINE_AVAILABLE = True
-except Exception:
-    WEB_ENGINE_AVAILABLE = False
+import importlib.util as _importlib_util
+
+# QtWebEngineWidgets is imported lazily in _new_web_engine_view() below. An
+# eager module-level import starts Chromium's global threads; when the Qt test
+# process later finalizes, those threads race the Qt teardown and corrupt the
+# heap (P3-20: exit 0xC0000374 *after* a green suite). Probing the spec does not
+# execute the module, so `import core.ui_bg` (and `import ui`, which pulls it in)
+# never starts Chromium.
+WEB_ENGINE_AVAILABLE = (
+    _importlib_util.find_spec("PyQt6.QtWebEngineWidgets") is not None
+)
+
+
+def _new_web_engine_view(parent):
+    """Import QtWebEngineWidgets on first real use and build the view.
+
+    Returns None (and latches WEB_ENGINE_AVAILABLE off) if the module cannot be
+    imported, matching the old module-level try/except behaviour without paying
+    the Chromium-startup cost at import time.
+    """
+    global WEB_ENGINE_AVAILABLE
+    try:
+        from PyQt6.QtWebEngineWidgets import QWebEngineView
+    except Exception:
+        WEB_ENGINE_AVAILABLE = False
+        return None
+    return QWebEngineView(parent)
 
 
 def bind(*, BASE_DIR):
@@ -147,7 +169,10 @@ class BackgroundWidget(QWidget):
             html_path = Path(self._avatar_page_path())
             if not html_path.exists():
                 return
-            self._web_view = QWebEngineView(self)
+            view = _new_web_engine_view(self)
+            if view is None:
+                return
+            self._web_view = view
             st = self._web_view.settings()
             try:
                 st.setAttribute(st.WebAttribute.WebGLEnabled, True)

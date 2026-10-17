@@ -22,10 +22,10 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QColor, QIcon
 
-try:
-    import PyQt6.QtWebEngineWidgets
-except Exception:
-    pass
+# QtWebEngineWidgets is imported lazily at first use (see the QWebEngineView
+# import inside the globe dialog). Importing it eagerly here starts Chromium's
+# global threads, which race the Qt teardown and corrupt the heap when the
+# interpreter finalizes after a Qt test run (P3-20: exit 0xC0000374).
 
 from actions.geospatial_globe import (
     geocode_location,

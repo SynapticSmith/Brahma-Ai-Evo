@@ -28,11 +28,30 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-try:
-    from PyQt6.QtWebEngineWidgets import QWebEngineView
-    _WEBENGINE_OK = True
-except Exception:
-    _WEBENGINE_OK = False
+import importlib.util as _importlib_util
+
+# QtWebEngineWidgets is imported lazily in _new_webengine_view() at first use.
+# An eager module-level import starts Chromium's global threads; when the Qt
+# test process later finalizes, those threads race the Qt teardown and corrupt
+# the heap (P3-20: exit 0xC0000374 *after* a green suite). Probing the spec does
+# not execute the module, so importing this module never starts Chromium.
+_WEBENGINE_OK = _importlib_util.find_spec("PyQt6.QtWebEngineWidgets") is not None
+
+
+def _new_webengine_view(parent):
+    """Import QtWebEngineWidgets on first real use and build the view.
+
+    Returns None (and latches _WEBENGINE_OK off) if the module cannot be
+    imported, matching the old module-level try/except behaviour without paying
+    the Chromium-startup cost at import time.
+    """
+    global _WEBENGINE_OK
+    try:
+        from PyQt6.QtWebEngineWidgets import QWebEngineView
+    except Exception:
+        _WEBENGINE_OK = False
+        return None
+    return QWebEngineView(parent)
 
 from core.user_paths import get_user_data_dir
 
@@ -471,8 +490,8 @@ class CircuitPopupOverlay(QWidget):
         except Exception:
             pass
 
-        if _WEBENGINE_OK:
-            self._web = QWebEngineView(self._frame)
+        self._web = _new_webengine_view(self._frame) if _WEBENGINE_OK else None
+        if self._web is not None:
             self._web.setStyleSheet("background: transparent;")
             self._web.setHtml(self._html_content, QUrl.fromLocalFile(str(self._html_file)))
             frame_layout.addWidget(self._web, 1)

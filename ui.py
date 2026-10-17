@@ -51,11 +51,14 @@ from PyQt6.QtWidgets import (
     QStackedWidget, QInputDialog, QMessageBox,
 )
 
-try:
-    from PyQt6.QtWebEngineWidgets import QWebEngineView
-    WEB_ENGINE_AVAILABLE = True
-except Exception:
-    WEB_ENGINE_AVAILABLE = False
+# QWebEngineView is not used in this module. Importing QtWebEngineWidgets
+# eagerly initialises QtWebEngine and spins up Chromium's global threads; when
+# the interpreter then finalizes after a Qt test run those threads race the Qt
+# teardown and corrupt the heap (P3-20, exit 0xC0000374 after a green suite).
+# Probe availability without executing the module so `import ui` never starts
+# Chromium. Consumers that actually need a view import it lazily (core.ui_bg).
+import importlib.util as _importlib_util
+WEB_ENGINE_AVAILABLE = _importlib_util.find_spec("PyQt6.QtWebEngineWidgets") is not None
 
 from discord_bot import DiscordBotService
 from gesture_utils import estimate_gesture_state, GestureTracker
