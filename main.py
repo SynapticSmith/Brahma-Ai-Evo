@@ -8,18 +8,15 @@ from core.qt_bootstrap import bootstrap
 # in place before any module pulls in QtWebEngineWidgets.
 bootstrap()
 
-from core import undo as undo_stack
 from core import audio_devices
 from core.echo import EchoGuard
 from core.hotkey import PushToTalk
 from core.provider_failover import ProviderFailover
 from memory import config_manager
-from memory.memory_manager import search_memory
 
 from core import boot_sentry
 boot_sentry.run()
 from core.sensorium import sensorium
-from core.protocols import protocols
 from core.local_brain import local_brain
 import asyncio
 import threading
@@ -31,7 +28,6 @@ import subprocess
 import sys
 import time
 import traceback
-import os
 import pyperclip
 from pathlib import Path
 
@@ -41,43 +37,16 @@ try:
 except Exception:
     pass
 
-import sounddevice as sd
 from google import genai
 from google.genai import types
 from ui import BrahmaUI
 from memory.memory_manager import (
-    load_memory, update_memory, format_memory_for_prompt,
-    should_extract_memory, extract_memory, auto_learn_interaction
+    update_memory, should_extract_memory, extract_memory, auto_learn_interaction
 )
 
-from actions.file_processor import file_processor
-from actions.flight_finder     import flight_finder
-from actions.open_app          import open_app
-from actions.weather_report    import weather_action
-from actions.send_message      import send_message
-from actions.reminder          import reminder
-from actions.computer_settings import computer_settings
 from actions.screen_processor  import screen_process
 from actions.meeting_assistant import MeetingAssistant
-from actions.youtube_video     import youtube_video
-from actions.desktop           import desktop_control
-from actions.browser_control   import browser_control
-from actions.file_controller   import file_controller
-from actions.office_builder     import create_presentation, create_spreadsheet
-from actions.docx_tools        import word_document
-from actions.pdf_tools         import create_pdf
-from actions.brahma_connect    import (
-    connect_list_devices,
-    connect_get_device,
-    connect_get_capabilities,
-    connect_execute,
-    connect_pair_device,
-    connect_disconnect_device,
-)
-from actions.web_search        import web_search as web_search_action
-from actions.computer_control  import computer_control
-from actions.game_updater      import game_updater
-from actions.attention_monitor import AttentionMonitor, speak_native, stop_native_speech, handle_call_action, read_event_preview, set_speech_sink
+from actions.attention_monitor import AttentionMonitor, speak_native, stop_native_speech, set_speech_sink
 # from actions.daily_briefing import compile_daily_briefing
 from llm_client import client as openrouter_client
 from workspace_store import store as workspace_store
@@ -91,10 +60,10 @@ except Exception:
     DashboardServer = None
 
 try:
-    from actions.instagram_mcp import start_daemon as start_ig_daemon, set_ig_prompt_callback
+    from actions.instagram_mcp import start_daemon as start_ig_daemon
 except ImportError:
     try:
-        from actions.instagram_chat import start_daemon as start_ig_daemon, set_ig_prompt_callback
+        from actions.instagram_chat import start_daemon as start_ig_daemon
     except ImportError:
         start_ig_daemon = None
 
@@ -3491,7 +3460,6 @@ class BrahmaLive:
             except Exception:
                 pass
             reply = ""
-            gemini_first = not self._prefer_openrouter()
             request_text = f"{memory_ctx}\n\nCurrent User Request:\n{text}" if memory_ctx else text
 
             app_settings = config_manager.load_settings()
@@ -4206,7 +4174,7 @@ if __name__ == "__main__":
                 namespace = {"__name__": "__main__", "__file__": sys.argv[1]}
                 exec(code, namespace)
                 sys.exit(0)
-            except Exception as e:
+            except Exception:
                 traceback.print_exc()
                 sys.exit(1)
         elif sys.argv[1] == "-m" and len(sys.argv) >= 3 and sys.argv[2] == "pip":
@@ -4219,7 +4187,7 @@ if __name__ == "__main__":
 
     try:
         main()
-    except Exception as e:
+    except Exception:
         with open("FATAL_CRASH.log", "w") as f:
             traceback.print_exc(file=f)
         raise

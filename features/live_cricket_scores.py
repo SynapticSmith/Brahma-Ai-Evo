@@ -43,7 +43,7 @@ def execute(**kwargs):
                     'link': l_text,
                     'description': d_text
                 })
-    except Exception as e:
+    except Exception:
         matches = [
             {'title': 'India 285/5 (48.2 ov) v Australia 282/9 - Live', 'link': '', 'description': 'Match in progress'},
             {'title': 'England 198/4 (20.0 ov) v South Africa 195/6 - Live', 'link': '', 'description': 'Match in progress'}

@@ -8,14 +8,10 @@ copies captions to the clipboard, reveals the video file in Windows Explorer,
 and launches the studio uploader for seamless one-click publishing.
 """
 
-import json
 import logging
-import os
 import subprocess
 import sys
-import time
 import webbrowser
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -181,11 +177,9 @@ def run(parameters: dict, player=None, speak=None, session_memory=None) -> str:
     full_copy = copy_data.get("formatted_post") or f"{copy_data.get('caption', brief)}\n\n{' '.join(copy_data.get('hashtags', []))}"
 
     # Step 3: Copy to Windows Clipboard
-    clipboard_status = False
     if _HAS_PYPERCLIP:
         try:
             pyperclip.copy(full_copy)
-            clipboard_status = True
             _log("[Publisher] Optimized caption & hashtags copied to clipboard.")
         except Exception as e:
             logger.warning(f"Failed to copy to clipboard: {e}")

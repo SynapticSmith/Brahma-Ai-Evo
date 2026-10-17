@@ -1,11 +1,7 @@
 from core.user_paths import get_user_data_dir
 import json
-import re
 import sys
 import threading
-import subprocess
-import tempfile
-import os
 from pathlib import Path
 from typing import Callable, Any
 

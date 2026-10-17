@@ -128,7 +128,7 @@ def _ensure_network_access(port: int) -> None:
     macOS   : osascript admin dialog if the Application Firewall is on.
     Linux   : pkexec GUI → sudo -n → prints manual command as fallback.
     """
-    import sys, subprocess, os, tempfile, threading
+    import sys, os, tempfile, threading
 
     # ── Windows ──────────────────────────────────────────────────────────────
     if sys.platform == "win32":
@@ -339,7 +339,7 @@ def _ensure_crypto_js() -> None:
         print("[Dashboard] CryptoJS cached — will serve locally from now on.")
     except Exception as e:
         print(f"[Dashboard] CryptoJS download failed: {e}")
-        print(f"[Dashboard] Encryption will fall back to CDN load on client.")
+        print("[Dashboard] Encryption will fall back to CDN load on client.")
 
 
 _ensure_crypto_js()
@@ -407,7 +407,6 @@ def _local_ip() -> str:
         pass
 
     try:
-        import subprocess
         r = _quiet_run(['ipconfig'], capture_output=True, text=True, timeout=8)
         for ip in re.findall(r'IPv4[^:]*:\s*([0-9]+(?:\.[0-9]+){3})', r.stdout):
             _add_candidate(ip)

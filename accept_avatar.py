@@ -1100,7 +1100,6 @@ def main() -> int:
 
 def _drop(bid: str) -> None:
     """Remove a test-only backend so later checks see the real registry."""
-    import threading
 
     from core import avatar_runtime as ar
 

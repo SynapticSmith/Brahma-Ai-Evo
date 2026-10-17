@@ -2,21 +2,19 @@ from __future__ import annotations
 
 import asyncio
 import json
-import socket
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 import uvicorn
 
 from .capability_manager import CapabilityManager
 from .command_router import CommandRouter
 from .device_manager import DeviceManager
 from .discovery import GatewayDiscovery, local_ip
-from .models import PairingOffer
 from .pairing import PairingManager
 from .protocol import ProtocolTypes, build_message, validate_message, now_iso, new_request_id
 from .websocket import ConnectionHub
@@ -415,7 +413,7 @@ class BrahmaGateway:
         @app.websocket("/ws")
         async def ws_endpoint(websocket: WebSocket):
             await websocket.accept()
-            state = await self.hub.attach(websocket)
+            await self.hub.attach(websocket)
             device_id = ""
             try:
                 while True:

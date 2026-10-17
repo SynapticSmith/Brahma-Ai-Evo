@@ -10,3 +10,11 @@ from . import circuit_schematic
 from . import show_gif
 from . import show_headphones_image
 from . import system_monitor_ascii
+
+__all__ = [
+    "spotify_mcp",
+    "circuit_schematic",
+    "show_gif",
+    "show_headphones_image",
+    "system_monitor_ascii",
+]

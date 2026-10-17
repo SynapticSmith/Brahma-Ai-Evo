@@ -1,7 +1,6 @@
 import json
 import time
 import re
-from pathlib import Path
 from actions.brahma_connect import connect_execute
 
 def _build_prompt(instruction: str, ui_tree: dict) -> str:

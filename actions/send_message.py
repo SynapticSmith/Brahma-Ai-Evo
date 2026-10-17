@@ -8,7 +8,6 @@ import time
 from pathlib import Path
 
 import pyautogui
-import pyperclip
 
 pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0.08
@@ -94,7 +93,7 @@ def _send_instagram(receiver: str, message: str) -> str:
     """
     try:
         from actions.instagram_mcp import InstagramService
-        res = InstagramService.instance().send_dm(receiver, message, open_in_browser=True)
+        InstagramService.instance().send_dm(receiver, message, open_in_browser=True)
         return f"Message sent to @{receiver} via Instagram. Thread opened in browser."
     except Exception as e:
         try:
@@ -155,8 +154,6 @@ def _send_email_via_browser(platform: str, receiver: str, message: str) -> str:
         import urllib.parse
         import webbrowser
         import psutil
-        import time
-        import pyautogui
         
         # Check if Chrome or Edge is running
         browser_name = "browser"

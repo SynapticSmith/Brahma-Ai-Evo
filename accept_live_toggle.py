@@ -22,7 +22,6 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE))
 
-import main as brahma_main
 from main import BrahmaLive
 
 from accept_util import check, section, report

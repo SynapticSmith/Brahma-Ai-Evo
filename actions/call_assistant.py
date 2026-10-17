@@ -14,13 +14,10 @@ import io
 import json
 import logging
 import os
-import re
 import threading
 import time
-import urllib.request
 import wave
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 import sounddevice as sd

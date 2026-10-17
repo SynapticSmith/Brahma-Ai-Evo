@@ -6,7 +6,6 @@ from typing import Any
 
 from fastapi import WebSocket
 
-from .models import DeviceRecord
 
 
 @dataclass(slots=True)

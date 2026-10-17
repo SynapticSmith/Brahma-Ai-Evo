@@ -318,8 +318,8 @@ class FloatingLauncher(QWidget):
 
     def _show_menu(self, global_pos):
         menu = QMenu(self)
-        menu.setStyleSheet(f"""
-            QMenu {{
+        menu.setStyleSheet("""
+            QMenu {
                 background: rgba(14, 16, 22, 248);
                 color: #FFFFFF;
                 border: 1px solid rgba(0, 229, 255, 0.45);
@@ -327,20 +327,20 @@ class FloatingLauncher(QWidget):
                 padding: 6px;
                 font-family: 'Segoe UI';
                 font-size: 12px;
-            }}
-            QMenu::item {{
+            }
+            QMenu::item {
                 padding: 7px 18px;
                 border-radius: 6px;
-            }}
-            QMenu::item:selected {{
+            }
+            QMenu::item:selected {
                 background: rgba(0, 229, 255, 0.20);
                 color: #00e5ff;
-            }}
-            QMenu::separator {{
+            }
+            QMenu::separator {
                 height: 1px;
                 background: rgba(255, 255, 255, 0.10);
                 margin: 4px 6px;
-            }}
+            }
         """)
 
         open_full = QAction("Open Brahma Evo (Full App)", self)

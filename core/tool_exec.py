@@ -42,8 +42,7 @@ from actions.send_message      import send_message
 from core.sensorium import sensorium
 from core import undo as undo_stack
 from memory.memory_manager import (
-    load_memory, update_memory, format_memory_for_prompt,
-    should_extract_memory, extract_memory, auto_learn_interaction
+    update_memory
 )
 from actions.weather_report    import weather_action
 from actions.web_search        import web_search as web_search_action
@@ -287,7 +286,7 @@ class ToolExecutor:
                 image_path = args.get("image_path", "")
                 caption = args.get("caption", "")
                 open_browser = args.get("open_in_browser", True)
-                self._host.ui.write_log(f"SYS: Publishing photo to Instagram...")
+                self._host.ui.write_log("SYS: Publishing photo to Instagram...")
                 if hasattr(self._host.ui, "show_hud_operation"):
                     self._host.ui.show_hud_operation("Instagram Post", f"Uploading {Path(image_path).name}...", sources=["instagram.com"])
                 from actions.instagram_mcp import InstagramService
@@ -303,7 +302,7 @@ class ToolExecutor:
                 caption = args.get("caption", "")
                 thumb = args.get("thumbnail_path")
                 open_browser = args.get("open_in_browser", True)
-                self._host.ui.write_log(f"SYS: Publishing Reel to Instagram...")
+                self._host.ui.write_log("SYS: Publishing Reel to Instagram...")
                 if hasattr(self._host.ui, "show_hud_operation"):
                     self._host.ui.show_hud_operation("Instagram Reel", f"Uploading {Path(video_path).name}...", sources=["instagram.com"])
                 from actions.instagram_mcp import InstagramService
@@ -740,7 +739,7 @@ class ToolExecutor:
                 self._host.speak("Goodbye, sir.")
 
                 def _shutdown():
-                    import time, sys, os
+                    import time, os
                     time.sleep(1)
                     os._exit(0)
 

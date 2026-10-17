@@ -24,7 +24,7 @@ BASE_DIR = Path(__file__).resolve().parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-from actions.auto_heal_engine import AutoHealEngine, SafetySandbox, auto_heal
+from actions.auto_heal_engine import AutoHealEngine, auto_heal
 from actions.test_action import test_action
 from core.learned_rules import LearnedRulesEngine
 
@@ -68,7 +68,7 @@ def run_test():
         importlib.reload(actions.test_action)
         
         retest_msg = actions.test_action.test_action({})
-        print(f"[SUCCESS] Patched code executed cleanly:")
+        print("[SUCCESS] Patched code executed cleanly:")
         print(f"   Response: {retest_msg}")
     except Exception as exc:
         print(f"[FAIL] Failed to run patched code: {exc}")

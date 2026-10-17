@@ -58,7 +58,6 @@ def execute(**kwargs):
     # --- Dance Move Definitions ---
     def get_disco_moves(t, duration):
         # Basic disco moves: arms up/down, legs slightly apart and moving
-        angle_offset = np.sin(2 * np.pi * t / duration) * np.pi / 6 # Oscillating angle
         leg_sway = np.sin(2 * np.pi * t / duration * 2) * 0.2 # Side to side leg movement
         arm_raise = np.sin(2 * np.pi * t / duration * 1.5) * 0.3 # Up and down arm movement
 
@@ -145,7 +144,6 @@ def execute(**kwargs):
     def get_robot_moves(t, duration):
         # Robotic, jerky movements
         phase = t / duration
-        angle_offset = np.sin(phase * 4 * np.pi) * np.pi / 4
         leg_offset = np.sin(phase * 6 * np.pi) * 0.3
 
         # Head and Torso
@@ -201,11 +199,11 @@ def execute(**kwargs):
             else:
                 # Fallback to a static stickman if no frames generated yet
                 frames_data.append([
-                    head_center, neck_pos, torso_top_pos, torso_bottom_pos,
-                    torso_top_pos + np.array([-0.2, 0.1]), torso_top_pos + np.array([-0.2, 0.1]), torso_top_pos + np.array([-0.4, -0.1]),
-                    torso_top_pos + np.array([0.2, 0.1]), torso_top_pos + np.array([0.2, 0.1]), torso_top_pos + np.array([0.4, -0.1]),
-                    torso_bottom_pos + np.array([-0.1, 0]), torso_bottom_pos + np.array([-0.1, -0.4]), torso_bottom_pos + np.array([-0.1, -0.8]),
-                    torso_bottom_pos + np.array([0.1, 0]), torso_bottom_pos + np.array([0.1, -0.4]), torso_bottom_pos + np.array([0.1, -0.8])
+                    head_center, neck_pos, torso_top, torso_bottom,
+                    torso_top + np.array([-0.2, 0.1]), torso_top + np.array([-0.2, 0.1]), torso_top + np.array([-0.4, -0.1]),
+                    torso_top + np.array([0.2, 0.1]), torso_top + np.array([0.2, 0.1]), torso_top + np.array([0.4, -0.1]),
+                    torso_bottom + np.array([-0.1, 0]), torso_bottom + np.array([-0.1, -0.4]), torso_bottom + np.array([-0.1, -0.8]),
+                    torso_bottom + np.array([0.1, 0]), torso_bottom + np.array([0.1, -0.4]), torso_bottom + np.array([0.1, -0.8])
                 ])
 
     # Update function for animation

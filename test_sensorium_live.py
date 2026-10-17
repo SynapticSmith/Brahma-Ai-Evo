@@ -69,6 +69,7 @@ if __name__ == "__main__":
     try:
         user_is_away = False
         streak_alerted = False
+        last_window = None
 
         while True:
             snap = sensorium.get_snapshot()
@@ -99,7 +100,7 @@ if __name__ == "__main__":
                 user_is_away = False
                 msg = f"Welcome back, sir. Your workspace on {proc} is ready."
                 print(f"\n\n✨ [PROACTIVE SPEECH TRIGGERED]: {msg}")
-                print(f"🔊 [BRAHMA SPEAKING OUT LOUD NOW...]\n")
+                print("🔊 [BRAHMA SPEAKING OUT LOUD NOW...]\n")
                 speak_proactive(msg)
 
             # Step 3: Focus streak demo (15s continuous in window)

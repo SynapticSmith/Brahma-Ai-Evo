@@ -149,18 +149,18 @@ class TaskCard(QFrame):
         self._active = False
         self._workspace_locked = False
         self.setStyleSheet(
-            f"""
-            QFrame#TaskCard {{
+            """
+            QFrame#TaskCard {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                     stop:0 rgba(16, 18, 24, 230),
                     stop:0.6 rgba(10, 12, 18, 210),
                     stop:1 rgba(5, 7, 11, 200));
                 border: 1px solid rgba(255, 255, 255, 0.10);
                 border-radius: 16px;
-            }}
-            QFrame#TaskCard:hover {{
+            }
+            QFrame#TaskCard:hover {
                 border: 1px solid rgba(0, 229, 255, 0.28);
-            }}
+            }
             """
         )
         lay = QVBoxLayout(self)
@@ -398,12 +398,12 @@ class EventCard(QFrame):
         super().__init__(parent)
         self.setObjectName("EventCard")
         self.setStyleSheet(
-            f"""
-            QFrame#EventCard {{
+            """
+            QFrame#EventCard {
                 background: rgba(255, 255, 255, 0.03);
                 border: 1px solid rgba(0, 229, 255,0.15);
                 border-radius: 12px;
-            }}
+            }
             """
         )
         lay = QHBoxLayout(self)
@@ -906,13 +906,13 @@ class TaskDock(QFrame):
         self._collapsed_w = 44
         self.setFixedWidth(self._expanded_w)
         self.setStyleSheet(
-            f"""
-            QFrame#TaskDock {{
+            """
+            QFrame#TaskDock {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                     stop:0 rgba(7, 8, 12, 250),
                     stop:1 rgba(3, 4, 6, 245));
                 border-left: 1px solid rgba(0, 229, 255, 0.55);
-            }}
+            }
             """
         )
         root = QVBoxLayout(self)
@@ -1196,11 +1196,11 @@ class WorkspaceSidebar(QWidget):
         # Sleek modern chat input container for Workspace
         input_container = QFrame()
         input_container.setStyleSheet(
-            f"QFrame {{ "
-            f"  background: rgba(14, 17, 24, 0.75); "
-            f"  border: 1px solid rgba(0, 229, 255, 0.35); "
-            f"  border-radius: 14px; "
-            f"}}"
+            "QFrame { "
+            "  background: rgba(14, 17, 24, 0.75); "
+            "  border: 1px solid rgba(0, 229, 255, 0.35); "
+            "  border-radius: 14px; "
+            "}"
         )
         input_row = QHBoxLayout(input_container)
         input_row.setContentsMargins(10, 6, 10, 6)
@@ -1592,7 +1592,6 @@ class WorkspaceSidebar(QWidget):
         if action == "start":
             command = data.get("command") or ""
             plan = data.get("plan") or []
-            plan_text = plan if isinstance(plan, str) else "\n".join(f"• {item}" for item in plan) if plan else ""
             self._task_card.show()
             self._task_card.start_workspace(command, plan, data.get("source") or "local")
             # Intentionally do not post a 'Task started' system message to the activity feed
@@ -1838,11 +1837,11 @@ class InlineChatWorkspace(QFrame):
 
         input_container = QFrame()
         input_container.setStyleSheet(
-            f"QFrame {{ "
-            f"  background: rgba(14, 17, 24, 0.40); "
-            f"  border: 1px solid rgba(0, 229, 255, 0.32); "
-            f"  border-radius: 12px; "
-            f"}}"
+            "QFrame { "
+            "  background: rgba(14, 17, 24, 0.40); "
+            "  border: 1px solid rgba(0, 229, 255, 0.32); "
+            "  border-radius: 12px; "
+            "}"
         )
         input_row = QHBoxLayout(input_container)
         input_row.setContentsMargins(8, 6, 8, 6)
@@ -2115,7 +2114,6 @@ class InlineChatWorkspace(QFrame):
         if action == "start":
             command = data.get("command") or ""
             plan = data.get("plan") or []
-            plan_text = plan if isinstance(plan, str) else "\n".join(f"• {item}" for item in plan) if plan else ""
             self._task_card.start_workspace(command, plan, data.get("source") or "local")
             # Do not emit a 'Task started' system event into the conversation feed.
         elif action == "update":

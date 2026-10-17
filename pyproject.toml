@@ -1,0 +1,39 @@
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+# Never lint regenerable / vendored / environment trees. Ruff already honors
+# .gitignore, but these are listed explicitly so the gate is deterministic even
+# if a working tree has ignored-but-present build output or a stray venv.
+extend-exclude = [
+    ".venv",
+    "venv",
+    "ENV",
+    "env",
+    "build",
+    "dist",
+    "node_modules",
+    "installer/build_setup",
+    "installer/build",
+    "installer/dist",
+    "brahma-connect-android",
+    "assets",
+    "config/models",
+    "scratch",
+]
+
+[tool.ruff.lint]
+# Curated, blocking, real-bug ruleset (P3-14). These catch undefined names,
+# unused imports/variables, redefinitions, and f-strings with no placeholders —
+# all things a reviewer would otherwise have to catch by eye. Formatting
+# (E501, etc.) is deliberately NOT enabled so the gate stays behavior-preserving.
+select = ["F401", "F841", "F811", "F541", "F821"]
+
+[tool.ruff.lint.per-file-ignores]
+# Every core/ui_*.py seam module is instantiated with runtime `bind()` injection
+# (C, BASE_DIR, APP_SETTINGS_FILE, _default_*, ...). Ruff cannot see those
+# globals, so F821 here is a guaranteed false positive.
+"core/ui_*.py" = ["F821"]
+# SessionLifecycle.__init__ does `globals().update(deps)`: its 14 collaborators
+# (SEND_SAMPLE_RATE, _get_api_key, _startup_log, ...) are injected at runtime.
+"core/session_lifecycle.py" = ["F821"]

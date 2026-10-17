@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-import platform
-import re
 import sqlite3
 import tempfile
 import threading
@@ -11,7 +9,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Optional
 import xml.etree.ElementTree as ET
 import ctypes
 from ctypes import wintypes

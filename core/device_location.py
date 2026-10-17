@@ -2,7 +2,6 @@ from core.user_paths import get_user_data_dir
 # core/device_location.py
 
 import json
-import os
 import platform
 import subprocess
 import time

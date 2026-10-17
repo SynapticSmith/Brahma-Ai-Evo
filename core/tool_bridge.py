@@ -42,7 +42,6 @@ from core.tool_index import (
     META_DECLARATIONS,
     SkillManual,
     ToolEntry,
-    ToolIndex,
     get_index,
 )
 

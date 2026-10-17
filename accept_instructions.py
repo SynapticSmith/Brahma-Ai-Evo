@@ -159,9 +159,6 @@ def main() -> int:
               BrahmaLive._split_emotion_tag("[1] see above")[0] == "[1] see above")
 
         src = (BASE / "main.py").read_text(encoding="utf-8")
-        fn_start = src.index("def _split_emotion_tag")
-        fn_end = src.index("def _fallback_reply", fn_start)
-        body = src[fn_start:fn_end]
         # A substring check for "_split_emotion_tag(reply)" passes for BOTH
         # self._split_emotion_tag(reply) and a bare _split_emotion_tag(reply),
         # and the bare form raises NameError - which killed every fallback

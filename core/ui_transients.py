@@ -290,8 +290,6 @@ class ScanningOverlay(QWidget):
             x, y, w, h = box['x'], box['y'], box['w'], box['h']
             cat = box['category']
             
-            alpha = int(255 * alpha_mult)
-            
             # Styles based on category
             if cat == "OCR":
                 br = (w / 4) * e
@@ -776,7 +774,7 @@ class BootSequenceOverlay(QWidget):
                 painter.restore()
 
             painter.end()
-        except Exception as e:
+        except Exception:
             import traceback
             traceback.print_exc()
 

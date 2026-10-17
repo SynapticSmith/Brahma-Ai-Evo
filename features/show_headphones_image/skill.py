@@ -8,7 +8,6 @@ FEATURE_METADATA = {'name': 'show_headphones_image', 'aliases': ['show headphone
 
 import os
 import urllib.request
-import json
 
 def execute(**kwargs):
     try:

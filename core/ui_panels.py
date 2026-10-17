@@ -122,10 +122,10 @@ class _PanelsMixin:
         w.setObjectName("ModularRightSidebar")
         w.setFixedWidth(_RIGHT_W)
         w.setStyleSheet(
-            f"QWidget#ModularRightSidebar {{ "
-            f"  background: rgba(8, 10, 15, 0.22); "
-            f"  border-left: 1px solid rgba(0, 229, 255, 0.25); "
-            f"}}"
+            "QWidget#ModularRightSidebar { "
+            "  background: rgba(8, 10, 15, 0.22); "
+            "  border-left: 1px solid rgba(0, 229, 255, 0.25); "
+            "}"
         )
         root_lay = QVBoxLayout(w)
         root_lay.setContentsMargins(14, 12, 14, 12)
@@ -210,12 +210,12 @@ class _PanelsMixin:
         bar.setFixedHeight(84)
         bar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         bar.setStyleSheet(
-            f"""
-            QFrame {{
+            """
+            QFrame {
                 background: rgba(255, 255, 255, 0.05);
                 border: 1px solid rgba(0, 229, 255, 0.20);
                 border-radius: 35px;
-            }}
+            }
             """
         )
         try:

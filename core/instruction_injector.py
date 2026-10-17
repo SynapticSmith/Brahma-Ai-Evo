@@ -34,7 +34,7 @@ argument, not a new prompt-building path.
 from __future__ import annotations
 
 import threading
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 _lock = threading.Lock()
 

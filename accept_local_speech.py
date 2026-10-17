@@ -15,10 +15,8 @@ piper, kokoro) are absent on purpose: every assertion below must hold on a
 machine where they are NOT installed, because that is the common case.
 Usage: py -3.11 accept_local_speech.py
 """
-import asyncio
 import re
 import sys
-import types
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent
@@ -473,7 +471,6 @@ def test_offline_mode() -> None:
 # ---------------------------------------------------------------------------
 def test_gemini_untouched() -> None:
     section("D. Gemini Live path is untouched")
-    src = (BASE / "main.py").read_text(encoding="utf-8")
     lsrc = (BASE / "core" / "session_lifecycle.py").read_text(encoding="utf-8")
     audio_src = (BASE / "core" / "audio_io.py").read_text(encoding="utf-8")
 

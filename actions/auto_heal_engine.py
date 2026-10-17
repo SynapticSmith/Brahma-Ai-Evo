@@ -15,11 +15,10 @@ import os
 import py_compile
 import re
 import shutil
-import sys
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 logger = logging.getLogger("AutoHealEngine")
 
@@ -527,7 +526,7 @@ def auto_heal(
         res = LearnedRulesEngine.add_rule(rule)
         msg = res.get("message", "Rule saved.")
         if speak:
-            speak(f"Understood, sir. I have committed that rule to my memory.")
+            speak("Understood, sir. I have committed that rule to my memory.")
         return msg
 
     elif action in ("list_rules", "rules"):

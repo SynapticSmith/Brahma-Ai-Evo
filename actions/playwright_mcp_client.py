@@ -4,10 +4,9 @@ import os
 import platform
 import shutil
 import subprocess
-import sys
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("playwright_mcp_client")
 logger.setLevel(logging.INFO)

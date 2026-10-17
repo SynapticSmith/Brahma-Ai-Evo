@@ -4,7 +4,6 @@ import base64
 import io
 import json
 import re
-import os
 import sys
 import time
 import threading
@@ -12,7 +11,6 @@ import cv2
 import mss
 import mss.tools
 import sounddevice as sd
-import numpy as np
 from pathlib import Path
 
 try:

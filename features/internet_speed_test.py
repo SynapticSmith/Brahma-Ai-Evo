@@ -5,7 +5,6 @@ Triggers: internet speed, speed test, test my speed, check speed, download speed
 """
 
 import os
-import sys
 import time
 from typing import Dict, Any
 
@@ -43,7 +42,7 @@ def execute(**kwargs) -> Dict[str, Any]:
         download_speed = st.download() / 1_000_000.0  # Mbps
         upload_speed = st.upload() / 1_000_000.0      # Mbps
         ping = float(st.results.ping)
-    except Exception as e:
+    except Exception:
         # Fallback benchmark estimation if speedtest-cli servers are slow/throttled
         import urllib.request
         try:

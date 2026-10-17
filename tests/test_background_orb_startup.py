@@ -1,6 +1,4 @@
-import os
 from pathlib import Path
-import pytest
 
 def test_web_background_assets_all_local():
     base_dir = Path(__file__).resolve().parent.parent

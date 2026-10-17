@@ -17,7 +17,6 @@ Outputs:
 
 import datetime
 import json
-import os
 import queue
 import re
 import threading

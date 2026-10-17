@@ -47,7 +47,7 @@ class _ShellActionsMixin:
         reply = QMessageBox.question(
             self._win,
             "Update Detected!",
-            f"A new update is available on GitHub!\n\nDo you want to apply the update and restart the app?",
+            "A new update is available on GitHub!\n\nDo you want to apply the update and restart the app?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes
         )

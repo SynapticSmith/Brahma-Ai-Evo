@@ -39,7 +39,6 @@ def _selected_workspace(parameters: dict[str, Any]) -> str:
 
 def run_developer_mode_request(parameters: dict[str, Any], speak=None) -> str:
     params = dict(parameters or {})
-    description = str(params.get("description") or params.get("brief") or "").strip()
     workspace = _selected_workspace(params)
 
     if not workspace:

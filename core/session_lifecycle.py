@@ -93,7 +93,6 @@ class SessionLifecycle:
         Always On, On Call, Connect and Disconnect all mean the same thing
         whichever provider is selected.
         """
-        import numpy as np
         import sounddevice as sd
 
         self._host.session = None
@@ -125,7 +124,6 @@ class SessionLifecycle:
         print(f"[BRAHMA EVO] 🎤 Local voice session started (STT={engine}).")
 
         speech_buffer = bytearray()
-        silence_chunks = 0
         speaking = {"on": False}
 
         def _callback(indata, frames, time_info, status):
@@ -522,7 +520,6 @@ class SessionLifecycle:
             # Always On / On Call / Connect / Disconnect keep working. Previously
             # this `continue` meant the mic handler that pipes whisper STT into the
             # local model never ran when Local was selected.
-            app_cfg = config_manager.load_settings()
             backend = self._host._voice_backend()
             if backend == "local_loop":
                 try:

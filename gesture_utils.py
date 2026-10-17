@@ -59,7 +59,6 @@ def estimate_gesture_state(
 
     index_tip = landmarks[8]
     index_pip = landmarks[6]
-    index_mcp = landmarks[5]
 
     middle_tip = landmarks[12]
     middle_pip = landmarks[10]

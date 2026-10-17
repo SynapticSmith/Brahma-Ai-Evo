@@ -9,7 +9,6 @@ direct track audio streaming, and global media key playback controls (play, paus
 
 import json
 import os
-import platform
 import re
 import shutil
 import subprocess

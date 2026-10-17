@@ -16,8 +16,8 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import os
+import time
 import urllib.request
-import json
 from typing import Dict, Any
 
 def execute(**kwargs) -> Dict[str, Any]:
@@ -74,7 +74,7 @@ def execute(**kwargs) -> Dict[str, Any]:
             "ping_ms": ping,
         }
 
-    except Exception as e:
+    except Exception:
         # Fallback benchmark estimation if speedtest-cli servers are slow/throttled
         try:
             t0 = time.time()

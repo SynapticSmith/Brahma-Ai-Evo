@@ -4,9 +4,9 @@ import shutil
 import time
 import win32com.client
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QLabel, QPushButton, QProgressBar, QFileDialog, QGraphicsDropShadowEffect, QStackedWidget)
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QUrl, QTimer
-from PyQt6.QtGui import QIcon, QFont, QColor
+                             QLabel, QPushButton, QProgressBar, QGraphicsDropShadowEffect, QStackedWidget)
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QUrl
+from PyQt6.QtGui import QFont, QColor
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 
 class InstallThread(QThread):

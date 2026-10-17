@@ -138,15 +138,15 @@ class GestureCameraPreview(QFrame):
         super().__init__(parent)
         self.setObjectName("GestureCameraPreview")
         self.setStyleSheet(
-            f"""
-            QFrame#GestureCameraPreview {{
+            """
+            QFrame#GestureCameraPreview {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                     stop:0 rgba(9, 10, 14, 255),
                     stop:1 rgba(3, 4, 7, 255));
                 border: 1px solid rgba(0, 229, 255, 0.24);
                 border-radius: 16px;
-            }}
-            QLabel {{ background: transparent; }}
+            }
+            QLabel { background: transparent; }
             """
         )
         self._cap = None

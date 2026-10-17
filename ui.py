@@ -1,19 +1,12 @@
 from __future__ import annotations
-from core.user_paths import get_user_data_dir, atomic_write_json
+from core.user_paths import get_user_data_dir
 
-import asyncio
 import json
-import html as html_lib
-import math
-import os
 
 # _quiet_run() spawns helper processes and the startup handler prints a
 # traceback. Both names were used in this module without ever being imported,
 # so every _quiet_run() caller raised NameError and the startup error handler
 # masked the real exception with its own.
-import subprocess
-import traceback
-from typing import Any
 
 # Hardware acceleration & WebGL flags for smooth 180fps+ rendering in Chromium.
 # Applied through the shared bootstrap (see core.qt_bootstrap) instead of a
@@ -22,33 +15,25 @@ from core.qt_bootstrap import bootstrap
 bootstrap()
 
 import platform
-import random
-import re
 import sys
 import threading
-import time
 from collections import deque
 from pathlib import Path
 
-import psutil
 if platform.system() == "Windows":
-    import winreg
+    pass
 
 from PyQt6.QtCore import (
-    QEasingCurve, QEvent, QObject, QPoint, QPointF, QRectF, QSize, Qt,
-    QTimer, QUrl, QPropertyAnimation, pyqtSignal,
+    QEvent, Qt,
+    QTimer, pyqtSignal,
 )
 from PyQt6.QtGui import (
-    QAction, QBrush, QColor, QDragEnterEvent, QDropEvent, QFont,
-    QIcon, QImage, QKeySequence, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap,
-    QRadialGradient, QShortcut,
+    QFont,
+    QIcon, QKeySequence, QShortcut,
 )
 from PyQt6.QtWidgets import (
-    QApplication, QCheckBox, QColorDialog, QComboBox, QDialog, QFileDialog, QFrame, QGraphicsOpacityEffect, QGridLayout, QHBoxLayout,
-    QLabel, QLineEdit, QMenu, QMainWindow, QPushButton, QScrollArea, QSizePolicy, QSlider, QTextEdit,
-    QGraphicsDropShadowEffect,
-    QStyle, QSystemTrayIcon, QVBoxLayout, QWidget, QProgressBar,
-    QStackedWidget, QInputDialog, QMessageBox,
+    QApplication, QDialog, QHBoxLayout,
+    QLabel, QMainWindow, QPushButton, QSystemTrayIcon, QVBoxLayout, QWidget,
 )
 
 # QWebEngineView is not used in this module. Importing QtWebEngineWidgets
@@ -61,13 +46,7 @@ import importlib.util as _importlib_util
 WEB_ENGINE_AVAILABLE = _importlib_util.find_spec("PyQt6.QtWebEngineWidgets") is not None
 
 from discord_bot import DiscordBotService
-from gesture_utils import estimate_gesture_state, GestureTracker
-from smart_home import SmartHomeService
-from smart_home_page_new import BrahmaHomePage, _DeviceTile
-from core.local_brain import local_brain
 from workspace_store import store as workspace_store
-from core.identity import identity
-from sound_manager import sound_mgr
 
 def _base_dir() -> Path:
     if getattr(sys, "frozen", False):

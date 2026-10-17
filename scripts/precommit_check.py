@@ -20,7 +20,6 @@ something that is easy to believe is fine and is not.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import subprocess
@@ -296,7 +295,6 @@ def main(argv=None) -> int:
 
     print(f"\n{'-' * 74}\n5. Working tree")
     dirty = [l for l in git("status", "--short").splitlines() if l.strip()]
-    staged = [l for l in dirty if l[:1] not in (" ", "?", "!")]
     untracked = [l for l in dirty if l.startswith("??")]
     print(f"  {DIM}modified/staged: {len(dirty) - len(untracked)}"
           f"   untracked: {len(untracked)}{RESET}")

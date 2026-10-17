@@ -1,13 +1,11 @@
 #desktop.py
 import os
 import sys
-import json
 import shutil
 import subprocess
 import tempfile
 import platform
 from pathlib import Path
-from datetime import datetime
 
 try:
     import pyautogui

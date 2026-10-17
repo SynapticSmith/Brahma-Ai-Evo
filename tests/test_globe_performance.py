@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-import pytest
 from core.globe_window import GlobeBridge
 
 def test_globe_assets_exist():

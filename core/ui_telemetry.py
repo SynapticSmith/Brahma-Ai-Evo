@@ -251,14 +251,14 @@ class SmallPanelCard(QFrame):
         super().__init__(parent)
         self.setObjectName("SmallPanelCard")
         self.setStyleSheet(
-            f"""
-            QFrame#SmallPanelCard {{
+            """
+            QFrame#SmallPanelCard {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                     stop:0 rgba(16, 18, 24, 230),
                     stop:1 rgba(9, 11, 15, 210));
                 border: 1px solid rgba(255, 255, 255, 0.16);
                 border-radius: 14px;
-            }}
+            }
             """
         )
         lay = QVBoxLayout(self)
@@ -496,7 +496,6 @@ class BrahmaTelemetryWing(QFrame):
     def show_operation(self, title: str, step: str, sources: list = None, tool: str = None):
         self.apply_theme()
         r, g, b = self._theme_rgb
-        pri = self._theme_pri
         self._title_lbl.setText(title or "LIVE TASK EXECUTION")
         self._step_text_lbl.setText(step or "Running operation...")
         if tool:
@@ -983,14 +982,14 @@ class StatCard(QFrame):
         super().__init__(parent)
         self.setObjectName("StatCard")
         self.setStyleSheet(
-            f"""
-            QFrame#StatCard {{
+            """
+            QFrame#StatCard {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                     stop:0 rgba(18, 20, 26, 240),
                     stop:1 rgba(8, 10, 14, 220));
                 border: 1px solid rgba(255, 255, 255, 0.14);
                 border-radius: 16px;
-            }}
+            }
             """
         )
         lay = QVBoxLayout(self)

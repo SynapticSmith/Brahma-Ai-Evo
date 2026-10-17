@@ -12,13 +12,11 @@ Logs workout sessions to memory/workout_history.json.
 
 import json
 import logging
-import math
 import platform
-import threading
 import time
 from datetime import date, datetime
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 import cv2
 import numpy as np
@@ -338,8 +336,8 @@ def run(parameters: dict, player=None, speak=None, session_memory=None) -> str:
     cap = _open_camera(_get_camera_index())
     if cap is None:
         return (
-            f"I couldn't open the webcam for the workout tracker. "
-            f"Please ensure the camera is connected and not in use by another app."
+            "I couldn't open the webcam for the workout tracker. "
+            "Please ensure the camera is connected and not in use by another app."
         )
 
     counter = _SignalRepCounter()

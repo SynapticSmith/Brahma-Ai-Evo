@@ -36,7 +36,6 @@ def load_payload() -> dict:
     Primes the index with the real native declarations plus the Calyx and
     Synapse catalogues -- the configuration that produced the 1007 rejection.
     """
-    import json
     import re
     import time
 
@@ -137,7 +136,7 @@ async def probe(payload: dict) -> int:
         print(f"\n-- connect #{attempt} --")
         connect_cm = client.aio.live.connect(model=LIVE_MODEL, config=config)
         try:
-            session = await asyncio.wait_for(connect_cm.__aenter__(), timeout=20)
+            await asyncio.wait_for(connect_cm.__aenter__(), timeout=20)
         except Exception as exc:
             print(f"FAIL: connect rejected: {type(exc).__name__}: {exc}")
             return 1
@@ -145,7 +144,6 @@ async def probe(payload: dict) -> int:
         print("PASS: setup frame accepted, session open")
         print(f"      advertised: {names}")
 
-        handle = None
         # Let the server send its session-resumption update.
         try:
             async def grab(resume=None, _out=[]):

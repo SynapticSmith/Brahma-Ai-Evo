@@ -1,7 +1,6 @@
 # actions/unlock_device.py
 
 import json
-from pathlib import Path
 from actions.brahma_connect import connect_execute
 
 def _get_settings() -> dict:
@@ -69,5 +68,5 @@ def unlock_device(parameters: dict, response=None, player=None, session_memory=N
         else:
             err = result_dict.get("error", "Unknown error")
             return f"Failed to unlock {target}: {err}"
-    except Exception as e:
+    except Exception:
         return f"Error executing unlock command: {result_str}"

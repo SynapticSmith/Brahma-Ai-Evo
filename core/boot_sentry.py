@@ -7,9 +7,7 @@ Detects if the previous session crashed right after an auto-patch, and safely ro
 
 import json
 import logging
-import os
 import shutil
-import sys
 from pathlib import Path
 
 logger = logging.getLogger("BootSentry")

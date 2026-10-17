@@ -7,7 +7,6 @@ full transaction rollback (undo), duplicate detection, and cleanup.
 """
 
 import os
-import sys
 import json
 import shutil
 import hashlib
@@ -320,7 +319,7 @@ class SmartOrganizerEngine:
         if skipped_count > 0:
             lines.append(f"\n⚠️ *{skipped_count} file(s) could not be moved due to permissions.*")
             
-        lines.append(f"\n↩️ *All changes are reversible! Run `action='undo'` or say 'Undo last organization' to rollback.*")
+        lines.append("\n↩️ *All changes are reversible! Run `action='undo'` or say 'Undo last organization' to rollback.*")
         return "\n".join(lines)
 
     def undo(self) -> str:
@@ -411,7 +410,6 @@ class SmartOrganizerEngine:
         if exact_dupes:
             lines.append(f"**Identical Content Duplicates ({len(exact_dupes)} sets):**")
             for h, flist in list(exact_dupes.items())[:5]:
-                orig = flist[0][0]
                 size = flist[0][1]
                 wasted = size * (len(flist) - 1)
                 total_wasted += wasted

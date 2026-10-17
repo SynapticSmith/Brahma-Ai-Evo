@@ -81,7 +81,6 @@ def execute(**kwargs):
             for s in data['states']:
                 if s[6] is not None and s[5] is not None:
                     callsign = s[1].strip() if s[1] else 'UNKNOWN'
-                    alt_m = round(s[7], 1) if s[7] is not None else None
                     alt_ft = round(s[7] * 3.28084) if s[7] is not None else None
                     vel_kmh = round(s[9] * 3.6) if s[9] is not None else None
                     flights.append({

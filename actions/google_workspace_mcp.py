@@ -3,18 +3,17 @@ import email
 import imaplib
 import json
 import logging
-import os
 import re
 import smtplib
 import sys
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from email.header import decode_header
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Optional, Tuple
 
 logger = logging.getLogger("google_workspace_mcp")
 logger.setLevel(logging.INFO)

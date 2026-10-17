@@ -17,7 +17,6 @@ import traceback
 from core import audio_devices
 from memory import config_manager
 import sounddevice as sd
-from actions.attention_monitor import stop_native_speech, set_speech_sink
 
 
 class AudioIO:
@@ -257,7 +256,6 @@ class AudioIO:
 
     async def _play_audio(self):
         print("[BRAHMA EVO] 🔊 Play started")
-        loop = asyncio.get_event_loop()
         import numpy as np
 
         _spk_name = config_manager.get_output_device()

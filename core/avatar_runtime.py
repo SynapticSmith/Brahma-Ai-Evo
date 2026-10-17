@@ -741,7 +741,7 @@ class ThreeReactiveBackend(AvatarBackend):
             return f"3D background: renderer not attached, holding {held['tag']}"
         if webengine_sink_attached():
             last = self.last
-            return (f"3D background: renderer attached"
+            return ("3D background: renderer attached"
                     + (f", last {last[0]} @ {last[1]:.2f}" if last else ""))
         return "3D background: ready, waiting for the page to load"
 
@@ -1006,7 +1006,7 @@ class VRMBackend(AvatarBackend):
         if not info["ok"]:
             return f"VRM: {info['error']}"
         if not vrm_vendor_present():
-            return f"VRM: model present, three.js runtime not vendored"
+            return "VRM: model present, three.js runtime not vendored"
         return f"VRM: renderer attached ({os.path.basename(info['path'])})"
 
 

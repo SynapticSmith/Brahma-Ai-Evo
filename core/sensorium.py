@@ -99,7 +99,7 @@ class PassiveSensorium:
             try:
                 self._update_telemetry()
                 self._evaluate_heuristics()
-            except Exception as e:
+            except Exception:
                 # Sensorium must never crash the host process
                 pass
             time.sleep(self.poll_interval)

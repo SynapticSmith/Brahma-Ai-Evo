@@ -603,19 +603,19 @@ class SystemConnectivityPage(QWidget):
         s_btns_row.addWidget(self._spotify_save_btn)
 
         self._spotify_auth_btn = QPushButton("🔗 Authenticate in Browser")
-        self._spotify_auth_btn.setStyleSheet(f"""
-            QPushButton {{
+        self._spotify_auth_btn.setStyleSheet("""
+            QPushButton {
                 background: rgba(0, 229, 255, 0.12);
                 color: #00e5ff;
                 border: 1px solid rgba(0, 229, 255, 0.45);
                 font-weight: bold;
                 border-radius: 12px;
                 padding: 10px 14px;
-            }}
-            QPushButton:hover {{
+            }
+            QPushButton:hover {
                 background: rgba(0, 229, 255, 0.25);
                 border: 1px solid #00e5ff;
-            }}
+            }
         """)
         self._spotify_auth_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._spotify_auth_btn.clicked.connect(self._handle_spotify_auth)
@@ -1633,7 +1633,7 @@ class SystemConnectivityPage(QWidget):
         except Exception as exc:
             err = QLabel(f"Provider router unavailable: {exc}")
             err.setWordWrap(True)
-            err.setStyleSheet(f"color: #ff3b30; font-size: 11px;")
+            err.setStyleSheet("color: #ff3b30; font-size: 11px;")
             lay.addWidget(err)
             return card
 
@@ -4194,8 +4194,6 @@ class SystemConnectivityPage(QWidget):
 
     def _pin_app_to_taskbar_logic(self):
         try:
-            import os
-            import sys
             import shutil
             import subprocess
             from pathlib import Path

@@ -1,9 +1,7 @@
-import json
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from agent.planner import _planner_system_prompt, PLANNER_PROMPT
-from agent.executor import _run_skill_forge, _call_tool
+from agent.executor import _run_skill_forge
 from core.learned_rules import LearnedRulesEngine
 from core.dynamic_registry import DynamicToolRegistry
 

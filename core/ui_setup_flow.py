@@ -34,7 +34,7 @@ class _SetupFlowMixin:
             ov.raise_()
             ov.activateWindow()
             self._overlay = ov
-        except Exception as e:
+        except Exception:
             import traceback
             with open('setup_crash.log', 'w') as err_f:
                 err_f.write(traceback.format_exc())

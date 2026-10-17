@@ -1,13 +1,12 @@
 from core.user_paths import get_user_data_dir
 #flight_finder.py
-import json
 import re
 import subprocess
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from config import is_windows, is_mac, is_linux
+from config import is_windows, is_mac
 
 def _get_base_dir() -> Path:
     if getattr(sys, "frozen", False):

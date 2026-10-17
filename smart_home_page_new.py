@@ -3,11 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from PyQt6.QtCore import QEasingCurve, QDateTime, QPropertyAnimation, QRect, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QFont, QPixmap, QColor
+from PyQt6.QtCore import QEasingCurve, QDateTime, QPropertyAnimation, QRect, Qt, pyqtSignal
+from PyQt6.QtGui import QFont, QPixmap
 from PyQt6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QDialog,
     QFormLayout,
     QFrame,
@@ -23,7 +22,6 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QSizePolicy,
-    QGraphicsDropShadowEffect,
 )
 
 from smart_home import SmartHomeService
@@ -526,24 +524,24 @@ class _DeviceTile(ClickableFrame):
         slider.setRange(minv, maxv)
         slider.setValue(value)
         slider.setCursor(Qt.CursorShape.SplitHCursor)
-        slider.setStyleSheet(f"""
-            QSlider::groove:horizontal {{
+        slider.setStyleSheet("""
+            QSlider::groove:horizontal {
                 background: rgba(255, 255, 255, 0.1);
                 height: 4px;
                 border-radius: 2px;
-            }}
-            QSlider::sub-page:horizontal {{
+            }
+            QSlider::sub-page:horizontal {
                 background: #00e5ff;
                 border-radius: 2px;
-            }}
-            QSlider::handle:horizontal {{
+            }
+            QSlider::handle:horizontal {
                 background: #ffffff;
                 width: 10px;
                 height: 10px;
                 margin-top: -3px;
                 margin-bottom: -3px;
                 border-radius: 5px;
-            }}
+            }
         """)
         return slider
 
@@ -662,16 +660,16 @@ class _DeviceTile(ClickableFrame):
                 }}
             """)
         else:
-            self.setStyleSheet(f"""
-                QFrame#DeviceTileFrame {{
+            self.setStyleSheet("""
+                QFrame#DeviceTileFrame {
                     background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0f111a, stop:1 #07080b);
                     border: 1px solid rgba(255, 255, 255, 0.06);
                     border-radius: 18px;
-                }}
-                QFrame#DeviceTileFrame:hover {{
+                }
+                QFrame#DeviceTileFrame:hover {
                     background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #141726, stop:1 #0a0b12);
                     border: 1px solid rgba(0, 229, 255, 0.35);
-                }}
+                }
             """)
             
         is_on = bool(self.device.get("is_on"))
@@ -702,7 +700,7 @@ class BrahmaHomePage(QWidget):
         self._device_columns_cached = 0
 
         self.setObjectName("BrahmaHomePageModern")
-        self.setStyleSheet(f"QWidget#BrahmaHomePageModern {{ background: transparent; }} QScrollArea {{ background: transparent; border: none; }}")
+        self.setStyleSheet("QWidget#BrahmaHomePageModern { background: transparent; } QScrollArea { background: transparent; border: none; }")
 
         root = QHBoxLayout(self)
         root.setContentsMargins(18, 16, 18, 16)
@@ -737,16 +735,16 @@ class BrahmaHomePage(QWidget):
         # Recent Activity panel
         self._right_container = QFrame()
         self._right_container.setObjectName("ActivityPanel")
-        self._right_container.setStyleSheet(f"""
-            QFrame#ActivityPanel {{
+        self._right_container.setStyleSheet("""
+            QFrame#ActivityPanel {
                 background: rgba(10, 10, 10, 0.4);
                 border: 1px solid rgba(0, 229, 255, 0.4);
                 border-radius: 16px;
-            }}
-            QFrame#ActivityPanel:hover {{
+            }
+            QFrame#ActivityPanel:hover {
                 border: 1px solid rgba(0, 229, 255, 0.9);
                 background: rgba(0, 229, 255, 0.08);
-            }}
+            }
         """)
         self._right_lay = QVBoxLayout(self._right_container)
         self._right_lay.setContentsMargins(16, 16, 16, 16)
@@ -824,7 +822,7 @@ class BrahmaHomePage(QWidget):
         row.addLayout(text, 1)
         self._status_chip = QLabel()
         self._status_chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._status_chip.setStyleSheet(f"QLabel {{ background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 6px 14px; min-width: 110px; }}")
+        self._status_chip.setStyleSheet("QLabel { background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 6px 14px; min-width: 110px; }")
         row.addWidget(self._status_chip)
         self._voice_button = QPushButton("▮▮")
         self._voice_button.setFixedSize(48, 48)
@@ -884,16 +882,16 @@ class BrahmaHomePage(QWidget):
 
         self._empty_state = QFrame()
         self._empty_state.setObjectName("EmptyStateCard")
-        self._empty_state.setStyleSheet(f"""
-            QFrame#EmptyStateCard {{
+        self._empty_state.setStyleSheet("""
+            QFrame#EmptyStateCard {
                 background: rgba(10, 10, 10, 0.4);
                 border: 1px solid rgba(0, 229, 255, 0.4);
                 border-radius: 16px;
-            }}
-            QFrame#EmptyStateCard:hover {{
+            }
+            QFrame#EmptyStateCard:hover {
                 border: 1px solid rgba(0, 229, 255, 0.9);
                 background: rgba(0, 229, 255, 0.08);
-            }}
+            }
         """)
         empty_lay = QVBoxLayout(self._empty_state)
         empty_lay.setContentsMargins(28, 32, 28, 32)
@@ -929,16 +927,16 @@ class BrahmaHomePage(QWidget):
     def _build_voice_control_card(self) -> QFrame:
         frame = QFrame()
         frame.setObjectName("VoiceControlCard")
-        frame.setStyleSheet(f"""
-            QFrame#VoiceControlCard {{
+        frame.setStyleSheet("""
+            QFrame#VoiceControlCard {
                 background: rgba(10, 10, 10, 0.4);
                 border: 1px solid rgba(0, 229, 255, 0.4);
                 border-radius: 16px;
-            }}
-            QFrame#VoiceControlCard:hover {{
+            }
+            QFrame#VoiceControlCard:hover {
                 border: 1px solid rgba(0, 229, 255, 0.9);
                 background: rgba(0, 229, 255, 0.08);
-            }}
+            }
         """)
         lay = QHBoxLayout(frame)
         lay.setContentsMargins(16, 16, 16, 16)

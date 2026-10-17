@@ -13,7 +13,6 @@ import re
 import sys
 from pathlib import Path
 
-from actions.ppt_template_workflow import infer_presentation_profile
 
 
 PROJECT_NAME = "Brahma AI - Lite"
@@ -547,8 +546,6 @@ def create_spreadsheet(parameters: dict, player=None) -> str:
     fill_header = PatternFill("solid", fgColor=theme["accent"])
     fill_title = PatternFill("solid", fgColor=theme["bg"])
     white_font = Font(color="FFFFFF", bold=True)
-    bold_font = Font(bold=True, color=theme["bg"])
-    muted_font = Font(color=theme["muted"])
     center = Alignment(horizontal="center", vertical="center")
     wrap = Alignment(wrap_text=True, vertical="top")
 
@@ -592,12 +589,10 @@ def create_spreadsheet(parameters: dict, player=None) -> str:
                     cell.number_format = "#,##0.00"
 
         if headers:
-            end_row = data_start + max(len(rows) - 1, 0)
             end_col = len(headers)
             ws.auto_filter.ref = f"{ws.cell(start_row,1).coordinate}:{ws.cell(start_row + max(len(rows), 1), end_col).coordinate}"
             ws.freeze_panes = ws.cell(data_start, 1)
         else:
-            end_row = data_start + max(len(rows) - 1, 0)
             end_col = max((len(r) for r in rows), default=1)
 
         # optional chart

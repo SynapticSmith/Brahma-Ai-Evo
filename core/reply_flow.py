@@ -311,12 +311,8 @@ class ReplyFlow:
                 quoted_subject = urllib.parse.quote(subject)
                 quoted_body = urllib.parse.quote(self._host._email_message)
                 
-                import os
-                import subprocess
-                import shutil
 
                 app_lower = self._host._email_app.lower()
-                chrome_opened = False
 
                 if "gmail" in app_lower or "chrome" in app_lower:
                     import urllib.parse

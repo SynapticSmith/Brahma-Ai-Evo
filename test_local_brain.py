@@ -3,7 +3,6 @@ Test script for Brahma Local Brain Engine (v2)
 Verifies local LLM server availability, models listing, and test completion.
 """
 
-import sys
 from core.local_brain import local_brain
 
 print("=" * 60)

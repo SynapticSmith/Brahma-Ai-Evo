@@ -4,7 +4,7 @@ import re
 import sys
 import logging
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 from actions.office_builder import create_presentation, create_spreadsheet
 

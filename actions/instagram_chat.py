@@ -6,10 +6,8 @@ Instagram Chat Integration for Brahma AI.
 Listens for incoming DMs on Instagram and replies using Brahma's core generation.
 """
 
-import threading
 import time
 import json
-import os
 from pathlib import Path
 
 # Provide a fallback if instagrapi fails to install or load

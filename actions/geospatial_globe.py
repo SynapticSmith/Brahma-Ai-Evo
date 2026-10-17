@@ -593,7 +593,7 @@ def fetch_location_weather(lat: float, lon: float) -> Dict[str, Any]:
                 "condition": cond_desc,
                 "icon": icon,
             }
-    except Exception as e:
+    except Exception:
         return {
             "temperature_c": 28.0,
             "temperature_f": 82.4,

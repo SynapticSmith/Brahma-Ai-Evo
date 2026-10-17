@@ -36,8 +36,8 @@ class CommandBar(QWidget):
 
         frame = QFrame()
         frame.setObjectName("CommandBarFrame")
-        frame.setStyleSheet(f"""
-            QFrame#CommandBarFrame {{
+        frame.setStyleSheet("""
+            QFrame#CommandBarFrame {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
                     stop:0 rgba(6, 6, 10, 252),
                     stop:0.3 rgba(12, 11, 16, 252),
@@ -45,7 +45,7 @@ class CommandBar(QWidget):
                     stop:1 rgba(6, 6, 10, 252));
                 border: 1px solid rgba(0, 229, 255, 0.22);
                 border-radius: 20px;
-            }}
+            }
         """)
         lay = QHBoxLayout(frame)
         lay.setContentsMargins(6, 4, 6, 4)
@@ -93,18 +93,18 @@ class CommandBar(QWidget):
         lay.addWidget(self._input, stretch=1)
 
         # Action buttons container
-        btn_style_ghost = f"""
-            QPushButton {{
+        btn_style_ghost = """
+            QPushButton {
                 background: rgba(255, 255, 255, 0.03);
                 color: rgba(255, 255, 255, 0.5);
                 border: 1px solid rgba(255, 255, 255, 0.06);
                 border-radius: 14px;
-            }}
-            QPushButton:hover {{
+            }
+            QPushButton:hover {
                 background: rgba(0, 229, 255, 0.12);
                 color: #00e5ff;
                 border: 1px solid rgba(0, 229, 255, 0.4);
-            }}
+            }
         """
 
         attach = QPushButton()
@@ -131,20 +131,20 @@ class CommandBar(QWidget):
         dev.setFixedSize(40, 28)
         dev.setCursor(Qt.CursorShape.PointingHandCursor)
         dev.setToolTip("Developer mode")
-        dev.setStyleSheet(f"""
-            QPushButton {{
+        dev.setStyleSheet("""
+            QPushButton {
                 background: rgba(0, 229, 255, 0.06);
                 color: rgba(0, 229, 255, 0.7);
                 border: 1px solid rgba(0, 229, 255, 0.25);
                 border-radius: 14px;
                 font: 700 8px 'Segoe UI';
                 letter-spacing: 0.5px;
-            }}
-            QPushButton:hover {{
+            }
+            QPushButton:hover {
                 background: rgba(0, 229, 255, 0.15);
                 color: #00e5ff;
                 border: 1px solid rgba(0, 229, 255, 0.5);
-            }}
+            }
         """)
         dev.clicked.connect(self.developer_clicked.emit)
         lay.addWidget(dev)
@@ -156,17 +156,17 @@ class CommandBar(QWidget):
         send.setToolTip("Send")
         send.setIcon(QIcon(_icon_pixmap("send", 14)))
         send.setIconSize(QSize(14, 14))
-        send.setStyleSheet(f"""
-            QPushButton {{
+        send.setStyleSheet("""
+            QPushButton {
                 background: rgba(0, 229, 255, 0.12);
                 color: #00e5ff;
                 border: 1px solid rgba(0, 229, 255, 0.35);
                 border-radius: 19px;
-            }}
-            QPushButton:hover {{
+            }
+            QPushButton:hover {
                 background: rgba(0, 229, 255, 0.25);
                 border: 1px solid #00e5ff;
-            }}
+            }
         """)
         send.clicked.connect(self._submit)
         lay.addWidget(send)

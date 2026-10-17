@@ -1,0 +1,7 @@
+# Development-only tooling. Not needed to run Brahma; installed by CI's lint job
+# and by anyone running the local lint gate. Pinned so the gate is deterministic.
+#
+# Usage:
+#   py -3.11 -m pip install -r requirements-dev.txt
+#   py -3.11 -m ruff check .
+ruff==0.17.1

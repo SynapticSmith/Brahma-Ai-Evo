@@ -9,7 +9,6 @@ import threading
 import time
 import requests
 import json
-from datetime import datetime
 from actions.system_manager import get_system_health
 
 _monitors = {}

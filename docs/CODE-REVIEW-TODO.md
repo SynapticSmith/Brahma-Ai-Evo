@@ -113,8 +113,11 @@ Working reference for the code-review improvement pass. Keep this updated as ite
 - [x] **P3-14 — CI workflow added.** `.github/workflows/ci.yml` runs on `windows-latest`: a stdlib-only static
   gate job (`precommit_check.py --quick`, same as the local hook) plus a unit-suite job
   (`pip install -r requirements.txt` → `pytest tests -q`, `QT_QPA_PLATFORM=offscreen`). The wake-word/accept
-  harnesses stay a local gate (they need a display and audio devices). **Still open (needs a decision):**
-  lint/type tool choices (ruff/black/mypy?) and a `pyproject.toml`. The workflow is unexercised until the
+  harnesses stay a local gate (they need a display and audio devices). **Lint gate added (`lint` job):** the
+  curated blocking ruleset lives in `pyproject.toml` (`F401`, `F841`, `F811`, `F541`, `F821`; `F821` is
+  per-file-ignored for the `core/ui_*.py` mixins and `core/session_lifecycle.py`, whose names are injected at
+  runtime via `globals().update(deps)`). `requirements-dev.txt` pins `ruff==0.17.1`; CI runs
+  `python -m ruff check .` (local equivalent: `py -3.11 -m ruff check .`). The workflow is unexercised until the
   branch is pushed.
 - [x] **P3-14b — Dependencies fully pinned.** `requirements.txt` now pins every package to the version verified on
   the ONE-391 host (`==`, 46 pins). `pyttsx3` is deliberately left unpinned: it is imported lazily by
@@ -813,3 +816,19 @@ These were listed as incomplete before this pass. **None of them is done, and no
   mixins; `ui.py` is 830 lines (from 17,247). Every `core/ui_*.py`/`core/*_flow.py` seam module named
   in the bullet is present. Flipped P4-19 to `[x]` with the verified figures; no code changed, so no
   re-test needed beyond `precommit_check.py --quick`. **With this, every item in this TODO is `[x]`.**
+- 2026-10-16 — **P3-14 lint gate landed (ruff).** Added `pyproject.toml` (curated blocking ruleset: `F401`,
+  `F841`, `F811`, `F541`, `F821`; target `py311`, line-length 120, extends-exclude for envs/build/scratch) and
+  pinned `requirements-dev.txt` (`ruff==0.17.1`). Wired a new `lint` job into `.github/workflows/ci.yml`.
+  `core/ui_*.py` and `core/session_lifecycle.py` are `F821`-per-file-ignored: their referenced names are
+  injected via `globals().update(deps)`/mixin dispatch, so `--select F821` was clean there once the real bugs
+  were fixed. Real bugs fixed: `actions/attention_monitor.py` (`Optional`), `actions/auto_heal_engine.py`
+  (`Union`), `actions/browser_control.py` (`import os`), `actions/meeting_assistant.py` (`import re`),
+  `features/tests_my_internet_speed.py` (`import time`), `features/make_stickman_dance_when.py` (fallback pose
+  referenced undefined `torso_top_pos`/`torso_bottom_pos` → the defined `torso_top`/`torso_bottom`),
+  `test_sensorium_live.py` (use-before-assign `last_window`). Then drove `ruff check .` to zero: safe `--fix`
+  (331) plus ~35 hand-reviewed unsafe fixes — dead assignments removed, side-effecting calls kept by dropping
+  only the binding (`send_message.py`, `gateway/server.py` `hub.attach`, `live_handshake_probe.py`
+  `__aenter__`), a Qt keep-alive and a psutil availability probe kept with `# noqa`, and the `features/__init__.py`
+  re-exports documented via `__all__`. Verified: `ruff check .` → **All checks passed!**; `pytest` →
+  **167 passed**; `accept_local_speech.py` + `accept_instructions.py` → **ALL CRITERIA PASS**;
+  `precommit_check.py --quick` → SAFE. Not pushed.

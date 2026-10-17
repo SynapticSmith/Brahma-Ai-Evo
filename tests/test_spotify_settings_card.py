@@ -1,6 +1,5 @@
 import json
 import os
-from pathlib import Path
 from actions import spotify_controller as spotify_module
 
 
@@ -44,7 +43,7 @@ def test_system_connectivity_page_spotify_card(tmp_path, monkeypatch):
 
     os.environ["QT_QPA_PLATFORM"] = "offscreen"
     from PyQt6.QtWidgets import QApplication, QLineEdit
-    app = QApplication.instance() or QApplication([])
+    app = QApplication.instance() or QApplication([])  # noqa: F841 — keep Qt app alive
 
     import ui
 

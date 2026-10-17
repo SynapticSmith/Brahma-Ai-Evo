@@ -9,19 +9,14 @@ from __future__ import annotations
 import json
 import html as html_lib
 import logging
-import os
-import sys
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
-from PyQt6.QtCore import Qt, QUrl, pyqtSignal, QPoint
-from PyQt6.QtGui import QColor, QFont, QKeySequence, QShortcut
+from PyQt6.QtCore import Qt, QUrl, pyqtSignal
+from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
     QFrame,
-    QGraphicsDropShadowEffect,
-    QHBoxLayout,
     QLabel,
     QPushButton,
     QVBoxLayout,
@@ -67,8 +62,6 @@ def generate_circuit_html(circuit: Dict[str, Any]) -> str:
     showing ONLY the title, component cards, neon wires, and legend.
     """
     title = html_lib.escape(str(circuit.get("title", "Connecting DHT11 and Arduino Pro Mini")))
-    components = circuit.get("components", [])
-    wires = circuit.get("wires", [])
 
     circuit_json = json.dumps(circuit).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
 

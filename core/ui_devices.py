@@ -29,14 +29,14 @@ class SmartDevicesSection(QFrame):
 
         self.setObjectName("SmartDevicesSection")
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self.setStyleSheet(f"""
-            QFrame#SmartDevicesSection {{
+        self.setStyleSheet("""
+            QFrame#SmartDevicesSection {
                 background: transparent;
                 border: none;
-            }}
-            QLabel {{
+            }
+            QLabel {
                 background: transparent;
-            }}
+            }
         """)
 
         root = QVBoxLayout(self)
@@ -682,14 +682,14 @@ class BrahmaConnectDevicesPage(QFrame):
         self._onboarding_known_device_ids: set[str] = set()
 
         self.setObjectName("BrahmaConnectDevicesPage")
-        self.setStyleSheet(f"""
-            QFrame#BrahmaConnectDevicesPage {{
+        self.setStyleSheet("""
+            QFrame#BrahmaConnectDevicesPage {
                 background: transparent;
                 border: none;
-            }}
-            QLabel {{
+            }
+            QLabel {
                 background: transparent;
-            }}
+            }
         """)
 
         root = QVBoxLayout(self)

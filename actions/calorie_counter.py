@@ -11,7 +11,6 @@ Logs meals to memory/nutrition_log.json for daily nutrition tracking.
 import base64
 import json
 import logging
-import os
 import platform
 import time
 from datetime import datetime
@@ -212,7 +211,7 @@ def _analyze_food_multimodal(image_b64: Optional[str], query: str) -> dict:
         "items": [],
         "dietary_flags": ["Balanced"],
         "nutrition_tip": "Balanced meal with moderate protein and carbohydrates.",
-        "spoken_summary": f"Based on your request, this portion contains approximately 350 calories with balanced macronutrients."
+        "spoken_summary": "Based on your request, this portion contains approximately 350 calories with balanced macronutrients."
     }
 
 def _save_nutrition_log(entry: dict) -> None:

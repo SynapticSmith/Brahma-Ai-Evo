@@ -34,12 +34,12 @@ class RemoteKeyOverlay(QWidget):
             self.setFixedSize(520, 640)
             frame.setFixedSize(self.size())
             
-        frame.setStyleSheet(f"""
-            QFrame#RemoteOverlayMainFrame {{
+        frame.setStyleSheet("""
+            QFrame#RemoteOverlayMainFrame {
                 background: rgba(10, 12, 18, 250);
                 border: 1px solid rgba(255, 255, 255, 0.06);
                 border-radius: 24px;
-            }}
+            }
         """)
         
         # elegant shadow
@@ -91,7 +91,7 @@ class RemoteKeyOverlay(QWidget):
         self._key_lbl = QLabel(key)
         self._key_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._key_lbl.setFont(QFont("Consolas", 36, QFont.Weight.Black))
-        self._key_lbl.setStyleSheet(f"""
+        self._key_lbl.setStyleSheet("""
             color: #00e5ff;
             background: rgba(0, 229, 255, 0.05);
             border: 1px solid rgba(0, 229, 255, 0.2);
@@ -279,12 +279,12 @@ class DailyBriefingOverlay(QWidget):
         self._frame = QFrame(self)
         self._frame.setObjectName("BriefingOverlayMainFrame")
         self._frame.setFixedSize(self.size())
-        self._frame.setStyleSheet(f"""
-            QFrame#BriefingOverlayMainFrame {{
+        self._frame.setStyleSheet("""
+            QFrame#BriefingOverlayMainFrame {
                 background: rgba(10, 12, 18, 250);
                 border: 1px solid rgba(0, 229, 255, 0.4);
                 border-radius: 20px;
-            }}
+            }
         """)
 
         try:

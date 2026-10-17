@@ -3,20 +3,19 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import os
 import re
 import shutil
 import tempfile
 import zipfile
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, quote_plus, urljoin, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 import requests
 
 try:
     from bs4 import BeautifulSoup
-except Exception as exc:  # pragma: no cover - dependency is already bundled, but keep graceful fallback
+except Exception:  # pragma: no cover - dependency is already bundled, but keep graceful fallback
     BeautifulSoup = None  # type: ignore[assignment]
 
 try:
@@ -960,7 +959,6 @@ def build_presentation_from_template(
     player=None,
 ) -> str:
     from pptx import Presentation
-    from pptx.enum.shapes import PP_PLACEHOLDER  # type: ignore
 
     prs = Presentation(str(template_path))
     _clear_presentation(prs)

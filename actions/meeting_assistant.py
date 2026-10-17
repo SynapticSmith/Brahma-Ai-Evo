@@ -1,11 +1,10 @@
 from __future__ import annotations
 from core.user_paths import get_user_data_dir
 
-import base64
 import hashlib
 import io
 import json
-import os
+import re
 import threading
 import time
 import wave

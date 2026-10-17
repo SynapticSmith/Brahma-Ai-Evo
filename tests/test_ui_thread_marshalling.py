@@ -14,7 +14,6 @@ GUI-thread marshaller rather than executing inline.
 from __future__ import annotations
 
 import importlib
-import os
 import subprocess
 import sys
 import textwrap

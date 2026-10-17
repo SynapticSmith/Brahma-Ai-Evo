@@ -11,8 +11,6 @@ No network calls are made: the OpenRouter client is exercised with its pool
 intact and asserted to bail before touching it.
 Usage: py -3.11 accept_providers.py
 """
-import os
-import re
 import sys
 import time
 from pathlib import Path

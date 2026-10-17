@@ -8,8 +8,6 @@ Provides low-latency, non-blocking sci-fi acoustics for holographic UI interacti
 - Listening start / stop pings
 """
 
-import sys
-import os
 import time
 import math
 import wave

@@ -4,7 +4,6 @@ import asyncio
 import base64
 import json
 import time
-from dataclasses import dataclass
 from typing import Any
 
 import requests

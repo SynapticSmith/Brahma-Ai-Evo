@@ -57,7 +57,7 @@ def kill_process(pid: int = None, name: str = None) -> str:
 
 def run(parameters: dict, player=None, session_memory=None) -> str:
     try:
-        import psutil
+        import psutil  # noqa: F401 — availability probe
     except ImportError:
         return "psutil library is not installed. Cannot check system health."
 

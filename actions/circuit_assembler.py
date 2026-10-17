@@ -6,16 +6,12 @@ safety warnings, and assembly steps, and launches the Holographic Circuit HUD.
 
 from __future__ import annotations
 
-import base64
 import json
 import logging
 import os
 import re
-import sys
-import threading
-import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from core.user_paths import get_user_data_dir
 

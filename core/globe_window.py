@@ -15,12 +15,12 @@ from core.qt_bootstrap import bootstrap
 
 bootstrap()
 
-from PyQt6.QtCore import Qt, QUrl, pyqtSlot, QObject, pyqtSignal, QTimer, QPoint, QCoreApplication
+from PyQt6.QtCore import Qt, QUrl, pyqtSlot, QObject, pyqtSignal, QTimer
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QWidget, QHBoxLayout, QLabel,
-    QPushButton, QGraphicsDropShadowEffect, QApplication
+    QVBoxLayout, QWidget, QHBoxLayout, QLabel,
+    QPushButton
 )
-from PyQt6.QtGui import QColor, QIcon
+from PyQt6.QtGui import QColor
 
 # QtWebEngineWidgets is imported lazily at first use (see the QWebEngineView
 # import inside the globe dialog). Importing it eagerly here starts Chromium's

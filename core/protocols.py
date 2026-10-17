@@ -4,11 +4,10 @@ High-level macro orchestrator that reconfigures the user's digital environment
 across PC and connected mobile devices with a single directive.
 """
 
-import os
 import sys
 import subprocess
 import ctypes
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 import psutil
 
 from core.identity import identity
@@ -89,7 +88,6 @@ class ProtocolEngine:
             pass
 
         # Memory compaction / purge idle working sets
-        ram_before = psutil.virtual_memory().percent
         try:
             if sys.platform == "win32":
                 # Flush empty working sets
