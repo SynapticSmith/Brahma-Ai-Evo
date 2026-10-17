@@ -832,3 +832,25 @@ These were listed as incomplete before this pass. **None of them is done, and no
   re-exports documented via `__all__`. Verified: `ruff check .` → **All checks passed!**; `pytest` →
   **167 passed**; `accept_local_speech.py` + `accept_instructions.py` → **ALL CRITERIA PASS**;
   `precommit_check.py --quick` → SAFE. Not pushed.
+- 2026-10-16 - **Upstream issue #2 fixed in the fork: standby wake-word capture moved off PyAudio to `sounddevice`.**
+  The reporter's `pip install -r requirements.txt` died compiling `pyaudio==0.2.14`
+  (`fatal error C1083: portaudio.h`) because their interpreter was Python 3.14, for which PyAudio ships no
+  wheel (wheels stop at cp313); the README already requires 3.11/3.12 (`README.md:9`, `README.md:104-106`).
+  Instead of chasing the C extension, the standby mic path now uses the backend the live and local-voice paths
+  already use. `core/session_lifecycle.py` `_wakeword_loop` rewritten: `sd.InputStream(samplerate=SEND_SAMPLE_RATE,
+  blocksize=int(SEND_SAMPLE_RATE*0.1), device=<resolved>, dtype="int16", channels=1, callback=...)` pushes
+  `(pcm, level)` onto a bounded `queue.Queue`; the same energy gate as the local loop (`level > 300`, 3 silent
+  chunks, 4 s cap) seals a phrase, which is wrapped in `sr.AudioData(pcm, SEND_SAMPLE_RATE, 2)` so
+  `_transcribe_wakeword` and its pluggable STT engine keep their exact contract. Device resolution mirrors
+  `_run_local_voice_session` (`audio_devices.resolve(config_manager.get_input_device(), "input")`); the callback
+  never raises into cffi (that would silently kill the stream). Retry / `finally` semantics and the
+  `self._host._wake_stop is stop` guard are preserved, and `import queue, sounddevice` joins the existing
+  `try/except` so a missing backend degrades to "use the Connect button" instead of crashing. Dropped `pyaudio`
+  from `requirements.txt` and the `installer/BrahmaEvo.spec` hiddenimports, and updated the `_transcribe_wakeword`
+  comment (`main.py:2500`). `accept_wakeword.py` reworked around a `FakeInputStream` (scripted loud/silent blocks),
+  so B/C are hardware-independent and deterministic; section A now legitimately reports 0 STT calls when ambient
+  sound never crosses the energy gate. `bootstrap.ps1` now hard-fails (`exit 1`, red message + install link) on an
+  interpreter that is not 3.11/3.12 - previously a bare `py` default (e.g. 3.14) still produced an out-of-range venv
+  - and auto-downloads 3.11.8 only when no Python exists at all. Verified: `ruff check .` -> **All checks passed!**;
+  `pytest` -> **167 passed** (offscreen); `accept_wakeword.py` -> B/C/C2 pass (section A reports 0 STT calls on this
+  box's silent input); `accept_live_toggle.py` -> **ALL CRITERIA PASS**. Not pushed.

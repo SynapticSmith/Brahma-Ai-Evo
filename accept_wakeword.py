@@ -2,12 +2,13 @@
 accept_wakeword.py
 End-to-end check for the On Call standby wake word in main.py.
 
-This is the last untested path from the On Call audit: it opens the REAL
-microphone, runs the REAL _wakeword_loop, and captures real audio through the
-real SpeechRecognition pipeline.
+This is the last untested path from the On Call audit: it drives the REAL
+_wakeword_loop, with a real microphone in section A and a scripted sounddevice
+capture in sections B/C.
 
-  A. hardware + network path -- the real mic opens, ambient noise calibrates,
-     and recognize_google is actually invoked on captured audio
+  A. hardware + network path -- the real mic opens and recognize_google is
+     actually invoked on captured audio (needs ambient sound above the speech
+     energy gate, so it can legitimately report 0 calls in a silent room)
   B. detection  -- "Brahma Evo" (and only that) flips the session to connected
   C. no false positives -- "hi", "hello" and unrelated chatter do NOT connect
   D. shutdown -- the listener stops promptly and releases the microphone
@@ -116,34 +117,51 @@ def test_real_microphone() -> None:
 
 
 # ---------------------------------------------------------------------------
-# B/C. Detection and false positives, with a scripted recognizer.
+# B/C. Detection and false positives, with scripted sounddevice capture.
 # ---------------------------------------------------------------------------
-class FakeRecognizer:
-    """Feeds a fixed transcript to the real _wakeword_loop."""
+class FakeInputStream:
+    """Stand-in for sounddevice.InputStream that replays scripted audio.
 
-    def __init__(self, transcript: str, loop_count: int = 3) -> None:
-        self.transcript = transcript
-        self.loop_count = loop_count
-        self.dynamic_response_threshold = True
-        self.seen = 0
+    Feeds the real _wakeword_loop a repeating loud/silent pattern so its energy
+    gate seals a phrase and calls the scripted transcriber -- no hardware, and no
+    dependence on a live microphone's noise floor.
+    """
 
-    def adjust_for_ambient_noise(self, source, duration=None):
-        return None
+    def __init__(self, samplerate=None, blocksize=None, device=None,
+                 dtype=None, channels=None, callback=None):
+        self.samplerate = samplerate or 16000
+        self.blocksize = blocksize or int(self.samplerate * 0.1)
+        self.callback = callback
+        self._stop = threading.Event()
+        self._thread = None
 
-    def listen(self, source, timeout=None, phrase_time_limit=None):
-        self.seen += 1
-        if self.seen > self.loop_count:
-            raise AssertionError("stop guard tripped: listener never stopped")
-        time.sleep(0.05)
-        return object()
-
-
-class FakeMicrophone:
     def __enter__(self):
-        return object()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+        return self
 
-    def __exit__(self, *a):
+    def __exit__(self, *exc):
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)
         return False
+
+    def _run(self):
+        import numpy as np
+
+        loud = np.full((self.blocksize, 1), 8000, dtype=np.int16)
+        quiet = np.zeros((self.blocksize, 1), dtype=np.int16)
+        while not self._stop.is_set():
+            for _ in range(5):
+                if self._stop.is_set():
+                    return
+                self.callback(loud, len(loud), None, None)
+                time.sleep(0.01)
+            for _ in range(4):
+                if self._stop.is_set():
+                    return
+                self.callback(quiet, len(quiet), None, None)
+                time.sleep(0.01)
 
 
 def run_with_transcript(transcript: str, expect_connect: bool) -> Harness:
@@ -152,14 +170,18 @@ def run_with_transcript(transcript: str, expect_connect: bool) -> Harness:
     On a wake word the loop must exit (it hands off to the session). On
     ordinary speech it must KEEP listening -- that is what standby means.
     """
-    import speech_recognition as sr
+    import sounddevice as sd
 
     h = Harness()
-    real_recognizer, real_microphone = sr.Recognizer, sr.Microphone
-    fake = FakeRecognizer(transcript, loop_count=3)
-    sr.Recognizer = lambda *a, **k: fake
-    sr.Microphone = FakeMicrophone
-    h._transcribe_wakeword = staticmethod(lambda recognizer, audio: transcript)
+    real_stream = sd.InputStream
+    heard = {"n": 0}
+
+    def _fake_transcribe(recognizer, audio):
+        heard["n"] += 1
+        return transcript
+
+    sd.InputStream = FakeInputStream
+    h._transcribe_wakeword = _fake_transcribe
     try:
         h._start_wakeword_listener()
         # _stop_wakeword_listener() clears the attribute, so hold our own ref.
@@ -170,11 +192,11 @@ def run_with_transcript(transcript: str, expect_connect: bool) -> Harness:
                   not thread.is_alive())
         else:
             check(f"listener stayed armed on {transcript!r}", thread.is_alive(),
-                  f"frames heard={fake.seen}")
-            check(f"listener is still polling {transcript!r}", fake.seen >= 3,
-                  f"frames heard={fake.seen}")
+                  f"phrases heard={heard['n']}")
+            check(f"listener is still polling {transcript!r}", heard["n"] >= 2,
+                  f"phrases heard={heard['n']}")
     finally:
-        sr.Recognizer, sr.Microphone = real_recognizer, real_microphone
+        sd.InputStream = real_stream
         h._stop_wakeword_listener()
         if h._wake_thread is not None:
             h._wake_thread.join(timeout=5.0)

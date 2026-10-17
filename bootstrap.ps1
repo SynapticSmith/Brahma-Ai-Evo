@@ -31,34 +31,73 @@ function Update-Environment {
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
 }
 
-# 3. Check for Python (prefer a supported version: 3.11 / 3.12)
+# 3. Check for Python (only 3.11 / 3.12 are supported -- see README)
+$SupportedPython = @("3.11", "3.12")
 $PythonExe = $null
 $PythonVersionArg = ""
+$DetectedVersion = $null
+
+# Read "major.minor" from an interpreter, or $null if it does not run.
+function Get-PythonVersion([string]$Exe, [string[]]$PreArgs = @()) {
+    try {
+        $out = & $Exe @PreArgs -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null
+        if ($LASTEXITCODE -eq 0) { return ($out | Select-Object -First 1).Trim() }
+    } catch { }
+    return $null
+}
+
 if (Get-Command "py" -ErrorAction SilentlyContinue) {
     foreach ($v in @("-3.12","-3.11")) {
-        & py $v -c "import sys" 2>$null
-        if ($LASTEXITCODE -eq 0) { $PythonExe = "py"; $PythonVersionArg = $v; break }
+        $ver = Get-PythonVersion "py" @($v)
+        if ($ver -and ($SupportedPython -contains $ver)) {
+            $PythonExe = "py"; $PythonVersionArg = $v; $DetectedVersion = $ver; break
+        }
     }
-    if (-not $PythonExe) { $PythonExe = "py" }   # fall back to whatever py defaults to
+    if (-not $PythonExe) {
+        # py exists but no supported version among its aliases -- remember what
+        # it defaults to so the error below can name the offending version.
+        $DetectedVersion = Get-PythonVersion "py"
+    }
 }
-elseif (Get-Command "python" -ErrorAction SilentlyContinue) { $PythonExe = "python" }
+if (-not $PythonExe -and (Get-Command "python" -ErrorAction SilentlyContinue)) {
+    $ver = Get-PythonVersion "python"
+    if ($ver -and ($SupportedPython -contains $ver)) {
+        $PythonExe = "python"; $DetectedVersion = $ver
+    } elseif ($ver -and -not $DetectedVersion) {
+        $DetectedVersion = $ver
+    }
+}
+
+# A too-new (or too-old) interpreter is the root cause of the
+# "fatal error C1083: portaudio.h" build failure, so refuse to build a venv on
+# one instead of silently falling through to it.
+if (-not $PythonExe -and $DetectedVersion) {
+    Write-Host ""
+    Write-Host "Unsupported Python version detected: $DetectedVersion" -ForegroundColor Red
+    Write-Host "Brahma Evo requires Python 3.11 or 3.12; newer versions have no" -ForegroundColor Red
+    Write-Host "wheels for several bundled dependencies and will fail to build." -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Install Python 3.12 from https://www.python.org/downloads/ and re-run" -ForegroundColor Yellow
+    Write-Host "bootstrap.ps1." -ForegroundColor Yellow
+    exit 1
+}
 
 if (-not $PythonExe) {
     Write-Host "Python not found. Downloading Python 3.11.8..." -ForegroundColor Yellow
     $PythonUrl = "https://www.python.org/ftp/python/3.11.8/python-3.11.8-amd64.exe"
     $PythonInstaller = "$env:TEMP\python_installer.exe"
     Invoke-WebRequest -Uri $PythonUrl -OutFile $PythonInstaller
-    
+
     Write-Host "Installing Python (Silent Mode)..." -ForegroundColor Yellow
     Start-Process -FilePath $PythonInstaller -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_test=0" -Wait
-    
+
     Write-Host "Python installed successfully." -ForegroundColor Green
     Update-Environment
     $PythonExe = "python"
     $PythonVersionArg = ""
+    $DetectedVersion = "3.11"
 } else {
-    $PythonDesc = "$PythonExe $PythonVersionArg".Trim()
-    Write-Host "Python is already installed: $PythonDesc ($(Get-Command $PythonExe | Select-Object -ExpandProperty Source))" -ForegroundColor Green
+    Write-Host "Python $DetectedVersion detected ($PythonExe $PythonVersionArg)." -ForegroundColor Green
 }
 
 # 4. Check for Node.js

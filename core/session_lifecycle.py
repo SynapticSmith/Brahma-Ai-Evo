@@ -202,42 +202,95 @@ class SessionLifecycle:
         bring the session back up. It owns the microphone exclusively while
         disconnected, which is exactly when the live InputStream is not open,
         so the two never contend for the device.
+
+        Capture is sounddevice -- the same backend the live and local-voice
+        paths use -- so this thread needs no PyAudio C extension. Frames are
+        sealed into phrases by the same energy gate the local-voice loop uses,
+        then wrapped in an ``sr.AudioData`` so ``_transcribe_wakeword`` (and its
+        pluggable STT engine) keeps its exact contract.
         """
         stop = self._host._wake_stop
         try:
+            import queue
+            import sounddevice as sd
             import speech_recognition as sr
         except Exception:
             try:
                 self._host.ui.write_log(
-                    "SYS: On Call wake word unavailable (pip install SpeechRecognition); "
-                    "use the Connect button."
+                    "SYS: On Call wake word unavailable "
+                    "(pip install SpeechRecognition sounddevice); use the Connect button."
                 )
             except Exception:
                 pass
             return
 
         recognizer = sr.Recognizer()
-        recognizer.dynamic_response_threshold = False
+        blocks: "queue.Queue" = queue.Queue(maxsize=200)
+
+        def _callback(indata, frames, time_info, status):
+            # A raise here is swallowed by cffi ("Exception ignored from cffi
+            # callback") and the stream then goes silent forever. _pcm_block
+            # already tolerates every buffer shape sounddevice may hand us, and
+            # nothing in this callback is allowed to propagate. Drop on a full
+            # queue instead of growing it without bound while a phrase is being
+            # transcribed.
+            try:
+                blocks.put_nowait(_pcm_block(indata))
+            except Exception:
+                pass
+
+        # Resolve the configured microphone the way the local-voice path does;
+        # an unset/renamed device falls back to the system default (device=None),
+        # exactly what sr.Microphone() used to select.
+        mic_name = config_manager.get_input_device()
+        mic_dev = audio_devices.resolve(mic_name, "input") if mic_name else None
+
         print("[BRAHMA EVO] ON-CALL: wake word armed.")
         try:
-            while stop is not None and not stop.is_set():
+            while (
+                stop is not None and not stop.is_set()
+                and self._host._wake_stop is stop
+            ):
                 try:
-                    with sr.Microphone() as source:
-                        recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                        while stop is not None and not stop.is_set():
-                            audio = recognizer.listen(
-                                source, timeout=3.0, phrase_time_limit=2.5
-                            )
-                            # A Disconnect / mode change may have landed while
-                            # listen() was blocking. Don't resurrect a session the
-                            # user just dropped.
-                            if stop.is_set() or self._host._wake_stop is not stop:
-                                return
-                            transcript = self._host._transcribe_wakeword(recognizer, audio)
-                            if _standby_wakeword_detected(transcript):
-                                print("[BRAHMA EVO] ON-CALL: wake word heard - connecting.")
-                                self._host.set_live_call(True)
-                                return
+                    with sd.InputStream(
+                        samplerate=SEND_SAMPLE_RATE,
+                        blocksize=int(SEND_SAMPLE_RATE * 0.1),
+                        device=mic_dev, dtype="int16", channels=1,
+                        callback=_callback,
+                    ):
+                        speech_buffer = bytearray()
+                        silence_chunks = 0
+                        while (
+                            stop is not None and not stop.is_set()
+                            and self._host._wake_stop is stop
+                        ):
+                            try:
+                                raw, level = blocks.get(timeout=0.1)
+                            except queue.Empty:
+                                continue
+                            if level > 300.0:
+                                speech_buffer.extend(raw)
+                                silence_chunks = 0
+                            elif speech_buffer:
+                                silence_chunks += 1
+                            # A phrase ends on ~0.3 s of silence, or is cut at 4 s
+                            # so a noisy room cannot grow the buffer forever.
+                            if speech_buffer and (
+                                silence_chunks >= 3
+                                or len(speech_buffer) >= SEND_SAMPLE_RATE * 2 * 4
+                            ):
+                                captured = bytes(speech_buffer)
+                                speech_buffer.clear()
+                                silence_chunks = 0
+                                if len(captured) > (SEND_SAMPLE_RATE * 2 * 0.3):
+                                    audio = sr.AudioData(captured, SEND_SAMPLE_RATE, 2)
+                                    transcript = self._host._transcribe_wakeword(
+                                        recognizer, audio
+                                    )
+                                    if _standby_wakeword_detected(transcript):
+                                        print("[BRAHMA EVO] ON-CALL: wake word heard - connecting.")
+                                        self._host.set_live_call(True)
+                                        return
                 except Exception as e:
                     if stop is None or stop.is_set():
                         return

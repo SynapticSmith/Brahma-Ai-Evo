@@ -2498,9 +2498,10 @@ class BrahmaLive:
 
     @staticmethod
     def _transcribe_wakeword(recognizer, audio) -> str:
-        # Capture still comes from SpeechRecognition (it owns the mic and the
-        # silence trimming); only the transcription is pluggable, so an offline
-        # machine can use faster-whisper for the wake word too.
+        # Capture comes from the caller (_wakeword_loop, via sounddevice); the
+        # audio arrives wrapped in an sr.AudioData purely so the transcription
+        # stays pluggable -- an offline machine can use faster-whisper for the
+        # wake word too.
         try:
             from core import speech_stt
 
