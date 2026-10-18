@@ -22,10 +22,11 @@ ladder can report and fail over from.
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 import urllib.request
 import threading
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any, Dict, Generator, List, Optional, Tuple
 
 DEFAULT_ENDPOINT = "http://localhost:11434/v1"
 DEFAULT_MODEL = "qwen2.5:3b"
@@ -33,15 +34,35 @@ DEFAULT_MODEL = "qwen2.5:3b"
 # urllib takes a single socket timeout (connect + each recv), not a
 # (connect, read) tuple like requests. Never None.
 #
-# Non-streaming: the whole body arrives after generation finishes, and prompt
-# evaluation of a bounded tool surface on a busy CPU can take a while before
-# the first byte -> generous.
-RESPONSE_TIMEOUT = 180.0
-# Streaming: a healthy stream yields chunks continuously; this is the maximum
-# allowed silence between chunks before the server counts as wedged.
+# Timeout profiles. The non-streaming budget covers the WHOLE body - prompt
+# prefill of the ~4K-token system context plus full decode - so it is most
+# load-bearing in two places: slow hardware (prefill must be allowed to
+# finish) and dead hardware (the finite budget is what lets the reply ladder
+# fail over instead of wedging a worker forever - log section 14).
+#   fast: a VRAM-resident model prefills at hundreds-to-thousands of tok/s;
+#         180 s is the historical behaviour and a good failure bound.
+#   slow: a CPU-resident 3B model prefills at ~10-20 tok/s, so the same
+#         context can take several minutes before the first response byte;
+#         600 s covers prefill plus a full answer.
+# active_profile() resolves which applies: an explicit local_timeout_profile
+# Settings value wins; "auto" (default) asks the runtime where the model
+# actually lives (see _model_is_cpu_resident). Both budgets stay finite -
+# a wedged server must still become a surfaced error, never a hang.
+TIMEOUT_PROFILES: Dict[str, Dict[str, float]] = {
+    "fast": {"response": 180.0, "first_token": 180.0},
+    "slow": {"response": 600.0, "first_token": 600.0},
+}
+DEFAULT_TIMEOUT_PROFILE = "fast"  # inconclusive auto-detection keeps this
+# Streaming: once tokens are flowing, the maximum allowed silence between
+# chunks before the server counts as wedged. Before the first chunk the
+# profile's first_token budget applies instead (prefill - see _open_stream).
 STREAM_IDLE_TIMEOUT = 60.0
-# Liveness probe: fail fast, the UI polls this.
+# Liveness probe: fail fast, the UI polls this. Also the /api/ps budget -
+# both are cheap local admin endpoints.
 PROBE_TIMEOUT = 3.0
+# /api/ps results are cached briefly: the probe is cheap, but not free
+# enough to repeat on every follow-up call inside a tool loop.
+PS_CACHE_TTL = 60.0
 
 # Context window requested from the local runtime. Ollama's OpenAI-compatible
 # endpoint silently truncates to its own default (2048-4096 tokens), which is
@@ -97,6 +118,55 @@ def _load_settings() -> Dict[str, Any]:
         return {}
 
 
+def _cpu_resident_from_ps(data: Any, model: str) -> Optional[bool]:
+    """Interpret an Ollama ``GET /api/ps`` body for one model.
+
+    Returns True when the model is loaded with zero VRAM (CPU-resident, i.e.
+    prefill runs at CPU speed), False when it holds any VRAM (even a partial
+    offload), and None when the body cannot say - non-Ollama shape, unknown
+    field types, or the model not being among the loaded ones.
+    """
+    if not isinstance(data, dict) or not isinstance(data.get("models"), list):
+        return None
+    entries = [e for e in data["models"] if isinstance(e, dict)]
+    wanted = (model or "").strip()
+    match: Optional[dict] = None
+    for entry in entries:
+        # Ollama reports "qwen2.5:3b:latest" while Settings may hold
+        # "qwen2.5:3b"; either direction of prefix means the same load.
+        name = str(entry.get("name") or entry.get("model") or "")
+        if wanted and name and (name.startswith(wanted) or wanted.startswith(name)):
+            match = entry
+            break
+    if match is None and len(entries) == 1:
+        # A single loaded model is unambiguous even when the tag differs
+        # (e.g. the user pulled a quant variant with another tag).
+        match = entries[0]
+    if match is None or "size_vram" not in match:
+        return None
+    try:
+        return int(match["size_vram"]) == 0
+    except (TypeError, ValueError):
+        return None
+
+
+def _tighten_stream_timeout(resp: Any) -> None:
+    """Switch a live stream's socket from the first-token budget to the
+    inter-chunk budget (STREAM_IDLE_TIMEOUT).
+
+    Prefill is over once the first byte arrives, so from here a silent
+    server means a wedged one and should fail fast. The switch reaches
+    through http.client's response object (``fp.raw._sock``) to the
+    underlying socket - a CPython implementation detail - so every step is
+    defensively probed: on any failure the larger first-token budget simply
+    stays in place (still bounded, just less tight).
+    """
+    try:
+        resp.fp.raw._sock.settimeout(STREAM_IDLE_TIMEOUT)
+    except Exception:
+        pass
+
+
 class LocalBrain:
     def __init__(self, endpoint: Optional[str] = None, default_model: Optional[str] = None):
         self.enabled = False
@@ -107,6 +177,8 @@ class LocalBrain:
         self._pinned_model = (default_model or "").strip() or None
         self.endpoint = DEFAULT_ENDPOINT
         self._default_model = DEFAULT_MODEL
+        self._timeout_profile = "auto"
+        self._ps_cache: Dict[str, Tuple[float, bool]] = {}
         self.reload_settings()
 
     # ------------------------------------------------------------- settings
@@ -133,6 +205,11 @@ class LocalBrain:
             model = str(data.get("local_ai_model") or "").strip()
             if model:
                 self._default_model = model
+        # Timeout patience: "auto" (default) resolves per turn from where the
+        # model actually runs; "fast"/"slow" force a profile. Unknown values
+        # fall back to "auto" rather than to a silent fast/slow surprise.
+        profile = str(data.get("local_timeout_profile") or "auto").strip().lower()
+        self._timeout_profile = profile if profile in ("auto", "fast", "slow") else "auto"
 
     @property
     def default_model(self) -> str:
@@ -378,6 +455,71 @@ class LocalBrain:
             return fallback, ""
         return picked, (payload.get("skill_context") or "")
 
+    # ------------------------------------------------------------- timeouts
+
+    def active_profile(self) -> str:
+        """Resolve the timeout profile to "fast" or "slow".
+
+        An explicit ``local_timeout_profile`` Settings value ("fast"/"slow",
+        re-read with everything else) wins. "auto" asks the runtime where the
+        target model actually lives: RAM-resident means CPU inference, where
+        prefill of the system context alone can take minutes, so the slow
+        budgets apply. Anything inconclusive - VRAM-resident, non-Ollama
+        server, probe failure - keeps the fast defaults, which is both the
+        historical behaviour and the safer failure bound.
+        """
+        if self._timeout_profile in ("fast", "slow"):
+            return self._timeout_profile
+        return "slow" if self._model_is_cpu_resident() else DEFAULT_TIMEOUT_PROFILE
+
+    def response_timeout(self) -> float:
+        """Seconds a non-streaming completion may take (whole body).
+
+        Covers prompt prefill plus full decode; see TIMEOUT_PROFILES.
+        """
+        return TIMEOUT_PROFILES[self.active_profile()]["response"]
+
+    def first_token_timeout(self) -> float:
+        """Seconds a stream may spend before its first byte arrives.
+
+        Prefill happens before any chunk, so this - not STREAM_IDLE_TIMEOUT -
+        is the prefill budget (see _open_stream).
+        """
+        return TIMEOUT_PROFILES[self.active_profile()]["first_token"]
+
+    def _model_is_cpu_resident(self) -> bool:
+        """True only when the runtime positively reports the model in RAM.
+
+        Probes Ollama's ``GET /api/ps`` (result cached for PS_CACHE_TTL
+        seconds per endpoint+model). Any failure - non-Ollama server, probe
+        timeout, unexpected shape - returns False so callers keep the fast
+        defaults rather than inventing patience from an error.
+        """
+        key = f"{self.endpoint}|{self._default_model}"
+        now = time.monotonic()
+        cached = self._ps_cache.get(key)
+        if cached and (now - cached[0]) < PS_CACHE_TTL:
+            return cached[1]
+        result = False
+        try:
+            root = self.endpoint[:-3] if self.endpoint.endswith("/v1") else self.endpoint
+            raw = self._get_json(f"{root}/api/ps")
+            result = _cpu_resident_from_ps(raw, self._default_model) is True
+        except Exception:
+            result = False
+        self._ps_cache[key] = (now, result)
+        return result
+
+    def _get_json(self, url: str) -> Any:
+        """GET one URL with a finite timeout and parse the JSON body.
+
+        Raises LocalBrainError on any transport failure; callers that use it
+        for capability probes decide themselves what a failure means.
+        """
+        req = urllib.request.Request(url, headers={"Content-Type": "application/json"})
+        with self._open(req, PROBE_TIMEOUT) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
     # ------------------------------------------------------------- chat
 
     def generate_chat_stream(
@@ -413,7 +555,14 @@ class LocalBrain:
             headers={"Content-Type": "application/json"},
         )
         with self._open_stream(req) as resp:
+            tightened = False
             for line in resp:
+                if not tightened:
+                    # The first byte proves the server is generating (prefill
+                    # is over); from here the tight inter-chunk budget
+                    # applies instead of the patient first-token budget.
+                    tightened = True
+                    _tighten_stream_timeout(resp)
                 line_str = line.decode("utf-8").strip()
                 if line_str.startswith("data: "):
                     content = line_str[6:].strip()
@@ -426,16 +575,22 @@ class LocalBrain:
                         pass
 
     def _open_stream(self, req: urllib.request.Request):
-        """Open a streaming response with a finite inter-chunk timeout."""
+        """Open a streaming response with the profile's first-token budget.
+
+        urllib's socket timeout is a single per-recv value, and the first
+        recv includes prompt prefill - which on a CPU-resident model can
+        take minutes before the first chunk. generate_chat_stream tightens
+        the socket to STREAM_IDLE_TIMEOUT once data starts arriving.
+        """
         try:
-            return urllib.request.urlopen(req, timeout=STREAM_IDLE_TIMEOUT)
+            return urllib.request.urlopen(req, timeout=self.first_token_timeout())
         except urllib.error.HTTPError as e:
             raise LocalBrainError(f"{req.full_url}: HTTP {e.code} {e.reason}") from e
         except urllib.error.URLError as e:
             raise LocalBrainError(f"{req.full_url}: {e.reason}") from e
         except TimeoutError as e:
             raise LocalBrainError(
-                f"{req.full_url}: timed out after {STREAM_IDLE_TIMEOUT:.0f}s"
+                f"{req.full_url}: timed out after {self.first_token_timeout():.0f}s"
             ) from e
 
     def chat_complete(
@@ -453,6 +608,7 @@ class LocalBrain:
         silent empty response can never masquerade as an answer upstream.
         """
         active_model = model or self.default_model
+        self.reload_settings()
         payload: Dict[str, Any] = {
             "model": active_model,
             "messages": messages,
@@ -465,7 +621,7 @@ class LocalBrain:
         if tools:
             payload["tools"] = self.format_tools_for_local(tools, focus_core=focus_core)
 
-        body = self._post_json(payload, RESPONSE_TIMEOUT)
+        body = self._post_json(payload, self.response_timeout())
         try:
             res = json.loads(body)
         except ValueError as e:

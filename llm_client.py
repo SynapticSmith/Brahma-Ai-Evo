@@ -31,6 +31,23 @@ DEFAULT_LOCAL_MODEL = "llama3.2"
 REQUEST_TIMEOUT = (10.0, 180.0)
 
 
+def _local_read_timeout() -> tuple:
+    """(connect, read) budget for the local provider.
+
+    The local model may be CPU-resident, where prefill of a long system
+    prompt alone can exceed REQUEST_TIMEOUT's read budget; LocalBrain
+    resolves the hardware-aware profile (core.local_brain.TIMEOUT_PROFILES),
+    so its link borrows that budget instead of maintaining a second,
+    conflicting constant. Any failure keeps REQUEST_TIMEOUT.
+    """
+    try:
+        from core.local_brain import local_brain
+
+        return (REQUEST_TIMEOUT[0], local_brain.response_timeout())
+    except Exception:
+        return REQUEST_TIMEOUT
+
+
 def _strip_json_fence(raw: str) -> str:
     """Removes markdown code fences from a model response."""
     clean = raw.strip()
@@ -92,6 +109,7 @@ class UnifiedAIClient:
         max_tokens: Optional[int] = None,
         response_format: Optional[dict] = None,
         label: str = "OpenAI-compatible",
+        timeout: tuple = REQUEST_TIMEOUT,
     ) -> Optional[str]:
         payload: Dict[str, Any] = {
             "model": model,
@@ -109,7 +127,7 @@ class UnifiedAIClient:
                 endpoint,
                 headers=self._auth_headers(api_key),
                 json=payload,
-                timeout=REQUEST_TIMEOUT,
+                timeout=timeout,
             )
             if resp.status_code == 200:
                 data = resp.json()
@@ -120,7 +138,7 @@ class UnifiedAIClient:
         except requests.Timeout as e:
             logger.error(
                 f"[LLM Client] {label} timed out after "
-                f"{REQUEST_TIMEOUT[1]:.0f}s reading {endpoint}: {e}"
+                f"{timeout[1]:.0f}s reading {endpoint}: {e}"
             )
             return None
         except Exception as e:
@@ -326,9 +344,13 @@ class UnifiedAIClient:
                 prompt, system, history, None, max_tokens, temperature
             )
 
+        timeout = REQUEST_TIMEOUT
         if pid == "local":
             url, model, key = self._local_url, self._local_model, self._local_api_key
             label = "Local AI"
+            # CPU-resident inference needs the hardware-aware patience;
+            # LocalBrain resolves it (see _local_read_timeout).
+            timeout = _local_read_timeout()
             hint = (
                 "Local AI request failed. Check that the server is running and "
                 "that the URL and model in Settings > AI Providers are correct."
@@ -372,6 +394,7 @@ class UnifiedAIClient:
             temperature=temperature,
             max_tokens=max_tokens,
             label=label,
+            timeout=timeout,
         )
         if result:
             return result

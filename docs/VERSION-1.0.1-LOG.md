@@ -6,18 +6,18 @@ theme, with the verification evidence that backs each group.
 
 - **Baseline (before this work):** `e0bd3c5` - last commit by GodxSuryaansh.
 - **Range documented:** `e0bd3c5..HEAD`.
-- **Commits in range:** 118 (all authored by SynapticSmith; the original 103 was
+- **Commits in range:** 119 (all authored by SynapticSmith; the original 103 was
   measured at `67b18b4`, the last commit of the section-10 inventory; 115 were on
   `main` before section 14 was written - the four in-between commits are listed
-  in section 14.6 - and the last three carry sections 14, 15 and 16).
-- **HEAD at last update:** the 2026-10-18 commit carrying section 16 (previous
-  markers: `4900107` for section 15, `b820292` for section 14, `664ae4b` for
-  section 13.5).
-- **Diff footprint:** 256 files changed, 150,529 insertions(+), 18,022 deletions(-)
-  (re-measured across the worktree carrying section 16; the original
+  in section 14.6 - and the last four carry sections 14, 15, 16 and 17).
+- **HEAD at last update:** the 2026-10-18 commit carrying section 17 (previous
+  markers: `e653c1f` for section 16, `4900107` for section 15, `b820292` for
+  section 14, `664ae4b` for section 13.5).
+- **Diff footprint:** 257 files changed, 151,266 insertions(+), 18,022 deletions(-)
+  (re-measured across the worktree carrying section 17; the original
   231 / 141,610 / 17,371 predates the close-out documentation commits -
-  section 13.5, and the 257 / 150,389 / 18,021 of section 15 predates the
-  prompt rewrite and the removal of the tracked prompt copy).
+  section 13.5, and the 256 / 150,529 / 18,022 of section 16 predates the
+  local timeout profiles).
 - **Product version in tree:** `1.0.0` (see section 12 for the `1.0.1` bump).
 - **Source material:** this repository's `git` history plus
   `docs/CODE-REVIEW-TODO.md`, `docs/ONE-391-changes.md`,
@@ -922,3 +922,96 @@ to JSON-Schema casing.
 Landed as the single commit carrying this section (subject: `feat(prompt):
 rewrite system prompt as multi-step agent with full capability map`); see
 `git log`.
+
+---
+
+## 17. Hardware-aware timeout patience for the local model (2026-10-18)
+
+Running the app on slow CPU hardware exposed the next defect: turns were cut
+off mid-inference instead of being allowed to finish. The local reply path is
+non-streaming, so its single socket budget covers **prompt prefill of the
+~4K-token system context plus full decode** - and on a CPU-resident 3B model
+(~10-20 tok/s prefill) that legitimately takes several minutes, against a
+GPU-era budget of 180 s.
+
+### 17.1 Diagnosis
+
+| Clock | Value | Slow-CPU failure |
+| --- | --- | --- |
+| `chat_complete` (`RESPONSE_TIMEOUT`) - the main local turn and its follow-up | 180 s, whole body | Aborts mid-prefill: prefill alone can need 200-400 s before one response byte exists |
+| Gateway local link (`llm_client.chat_as("local", ...)` -> `REQUEST_TIMEOUT`) | 180 s read | Memory extraction / intent parsing dies at the same point |
+| `generate_chat_stream` (first recv) | 60 s inter-chunk | urllib's per-recv timeout also bounds time-to-first-token, i.e. prefill - latent (no callers today) but a trap |
+
+Two naive fixes were considered and rejected on the record: **`timeout=None`**
+reintroduces the section-14 defect class ("a wedged server held a worker
+forever") - no failover, no surfaced error, accumulating stuck worker threads
+- and a **flat raise** taxes GPU-resident machines with the same slow failure
+detection they do not need. The chosen fix is patience exactly where the
+hardware requires it, finite in every configuration.
+
+### 17.2 Timeout profiles (`core/local_brain.py`)
+
+`TIMEOUT_PROFILES` - `fast` (180 s, the historical behaviour and the better
+failure bound) and `slow` (600 s, covering CPU prefill plus a full answer) -
+each with a `response` (non-streaming, whole body) and `first_token`
+(streaming, prefill) budget. `active_profile()` resolves which applies: an
+explicit `local_timeout_profile` Settings value (`auto`/`fast`/`slow`,
+re-read with every operation like `local_ai_url`) wins; `auto` (the default)
+asks the runtime where the model actually lives; anything inconclusive keeps
+`fast`, so an error never invents patience.
+
+### 17.3 CPU-residency detection
+
+Ollama's `GET /api/ps` reports each loaded model's `size_vram`;
+`size_vram == 0` means the model is RAM-resident, i.e. CPU inference.
+`_cpu_resident_from_ps` parses defensively (tag-variant prefix matching in
+either direction, a single loaded model treated as unambiguous, unknown
+shapes returning *unknown* rather than a guess); `_model_is_cpu_resident`
+caches the verdict for 60 s per endpoint+model so a tool loop's follow-up
+calls do not re-probe, derives the admin root from the configured `/v1`
+endpoint, and treats every failure (non-Ollama server, probe timeout) as
+"not CPU" -> fast defaults.
+
+### 17.4 Two-stage stream watchdog
+
+`_open_stream` now opens with the profile's `first_token` budget (prefill
+included), and `generate_chat_stream` tightens the socket to
+`STREAM_IDLE_TIMEOUT` (60 s, unchanged) after the first byte proves the
+server is generating. The switch reaches through `http.client`'s response
+object to the socket - a CPython implementation detail - so it is
+defensively probed: on any shape failure the larger (still bounded)
+first-token budget stays in place. `chat_complete` also now calls
+`reload_settings()` at the top, honouring the module's documented
+re-read-per-operation contract for the profile.
+
+### 17.5 The gateway's local link borrows the same budget
+
+`llm_client._local_read_timeout()` resolves
+`(REQUEST_TIMEOUT[0], local_brain.response_timeout())` for the `local`
+provider - one budget, one source of truth - and `_openai_chat_completion`
+takes the (connect, read) tuple as a parameter (default `REQUEST_TIMEOUT`,
+so custom/cloud links are unchanged). The timeout log line now reports the
+budget actually used.
+
+### 17.6 Tests
+
+`tests/test_local_brain.py` grew to **18 tests** (11 new, no network): slow
+budget for a RAM-resident model; fast for VRAM-resident; probe failure keeps
+fast; Settings `slow`/`fast` overrides beat auto-detection and unknown values
+fall back to auto; the `/api/ps` parser's full truth table; the 60 s probe
+cache; the stream's first-token open budget; the post-first-byte tightening
+(and its defensive fallback); and the gateway's borrowed budget with its
+own fallback.
+
+### 17.7 Verification
+
+- `scripts/precommit_check.py` - **SAFE TO COMMIT**: credential scan OK,
+  `pytest` **258 passed**, all seven acceptance harnesses
+  `ALL CRITERIA PASS`.
+- `ruff check .` - **All checks passed!**
+
+### 17.8 Commit
+
+Landed as the single commit carrying this section (subject: `fix(local):
+hardware-aware timeout profiles so slow CPUs are not cut off mid-inference`);
+see `git log`.

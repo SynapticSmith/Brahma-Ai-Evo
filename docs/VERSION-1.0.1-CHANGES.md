@@ -924,6 +924,35 @@ Verified: `precommit_check.py` SAFE TO COMMIT - pytest **247 passed**, all
 seven acceptance harnesses `ALL CRITERIA PASS`, `ruff` clean. Per-item detail
 and evidence live in `docs/VERSION-1.0.1-LOG.md` section 16.
 
+## 18. Post-release (2026-10-18): slow CPUs are no longer cut off mid-inference
+
+Exercising the app on slow CPU hardware showed local turns being aborted
+mid-generation: the local reply path is non-streaming, so its socket budget
+covers prompt prefill of the ~4K-token system context *plus* full decode -
+several minutes on a CPU-resident 3B model, against a GPU-era 180 s budget.
+Raising the constant flat would tax GPU machines with slow failure detection,
+and `timeout=None` would reintroduce the section-14 "wedged server holds a
+worker forever" defect. Instead the budget is now hardware-aware:
+
+* **`TIMEOUT_PROFILES`** in `core/local_brain.py` - `fast` (180 s) and `slow`
+  (600 s), each with a non-streaming `response` and a streaming `first_token`
+  budget; both stay finite so failover and surfaced errors survive;
+* **auto-detection** - Settings' `local_timeout_profile` (`auto` default /
+  `fast` / `slow`) wins when explicit; `auto` asks Ollama's `GET /api/ps`
+  where the model is resident (`size_vram == 0` => CPU => slow), cached 60 s
+  per endpoint+model, with every inconclusive outcome falling back to fast;
+* **two-stage stream watchdog** - streams open with the patient first-token
+  budget (prefill) and tighten to the 60 s inter-chunk budget after the
+  first byte, so a stalled stream still fails fast;
+* **one budget, one source of truth** - the gateway's local link
+  (`llm_client.chat_as("local", ...)`) borrows `local_brain.response_timeout()`
+  instead of a second conflicting constant, so memory extraction and intent
+  parsing get the same patience as the reply path.
+
+Verified: `precommit_check.py` SAFE TO COMMIT - pytest **258 passed**, all
+seven acceptance harnesses `ALL CRITERIA PASS`, `ruff` clean. Per-item detail
+and evidence live in `docs/VERSION-1.0.1-LOG.md` section 17.
+
 ---
 
 *See `ONE-391-changes.md`, `ONE-391-tool-index.md`, `ONE-391-avatar-backends.md`,
