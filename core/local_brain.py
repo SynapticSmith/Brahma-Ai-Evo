@@ -150,6 +150,17 @@ def _cpu_resident_from_ps(data: Any, model: str) -> Optional[bool]:
         return None
 
 
+def _tools_unsupported(exc: BaseException) -> bool:
+    """True for the runtimes' "this model has no tool template" rejection.
+
+    Ollama answers a tools-bearing ``/v1/chat/completions`` request for a
+    model without a tool template (gemma2, phi2, ...) with HTTP 400
+    ``"... does not support tools"``; OpenAI-compatible servers phrase it
+    identically. Any other 400 is a real error and must keep propagating.
+    """
+    return "does not support tools" in str(exc)
+
+
 def _tighten_stream_timeout(resp: Any) -> None:
     """Switch a live stream's socket from the first-token budget to the
     inter-chunk budget (STREAM_IDLE_TIMEOUT).
@@ -179,6 +190,10 @@ class LocalBrain:
         self._default_model = DEFAULT_MODEL
         self._timeout_profile = "auto"
         self._ps_cache: Dict[str, Tuple[float, bool]] = {}
+        # endpoint|model keys of models the runtime rejected for tool calling
+        # (no tool template, e.g. gemma2 on Ollama); learned once, then tools
+        # are skipped for that model instead of paying a 400 every turn.
+        self._toolless: set = set()
         self.reload_settings()
 
     # ------------------------------------------------------------- settings
@@ -520,6 +535,16 @@ class LocalBrain:
         with self._open(req, PROBE_TIMEOUT) as resp:
             return json.loads(resp.read().decode("utf-8"))
 
+    # ------------------------------------------------- tool capability
+
+    def _is_toolless(self, model: str) -> bool:
+        """True when this model was already rejected for tool calling."""
+        return f"{self.endpoint}|{model}" in self._toolless
+
+    def _mark_toolless(self, model: str) -> None:
+        """Remember that the runtime has no tool template for this model."""
+        self._toolless.add(f"{self.endpoint}|{model}")
+
     # ------------------------------------------------------------- chat
 
     def generate_chat_stream(
@@ -545,6 +570,10 @@ class LocalBrain:
             "options": {"num_ctx": LOCAL_NUM_CTX},
         }
 
+        if tools and self._is_toolless(active_model):
+            # No tool template (learned via chat_complete's retry): a
+            # tools-bearing request would be rejected before any token.
+            tools = None
         if tools:
             payload["tools"] = self.format_tools_for_local(tools, focus_core=False)
 
@@ -618,10 +647,30 @@ class LocalBrain:
             # prompt before the user's turn.
             "options": {"num_ctx": LOCAL_NUM_CTX},
         }
+        if tools and self._is_toolless(active_model):
+            # This model was already rejected for tool calling; don't pay
+            # the round-trip again (see the retry below for the learning).
+            tools = None
         if tools:
             payload["tools"] = self.format_tools_for_local(tools, focus_core=focus_core)
 
-        body = self._post_json(payload, self.response_timeout())
+        try:
+            body = self._post_json(payload, self.response_timeout())
+        except LocalBrainError as exc:
+            if not (tools and _tools_unsupported(exc)):
+                raise
+            # The runtime rejected the tools array outright: this model has
+            # no tool template (e.g. gemma2 on Ollama). Remember the verdict
+            # and retry once without tools so the turn still answers - the
+            # model keeps its conversational ability, it just cannot call
+            # tools, and every later turn skips the doomed attempt.
+            self._mark_toolless(active_model)
+            print(
+                f"[Local Brain] model '{active_model}' does not support tool "
+                "calling; retrying this turn without tools."
+            )
+            payload.pop("tools", None)
+            body = self._post_json(payload, self.response_timeout())
         try:
             res = json.loads(body)
         except ValueError as e:

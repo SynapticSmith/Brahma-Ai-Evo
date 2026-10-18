@@ -16,11 +16,17 @@ What these pin down:
   both budgets stay finite so a wedged server still becomes a surfaced
   error instead of a hang. The gateway's local link borrows the same
   budget (llm_client._local_read_timeout) instead of a second constant.
+* the tool-capability contract: a model whose runtime rejects the tools
+  array ("does not support tools" - e.g. gemma2 on Ollama, which has no
+  tool template) must not kill the turn; the verdict is remembered and the
+  turn retried once without tools, while every unrelated 400 keeps
+  propagating.
 
 No network: ``_post_json`` / ``_open_stream`` / ``_get_json`` are replaced
 with recorders.
 """
 
+import json
 import types
 
 import llm_client as llm_client_mod
@@ -426,3 +432,142 @@ def test_local_read_timeout_falls_back_on_error(monkeypatch):
 
     monkeypatch.setattr(brain_singleton, "response_timeout", boom)
     assert llm_client_mod._local_read_timeout() == llm_client_mod.REQUEST_TIMEOUT
+
+
+# ----------------------------------------------- tool-capability fallback
+
+# The real Ollama rejection, verbatim from the field: gemma2 (and other
+# models without a tool template)400 on any tools-bearing request.
+_TOOLS_UNSUPPORTED_400 = (
+    "http://localhost:11434/v1/chat/completions: HTTP 400 Bad Request "
+    '{"error":{"message":"registry.ollama.ai/library/gemma2:2b does not '
+    'support tools","type":"invalid_request_error","param":null,"code":null}}'
+)
+
+_GEMMA_TOOLS = [
+    {
+        "name": "open_app",
+        "description": "Opens an application.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {"app_name": {"type": "STRING"}},
+        },
+    }
+]
+
+
+def test_tools_unsupported_400_retries_without_tools(monkeypatch):
+    """A runtime rejection of the tools array (no tool template) must not
+    kill the turn: the verdict is remembered and the same turn retried once
+    without tools, so the model still answers."""
+    brain = _brain_with_settings(monkeypatch, {})
+    calls = []
+
+    def fake_post(payload, timeout):
+        calls.append(dict(payload))  # snapshot: the retry pops keys in place
+        if "tools" in payload:
+            raise LocalBrainError(_TOOLS_UNSUPPORTED_400)
+        return '{"choices": [{"message": {"content": "Here is what I can do."}}]}'
+
+    monkeypatch.setattr(brain, "_post_json", fake_post)
+    res = brain.chat_complete(
+        messages=[{"role": "user", "content": "list my tools"}], tools=_GEMMA_TOOLS
+    )
+
+    assert len(calls) == 2, "expected the tools attempt, then one tool-less retry"
+    assert "tools" in calls[0]
+    assert "tools" not in calls[1]
+    assert res["choices"][0]["message"]["content"].startswith("Here")
+    assert brain._is_toolless("test-model")
+
+
+def test_remembered_toolless_model_skips_tools_on_later_turns(monkeypatch):
+    """The learning must stick: later turns never send the doomed tools
+    array again - no wasted round-trip, no 400 on every message."""
+    brain = _brain_with_settings(monkeypatch, {})
+    brain._mark_toolless("test-model")
+    captured = {}
+
+    def fake_post(payload, timeout):
+        captured["payload"] = payload
+        return '{"choices": [{"message": {"content": "ok"}}]}'
+
+    monkeypatch.setattr(brain, "_post_json", fake_post)
+    brain.chat_complete(
+        messages=[{"role": "user", "content": "hi"}], tools=_GEMMA_TOOLS
+    )
+
+    assert "tools" not in captured["payload"]
+
+
+def test_other_models_still_get_tools_after_one_is_marked(monkeypatch):
+    """The verdict is per endpoint+model, not global: selecting a
+    tool-capable model next keeps its tool surface."""
+    brain = _brain_with_settings(monkeypatch, {})
+    brain._mark_toolless("gemma2:2b")
+    captured = {}
+
+    def fake_post(payload, timeout):
+        captured["payload"] = payload
+        return '{"choices": [{"message": {"content": "ok"}}]}'
+
+    monkeypatch.setattr(brain, "_post_json", fake_post)
+    brain.chat_complete(
+        messages=[{"role": "user", "content": "hi"}],
+        model="qwen2.5:3b",
+        tools=_GEMMA_TOOLS,
+    )
+
+    assert "tools" in captured["payload"]
+
+
+def test_unrelated_400_still_raises(monkeypatch):
+    """Only the specific tool-template rejection is absorbed; every other
+    error keeps propagating to the reply ladder, with no silent retry."""
+    brain = _brain_with_settings(monkeypatch, {})
+    calls = []
+
+    def fake_post(payload, timeout):
+        calls.append(payload)
+        raise LocalBrainError(
+            'http://x: HTTP 400 Bad Request {"error":{"message":"invalid format"}}'
+        )
+
+    monkeypatch.setattr(brain, "_post_json", fake_post)
+
+    try:
+        brain.chat_complete(
+            messages=[{"role": "user", "content": "hi"}], tools=_GEMMA_TOOLS
+        )
+    except LocalBrainError as exc:
+        assert "invalid format" in str(exc)
+    else:
+        raise AssertionError("expected LocalBrainError for an unrelated 400")
+    assert len(calls) == 1, "a real error must not be retried away"
+
+
+def test_stream_skips_tools_for_remembered_toolless_model(monkeypatch):
+    """The streaming path must not send a doomed tools array either."""
+    brain = _brain_with_settings(monkeypatch, {})
+    brain._mark_toolless("test-model")
+    captured = {}
+
+    class _Ctx:
+        def __enter__(self):
+            return _FakeStream([])
+
+        def __exit__(self, *exc):
+            return False
+
+    def fake_open(req):
+        captured["payload"] = json.loads(req.data.decode("utf-8"))
+        return _Ctx()
+
+    monkeypatch.setattr(brain, "_open_stream", fake_open)
+    list(
+        brain.generate_chat_stream(
+            [{"role": "user", "content": "hi"}], tools=_GEMMA_TOOLS
+        )
+    )
+
+    assert "tools" not in captured["payload"]

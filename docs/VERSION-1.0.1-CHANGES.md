@@ -953,6 +953,23 @@ Verified: `precommit_check.py` SAFE TO COMMIT - pytest **258 passed**, all
 seven acceptance harnesses `ALL CRITERIA PASS`, `ruff` clean. Per-item detail
 and evidence live in `docs/VERSION-1.0.1-LOG.md` section 17.
 
+## 19. Post-release (2026-10-18): tool-less local models degrade instead of dying
+
+With `gemma2:2b` selected as the local model, *every* turn failed with
+`HTTP 400 ... does not support tools` and "No reply from any provider":
+Gemma 2 ships no tool-calling template, so Ollama rejects any request that
+carries a `tools` array - and the local path always advertises the bounded
+tool surface. `chat_complete` now absorbs exactly that rejection: the
+endpoint+model pair is remembered as tool-less, the turn is retried once
+without tools (the model still answers, it just cannot call tools), and all
+later turns skip the doomed attempt. Unrelated 400s keep propagating to the
+reply ladder, and the verdict is per model - selecting a tool-capable model
+(qwen2.5:3b, llama3.2:3b) restores the full surface immediately.
+
+Verified: `precommit_check.py` SAFE TO COMMIT - pytest **263 passed**, all
+seven acceptance harnesses `ALL CRITERIA PASS`, `ruff` clean. Per-item detail
+and evidence live in `docs/VERSION-1.0.1-LOG.md` section 18.
+
 ---
 
 *See `ONE-391-changes.md`, `ONE-391-tool-index.md`, `ONE-391-avatar-backends.md`,

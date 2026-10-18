@@ -6,18 +6,18 @@ theme, with the verification evidence that backs each group.
 
 - **Baseline (before this work):** `e0bd3c5` - last commit by GodxSuryaansh.
 - **Range documented:** `e0bd3c5..HEAD`.
-- **Commits in range:** 119 (all authored by SynapticSmith; the original 103 was
+- **Commits in range:** 120 (all authored by SynapticSmith; the original 103 was
   measured at `67b18b4`, the last commit of the section-10 inventory; 115 were on
   `main` before section 14 was written - the four in-between commits are listed
-  in section 14.6 - and the last four carry sections 14, 15, 16 and 17).
-- **HEAD at last update:** the 2026-10-18 commit carrying section 17 (previous
-  markers: `e653c1f` for section 16, `4900107` for section 15, `b820292` for
-  section 14, `664ae4b` for section 13.5).
-- **Diff footprint:** 257 files changed, 151,266 insertions(+), 18,022 deletions(-)
-  (re-measured across the worktree carrying section 17; the original
+  in section 14.6 - and the last five carry sections 14, 15, 16, 17 and 18).
+- **HEAD at last update:** the 2026-10-18 commit carrying section 18 (previous
+  markers: `3dc096a` for section 17, `e653c1f` for section 16, `4900107` for
+  section 15, `b820292` for section 14, `664ae4b` for section 13.5).
+- **Diff footprint:** 257 files changed, 151,527 insertions(+), 18,022 deletions(-)
+  (re-measured across the worktree carrying section 18; the original
   231 / 141,610 / 17,371 predates the close-out documentation commits -
-  section 13.5, and the 256 / 150,529 / 18,022 of section 16 predates the
-  local timeout profiles).
+  section 13.5, and the 257 / 151,266 / 18,022 of section 17 predates the
+  tool-less-model fallback).
 - **Product version in tree:** `1.0.0` (see section 12 for the `1.0.1` bump).
 - **Source material:** this repository's `git` history plus
   `docs/CODE-REVIEW-TODO.md`, `docs/ONE-391-changes.md`,
@@ -1015,3 +1015,53 @@ own fallback.
 Landed as the single commit carrying this section (subject: `fix(local):
 hardware-aware timeout profiles so slow CPUs are not cut off mid-inference`);
 see `git log`.
+
+---
+
+## 18. Tool-less local models no longer kill the turn (2026-10-18)
+
+Field report: with only the local provider enabled and `gemma2:2b` selected,
+every turn died with
+
+> `HTTP 400 Bad Request {"error":{"message":"registry.ollama.ai/library/gemma2:2b does not support tools"}}`
+
+followed by "No reply from any provider". Root cause: Gemma 2 (and other
+models such as phi2) ships **no tool-calling template**, so Ollama rejects
+any `/v1/chat/completions` request that carries a `tools` array - and the
+local reply path always advertises the bounded tool surface, so the model
+never got to answer anything.
+
+### 18.1 Learn-once tool-less fallback (`core/local_brain.py`)
+
+`chat_complete` now absorbs **exactly** the tools rejection and nothing
+else: on a `LocalBrainError` whose message contains Ollama's (and
+OpenAI-compatible servers') "does not support tools", it marks the
+endpoint+model pair tool-less, retries the same turn once **without** tools,
+and logs `[Local Brain] model '<m>' does not support tool calling; retrying
+this turn without tools`. The turn then answers normally - the model keeps
+its conversational ability, it simply cannot call tools. Every later turn
+for that model skips the doomed attempt entirely (no wasted round-trip, no
+400 per message), and `generate_chat_stream` honours the same memory. The
+verdict is keyed per endpoint+model, so selecting a tool-capable model
+(qwen2.5:3b, llama3.2:3b) next restores the full tool surface; every
+*unrelated* 400 keeps propagating to the reply ladder with no silent retry.
+
+### 18.2 Tests
+
+Five new tests in `tests/test_local_brain.py` (23 in the file): the 400 is
+absorbed and the retry carries no tools; the memory sticks for later turns;
+the verdict is per model, not global; an unrelated 400 raises with exactly
+one attempt; the stream path skips tools for a remembered model.
+
+### 18.3 Verification
+
+- `scripts/precommit_check.py` - **SAFE TO COMMIT**: credential scan OK,
+  `pytest` **263 passed**, all seven acceptance harnesses
+  `ALL CRITERIA PASS`.
+- `ruff check .` - **All checks passed!**
+
+### 18.4 Commit
+
+Landed as the single commit carrying this section (subject: `fix(local):
+degrade gracefully when the local model has no tool template`); see
+`git log`.
