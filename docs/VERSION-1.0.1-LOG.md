@@ -6,16 +6,18 @@ theme, with the verification evidence that backs each group.
 
 - **Baseline (before this work):** `e0bd3c5` - last commit by GodxSuryaansh.
 - **Range documented:** `e0bd3c5..HEAD`.
-- **Commits in range:** 117 (all authored by SynapticSmith; the original 103 was
+- **Commits in range:** 118 (all authored by SynapticSmith; the original 103 was
   measured at `67b18b4`, the last commit of the section-10 inventory; 115 were on
   `main` before section 14 was written - the four in-between commits are listed
-  in section 14.6 - and the last two carry sections 14 and 15).
-- **HEAD at last update:** the 2026-10-18 commit carrying section 15 (previous
-  markers: `b820292` for section 14, `664ae4b` for section 13.5).
-- **Diff footprint:** 257 files changed, 150,389 insertions(+), 18,021 deletions(-)
-  (re-measured across the worktree carrying section 15; the original
-  231 / 141,610 / 17,371 predates the close-out documentation commits -
+  in section 14.6 - and the last three carry sections 14, 15 and 16).
+- **HEAD at last update:** the 2026-10-18 commit carrying section 16 (previous
+  markers: `4900107` for section 15, `b820292` for section 14, `664ae4b` for
   section 13.5).
+- **Diff footprint:** 256 files changed, 150,529 insertions(+), 18,022 deletions(-)
+  (re-measured across the worktree carrying section 16; the original
+  231 / 141,610 / 17,371 predates the close-out documentation commits -
+  section 13.5, and the 257 / 150,389 / 18,021 of section 15 predates the
+  prompt rewrite and the removal of the tracked prompt copy).
 - **Product version in tree:** `1.0.0` (see section 12 for the `1.0.1` bump).
 - **Source material:** this repository's `git` history plus
   `docs/CODE-REVIEW-TODO.md`, `docs/ONE-391-changes.md`,
@@ -32,7 +34,7 @@ theme, with the verification evidence that backs each group.
 ## 1. Summary
 
 1.0.1 turns a single-engine voice assistant into a provider-agnostic platform
-and pays down the structural debt that blocked a clean release. Five themes:
+and pays down the structural debt that blocked a clean release. Six themes:
 
 1. **Vendor-agnostic core (ONE-391).** A provider chain
    (`gemini > openrouter > local > custom`) with per-provider kill switches; a
@@ -52,6 +54,12 @@ and pays down the structural debt that blocked a clean release. Five themes:
    instead of a canned reply, a settings-driven local model, and
    `core/llm_gateway.py` as the single egress for auxiliary LLM calls, so
    every toggle - offline mode included - governs all traffic.
+6. **Agent-brief system prompt (2026-10-18, section 16).** `core/prompt.txt`
+   was rewritten from a single-engine persona note into the operating brief
+   for the platform: the multi-step turn loop, the full capability
+   inventory, deferred-tool discovery, and the memory/safety/offline
+   doctrine - with an explicit local-model context budget so the offline
+   path is not silently truncated.
 
 ---
 
@@ -811,3 +819,106 @@ stay clean and the multimedia cost is paid only when a sound actually plays.
 Landed as the single commit carrying this section (subject: `chore(quality):
 gateway tests, section-K egress checks, bounded tool wait, dead code removed`);
 see `git log`.
+
+---
+
+## 16. System prompt rewritten as an agent brief; offline context budget (2026-10-18)
+
+Sections 14-15 fixed what the system *sends* to the model; this section fixes
+what the model *knows*. Exercising the rebuilt assistant showed it answering
+like a chatbot - describing work instead of doing it, stopping after one tool,
+asking for the date or the user's name that the context already carries. The
+cause was `core/prompt.txt`: a 98-line / 6 KB persona note written for the old
+single-engine build, silent on the multi-step loop, the deferred tool surface,
+and the memory/safety rules the 1.0.1 platform depends on.
+
+### 16.1 The rewrite
+
+`core/prompt.txt` was replaced (98 lines / 6,066 bytes -> 107 lines / ~14.9 KB)
+with a brief organised around how the system actually runs:
+
+- **HOW A TURN WORKS** - a turn is a work session, not an answer: tool results
+  feed the next decision, independent calls can go out together, the turn ends
+  when the goal is verifiably done. It documents that the system already
+  announces each tool ("Working on X... / X completed."), so the model must not
+  double-narrate, and closes with a worked end-to-end example.
+- **PRINCIPLES** - act don't narrate, decide don't defer, look before acting
+  (the injected date/location/memory blocks exist so it stops asking), chain
+  state across tools, treat tool results as ground truth, recover from errors.
+- **WHAT THIS SYSTEM CAN DO** - a domain inventory (memory, vision, PC, web,
+  documents, people, time/attention, devices, media/wellbeing, building and
+  self-evolution, MCP + Skills Library) so the model knows the capability set
+  exists before it searches for any part of it.
+- **CONTEXT BLOCKS AROUND THIS TEXT** - documents the time/location/memory
+  preamble and the `[ACTIVE SKILL CONTEXT]` block that
+  `session_lifecycle._build_config` appends around this file, so the model uses
+  them instead of duplicating or re-asking them.
+- **TOOL SURFACE** / **SKILLS LIBRARY** - teach the discovery loop for the
+  ONE-391 deferred surface: `search_tools` -> `call_tool`, `list_tools` for
+  browsing, `get_skill_manual` for group rules, `search_skills` -> `load_skill`
+  for playbooks. The `SKILLS LIBRARY` header is kept because
+  `docs/skills-library-jit-on-demand-skills.md` pins it.
+- **OPERATING THE TOOLS** - the hard-won routing rules from the old prompt are
+  preserved verbatim in intent (preview -> organise, `word_document` vs
+  `file_processor`, `browser_control` not `open_app`, device cross-routing,
+  `game_updater` exclusivity, `agent_task` never for single commands,
+  `confirmed='yes'` gating, stay-silent after `screen_process`), with new
+  routes for the 1.0.1 tool set (`agent_task`, `skill_forge`, `auto_heal
+  learn_rule`, `circuit_assembler`, the instagram_* family).
+- **MEMORY DOCTRINE / SAFETY AND REVERSIBILITY / AUTONOMY / OFFLINE AND
+  DEGRADED MODES / COMMUNICATION** - when to `recall_memory` vs `save_memory`
+  silently, preview-before-bulk and immediate `undo`, `skill_forge` when a
+  capability is missing, honest degradation when a provider is down, and the
+  spoken-output rules (no markdown, bullets or raw URLs).
+
+Unconstrained by the gate: `accept_instructions.py` asserts injector *wiring*
+only, and a repo-wide grep confirmed no test or harness asserts prompt
+*content*. Also removed with `git rm`: the tracked stale duplicate
+`core/prompt - Copy (2).txt` (nothing references it; section 15.5 removed its
+untracked sibling).
+
+### 16.2 Offline context budget (`LOCAL_NUM_CTX`)
+
+The rewrite more than doubled the prompt, and the offline path grew with it:
+`core/prompt.txt` + the skill-context block + the tool surface now exceed
+Ollama's OpenAI-compatible default `num_ctx` (2048-4096 tokens), which
+truncates *silently* - the 3B fallback model would lose its operating
+instructions before the user's turn, i.e. exactly the chatbot regression the
+rewrite exists to fix. `core/local_brain.py` now sends
+`options: {"num_ctx": 8192}` on **both** local paths (`chat_complete` and
+`generate_chat_stream`): 8192 covers the ~3.7K-token prompt with headroom for
+skill context, tools and a real answer; the bundled 3B models (qwen2.5,
+llama3.2) support 32K natively; non-Ollama OpenAI-compatible servers ignore
+the unknown `options` field.
+
+### 16.3 `LocalBrain` constructor pin honoured
+
+Writing the regression tests exposed a latent contract violation: the
+constructor docstring promised "an explicit constructor argument pins the
+value for this instance", but `reload_settings()` only used the pin to *block*
+Settings - `_default_model` stayed at the Ollama default, so
+`LocalBrain(default_model=...)` silently ignored its argument. The pinned
+values are now applied. No production caller passes arguments (the singleton
+wiring is unchanged); the fix makes the documented contract true.
+
+### 16.4 `tests/test_local_brain.py` (7 tests, no network)
+
+Pins the offline endpoint contract: `options.num_ctx` present on the
+non-streaming payload (plain turn **and** tool-bearing turn), the budget
+provably covers `core/prompt.txt`, the pinned model/endpoint reach the payload,
+an `error` body or missing `choices` raises `LocalBrainError` instead of an
+empty success, and Gemini-style `OBJECT`/`STRING` schema types are lowercased
+to JSON-Schema casing.
+
+### 16.5 Verification
+
+- `scripts/precommit_check.py` - **SAFE TO COMMIT**: credential scan OK,
+  `pytest` **247 passed**, all seven acceptance harnesses
+  `ALL CRITERIA PASS`.
+- `ruff check .` - **All checks passed!**
+
+### 16.6 Commit
+
+Landed as the single commit carrying this section (subject: `feat(prompt):
+rewrite system prompt as multi-step agent with full capability map`); see
+`git log`.

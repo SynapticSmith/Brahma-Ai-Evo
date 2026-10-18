@@ -43,6 +43,16 @@ STREAM_IDLE_TIMEOUT = 60.0
 # Liveness probe: fail fast, the UI polls this.
 PROBE_TIMEOUT = 3.0
 
+# Context window requested from the local runtime. Ollama's OpenAI-compatible
+# endpoint silently truncates to its own default (2048-4096 tokens), which is
+# smaller than the system prompt this app actually sends: core/prompt.txt plus
+# the skill-context block and a bounded tool surface comfortably exceeds 4K
+# tokens, so without an explicit budget the model would lose the operating
+# instructions before the user's turn. 8192 leaves headroom for a real answer
+# on top; the bundled 3B models (qwen2.5, llama3.2) support 32K natively, and
+# non-Ollama OpenAI-compatible servers ignore the unknown `options` field.
+LOCAL_NUM_CTX = 8192
+
 CORE_LOCAL_TOOL_NAMES = {
     "open_app", "computer_settings", "system_diagnostics", "spotify_controller",
     "youtube_video", "web_search", "weather_report", "file_controller",
@@ -113,7 +123,13 @@ class LocalBrain:
         else:
             endpoint = str(data.get("local_ai_url") or "").strip() or DEFAULT_ENDPOINT
             self.endpoint = endpoint.rstrip("/")
-        if not self._pinned_model:
+        if self._pinned_model:
+            # An explicit constructor argument pins the model for this
+            # instance; without this branch the pin only blocked Settings
+            # while _default_model stayed at the Ollama default, so
+            # LocalBrain(default_model=...) silently ignored its argument.
+            self._default_model = self._pinned_model
+        else:
             model = str(data.get("local_ai_model") or "").strip()
             if model:
                 self._default_model = model
@@ -382,6 +398,9 @@ class LocalBrain:
             "messages": messages,
             "temperature": temperature,
             "stream": True,
+            # See LOCAL_NUM_CTX: without this the runtime truncates the system
+            # prompt before the user's turn.
+            "options": {"num_ctx": LOCAL_NUM_CTX},
         }
 
         if tools:
@@ -439,6 +458,9 @@ class LocalBrain:
             "messages": messages,
             "temperature": temperature,
             "stream": False,
+            # See LOCAL_NUM_CTX: without this the runtime truncates the system
+            # prompt before the user's turn.
+            "options": {"num_ctx": LOCAL_NUM_CTX},
         }
         if tools:
             payload["tools"] = self.format_tools_for_local(tools, focus_core=focus_core)

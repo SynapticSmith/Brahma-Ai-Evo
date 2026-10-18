@@ -885,6 +885,45 @@ Verified: `precommit_check.py` SAFE TO COMMIT - pytest **240 passed**, all
 seven acceptance harnesses `ALL CRITERIA PASS`, `ruff` clean. Per-item detail
 and evidence live in `docs/VERSION-1.0.1-LOG.md` sections 14-15.
 
+## 17. Post-release (2026-10-18): the system prompt rewritten as an agent brief
+
+The platform work landed, but the assistant still behaved like a chatbot -
+describing work instead of doing it, stopping after one tool, asking for facts
+its context already carried. The cause was `core/prompt.txt`, a 98-line
+persona note written for the old single-engine build. It has been replaced
+(107 lines, ~15 KB) with a brief built around how the system actually runs:
+
+* **HOW A TURN WORKS** - a turn is a work session: tool results feed the next
+  decision, independent calls go out together, the turn ends when the goal is
+  verifiably done; the system's own "Working on X..." announcements are
+  documented so the model does not double-narrate;
+* **WHAT THIS SYSTEM CAN DO** - a full capability inventory (memory, vision,
+  PC, web, documents, people, time/attention, devices, media/wellbeing,
+  self-evolution, MCP + Skills Library);
+* **TOOL SURFACE / SKILLS LIBRARY** - the discovery loop for the deferred
+  tool set (`search_tools` -> `call_tool`, `list_tools`, `get_skill_manual`,
+  `search_skills` -> `load_skill`); the `SKILLS LIBRARY` header referenced by
+  `docs/skills-library-jit-on-demand-skills.md` is preserved;
+* **OPERATING THE TOOLS** - every hard-won routing rule from the old prompt
+  kept (preview -> organise, `word_document` vs `file_processor`,
+  `browser_control` not `open_app`, device cross-routing, `game_updater`
+  exclusivity, `confirmed='yes'` gating) plus routes for the 1.0.1 tool set;
+* **MEMORY / SAFETY / OFFLINE / COMMUNICATION** - recall-vs-save doctrine,
+  preview-before-bulk and `undo`, honest degradation offline, and the
+  spoken-output style (no markdown, bullets or raw URLs).
+
+Two supporting fixes came with it. The prompt more than doubled, which would
+have overflowed Ollama's default `num_ctx` (2048-4096 tokens) and silently
+clipped the offline 3B model's instructions, so `core/local_brain.py` now
+sends an explicit `options: {"num_ctx": 8192}` on both local paths. And the
+regression tests exposed that `LocalBrain(default_model=...)` ignored its own
+argument - the pin now wins, as the docstring always promised. The stale
+tracked duplicate `core/prompt - Copy (2).txt` was removed.
+
+Verified: `precommit_check.py` SAFE TO COMMIT - pytest **247 passed**, all
+seven acceptance harnesses `ALL CRITERIA PASS`, `ruff` clean. Per-item detail
+and evidence live in `docs/VERSION-1.0.1-LOG.md` section 16.
+
 ---
 
 *See `ONE-391-changes.md`, `ONE-391-tool-index.md`, `ONE-391-avatar-backends.md`,
