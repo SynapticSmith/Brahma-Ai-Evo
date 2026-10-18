@@ -856,3 +856,44 @@ These were listed as incomplete before this pass. **None of them is done, and no
   the speech gate open so the real-mic check no longer depends on the room's noise floor; that gate is now
   the shared module constant `_SPEECH_ENERGY_THRESHOLD`, used by both the wake-word and local-voice loops);
   `accept_live_toggle.py` -> **ALL CRITERIA PASS**. Not pushed.
+- 2026-10-18 - **Custom/OpenRouter provider no longer runs voice on the Gemini Live socket (reported bug).**
+  Picking the Custom (OpenAI-compatible) endpoint still opened the default Gemini Live socket, so Gemini
+  answered in its own Charon voice and the selected local TTS engine was ignored. Root cause: `_voice_backend()`
+  (`main.py`) only knew Gemini/Local/offline, so the session loop opened the socket for Custom; the Gemini Live
+  fallback kill switch only affected `_fallback_reply`'s text chain, never the backend decision. Fix:
+  `_voice_backend()` now also returns `"local_loop"` for `custom` and `openrouter`, and every caller agrees with
+  it -- `speak()` (`core/audio_io.py`) takes the Charon path only when `backend == "gemini_live"` (otherwise
+  `speech_tts.speak`, the user-selected engine), the mic path (`_listen_audio`) routes through `_voice_backend()`
+  instead of a hardcoded `"Local"`, and `_on_text_command` sends to the live session only on the Gemini backend.
+  Also fixed the handshake-failure fallback in `core/session_lifecycle.run()`: it ran the local session and then
+  `break`-ed out of the loop, so once that fallback stopped the app could never connect or stand by again without
+  a restart; it now falls through to the normal tail (Disconnect -> standby, error -> backoff). Verified:
+  `py -3.11 -m py_compile` on the three files; `pytest` -> **219 passed**; `accept_live_toggle.py` (new
+  "Provider choice decides the voice backend" section), `accept_local_speech.py`, `accept_avatar.py`,
+  `accept_instructions.py`, `accept_wakeword.py`, `accept_providers.py` -> **ALL CRITERIA PASS** (the
+  `guard()` check in `accept_providers.py` now pins `gemini` on instead of inheriting this machine's stored
+  `provider_enabled_gemini = False`, which is the kill-switch state this bug report starts from). Not pushed.
+- 2026-10-18 - **Deprecated `google.generativeai` removed from the last seven call sites; repo-wide
+  `google.genai` migration finished.** `actions/file_processor.py` still printed *"All support for the
+  `google.generativeai` package has ended"* on import; the same legacy SDK was also live in
+  `actions/docx_tools.py`, `actions/mobile_autopilot.py`, `actions/pdf_tools.py`, `agent/executor.py`,
+  `agent/error_handler.py`, and `agent/planner.py` (13 sites). All now use the supported `google.genai`
+  client (`from google import genai` / `client.models.generate_content(model=..., contents=..., config=...)`),
+  matching the pattern already used in `main.py`, `actions/code_helper.py`, and `actions/calorie_counter.py`.
+  Where call sites kept the old `model.generate_content(...)` shape, `_gemini_client()` returns the same
+  thin `_Model` wrapper `code_helper._get_gemini` uses, so behaviour is unchanged. `file_processor`'s audio
+  transcribe part moved from an old-style `{"mime_type": ..., "data": ...}` dict to
+  `types.Part.from_bytes(...)` (the new SDK's `t_part` rejects the legacy dict shape); the two `system_instruction`
+  models (`planner.create_plan/replan`, `error_handler.analyze_error`) now pass
+  `types.GenerateContentConfig(system_instruction=...)`. Removed the `warnings.catch_warnings()`/`FutureWarning`
+  suppression in `error_handler` (no longer needed) and dropped the now-unused `google-generativeai==0.8.6`
+  pin from `requirements.txt` (`google-genai==2.19.0` was already pinned). New regression guard
+  `tests/test_no_deprecated_genai.py`: a tree scan for `import google.generativeai` /
+  `genai.configure(` / `genai.GenerativeModel(`, plus an isolated-subprocess import of the seven modules with
+  `FutureWarning` promoted to an error (asserting `google.generativeai` never lands in `sys.modules`).
+  Verified: `py -3.11 -m py_compile` + `ruff check` clean on all changed files;
+  `pytest` -> **221 passed**; `accept_live_toggle.py`, `accept_local_speech.py`, `accept_avatar.py`,
+  `accept_instructions.py`, `accept_wakeword.py`, `accept_providers.py`, `accept_391.py` -> **ALL CRITERIA
+  PASS**. The historical work-log note above (`CODE-REVIEW-TODO.md:490`) that cited
+  `agent/error_handler.py:analyze_error -> google.generativeai.generate_content` is left as the record of
+  what was true then. Not pushed.

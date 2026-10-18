@@ -80,9 +80,22 @@ class AudioIO:
             if not self._host.ui.muted or getattr(self._host.ui, "_wakeword_listening", False):
                 lvl = float(np.sqrt(np.mean(np.square(indata, dtype=np.float32))))
                 
-                # Handle Local AI voice input when in Local or Offline mode
-                app_cfg = config_manager.load_settings()
-                if app_cfg.get("default_ai_provider") == "Local" or app_cfg.get("offline_mode_enabled", False):
+                # Handle Local AI voice input whenever the session backend is
+                # the local loop. This is a routing decision for the mic path,
+                # not a session bypass -- session_lifecycle decides the backend,
+                # this only decides who transcribes. Asking the same helper (so
+                # Local, offline, Custom and OpenRouter all answer here) keeps
+                # the two from disagreeing, which is how a Custom endpoint kept
+                # feeding the Gemini socket.
+                try:
+                    local_backend = self._host._voice_backend() == "local_loop"
+                except Exception:
+                    app_cfg = config_manager.load_settings()
+                    local_backend = (
+                        app_cfg.get("default_ai_provider") == "Local"
+                        or bool(app_cfg.get("offline_mode_enabled", False))
+                    )
+                if local_backend:
                     if not brahma_speaking and not self._host.ui.muted:
                         if lvl > 22.0:
                             speech_buffer.extend(indata.tobytes())
@@ -293,7 +306,15 @@ class AudioIO:
         if not text:
             return
 
-        if self._host.session and self._host._loop:
+        # Check if we should use Gemini Live for speech - only if backend is gemini_live
+        backend = "local_loop"
+        try:
+            if hasattr(self._host, '_voice_backend'):
+                backend = self._host._voice_backend()
+        except Exception:
+            pass
+
+        if self._host.session and self._host._loop and backend == "gemini_live":
             # Route text through Gemini Live API for the unified native Charon voice
             import asyncio
             async def _speak_send():

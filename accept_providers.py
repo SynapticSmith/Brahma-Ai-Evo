@@ -275,6 +275,11 @@ def main() -> int:
               flipped is True and pr.is_enabled("openrouter") is True)
         pr.set_enabled("openrouter", False)
 
+        # This machine's stored config may legitimately have Gemini disabled in
+        # the fallback chain (the very kill switch the voice-backend bug report
+        # starts from). Pin the state the assertion is about instead of
+        # inheriting whatever the user saved; the finally block restores it.
+        pr.set_enabled("gemini", True)
         try:
             pr.guard("openrouter")
             check("guard() raises for a disabled provider", False, "did not raise")

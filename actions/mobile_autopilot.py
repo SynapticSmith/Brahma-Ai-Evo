@@ -38,10 +38,9 @@ def mobile_autopilot(parameters: dict, response=None, player=None, session_memor
         return json.dumps({"success": False, "error": "Missing instruction."})
 
     try:
-        import google.generativeai as genai
+        from google import genai
         from agent.planner import _get_api_key
-        genai.configure(api_key=_get_api_key())
-        model = genai.GenerativeModel("gemini-3.1-flash-lite")
+        client = genai.Client(api_key=_get_api_key())
     except Exception as e:
         return json.dumps({"success": False, "error": f"Failed to initialize Gemini: {e}"})
 
@@ -72,7 +71,9 @@ def mobile_autopilot(parameters: dict, response=None, player=None, session_memor
         prompt = _build_prompt(instruction, ui_tree)
         
         try:
-            llm_response = model.generate_content(prompt)
+            llm_response = client.models.generate_content(
+                model="gemini-3.1-flash-lite", contents=prompt
+            )
             text = llm_response.text.strip()
             text = re.sub(r"```(?:json)?", "", text).strip().rstrip("`").strip()
             decision = json.loads(text)

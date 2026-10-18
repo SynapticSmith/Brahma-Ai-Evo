@@ -641,42 +641,69 @@ class SessionLifecycle:
 
                 config = self._build_config()
 
-                connect_cm = client.aio.live.connect(model=LIVE_MODEL, config=config)
-                session = await asyncio.wait_for(connect_cm.__aenter__(), timeout=LIVE_CONNECT_TIMEOUT)
+                session = None
                 try:
+                    connect_cm = client.aio.live.connect(model=LIVE_MODEL, config=config)
+                    session = await asyncio.wait_for(connect_cm.__aenter__(), timeout=LIVE_CONNECT_TIMEOUT)
+                except Exception as live_exc:
+                    # If the Gemini Live handshake fails, keep voice alive on the
+                    # local loop instead. The first version of this fallback
+                    # `break`-ed out of the session loop: once the local session
+                    # stopped, run() returned and the app could never connect or
+                    # stand by again without a restart. Falling through to the
+                    # normal tail below keeps the contract intact -- Disconnect
+                    # parks in standby, an error backs off and retries the socket.
+                    print(f"[BRAHMA EVO] ⚠️ Gemini Live connection failed ({live_exc}), falling back to local voice session...")
                     if self._host._should_standby():
-                        # The user hit Disconnect / switched to On Call while the
-                        # handshake was in flight. _disconnect_live() had no task
-                        # to cancel yet, so without this guard the session would
-                        # arm anyway and the socket the user just dismissed stays
-                        # up. Drop it here instead.
+                        # Disconnect / On Call arrived while the handshake was in
+                        # flight; do not arm a mic the user just dismissed.
                         print("[BRAHMA EVO] 📴 Connect cancelled during handshake.")
                     else:
-                        # The session runs as its own task so _disconnect_live() has
-                        # something to cancel. Awaiting it inline would leave no
-                        # handle at all and "End Call" would silently do nothing.
-                        self._host._session_task = asyncio.create_task(
-                            self._serve_live_session(session)
-                        )
-                        self._host._report_voice_status(True)
-                        self._host._reconnect_delay = 0.0  # a good connect resets backoff
                         try:
-                            await self._host._session_task
+                            await self._host._session_task_guard(self._run_local_voice_session())
                         except asyncio.CancelledError:
-                            # CancelledError is a BaseException, so `except Exception`
-                            # below cannot see it. Swallow it only when this was our
-                            # own On Call teardown; a real shutdown must still
-                            # propagate and end run().
+                            # CancelledError is a BaseException: swallow only our
+                            # own On Call / Disconnect teardown (same contract as
+                            # the local_loop branch above); a real shutdown must
+                            # still propagate and end run().
                             if not self._host._take_disconnect_request():
                                 raise
-                            print("[BRAHMA EVO] 📴 Session closed by On Call control.")
-                        finally:
-                            self._host._session_task = None
-                finally:
+                            print("[BRAHMA EVO] 📴 Local fallback session closed by On Call control.")
+                if session is not None:
                     try:
-                        await connect_cm.__aexit__(None, None, None)
-                    except Exception:
-                        pass
+                        if self._host._should_standby():
+                            # The user hit Disconnect / switched to On Call while the
+                            # handshake was in flight. _disconnect_live() had no task
+                            # to cancel yet, so without this guard the session would
+                            # arm anyway and the socket the user just dismissed stays
+                            # up. Drop it here instead.
+                            print("[BRAHMA EVO] 📴 Connect cancelled during handshake.")
+                        else:
+                            # The session runs as its own task so _disconnect_live() has
+                            # something to cancel. Awaiting it inline would leave no
+                            # handle at all and "End Call" would silently do nothing.
+                            self._host._session_task = asyncio.create_task(
+                                self._serve_live_session(session)
+                            )
+                            self._host._report_voice_status(True)
+                            self._host._reconnect_delay = 0.0  # a good connect resets backoff
+                            try:
+                                await self._host._session_task
+                            except asyncio.CancelledError:
+                                # CancelledError is a BaseException, so `except Exception`
+                                # below cannot see it. Swallow it only when this was our
+                                # own On Call teardown; a real shutdown must still
+                                # propagate and end run().
+                                if not self._host._take_disconnect_request():
+                                    raise
+                                print("[BRAHMA EVO] 📴 Session closed by On Call control.")
+                            finally:
+                                self._host._session_task = None
+                    finally:
+                        try:
+                            await connect_cm.__aexit__(None, None, None)
+                        except Exception:
+                            pass
 
             except Exception as e:
                 if _is_transient_live_error(e):

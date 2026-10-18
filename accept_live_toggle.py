@@ -14,6 +14,7 @@ patch got wrong:
 Usage: py -3.11 accept_live_toggle.py
 """
 import asyncio
+import re
 import sys
 import threading
 import time
@@ -512,6 +513,45 @@ def main() -> int:
           and "asyncio.ensure_future" in m_src)
     check("local voice does not transcribe over its own reply",
           'speaking["on"]' in m_src)
+
+    # ------------------------------------------------------------------
+    section("Provider choice decides the voice backend, not the socket")
+    # ------------------------------------------------------------------
+    # Reported bug: picking the Custom (OpenAI-compatible) endpoint still
+    # opened the default Gemini Live socket, so Gemini answered in its own
+    # Charon voice and the selected local TTS engine was ignored. The backend
+    # decision must live in one place (_voice_backend) and every caller has to
+    # agree with it: the session loop, speak() and the mic path.
+    aio_src = (BASE / "core" / "audio_io.py").read_text(encoding="utf-8")
+    backend_body = m_src[m_src.index("def _voice_backend(self)"):
+                         m_src.index("def _local_voice_turn")]
+    check("Custom and OpenRouter run the local loop, not Gemini Live",
+          backend_body.count('return "local_loop"') >= 4
+          and backend_body.rindex('return "local_loop"')
+          < backend_body.index('return "gemini_live"'))
+    check("only an unhandled provider falls back to Gemini Live",
+          backend_body.count('return "gemini_live"') == 1)
+
+    speak_at = aio_src.index("    def speak(self, text: str, proactive: bool = False):")
+    speak_body = aio_src[speak_at:aio_src.index("    def speak_error", speak_at)]
+    check("speak() only takes the Charon path on the Gemini backend",
+          'backend == "gemini_live"' in speak_body)
+    check("speak() otherwise uses the user-selectable engine",
+          speak_body.count("speech_tts.speak") == 1)
+    check("the mic path asks the same backend helper",
+          "_voice_backend()" in aio_src.split("def _listen_audio")[1]
+                                     .split("def _receive_audio")[0])
+
+    run_at = lsrc.index("async def run(")
+    run_body = lsrc[run_at:]
+    fallback = run_body.split("Gemini Live connection failed", 1)[1]\
+                       .split("if session is not None:", 1)[0]
+    check("a failed handshake falls through instead of ending run()",
+          re.search(r"^\s*break\s*$", fallback, re.M) is None)
+    check("the handshake fallback honours Disconnect",
+          "_take_disconnect_request" in fallback)
+    check("the serve block waits for a completed handshake",
+          "if session is not None:" in run_body)
 
     # ------------------------------------------------------------------
     section("Mic buffer handling survives the buffer kind sounddevice picks")

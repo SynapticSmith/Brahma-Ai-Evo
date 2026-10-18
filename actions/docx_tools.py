@@ -65,10 +65,18 @@ def _get_api_key() -> str:
 
 
 def _gemini_client():
-    import google.generativeai as genai
+    """A `google.genai` client wrapped to keep the old `model.generate_content(...)` shape."""
+    from google import genai
 
-    genai.configure(api_key=_get_api_key())
-    return genai.GenerativeModel("gemini-2.5-flash")
+    client = genai.Client(api_key=_get_api_key())
+
+    class _Model:
+        def generate_content(self, contents, **kwargs):
+            return client.models.generate_content(
+                model="gemini-2.5-flash", contents=contents, **kwargs
+            )
+
+    return _Model()
 
 
 def _import_docx():

@@ -2391,7 +2391,13 @@ class BrahmaLive:
         indistinguishable. This is the single place that reports it, so both
         backends cannot disagree.
         """
-        label = "Local voice" if self._voice_backend() == "local_loop" else "Gemini Live"
+        backend = self._voice_backend()
+        if backend == "local_loop":
+            label = "Local voice"
+        elif backend == "gemini_live":
+            label = "Gemini Live"
+        else:
+            label = backend.title()
         try:
             self.ui.set_voice_status(label, bool(live), detail)
         except Exception:
@@ -2430,7 +2436,12 @@ class BrahmaLive:
             cfg = {}
         if cfg.get("offline_mode_enabled", False):
             return "local_loop"
-        if str(cfg.get("default_ai_provider", "") or "").strip().lower() == "local":
+        provider = str(cfg.get("default_ai_provider", "") or "").strip().lower()
+        if provider == "local":
+            return "local_loop"
+        if provider == "custom":
+            return "local_loop"
+        if provider == "openrouter":
             return "local_loop"
         return "gemini_live"
 
@@ -3215,7 +3226,7 @@ class BrahmaLive:
         else:
             is_local_preferred = False
 
-        if is_local_preferred or self._prefer_openrouter() or not self._loop or not self.session:
+        if is_local_preferred or self._prefer_openrouter() or not self._loop or not self.session or self._voice_backend() != "gemini_live":
             threading.Thread(target=self._fallback_reply, args=(text, memory_ctx), daemon=True).start()
             return
         self.ui.set_state("THINKING")

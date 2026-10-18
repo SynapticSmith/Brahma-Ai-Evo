@@ -406,20 +406,21 @@ def synthesize_deep_report(goal_or_topic: str, title: str, research_notes: str =
     if not api_key:
         return ""
 
-    import google.generativeai as genai
-    genai.configure(api_key=api_key)
+    from google import genai
 
-    model_names = ["gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"]
-    model = None
-    for name in model_names:
-        try:
-            model = genai.GenerativeModel(name)
-            break
-        except Exception:
-            continue
+    # The supported SDK validates a model name at call time, not at
+    # construction, so the old `GenerativeModel(name)` probe loop never actually
+    # rejected a name -- it always settled on the first. Keep that behaviour and
+    # the old `model.generate_content(...)` shape via a thin wrapper.
+    client = genai.Client(api_key=api_key)
 
-    if not model:
-        return ""
+    class _Model:
+        def generate_content(self, contents, **kwargs):
+            return client.models.generate_content(
+                model="gemini-3.1-flash-lite", contents=contents, **kwargs
+            )
+
+    model = _Model()
 
     print(f"[PDF Tools] [*] Synthesizing exhaustive research monograph on: {title}...")
 

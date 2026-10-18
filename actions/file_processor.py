@@ -23,7 +23,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 
 def _get_api_key() -> str:
@@ -33,8 +34,21 @@ def _get_api_key() -> str:
 
 
 def _gemini_client():
-    genai.configure(api_key=_get_api_key())
-    return genai.GenerativeModel("gemini-2.5-flash")
+    """A `google.genai` client wrapped to keep the old `model.generate_content(...)` shape.
+
+    `google.generativeai` is deprecated and warns on import; every other Gemini
+    call in this repo already uses the supported `google.genai` SDK. The wrapper
+    is the same one `actions/code_helper.py::_get_gemini` uses.
+    """
+    client = genai.Client(api_key=_get_api_key())
+
+    class _Model:
+        def generate_content(self, contents, **kwargs):
+            return client.models.generate_content(
+                model="gemini-2.5-flash", contents=contents, **kwargs
+            )
+
+    return _Model()
 
 
 def _detect_type(path: Path) -> str:
@@ -534,7 +548,7 @@ def _process_audio(path: Path, action: str, params: dict, speak=None) -> str:
             }.get(path.suffix.lstrip(".").lower(), "audio/mpeg")
             response = model.generate_content([
                 "Transcribe all speech in this audio file accurately.",
-                {"mime_type": mime, "data": content}
+                types.Part.from_bytes(data=content, mime_type=mime)
             ])
             result = response.text.strip()
             if params.get("save", True):
