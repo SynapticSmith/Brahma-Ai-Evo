@@ -66,22 +66,6 @@ def _open_file(path: Path) -> None:
         pass
 
 
-def _get_api_key() -> str:
-    candidates = [
-        Path(__file__).resolve().parent.parent / "config" / "api_keys.json",
-        Path.cwd() / "config" / "api_keys.json",
-    ]
-    for cp in candidates:
-        if cp.exists():
-            try:
-                data = json.loads(cp.read_text(encoding="utf-8"))
-                if "gemini_api_key" in data:
-                    return data["gemini_api_key"]
-            except Exception:
-                pass
-    return ""
-
-
 def _parse_json_arg(value, fallback):
     if value is None:
         return fallback

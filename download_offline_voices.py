@@ -13,7 +13,7 @@ def download_file(url: str, dest_path: Path):
     try:
         # User-Agent header is sometimes required by GitHub/HuggingFace to prevent 403 Forbidden errors
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req, timeout=60) as response:
             with open(dest_path, 'wb') as out_file:
                 shutil.copyfileobj(response, out_file)
         print("OK\n")

@@ -534,7 +534,93 @@ def main() -> int:
                   not real,
                   "; ".join(f"{f}:{l} {n}" for f, l, n in real[:6]))
 
+        # ------------------------------------------------------------------
+        section("K. Gateway egress honours the same switch")
+        # ------------------------------------------------------------------
+        # Section 14 (log) routed every auxiliary LLM call through
+        # core.llm_gateway, so the kill switches now have to govern that
+        # egress too: with a provider off, the gateway may not dial it -- not
+        # even as a failover -- and a grounded task (links=("gemini",)) must
+        # never be answered by a link outside its allowlist.
+        import core.llm_gateway as gw
 
+        dialed = []
+
+        def _gw_chat(pid, text, images=None, system=None, temperature=None,
+                     max_tokens=None):
+            dialed.append(pid)
+            return f"answer from {pid}"
+
+        def _gw_gemini(*a, **k):
+            dialed.append("gemini")
+            raise RuntimeError("gemini link is unavailable in this check")
+
+        _o_chat, _o_gemini = gw._chat_link, gw._call_gemini
+        _o_chain, _o_offline, _o_selected = gw._chain, gw._offline, gw._selected_id
+        try:
+            gw._chat_link = _gw_chat
+            gw._call_gemini = _gw_gemini
+            gw._selected_id = lambda: None   # never import main from the harness
+
+            # Only local enabled: the real chain walk must collapse to it and
+            # dial exactly that one provider.
+            pr.set_enabled("gemini", False)
+            pr.set_enabled("openrouter", False)
+            pr.set_enabled("local", True)
+            pr.set_enabled("custom", False)
+            gw._offline = lambda: False
+            dialed.clear()
+            out = gw.generate_content("hi", purpose="accept_providers K")
+            check("the gateway answers on the one enabled provider",
+                  out.text == "answer from local" and dialed == ["local"],
+                  f"dialed={dialed}")
+
+            # Offline mode drops the cloud links from the real chain walk.
+            pr.set_enabled("custom", True)
+            gw._offline = lambda: True
+            chain = gw._chain()
+            check("offline mode leaves only local+custom in the chain",
+                  chain == ["local", "custom"], f"chain={chain}")
+
+            # A grounded call with Gemini off must refuse and dial nothing:
+            # the search caller then falls back to its DDG path instead of
+            # letting an ungrounded model answer from memory.
+            gw._offline = lambda: False
+            gw._chain = lambda: ["local", "custom"]
+            dialed.clear()
+            try:
+                gw.generate_content("q", links=("gemini",),
+                                    purpose="accept_providers K")
+                check("a grounded call with Gemini off is refused", False,
+                      "did not raise")
+            except gw.GatewayError as exc:
+                check("a grounded call with Gemini off is refused",
+                      "disabled in Settings" in str(exc), str(exc)[:120])
+            check("the refused grounded call dialed nothing", dialed == [],
+                  f"dialed={dialed}")
+
+            # Failover stays visible: a failing first link is logged, the
+            # answering link is named, and the response records it.
+            gw._chain = lambda: ["gemini", "local"]
+            dialed.clear()
+            out = gw.generate_content("hi", purpose="accept_providers K")
+            check("failover reaches the next enabled link",
+                  out.provider == "local" and dialed == ["gemini", "local"],
+                  f"dialed={dialed} provider={out.provider}")
+
+            # An empty chain fails loudly instead of answering.
+            gw._chain = lambda: []
+            try:
+                gw.generate_content("hi", purpose="accept_providers K")
+                check("an empty chain raises instead of answering", False,
+                      "did not raise")
+            except gw.GatewayError as exc:
+                check("an empty chain raises instead of answering",
+                      "no providers are enabled" in str(exc), str(exc)[:120])
+        finally:
+            gw._chat_link, gw._call_gemini = _o_chat, _o_gemini
+            gw._chain, gw._offline, gw._selected_id = (
+                _o_chain, _o_offline, _o_selected)
 
     finally:
         # Leave the user's provider settings exactly as we found them. A key that

@@ -50,6 +50,16 @@ from actions.docx_tools        import word_document
 from actions.youtube_video     import youtube_video
 
 
+# Bound on how long execute_sync waits for a tool running on the live loop.
+# A hung tool must not wedge the caller forever: the ``except Exception``
+# below turns any failure -- timeout included -- into a result string the
+# model can read. The bound is generous because legitimate tools (dev-agent
+# codegen, meeting transcription) can run for minutes; the timed-out coroutine
+# is deliberately *not* cancelled -- it finishes in the background, we just
+# stop blocking on it.
+TOOL_EXEC_TIMEOUT_SECONDS = 300.0
+
+
 class _LocalFC:
     def __init__(self, n, a, cid):
         self.name = n
@@ -76,7 +86,7 @@ class ToolExecutor:
         if loop and loop.is_running():
             try:
                 future = asyncio.run_coroutine_threadsafe(self.execute(fc), loop)
-                fr = future.result(timeout=None)
+                fr = future.result(timeout=TOOL_EXEC_TIMEOUT_SECONDS)
                 res_obj = getattr(fr, "response", {})
                 return res_obj.get("result", str(res_obj))
             except Exception as e:

@@ -846,6 +846,47 @@ needs one human run before it is trusted, and each has surprised before.
 
 ---
 
+## 16. Post-release (2026-10-18): the kill switches made real
+
+The release shipped the provider chain, but a local-only configuration still
+sent Google/OpenRouter traffic from background threads, and a dead provider
+surface answered the user with a canned "I'm ready, sir." A six-defect
+diagnosis (log section 14.1) fixed the whole class at once:
+
+* the reply ladder attempts the **selected** provider first, then the
+  remaining enabled chain, and surfaces the real provider error instead of the
+  canned reply;
+* `core/local_brain.py` was rewritten around the Settings endpoint/model with
+  availability probes, bounded timeouts and response validation;
+* **`core/llm_gateway.py`** became the single egress for auxiliary LLM calls
+  (~34 call sites across 24 files): a disabled provider is never contacted,
+  failover follows the chain selected-first, `AuxResponse` keeps SDK-shaped
+  parsers working, `GatewayError` joins every link's reason, and grounded
+  tasks stay Gemini-only so live search is never faked from memory;
+* the Gemini TTS engine is gated behind the same kill switch in `speak()`;
+* `llm_client` gained bounded request timeouts (10 s connect / 180 s read) and
+  an explicit-provider `chat_as()`; and
+* `sound_manager` defers QtMultimedia to the first played sound, so boot logs
+  carry no media-backend probing.
+
+A same-day follow-up sweep (log section 15) closed what review left behind:
+`tests/test_llm_gateway.py` (19 network-free tests) pins the routing contract
+and immediately caught a real bug (dict-shaped inline-data parts were
+stringified into the prompt instead of attached as images);
+`accept_providers.py` gained section K proving egress honours the kill
+switches end-to-end; the tool-bridge wait is bounded
+(`TOOL_EXEC_TIMEOUT_SECONDS = 300`) so a hung tool cannot wedge a reply; nine
+dead `_get_api_key()` helpers - and the constants/imports that only fed them -
+are gone; the last unbounded `urlopen()` got a timeout; and the repo-local
+backup/log clutter plus the 7.6 MB gesture model (downloaded on demand by
+`ui_gesture`) left the tree.
+
+Verified: `precommit_check.py` SAFE TO COMMIT - pytest **240 passed**, all
+seven acceptance harnesses `ALL CRITERIA PASS`, `ruff` clean. Per-item detail
+and evidence live in `docs/VERSION-1.0.1-LOG.md` sections 14-15.
+
+---
+
 *See `ONE-391-changes.md`, `ONE-391-tool-index.md`, `ONE-391-avatar-backends.md`,
 `ONE-391-next-steps.md` and `CODE-REVIEW-TODO.md` for the deep detail behind
 each section above.*

@@ -168,9 +168,18 @@ def _split_contents(contents: Any) -> Tuple[str, List[Tuple[bytes, str]]]:
         if inline is None and isinstance(item, dict):
             inline = item.get("inline_data")
         if inline is not None:
-            data = getattr(inline, "data", None)
+            # Request-side parts carry attribute-style inline_data (bytes);
+            # JSON-side parts carry a plain dict ({'data': b64, ...}).
+            if isinstance(inline, dict):
+                data = inline.get("data")
+            else:
+                data = getattr(inline, "data", None)
             if data:
-                mime = getattr(inline, "mime_type", None) or (
+                if isinstance(inline, dict):
+                    mime = inline.get("mime_type")
+                else:
+                    mime = getattr(inline, "mime_type", None)
+                mime = mime or (
                     item.get("mime_type") if isinstance(item, dict) else None
                 ) or "image/png"
                 if isinstance(data, str):

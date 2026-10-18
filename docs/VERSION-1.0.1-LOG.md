@@ -6,15 +6,14 @@ theme, with the verification evidence that backs each group.
 
 - **Baseline (before this work):** `e0bd3c5` - last commit by GodxSuryaansh.
 - **Range documented:** `e0bd3c5..HEAD`.
-- **Commits in range:** 116 (all authored by SynapticSmith; the original 103 was
+- **Commits in range:** 117 (all authored by SynapticSmith; the original 103 was
   measured at `67b18b4`, the last commit of the section-10 inventory; 115 were on
   `main` before section 14 was written - the four in-between commits are listed
-  in section 14.6 - and the 116th carries section 14).
-- **HEAD at last update:** the 2026-10-18 commit carrying section 14 (previous
-  marker: `664ae4b`, 2026-10-17 - see section 13.5 for the close-out commits
-  after `7c44152`).
-- **Diff footprint:** 256 files changed, 149,895 insertions(+), 17,942 deletions(-)
-  (re-measured across the worktree carrying section 14; the original
+  in section 14.6 - and the last two carry sections 14 and 15).
+- **HEAD at last update:** the 2026-10-18 commit carrying section 15 (previous
+  markers: `b820292` for section 14, `664ae4b` for section 13.5).
+- **Diff footprint:** 257 files changed, 150,389 insertions(+), 18,021 deletions(-)
+  (re-measured across the worktree carrying section 15; the original
   231 / 141,610 / 17,371 predates the close-out documentation commits -
   section 13.5).
 - **Product version in tree:** `1.0.0` (see section 12 for the `1.0.1` bump).
@@ -277,6 +276,10 @@ Evidence captured at HEAD:
 7c44152..664ae4b` touches exactly two files: this log and
 `docs/VERSION-1.0.1-CHANGES.md`, +912 lines, zero source). No source, test, or
 CI file changed, so the evidence above carries forward to HEAD unchanged.
+
+**Superseded figures.** The verification record past `b820292` lives in
+sections 14.5 and 15.6 (221, then 240 tests); the numbers above remain the
+record at the `7c44152` verification point.
 
 One cosmetic drift was found while verifying: the tracker states `ui.py` is 830
 lines; the file is actually **809** lines at HEAD (an earlier entry says 816).
@@ -713,6 +716,98 @@ Four commits landed between `664ae4b` and this section:
 
 ### 14.8 Commit
 
-Landed as the single commit carrying this section (subject: `fix(providers):
-enforce provider toggles on every LLM egress via core/llm_gateway`); see
-`git log`.
+Landed as commit **`b820292`** (subject: `fix(providers): enforce provider
+toggles on every LLM egress via core/llm_gateway`), pushed to `origin/main`
+the same day with CI run `39146847577` green (4 m 28 s).
+
+---
+
+## 15. Post-release sweep: gateway tests, egress acceptance, bounded waits, dead code (2026-10-18)
+
+Section 14 fixed the provider-egress defects; this same-day follow-up closes
+the gaps that review left behind, in five themes.
+
+### 15.1 The gateway got tests (the one untested new module)
+
+`core/llm_gateway.py` had landed with zero direct coverage - the 221-test
+suite exercised neither its chain walk nor its response shim.
+**`tests/test_llm_gateway.py` (19 tests, no network, no google.genai import)**
+pins the routing contract: the `AuxResponse` SDK shape; chain ordering
+(selected provider first, offline cloud-drop, disabled providers excluded even
+when Settings still names them); "a disabled provider is never contacted";
+failover order with per-link failure logs and the `answered by <link>` line;
+`GatewayError` joining every reason; empty responses counted as failures; the
+`links=("gemini",)` grounded restriction (refuses and dials nothing);
+`_split_contents` / `_system_text` / `_merged_config` parsing; and
+model/config delivery to the Gemini link.
+
+The new file earned its keep immediately: `test_split_contents_flattens_text_and_image_parts`
+caught a real defect - **dict-shaped inline-data parts were never unwrapped**
+(`getattr(dict, "data")` returns `None`, so a JSON-side image part was
+stringified into the prompt text instead of attached as an image). The gateway
+now reads `data` / `mime_type` from either the attribute-style part or the
+plain dict, exactly as its docstring promised.
+
+### 15.2 The acceptance harness now proves egress honours the kill switches
+
+`accept_providers.py` gained **section K** ("Gateway egress honours the same
+switch"), driving the *real* chain computation from the *real* toggles with
+the links monkeypatched to recorders: with only `local` enabled the gateway
+dials exactly `['local']`; offline mode collapses the live chain to
+`['local', 'custom']`; a grounded call (`links=("gemini",)`) with Gemini off
+refuses with `disabled in Settings` **and dials nothing**; failover from a
+failing first link reaches the next one and records it as the answering
+provider; an empty chain raises instead of answering.
+
+### 15.3 Bounded tool wait
+
+`core/tool_exec.py` waited on loop-scheduled tool futures with
+`future.result(timeout=None)` - one hung tool wedged the reply path forever.
+`TOOL_EXEC_TIMEOUT_SECONDS = 300` now bounds the wait (generous, because
+dev-agent codegen and transcription legitimately run for minutes); the
+existing `except Exception` turns a timeout into a result string the modelcan read, and the timed-out coroutine deliberately finishes in the background
+rather than being cancelled.
+
+### 15.4 Dead code removed
+
+The gateway migration left file-local `_get_api_key()` helpers behind in
+**nine files** (`agent/error_handler.py`, `agent/executor.py`,
+`actions/code_helper.py`, `actions/dev_agent.py`, `actions/docx_tools.py`,
+`actions/file_processor.py`, `actions/computer_settings.py`,
+`actions/meeting_assistant.py`, `actions/pdf_tools.py`) - verified
+unreferenced by any module or test, and removed together with the
+`API_CONFIG_PATH` constants and `get_user_data_dir` / `json` imports that only
+fed them (ruff F401), plus the orphaned `_get_base_dir()` in
+`computer_settings.py`. Kept deliberately: `agent/planner.py`'s copy
+(imported by `mobile_autopilot`) and `main.py`'s (the gateway,
+provider_router and the Live paths use it).
+
+Also in this theme: the last unbounded HTTP call in the tree
+(`download_offline_voices.py`'s `urlopen`) got `timeout=60`; every other
+`requests` / `urlopen` call site was audited and carries a timeout.
+
+### 15.5 Tree and boot hygiene
+
+Local clutter deleted (`main.py.bak` 263 KB, `ui.py.bak` 650 KB,
+`core/prompt - Copy.txt`, `ig_debug.log`, `FATAL_CRASH_RECOVERED.log`), and
+the 7.6 MB `config/models/hand_landmarker.task` left the working tree: it has
+not been tracked since `ef33a02`, and `ui_gesture` already downloads it on
+demand (`_download_hand_landmarker_model`, 60 s timeout) with a
+manual-placement message if the download fails. This clears the pre-commit
+large-file advisory. The `QtMultimedia` deferral from section 14.4 was also
+verified directly: an offscreen `QApplication` constructing and playing a
+`QSoundEffect` prints **no** backend warnings and exits cleanly, so boot logs
+stay clean and the multimedia cost is paid only when a sound actually plays.
+
+### 15.6 Verification
+
+- `scripts/precommit_check.py` - **SAFE TO COMMIT**: credential scan OK,
+  `pytest` **240 passed**, all seven acceptance harnesses
+  `ALL CRITERIA PASS` (`accept_providers.py` including the new section K).
+- `ruff check .` - **All checks passed!**
+
+### 15.7 Commit
+
+Landed as the single commit carrying this section (subject: `chore(quality):
+gateway tests, section-K egress checks, bounded tool wait, dead code removed`);
+see `git log`.

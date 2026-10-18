@@ -1,9 +1,7 @@
 from __future__ import annotations
-from core.user_paths import get_user_data_dir
 
 import hashlib
 import io
-import json
 import re
 import threading
 import time
@@ -29,22 +27,12 @@ def _base_dir() -> Path:
 
 
 BASE_DIR = _base_dir()
-API_CONFIG_PATH = get_user_data_dir() / "config" / "api_keys.json"
 LIVE_MODEL = "models/gemini-2.5-flash-native-audio-preview-12-2025"
 IMG_MAX_W = 1280
 IMG_MAX_H = 720
 JPEG_Q = 72
 AUD_SAMPLE_RATE = 16000
 AUD_CHUNK_SECONDS = 5.0
-
-
-def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        keys = json.load(f)
-    key = keys.get("gemini_api_key", "")
-    if not key:
-        raise RuntimeError("gemini_api_key not found")
-    return key
 
 
 def _capture_screen() -> bytes:
