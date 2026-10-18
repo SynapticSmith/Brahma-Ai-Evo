@@ -9,11 +9,14 @@ What these pin down:
   app actually sends (core/prompt.txt is ~15KB on its own), so without the
   budget the offline 3B model would lose its operating instructions before
   the user's turn.
-* the hardware-aware timeout-profile contract: a CPU-resident model gets the
-  slow budgets (prefill of the ~4K-token context can take minutes), a
-  VRAM-resident one keeps the fast budgets, an inconclusive probe never
-  invents patience, an explicit Settings value beats the auto-detection, and
-  both budgets stay finite so a wedged server still becomes a surfaced
+* the hardware-aware timeout-profile contract: a CPU-resident or partially
+  offloaded model gets the slow budgets (prefill of the ~4K-token context can
+  take minutes), a *fully* VRAM-resident one earns the fast budgets, and
+  every inconclusive outcome - cold start before Ollama has lazily loaded
+  the target model, broken probe, non-Ollama server - resolves to the slow
+  budgets too: patience is the safe default for a local model, "fast" is
+  earned never assumed. An explicit Settings value beats the auto-detection
+  and both budgets stay finite so a wedged server still becomes a surfaced
   error instead of a hang. The gateway's local link borrows the same
   budget (llm_client._local_read_timeout) instead of a second constant.
 * the tool-capability contract: a model whose runtime rejects the tools
@@ -37,7 +40,7 @@ from core.local_brain import (
     TIMEOUT_PROFILES,
     LocalBrain,
     LocalBrainError,
-    _cpu_resident_from_ps,
+    _ps_load_speed,
 )
 
 
@@ -205,8 +208,11 @@ def _brain_with_settings(monkeypatch, settings) -> LocalBrain:
     return _pinned_brain()
 
 
-def _fake_ps(size_vram, name="test-model:latest"):
-    return {"models": [{"name": name, "size_vram": size_vram}]}
+def _fake_ps(size_vram, name="test-model:latest", size=None):
+    entry = {"name": name, "size_vram": size_vram}
+    if size is not None:
+        entry["size"] = size
+    return {"models": [entry]}
 
 
 def _capture_timeout(monkeypatch, brain):
@@ -236,10 +242,12 @@ def test_cpu_resident_model_gets_slow_budgets(monkeypatch):
 
 
 def test_vram_resident_model_keeps_fast_budgets(monkeypatch):
-    """Any VRAM residency (even partial offload) keeps the historical fast
-    budget, which is also the better failure bound."""
+    """A fully offloaded load (VRAM ~= model size) is GPU-fast: it keeps the
+    historical fast budget, which is also the better failure bound."""
     brain = _brain_with_settings(monkeypatch, {})
-    monkeypatch.setattr(brain, "_get_json", lambda url: _fake_ps(8_000_000_000))
+    monkeypatch.setattr(
+        brain, "_get_json", lambda url: _fake_ps(8_000_000_000, size=8_000_000_000)
+    )
     captured = _capture_timeout(monkeypatch, brain)
 
     brain.chat_complete(messages=[{"role": "user", "content": "hi"}])
@@ -248,12 +256,31 @@ def test_vram_resident_model_keeps_fast_budgets(monkeypatch):
     assert captured["timeout"] == TIMEOUT_PROFILES["fast"]["response"] == 180.0
 
 
-def test_probe_failure_keeps_fast_budgets(monkeypatch):
-    """A failed probe (non-Ollama server, wedged runtime) never invents
-    patience: fast stays the default."""
+def test_partial_offload_gets_slow_budgets(monkeypatch):
+    """A model only partially offloaded still has CPU-resident layers, and
+    those gate prompt prefill - so it must get the patient budget, not the
+    fast one. (Section-17 code treated *any* VRAM as fast.)"""
     brain = _brain_with_settings(monkeypatch, {})
+    monkeypatch.setattr(
+        brain, "_get_json", lambda url: _fake_ps(2_000_000_000, size=8_000_000_000)
+    )
+    captured = _capture_timeout(monkeypatch, brain)
+
+    brain.chat_complete(messages=[{"role": "user", "content": "hi"}])
+
+    assert brain.active_profile() == "slow"
+    assert captured["timeout"] == TIMEOUT_PROFILES["slow"]["response"] == 600.0
+
+
+def test_probe_failure_resolves_to_slow_and_is_cached(monkeypatch):
+    """A failed probe (non-Ollama server, wedged runtime) resolves to the
+    patient budget - for a local model, slow is the safe default - and the
+    failure is cached so we do not re-fail on every single call."""
+    brain = _brain_with_settings(monkeypatch, {})
+    calls = []
 
     def boom(url):
+        calls.append(url)
         raise LocalBrainError("probe failed")
 
     monkeypatch.setattr(brain, "_get_json", boom)
@@ -261,8 +288,11 @@ def test_probe_failure_keeps_fast_budgets(monkeypatch):
 
     brain.chat_complete(messages=[{"role": "user", "content": "hi"}])
 
-    assert brain.active_profile() == "fast"
-    assert captured["timeout"] == TIMEOUT_PROFILES["fast"]["response"]
+    assert brain.active_profile() == "slow"
+    assert captured["timeout"] == TIMEOUT_PROFILES["slow"]["response"] == 600.0
+    # One probe only: the failure is remembered for the TTL.
+    brain.active_profile()
+    assert len(calls) == 1
 
 
 def test_settings_profile_override_beats_auto(monkeypatch):
@@ -282,27 +312,61 @@ def test_settings_profile_override_beats_auto(monkeypatch):
     assert weird._timeout_profile == "auto"
 
 
-def test_cpu_resident_from_ps_parsing():
-    """The /api/ps interpreter: VRAM==0 means CPU; anything unclear means
-    'unknown' (None), never a guessed slow/fast."""
-    assert _cpu_resident_from_ps(_fake_ps(0), "test-model") is True
-    assert _cpu_resident_from_ps(_fake_ps(5), "test-model") is False
+def test_ps_load_speed_parsing():
+    """The /api/ps interpreter: fully VRAM-resident means fast, zero VRAM or
+    partial offload means slow, and anything unclear means unknown (None) so
+    active_profile can default it to the patient budget."""
+    assert _ps_load_speed(_fake_ps(0), "test-model") == "slow"
+    assert _ps_load_speed(
+        _fake_ps(8_000_000_000, size=8_000_000_000), "test-model"
+    ) == "fast"
+    # Partial offload: the CPU-resident layers gate prefill.
+    assert _ps_load_speed(
+        _fake_ps(2_000_000_000, size=8_000_000_000), "test-model"
+    ) == "slow"
     # Tag variants match by prefix in either direction.
-    assert _cpu_resident_from_ps(_fake_ps(0, "test-model:latest"), "test-model") is True
-    assert _cpu_resident_from_ps(_fake_ps(0, "test-model"), "test-model:latest") is True
+    assert _ps_load_speed(_fake_ps(0, "test-model:latest"), "test-model") == "slow"
+    assert _ps_load_speed(_fake_ps(0, "test-model"), "test-model:latest") == "slow"
     # A single loaded model is unambiguous even under a different tag.
-    assert _cpu_resident_from_ps(_fake_ps(0, "other:7b"), "unrelated") is True
+    assert _ps_load_speed(_fake_ps(0, "other:7b"), "unrelated") == "slow"
+    # Cold start: the target model is not loaded yet (Ollama loads lazily on
+    # the first request) -> unknown, never a fast verdict.
+    assert _ps_load_speed({"models": []}, "test-model") is None
     # Multiple models and none matching -> unknown.
     multi = {"models": [{"name": "a", "size_vram": 0}, {"name": "b", "size_vram": 0}]}
-    assert _cpu_resident_from_ps(multi, "c") is None
+    assert _ps_load_speed(multi, "c") is None
     # Unknown shapes -> unknown.
-    assert _cpu_resident_from_ps(None, "test-model") is None
-    assert _cpu_resident_from_ps({"models": "nope"}, "test-model") is None
-    assert _cpu_resident_from_ps({"models": []}, "test-model") is None
-    assert _cpu_resident_from_ps({"models": [{"name": "test-model"}]}, "test-model") is None
-    assert _cpu_resident_from_ps(
+    assert _ps_load_speed(None, "test-model") is None
+    assert _ps_load_speed({"models": "nope"}, "test-model") is None
+    assert _ps_load_speed({"models": [{"name": "test-model"}]}, "test-model") is None
+    assert _ps_load_speed(
         {"models": [{"name": "test-model", "size_vram": "lots"}]}, "test-model"
     ) is None
+    # VRAM reported but the total unknown -> could be partial, so no fast.
+    assert _ps_load_speed(_fake_ps(5), "test-model") is None
+
+
+def test_cold_start_resolves_to_slow_and_reprobes(monkeypatch):
+    """The reported field failure: on the first turn after startup the target
+    model is not in /api/ps yet, so the probe is inconclusive - it must
+    resolve to the 600 s budget (not 180 s), and the inconclusive verdict
+    must NOT be cached, so the next turn can find the model loaded."""
+    brain = _brain_with_settings(monkeypatch, {})
+    calls = []
+
+    def fake_get(url):
+        calls.append(url)
+        return {"models": []}
+
+    monkeypatch.setattr(brain, "_get_json", fake_get)
+
+    assert brain.active_profile() == "slow"  # probe 1
+    assert brain.response_timeout() == TIMEOUT_PROFILES["slow"]["response"] == 600.0  # probe 2
+    assert brain.first_token_timeout() == 600.0  # probe 3
+    assert brain.active_profile() == "slow"  # probe 4
+    # Uncached inconclusive verdict: every resolution re-probes, so the turn
+    # after Ollama lazily loads the model sees the real residency.
+    assert len(calls) == 4
 
 
 def test_ps_probe_cached_within_ttl(monkeypatch):
@@ -326,7 +390,7 @@ def test_open_stream_uses_profile_first_token_budget(monkeypatch):
     """The stream socket opens with the profile's first-token budget (prefill
     included), not the inter-chunk budget."""
     brain = _brain_with_settings(monkeypatch, {})
-    monkeypatch.setattr(brain, "_model_is_cpu_resident", lambda: True)
+    monkeypatch.setattr(brain, "_probe_load_speed", lambda: "slow")
     captured = {}
 
     class _Ctx:

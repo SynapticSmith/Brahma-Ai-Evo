@@ -6,18 +6,19 @@ theme, with the verification evidence that backs each group.
 
 - **Baseline (before this work):** `e0bd3c5` - last commit by GodxSuryaansh.
 - **Range documented:** `e0bd3c5..HEAD`.
-- **Commits in range:** 120 (all authored by SynapticSmith; the original 103 was
+- **Commits in range:** 121 (all authored by SynapticSmith; the original 103 was
   measured at `67b18b4`, the last commit of the section-10 inventory; 115 were on
   `main` before section 14 was written - the four in-between commits are listed
-  in section 14.6 - and the last five carry sections 14, 15, 16, 17 and 18).
-- **HEAD at last update:** the 2026-10-18 commit carrying section 18 (previous
-  markers: `3dc096a` for section 17, `e653c1f` for section 16, `4900107` for
-  section 15, `b820292` for section 14, `664ae4b` for section 13.5).
-- **Diff footprint:** 257 files changed, 151,527 insertions(+), 18,022 deletions(-)
-  (re-measured across the worktree carrying section 18; the original
+  in section 14.6 - and the last six carry sections 14, 15, 16, 17, 18 and 19).
+- **HEAD at last update:** the 2026-10-18 commit carrying section 19 (previous
+  markers: `b2b399c` for section 18, `3dc096a` for section 17, `e653c1f` for
+  section 16, `4900107` for section 15, `b820292` for section 14, `664ae4b` for
+  section 13.5).
+- **Diff footprint:** 257 files changed, 151,721 insertions(+), 18,022 deletions(-)
+  (re-measured across the worktree carrying section 19; the original
   231 / 141,610 / 17,371 predates the close-out documentation commits -
-  section 13.5, and the 257 / 151,266 / 18,022 of section 17 predates the
-  tool-less-model fallback).
+  section 13.5, and the 257 / 151,527 / 18,022 of section 18 predates the
+  auto-profile cold-start fix).
 - **Product version in tree:** `1.0.0` (see section 12 for the `1.0.1` bump).
 - **Source material:** this repository's `git` history plus
   `docs/CODE-REVIEW-TODO.md`, `docs/ONE-391-changes.md`,
@@ -1064,4 +1065,80 @@ one attempt; the stream path skips tools for a remembered model.
 
 Landed as the single commit carrying this section (subject: `fix(local):
 degrade gracefully when the local model has no tool template`); see
+`git log`.
+
+---
+
+## 19. Auto timeout profile: cold-start gap closed; inconclusive defaults to slow (2026-10-18)
+
+Field report: with `qwen3.5:2b` on the local provider, turns *still* died at
+180 s - both paths, verbatim:
+
+> `ERROR:llm_client:[LLM Client] Local AI timed out after 180s reading http://localhost:11434/v1/chat/completions ... (read timeout=180.0)`
+> `[BRAHMA EVO] Local model failed: http://localhost:11434/v1/chat/completions: timed out after 180s`
+
+i.e. `active_profile()` resolved to `fast` on hardware that needs the
+patient budget. Two defects in the section-17 auto-detection:
+
+1. **Cold start (deterministic).** Ollama loads a model *lazily on the
+   first request*, so before the first turn `GET /api/ps` does not contain
+   the target model -> the verdict is inconclusive -> section 17 resolved
+   inconclusive to `fast`. The one turn that most needs the 600 s budget
+   (load + cold prefill) was guaranteed to get 180 s, on every process
+   start, on exactly the slow hardware the profiles were built for.
+2. **Partial offload counted as fast.** `_cpu_resident_from_ps` returned
+   "fast" for *any* `size_vram > 0`, but whatever layers still sit on the
+   CPU gate prompt prefill - a small GPU with a partly offloaded model is
+   slow, not fast.
+
+### 19.1 `fast` must be earned; `slow` is the safe default (`core/local_brain.py`)
+
+- `_cpu_resident_from_ps` -> **`_ps_load_speed`**, a three-way verdict:
+  `"fast"` only when the load is (nearly) fully VRAM-resident
+  (`size_vram >= 0.9 * size`), `"slow"` on zero VRAM *or* partial offload,
+  `None` when the body cannot say (model not loaded yet, non-Ollama shape,
+  sizes missing or unparseable - a VRAM figure without a total could be a
+  partial offload and never earns `fast`).
+- `_model_is_cpu_resident` -> **`_probe_load_speed`**. Conclusive verdicts
+  are cached for `PS_CACHE_TTL` as before, and probe *failures* are now
+  cached too (a non-Ollama server will not repair itself mid-session, so
+  stop re-failing on every call) - but an inconclusive verdict is
+  deliberately **not** cached: "the model is not loaded yet" resolves
+  itself the moment this very turn loads it, and pinning it for 60 s would
+  keep the wrong verdict for the turns that follow.
+- `DEFAULT_TIMEOUT_PROFILE` **`"fast"` -> `"slow"`**; `active_profile()`
+  = explicit `local_timeout_profile` Settings value > probe verdict > slow.
+  Rationale: for a *local* model, patience over fast failure - a refused
+  connection still surfaces instantly (it never touches a timeout), a
+  genuinely hung request stays bounded at 600 s (section 14's no-hang
+  property intact, both budgets finite), and `fast` is a verdict to earn,
+  never an assumption from missing evidence.
+- `llm_client._local_read_timeout` and the streaming first-token budget
+  inherit the corrected resolution unchanged - both of the reported 180 s
+  failures now resolve to 600 s on this hardware, while a fully
+  VRAM-resident model still gets 180 s as the tight failure bound.
+
+### 19.2 Tests (`tests/test_local_brain.py`, 25 in the file)
+
+Updated: the parsing test now pins the three-way verdict (full offload =
+fast, partial = slow, missing/unknown sizes = unknown); the probe-failure
+test flipped to the new contract (slow *and* the failure is cached - one
+probe only); the stream-budget test patches the renamed seam. New:
+`test_partial_offload_gets_slow_budgets` (end-to-end through
+`chat_complete`: 2 GB of 8 GB offloaded -> 600 s) and
+`test_cold_start_resolves_to_slow_and_reprobes` - the field regression:
+empty `/api/ps` -> 600 s response *and* first-token budgets, with the
+inconclusive verdict re-probed (never pinned) on every resolution.
+
+### 19.3 Verification
+
+- `scripts/precommit_check.py` - **SAFE TO COMMIT**: credential scan OK,
+  `pytest` **265 passed**, all seven acceptance harnesses
+  `ALL CRITERIA PASS`.
+- `ruff check .` - **All checks passed!**
+
+### 19.4 Commit
+
+Landed as the single commit carrying this section (subject: `fix(local):
+resolve the auto timeout profile to slow until fast is proven`); see
 `git log`.

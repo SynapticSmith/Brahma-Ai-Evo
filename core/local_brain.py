@@ -46,13 +46,18 @@ DEFAULT_MODEL = "qwen2.5:3b"
 #         600 s covers prefill plus a full answer.
 # active_profile() resolves which applies: an explicit local_timeout_profile
 # Settings value wins; "auto" (default) asks the runtime where the model
-# actually lives (see _model_is_cpu_resident). Both budgets stay finite -
-# a wedged server must still become a surfaced error, never a hang.
+# runs (see active_profile -> _probe_load_speed). "fast" must be EARNED: it
+# is granted only when the probe positively shows the model fully offloaded
+# to VRAM. Every inconclusive outcome - cold start before Ollama has lazily
+# loaded the target model (its first turn!), partial offload, non-Ollama
+# server, broken probe - resolves to slow. That is deliberate: for a local
+# model, patience over fast failure (a refused connection still surfaces
+# instantly without touching any timeout, and the budget stays finite).
 TIMEOUT_PROFILES: Dict[str, Dict[str, float]] = {
     "fast": {"response": 180.0, "first_token": 180.0},
     "slow": {"response": 600.0, "first_token": 600.0},
 }
-DEFAULT_TIMEOUT_PROFILE = "fast"  # inconclusive auto-detection keeps this
+DEFAULT_TIMEOUT_PROFILE = "slow"  # inconclusive auto-detection resolves here
 # Streaming: once tokens are flowing, the maximum allowed silence between
 # chunks before the server counts as wedged. Before the first chunk the
 # profile's first_token budget applies instead (prefill - see _open_stream).
@@ -118,13 +123,18 @@ def _load_settings() -> Dict[str, Any]:
         return {}
 
 
-def _cpu_resident_from_ps(data: Any, model: str) -> Optional[bool]:
-    """Interpret an Ollama ``GET /api/ps`` body for one model.
+def _ps_load_speed(data: Any, model: str) -> Optional[str]:
+    """Interpret an Ollama ``GET /api/ps`` body as a speed verdict.
 
-    Returns True when the model is loaded with zero VRAM (CPU-resident, i.e.
-    prefill runs at CPU speed), False when it holds any VRAM (even a partial
-    offload), and None when the body cannot say - non-Ollama shape, unknown
-    field types, or the model not being among the loaded ones.
+    Returns "fast" only when the target model is (nearly) fully resident in
+    VRAM, "slow" when its load is CPU-speed - zero VRAM, or only partially
+    offloaded, because whatever still sits on the CPU gates prompt prefill -
+    and None when the body cannot say: non-Ollama shape, unknown field
+    types, multiple unmatched loaded models, or the target model not being
+    loaded yet. That last case is the cold start: Ollama loads a model
+    lazily on the first request, so /api/ps is empty for the very turn that
+    needs the verdict - which is why None must resolve to patience
+    (DEFAULT_TIMEOUT_PROFILE = "slow"), never to the fast budgets.
     """
     if not isinstance(data, dict) or not isinstance(data.get("models"), list):
         return None
@@ -145,9 +155,22 @@ def _cpu_resident_from_ps(data: Any, model: str) -> Optional[bool]:
     if match is None or "size_vram" not in match:
         return None
     try:
-        return int(match["size_vram"]) == 0
+        vram = int(match["size_vram"])
     except (TypeError, ValueError):
         return None
+    if vram == 0:
+        return "slow"
+    try:
+        size = int(match["size"])
+    except (KeyError, TypeError, ValueError):
+        # VRAM present but the total is unknown: could be a partial
+        # offload, so do not grant "fast" we cannot justify.
+        return None
+    if size <= 0:
+        return None
+    # Partial offload leaves layers on the CPU, and CPU-resident layers gate
+    # prefill; only a (nearly) complete residency earns the fast budgets.
+    return "fast" if vram >= size * 0.9 else "slow"
 
 
 def _tools_unsupported(exc: BaseException) -> bool:
@@ -189,7 +212,10 @@ class LocalBrain:
         self.endpoint = DEFAULT_ENDPOINT
         self._default_model = DEFAULT_MODEL
         self._timeout_profile = "auto"
-        self._ps_cache: Dict[str, Tuple[float, bool]] = {}
+        # endpoint|model -> (monotonic stamp, "fast"/"slow"/None-unknown);
+        # conclusive verdicts and broken-probe failures are cached for
+        # PS_CACHE_TTL, inconclusive ones are not (see _probe_load_speed).
+        self._ps_cache: Dict[str, Tuple[float, Optional[str]]] = {}
         # endpoint|model keys of models the runtime rejected for tool calling
         # (no tool template, e.g. gemma2 on Ollama); learned once, then tools
         # are skipped for that model instead of paying a 400 every turn.
@@ -477,15 +503,17 @@ class LocalBrain:
 
         An explicit ``local_timeout_profile`` Settings value ("fast"/"slow",
         re-read with everything else) wins. "auto" asks the runtime where the
-        target model actually lives: RAM-resident means CPU inference, where
-        prefill of the system context alone can take minutes, so the slow
-        budgets apply. Anything inconclusive - VRAM-resident, non-Ollama
-        server, probe failure - keeps the fast defaults, which is both the
-        historical behaviour and the safer failure bound.
+        target model runs: a (nearly) fully VRAM-resident load is GPU-fast,
+        while CPU-resident or partially offloaded loads need the slow
+        budgets - there, prefill of the system context alone can take
+        minutes. Anything inconclusive - model not yet loaded (Ollama's lazy
+        load means the first turn sees an empty /api/ps), non-Ollama server,
+        probe failure - resolves to slow: for a *local* model patience is
+        the safe default, and "fast" is earned, never assumed.
         """
         if self._timeout_profile in ("fast", "slow"):
             return self._timeout_profile
-        return "slow" if self._model_is_cpu_resident() else DEFAULT_TIMEOUT_PROFILE
+        return self._probe_load_speed() or DEFAULT_TIMEOUT_PROFILE
 
     def response_timeout(self) -> float:
         """Seconds a non-streaming completion may take (whole body).
@@ -502,28 +530,33 @@ class LocalBrain:
         """
         return TIMEOUT_PROFILES[self.active_profile()]["first_token"]
 
-    def _model_is_cpu_resident(self) -> bool:
-        """True only when the runtime positively reports the model in RAM.
+    def _probe_load_speed(self) -> Optional[str]:
+        """Cached "fast"/"slow"/None speed verdict from Ollama's ``/api/ps``.
 
-        Probes Ollama's ``GET /api/ps`` (result cached for PS_CACHE_TTL
-        seconds per endpoint+model). Any failure - non-Ollama server, probe
-        timeout, unexpected shape - returns False so callers keep the fast
-        defaults rather than inventing patience from an error.
+        Conclusive verdicts are cached for PS_CACHE_TTL seconds per
+        endpoint+model, as are probe *failures* (a non-Ollama server or
+        wedged runtime will not repair itself mid-session - stop hammering
+        it). An inconclusive verdict is deliberately NOT cached: "the model
+        is not loaded yet" is the transient state that resolves itself the
+        moment this very turn loads it, and pinning it for 60 s would keep
+        the wrong verdict for the turns that follow.
         """
         key = f"{self.endpoint}|{self._default_model}"
         now = time.monotonic()
         cached = self._ps_cache.get(key)
         if cached and (now - cached[0]) < PS_CACHE_TTL:
             return cached[1]
-        result = False
         try:
             root = self.endpoint[:-3] if self.endpoint.endswith("/v1") else self.endpoint
-            raw = self._get_json(f"{root}/api/ps")
-            result = _cpu_resident_from_ps(raw, self._default_model) is True
+            verdict = _ps_load_speed(self._get_json(f"{root}/api/ps"), self._default_model)
         except Exception:
-            result = False
-        self._ps_cache[key] = (now, result)
-        return result
+            # Broken probe (transport error, unexpected shape): cache the
+            # unknown so we do not re-fail on every single call.
+            self._ps_cache[key] = (now, None)
+            return None
+        if verdict is not None:
+            self._ps_cache[key] = (now, verdict)
+        return verdict
 
     def _get_json(self, url: str) -> Any:
         """GET one URL with a finite timeout and parse the JSON body.

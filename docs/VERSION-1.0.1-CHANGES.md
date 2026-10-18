@@ -970,6 +970,27 @@ Verified: `precommit_check.py` SAFE TO COMMIT - pytest **263 passed**, all
 seven acceptance harnesses `ALL CRITERIA PASS`, `ruff` clean. Per-item detail
 and evidence live in `docs/VERSION-1.0.1-LOG.md` section 18.
 
+## 20. Post-release (2026-10-18): auto timeout profile fixed for cold start and partial offload
+
+Turns still died at 180 s on the slow machine (`read timeout=180.0` on both
+the gateway's local link and the main turn): the auto profile resolved to
+`fast` there, deterministically. Two causes - Ollama loads a model lazily,
+so on the first turn `/api/ps` does not contain it yet and the inconclusive
+verdict defaulted to `fast` (the turn most needing patience got the least);
+and *any* VRAM residency counted as fast, though CPU-resident layers from a
+partial offload still gate prefill. Now `fast` must be earned: the probe
+returns a three-way verdict (fully offloaded = fast, CPU or partial =
+slow, cannot-say = unknown), conclusive verdicts and broken-probe failures
+are cached while inconclusive ones are re-probed every resolution, and
+`DEFAULT_TIMEOUT_PROFILE` is `slow` - for a local model, patience is the
+safe default (a refused connection still surfaces instantly and the budget
+stays finite at 600 s). An explicit `local_timeout_profile` Settings value
+still overrides everything.
+
+Verified: `precommit_check.py` SAFE TO COMMIT - pytest **265 passed**, all
+seven acceptance harnesses `ALL CRITERIA PASS`, `ruff` clean. Per-item detail
+and evidence live in `docs/VERSION-1.0.1-LOG.md` section 19.
+
 ---
 
 *See `ONE-391-changes.md`, `ONE-391-tool-index.md`, `ONE-391-avatar-backends.md`,
