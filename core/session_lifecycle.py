@@ -132,8 +132,16 @@ class SessionLifecycle:
 
         speech_buffer = bytearray()
         speaking = {"on": False}
+        # Owned by the enclosing scope and shared with the callback via
+        # nonlocal: every sounddevice callback invocation is a fresh frame, so
+        # a bare ``silence_chunks`` assigned only inside the branches below
+        # would be a local that is unbound on the first silence chunk
+        # (UnboundLocalError -> phrase never sealed -> local mic dead).
+        # core.audio_io.callback already uses this exact pattern.
+        silence_chunks = 0
 
         def _callback(indata, frames, time_info, status):
+            nonlocal silence_chunks
             # A raise here is swallowed by cffi ("Exception ignored from cffi
             # callback") and the stream then goes silent forever, which is what
             # a bad buffer conversion looks like from the outside. Nothing in

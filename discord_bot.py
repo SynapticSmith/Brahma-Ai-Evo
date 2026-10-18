@@ -31,8 +31,6 @@ def _load_discord_module():
 
 discord = _load_discord_module()
 
-from google import genai
-
 from llm_client import client as openrouter_client
 
 
@@ -393,6 +391,8 @@ class DiscordBotService:
         return (text or "").strip().replace("\r\n", "\n")
 
     def _generate_reply(self, prompt: str) -> str:
+        from core import llm_gateway
+
         prompt = (prompt or "").strip()
         if not prompt:
             return "Tell me what you need help with."
@@ -406,23 +406,20 @@ class DiscordBotService:
             "Keep replies friendly and under 250 words unless the user asks for detail."
         )
 
-        if gemini_key:
-            try:
-                client = genai.Client(
-                    api_key=gemini_key,
-                    http_options={"api_version": "v1beta"},
-                )
-                response = client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=f"{system_prompt}\n\nUser: {prompt}",
-                    config={"temperature": 0.5},
-                )
-                text = _extract_gemini_text(response)
-                if text:
-                    return text
-            except Exception as exc:
-                if not _looks_like_limit_error(exc):
-                    logger.warning("Gemini Discord reply failed, falling back to OpenRouter: %s", exc)
+        try:
+            response = llm_gateway.generate_content(
+                model="gemini-2.5-flash",
+                contents=f"{system_prompt}\n\nUser: {prompt}",
+                config={"temperature": 0.5},
+                api_key=gemini_key,
+                purpose="Discord reply",
+            )
+            text = _extract_gemini_text(response)
+            if text:
+                return text
+        except Exception as exc:
+            if not _looks_like_limit_error(exc):
+                logger.warning("Discord reply via LLM gateway failed, falling back to OpenRouter: %s", exc)
 
         if openrouter_key:
             try:

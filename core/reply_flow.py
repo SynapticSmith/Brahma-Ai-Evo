@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import threading
 
-from google import genai
+from core import llm_gateway
 
 from llm_client import client as openrouter_client
 from actions.attention_monitor import speak_native
@@ -161,11 +161,11 @@ class ReplyFlow:
             "Output ONLY valid JSON: {\"intent\": \"...\", \"reply_text\": \"...\"}"
         )
         try:
-            client = genai.Client(api_key=self._get_api_key(), http_options={"api_version": "v1beta"})
-            response = client.models.generate_content(
+            response = llm_gateway.generate_content(
+                f"{system_prompt}\n\nUser Response: {text}",
                 model="gemini-2.5-flash",
-                contents=f"{system_prompt}\n\nUser Response: {text}",
-                config={"temperature": 0.1, "response_mime_type": "application/json"}
+                config={"temperature": 0.1, "response_mime_type": "application/json"},
+                purpose="Instagram reply intent",
             )
             data = json.loads(response.text.strip())
             return data.get("intent", "IGNORE"), data.get("reply_text", "")

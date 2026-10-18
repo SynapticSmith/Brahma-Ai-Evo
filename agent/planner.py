@@ -404,10 +404,10 @@ def _rewrite_generated_step(step: dict, goal: str) -> None:
 
 
 def create_plan(goal: str, context: str = "") -> dict:
-    from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=_get_api_key())
+    from core import llm_gateway
+
     system_prompt = _planner_system_prompt()
     candidates = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.1-flash-lite", "gemini-flash-latest"]
     
@@ -418,14 +418,18 @@ def create_plan(goal: str, context: str = "") -> dict:
     text = None
     for model_name in candidates:
         try:
-            response = client.models.generate_content(
+            response = llm_gateway.generate_content(
                 model=model_name,
                 contents=user_input,
                 config=types.GenerateContentConfig(system_instruction=system_prompt),
+                purpose="task planning",
             )
             if response.text:
                 text = response.text.strip()
                 break
+        except llm_gateway.GatewayError as unavailable:
+            print(f"[Planner] ⚠️ LLM gateway unavailable during planning: {unavailable}")
+            break
         except Exception as e:
             print(f"[Planner] ⚠️ {model_name} planning error: {e}")
             continue
@@ -487,10 +491,10 @@ def _fallback_plan(goal: str) -> dict:
 
 
 def replan(goal: str, completed_steps: list, failed_step: dict, error: str) -> dict:
-    from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=_get_api_key())
+    from core import llm_gateway
+
     system_prompt = _planner_system_prompt()
     candidates = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.1-flash-lite", "gemini-flash-latest"]
 
@@ -511,14 +515,18 @@ Create a REVISED plan for the remaining work only. Do not repeat completed steps
     text = None
     for model_name in candidates:
         try:
-            response = client.models.generate_content(
+            response = llm_gateway.generate_content(
                 model=model_name,
                 contents=prompt,
                 config=types.GenerateContentConfig(system_instruction=system_prompt),
+                purpose="task replanning",
             )
             if response.text:
                 text = response.text.strip()
                 break
+        except llm_gateway.GatewayError as unavailable:
+            print(f"[Planner] ⚠️ LLM gateway unavailable during replanning: {unavailable}")
+            break
         except Exception as e:
             print(f"[Planner] ⚠️ {model_name} replan error: {e}")
             continue

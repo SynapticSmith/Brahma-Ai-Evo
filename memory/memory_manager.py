@@ -179,11 +179,11 @@ def update_memory(memory_update: dict) -> dict:
 
 def should_extract_memory(user_text: str, brahma_text: str, api_key: str = "") -> bool:
     try:
-        from or_client import client
+        from core import llm_gateway
 
         combined = f"User: {user_text[:300]}\nBrahma AI: {brahma_text[:1000]}"
 
-        result = client.chat(
+        result = llm_gateway.generate_content(
             f"Does this conversation contain ANY of the following?\n"
             f"- Personal facts (name, age, city, job, birthday, nationality)\n"
             f"- Preferences or favorites (food, color, music, sport, game, film, book, etc.)\n"
@@ -195,7 +195,8 @@ def should_extract_memory(user_text: str, brahma_text: str, api_key: str = "") -
             system="You are a memory relevance checker. Reply only YES or NO.",
             max_tokens=5,
             temperature=0.0,
-        )
+            purpose="memory relevance check",
+        ).text
         return "YES" in result.upper()
 
     except Exception as e:
@@ -205,11 +206,11 @@ def should_extract_memory(user_text: str, brahma_text: str, api_key: str = "") -
 
 def extract_memory(user_text: str, brahma_text: str, api_key: str = "") -> dict:
     try:
-        from or_client import client
+        from core import llm_gateway
 
         combined = f"User: {user_text[:600]}\nBrahma AI: {brahma_text[:300]}"
 
-        raw = client.chat(
+        raw = llm_gateway.generate_content(
             f"Extract ALL memorable personal facts from this conversation. Any language.\n"
             f"Return ONLY valid JSON. Use {{}} if truly nothing is worth saving.\n\n"
             f"Category guide:\n"
@@ -240,7 +241,8 @@ def extract_memory(user_text: str, brahma_text: str, api_key: str = "") -> dict:
             system="Return ONLY valid JSON. No markdown, no explanation, no extra text.",
             max_tokens=1024,
             temperature=0.2,
-        )
+            purpose="memory extraction",
+        ).text
 
         clean = raw.strip()
         clean = re.sub(r"```(?:json)?", "", clean).strip().rstrip("`").strip()

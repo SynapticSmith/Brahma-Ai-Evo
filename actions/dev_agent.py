@@ -26,12 +26,13 @@ def _get_api_key() -> str:
 
 
 def _get_model(model_name: str):
-    from google import genai
-    _c = genai.Client(api_key=_get_api_key())
+    from core import llm_gateway
 
     class _W:
         def generate_content(self, contents):
-            return _c.models.generate_content(model=model_name, contents=contents)
+            return llm_gateway.generate_content(
+                contents, model=model_name, purpose="dev agent"
+            )
 
     return _W()
 

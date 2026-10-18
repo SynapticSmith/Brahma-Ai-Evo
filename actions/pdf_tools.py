@@ -402,22 +402,15 @@ def synthesize_deep_report(goal_or_topic: str, title: str, research_notes: str =
     Synthesizes an exhaustive, 10-chapter technical research monograph
     using high-speed Gemini-3.1-flash-lite in two cohesive passes.
     """
-    api_key = _get_api_key()
-    if not api_key:
-        return ""
+    from core import llm_gateway
 
-    from google import genai
-
-    # The supported SDK validates a model name at call time, not at
-    # construction, so the old `GenerativeModel(name)` probe loop never actually
-    # rejected a name -- it always settled on the first. Keep that behaviour and
-    # the old `model.generate_content(...)` shape via a thin wrapper.
-    client = genai.Client(api_key=api_key)
-
+    # Keep the old `model.generate_content(...)` call shape, but route through
+    # `core.llm_gateway`: with no key or a disabled/down Gemini link the call
+    # fails over to the enabled provider instead of aborting the report.
     class _Model:
         def generate_content(self, contents, **kwargs):
-            return client.models.generate_content(
-                model="gemini-3.1-flash-lite", contents=contents, **kwargs
+            return llm_gateway.generate_content(
+                contents, model="gemini-3.1-flash-lite", purpose="PDF report synthesis", **kwargs
             )
 
     model = _Model()
@@ -502,6 +495,9 @@ Write substantial, deeply technical paragraphs under every subsection. Ensure al
             if resp.text:
                 parts.append(resp.text)
                 print(f"[PDF Tools] [+] Monograph Part {idx+1} generated in {time.time()-t0:.1f}s ({len(resp.text.split())} words)")
+        except llm_gateway.GatewayError as unavailable:
+            print(f"[PDF Tools] [!] LLM gateway unavailable, stopping synthesis: {unavailable}")
+            break
         except Exception as e:
             print(f"[PDF Tools] [!] Part {idx+1} generation failed: {e}")
 

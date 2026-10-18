@@ -248,21 +248,22 @@ class WorkspaceStore:
             
         def _do_summary():
             try:
-                from google import genai
+                from core import llm_gateway
                 key_path = get_user_data_dir() / "config" / "api_keys.json"
                 with open(key_path, "r", encoding="utf-8") as f:
                     api_key = json.load(f)["gemini_api_key"]
                 
-                client = genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
                 prompt = (
                     "Summarize the following user conversation into 1-2 short, conversational sentences "
                     "that describe what the user was doing or asking about. Phrase it as 'Yesterday you were...'\n\n"
                     f"Conversation:\n{full_text}"
                 )
-                response = client.models.generate_content(
+                response = llm_gateway.generate_content(
                     model="gemini-2.5-flash",
                     contents=prompt,
                     config={"temperature": 0.5},
+                    api_key=api_key,
+                    purpose="session summary",
                 )
                 
                 text_parts = []

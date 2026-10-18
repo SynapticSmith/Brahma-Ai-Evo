@@ -387,34 +387,40 @@ Output ONLY a strict JSON object with these exact keys:
 }}
 Do NOT include markdown fences outside the JSON. Return only the valid JSON object.
 """
-        # 1. Primary: Google Gemini (Native directly via google.genai)
-        gemini_key = _get_gemini_api_key()
-        if gemini_key:
-            try:
-                from google import genai
-                g_client = genai.Client(api_key=gemini_key, http_options={"api_version": "v1beta"})
-                for model_name in ("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"):
-                    try:
-                        resp = g_client.models.generate_content(
-                            model=model_name,
-                            contents=prompt,
-                            config={"temperature": 0.1, "response_mime_type": "application/json"}
-                        )
-                        raw_text = getattr(resp, "text", "") or ""
-                        if raw_text.strip():
-                            clean_json = raw_text.strip()
-                            if clean_json.startswith("```"):
-                                clean_json = re.sub(r"^```[a-zA-Z]*\n?", "", clean_json)
-                                clean_json = re.sub(r"\n?```$", "", clean_json).strip()
-                            data = json.loads(clean_json)
-                            if "target_chunk" in data and "replacement_chunk" in data:
-                                data["success"] = True
-                                return data
-                    except Exception as model_err:
-                        logger.warning(f"[AutoHeal] Gemini model {model_name} synthesis attempt failed: {model_err}")
-                        continue
-            except Exception as g_err:
-                logger.warning(f"[AutoHeal] Gemini synthesis failed: {g_err}")
+        # 1. Primary: the LLM gateway (Gemini when enabled, then the rest of
+        #    the enabled provider chain -- never a disabled provider).
+        try:
+            from core import llm_gateway
+
+            for model_name in ("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"):
+                try:
+                    resp = llm_gateway.generate_content(
+                        prompt,
+                        model=model_name,
+                        config={"temperature": 0.1, "response_mime_type": "application/json"},
+                        purpose="auto-heal patch synthesis",
+                    )
+                    raw_text = resp.text
+                    if raw_text.strip():
+                        clean_json = raw_text.strip()
+                        if clean_json.startswith("```"):
+                            clean_json = re.sub(r"^```[a-zA-Z]*\n?", "", clean_json)
+                            clean_json = re.sub(r"\n?```$", "", clean_json).strip()
+                        data = json.loads(clean_json)
+                        if "target_chunk" in data and "replacement_chunk" in data:
+                            data["success"] = True
+                            return data
+                        if resp.provider != "gemini":
+                            # Non-Gemini links ignore `model`; one attempt each.
+                            break
+                except llm_gateway.GatewayError as unavailable:
+                    logger.warning(f"[AutoHeal] LLM gateway unavailable: {unavailable}")
+                    break
+                except Exception as model_err:
+                    logger.warning(f"[AutoHeal] {model_name} synthesis attempt failed: {model_err}")
+                    continue
+        except Exception as g_err:
+            logger.warning(f"[AutoHeal] Synthesis gateway failed: {g_err}")
 
         # 2. Fallback: Unified AI Client (llm_client.py)
         try:

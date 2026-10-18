@@ -37,7 +37,6 @@ try:
 except Exception:
     pass
 
-from google import genai
 from google.genai import types
 from ui import BrahmaUI
 from memory.memory_manager import (
@@ -306,10 +305,8 @@ def _injected_instructions(layer: str) -> str:
 
 
 def _gemini_text_reply(prompt: str, layer: str = "fallback") -> str:
-    client = genai.Client(
-        api_key=_get_api_key(),
-        http_options={"api_version": "v1beta"},
-    )
+    from core import llm_gateway
+
     system_prompt = (
         "You are Brahma Evo, a concise, helpful desktop assistant. "
         "Reply naturally and briefly. Do not mention internal implementation details."
@@ -317,10 +314,17 @@ def _gemini_text_reply(prompt: str, layer: str = "fallback") -> str:
     extra = _injected_instructions(layer)
     if extra:
         system_prompt = f"{system_prompt}{extra}"
-    response = client.models.generate_content(
+    # Grounded to the Gemini link only: the reply ladder owns failover and
+    # must see a real failure (not another provider's voice) when Gemini is
+    # disabled or throttled. GatewayError carries the SDK's reason verbatim,
+    # so the ladder's rate-limit detection keeps working; call sites outside
+    # the ladder (ReplyFlow) already catch and fall back themselves.
+    response = llm_gateway.generate_content(
+        f"{system_prompt}\n\nUser: {prompt}",
         model="gemini-2.5-flash",
-        contents=f"{system_prompt}\n\nUser: {prompt}",
         config={"temperature": 0.6},
+        links=("gemini",),
+        purpose="text reply",
     )
     return _extract_gemini_text(response)
 
@@ -333,28 +337,22 @@ def _ig_gemini_reply(username: str, text: str) -> str:
         "Do not sound like a bot. Keep your replies under 2 sentences."
     )
     prompt = f"Instagram DM from {username}: {text}"
-    
+
     try:
-        client = genai.Client(
-            api_key=_get_api_key(),
-            http_options={"api_version": "v1beta"},
-        )
-        response = client.models.generate_content(
+        from core import llm_gateway
+
+        response = llm_gateway.generate_content(
+            f"{system_prompt}\n\nUser: {prompt}",
             model="gemini-2.5-flash",
-            contents=f"{system_prompt}\n\nUser: {prompt}",
             config={"temperature": 0.6},
+            purpose="Instagram reply",
         )
         return _extract_gemini_text(response)
     except Exception as e:
-        if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e) or _is_gemini_limit_error(e):
-            print("[InstagramChat] Gemini Rate Limit hit, falling back to OpenRouter...")
-            try:
-                from llm_client import client as openrouter_client
-                return openrouter_client.chat(prompt, system=system_prompt)
-            except Exception as or_e:
-                print(f"[InstagramChat] OpenRouter fallback failed: {or_e}")
-                return "Hey, I'm currently busy. I will get back to you later!"
-        print(f"[InstagramChat] Gemini Reply Error: {e}")
+        # The gateway already failed over through every enabled provider
+        # (rate limits included); this is the last resort, and the log keeps
+        # the real cause visible instead of hiding it behind the canned line.
+        print(f"[InstagramChat] Reply generation failed: {e}")
         return "Hey, I'm currently busy. I will get back to you later!"
 
 
@@ -367,24 +365,48 @@ def _clipboard_gemini_reply(text: str) -> str:
     )
     prompt = text
     try:
-        client = genai.Client(
-            api_key=_get_api_key(),
-            http_options={"api_version": "v1beta"},
-        )
-        response = client.models.generate_content(
+        from core import llm_gateway
+
+        response = llm_gateway.generate_content(
+            f"{system_prompt}\n\nClipboard Text: {prompt}",
             model="gemini-2.5-flash",
-            contents=f"{system_prompt}\n\nClipboard Text: {prompt}",
             config={"temperature": 0.8},
+            purpose="clipboard comment",
         )
         return _extract_gemini_text(response)
     except Exception as e:
-        if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e) or _is_gemini_limit_error(e):
-            try:
-                from llm_client import client as openrouter_client
-                return openrouter_client.chat(prompt, system=system_prompt)
-            except Exception:
-                pass
+        print(f"[Clipboard] Reply generation failed: {e}")
         return "Interesting stuff you copied there!"
+
+
+# Provider id -> the name shown in Settings / the UI. Every failure line the
+# reply ladder logs uses these so log text matches what the user configured.
+PROVIDER_LABELS = {
+    "gemini": "Google Gemini",
+    "openrouter": "OpenRouter",
+    "local": "Local model",
+    "custom": "Custom endpoint",
+}
+
+
+def _provider_id_for_name(name: str) -> str | None:
+    """Map the Settings value of ``default_ai_provider`` to a provider_router id.
+
+    Settings stores display names ("Gemini", "OpenRouter", "Local", "Custom
+    (OpenAI-compatible)") while the router keys on ids; the reply ladder needs
+    the id to place the selected provider first in its attempt order. Returns
+    None for an unrecognised value so callers fall back to plain router order.
+    """
+    low = (name or "").strip().lower()
+    if low in ("gemini", "google gemini"):
+        return "gemini"
+    if low == "openrouter":
+        return "openrouter"
+    if low == "local":
+        return "local"
+    if low.startswith("custom"):
+        return "custom"
+    return None
 
 
 def _looks_like_code_request(text: str) -> bool:
@@ -3460,6 +3482,130 @@ class BrahmaLive:
         except Exception:
             pass
 
+    def _local_brain_reply(self, request_text: str, local_model_target: str) -> str:
+        """One full Local Brain turn: bounded tools, execution, one follow-up.
+
+        Raises LocalBrainError (endpoint down, timeout, malformed body) so the
+        reply ladder records a real reason; returns "" only when the model
+        produced neither content nor tool calls, which the ladder counts as a
+        failed attempt instead of speaking a scripted non-answer.
+        """
+        prompt_txt = ""
+        try:
+            if PROMPT_PATH.exists():
+                prompt_txt = PROMPT_PATH.read_text(encoding="utf-8").strip()
+        except Exception:
+            pass
+        if not prompt_txt:
+            prompt_txt = "You are Brahma Evo, the autonomous desktop operating system."
+
+        system_prompt = (
+            f"{prompt_txt}\n\n"
+            "CRITICAL OPERATING SYSTEM DIRECTIVE:\n"
+            "- You have FULL DIRECT ACCESS and authority over this Windows PC via your tools.\n"
+            "- NEVER state that you are a text-based AI, that you cannot perform automations, or that you lack real-time access.\n"
+            "- Whenever the user requests an action (opening an app, changing volume, setting a reminder, running a protocol, organizing files, searching, etc.), ALWAYS call the corresponding tool.\n"
+            "- Keep responses concise, direct, and conversational."
+        )
+
+        # Local models get the same bounded, relevance-ranked tool surface
+        # Gemini Live gets. This is what makes MCP tools reachable here at
+        # all: the static TOOL_DECLARATIONS list contains only native tools,
+        # and its size swamps a 3B context window. Anything not advertised
+        # stays reachable through the search_tools / call_tool meta-tools.
+        local_tools, local_skill_ctx = local_brain.resolve_tools(
+            request_text, TOOL_DECLARATIONS
+        )
+        if local_skill_ctx:
+            system_prompt = f"{system_prompt}\n\n{local_skill_ctx}"
+
+        # Optional instruction blocks for this layer. Opt-in and per-layer:
+        # an empty contribution is free when unused.
+        try:
+            from core import instruction_injector
+
+            injected = instruction_injector.compose("local")
+            if injected:
+                system_prompt = f"{system_prompt}{injected}"
+        except Exception:
+            pass
+        print(
+            f"[BRAHMA EVO] \U0001f9f0 Local turn advertising {len(local_tools)} tool(s) "
+            f"for {local_model_target}."
+        )
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": request_text},
+        ]
+        res = local_brain.chat_complete(
+            messages, model=local_model_target, tools=local_tools, focus_core=True
+        )
+        msg = res["choices"][0].get("message", {})
+        tool_calls = msg.get("tool_calls")
+        if not tool_calls:
+            return (msg.get("content") or "").strip()
+
+        # OpenAI tool protocol: the assistant message is appended exactly
+        # once, followed by one tool result per call, then ONE follow-up.
+        # (The old code re-appended the assistant message per call and ran a
+        # follow-up inside the loop - invalid protocol and N round-trips.)
+        messages.append(msg)
+        summaries = []
+        for tc in tool_calls:
+            call_id = tc.get("id", "call_local")
+            fn_info = tc.get("function", {}) or {}
+            fn_name = fn_info.get("name")
+            fn_args_raw = fn_info.get("arguments", {})
+            if isinstance(fn_args_raw, str):
+                try:
+                    fn_args = json.loads(fn_args_raw)
+                except Exception:
+                    fn_args = {}
+            else:
+                fn_args = fn_args_raw or {}
+
+            if not fn_name:
+                summaries.append("a tool call arrived without a function name")
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "name": "unknown",
+                    "content": "error: tool call is missing its function name",
+                })
+                continue
+
+            print(f"[BRAHMA EVO] \U0001f512 Local Brain executing tool: {fn_name}({fn_args})")
+            self.ui.update_task_workspace(
+                status=f"Executing {fn_name}",
+                output=f"Running action: {fn_name} on local machine...",
+                percent=75,
+            )
+            tool_result = self._execute_tool_sync(fn_name, fn_args, call_id)
+            messages.append({
+                "role": "tool",
+                "tool_call_id": call_id,
+                "name": fn_name,
+                "content": str(tool_result),
+            })
+            summaries.append(str(tool_result or "").strip())
+
+        try:
+            followup_res = local_brain.chat_complete(
+                messages, model=local_model_target, temperature=0.3
+            )
+            followup_reply = (
+                followup_res["choices"][0].get("message", {}).get("content") or ""
+            ).strip()
+            if followup_reply:
+                return followup_reply
+        except Exception as e_fu:
+            print(f"[BRAHMA EVO] \u26a0\ufe0f Local Brain follow-up failed: {e_fu}")
+
+        # The tools ran; report what they actually did rather than nothing.
+        detail = " / ".join(s for s in summaries if s)
+        return detail or f"{local_model_target} returned no usable response."
+
     def _fallback_reply(self, text: str, memory_ctx: str = ""):
         try:
             self.ui.set_state("THINKING")
@@ -3478,15 +3624,14 @@ class BrahmaLive:
             configured_provider = app_settings.get("default_ai_provider", "Gemini")
             local_model_target = app_settings.get("local_ai_model", "qwen2.5:3b")
             is_offline_mode = app_settings.get("offline_mode_enabled", False)
+            selected = _provider_id_for_name(configured_provider)
 
-            is_cloud_gemini = configured_provider in ("Gemini", "Google Gemini")
-            is_cloud_openrouter = configured_provider == "OpenRouter"
-
-            # Vendor-agnostic failover order. Each link below is gated on being
-            # enabled, so a provider switched off in Settings is never called --
-            # that is what stops a background thread from silently walking the
-            # OpenRouter free-model pool on a CPU already busy with a local
-            # model. Logged so the active chain is visible when it misbehaves.
+            # Vendor-agnostic failover order. provider_router.chain() returns
+            # only *enabled* providers, so a provider switched off in Settings
+            # is never called -- that is what stops a background thread from
+            # silently walking the OpenRouter free-model pool on a CPU already
+            # busy with a local model. Logged so the active chain is visible
+            # when it misbehaves.
             active_chain = ["gemini", "openrouter", "local", "custom"]
             disabled = []
             try:
@@ -3502,213 +3647,114 @@ class BrahmaLive:
             except Exception:
                 pass
 
-            # 1. If user explicitly selected Google Gemini, run Gemini FIRST
-            if is_cloud_gemini and not is_offline_mode and "gemini" in active_chain:
+            # Attempt order: the provider the user selected goes first (its
+            # full-featured path runs), then every other *enabled* provider in
+            # router order as failover. Offline mode means "no cloud egress":
+            # it keeps local and the user-defined custom endpoint (often a LAN
+            # server) and drops the cloud links. A recent Gemini throttle puts
+            # OpenRouter ahead of Gemini for the cooldown window.
+            eligible = [
+                p for p in active_chain
+                if not (is_offline_mode and p in ("gemini", "openrouter"))
+            ]
+            order: list = []
+            if selected == "gemini" and self._prefer_openrouter() and "openrouter" in eligible:
+                order.append("openrouter")
+            if selected is not None and selected in eligible:
+                order.append(selected)
+            order.extend(p for p in eligible if p not in order)
+            # (provider label, reason) for every failed attempt; surfaced to
+            # the user verbatim when nothing answered.
+            attempt_errors: list = []
+
+            # Attempt the chain: selected provider first, then failover.
+            # Every failure keeps its reason so an all-fail turn reports
+            # *why* instead of inventing a reply (the old ladder swallowed
+            # all of this and spoke a scripted acknowledgement).
+            plain_system = (
+                "You are Brahma Evo, a concise, helpful desktop assistant. "
+                "Reply naturally and briefly. Do not mention internal implementation details."
+                + _injected_instructions("fallback")
+            )
+            for pid in order:
+                label = PROVIDER_LABELS.get(pid, pid)
                 try:
                     self.ui.update_task_workspace(
-                        status="Thinking (Gemini)",
-                        output="Processing on Google Gemini...",
+                        status=f"Thinking ({label})",
+                        output=f"Processing on {label}...",
                         percent=50,
                     )
-                    reply = _gemini_text_reply(request_text)
-                    print("[BRAHMA EVO] 🌐 Google Gemini answered successfully!")
-                except Exception as e_gem:
-                    print(f"[BRAHMA EVO] ⚠️ Gemini failed: {e_gem}")
-                    if _is_gemini_limit_error(e_gem):
-                        self._throttled_to_openrouter()
-
-            # 2. If user explicitly selected OpenRouter, run OpenRouter FIRST
-            elif is_cloud_openrouter and not is_offline_mode and "openrouter" in active_chain:
-                try:
-                    self.ui.update_task_workspace(
-                        status="Thinking (OpenRouter)",
-                        output="Processing on OpenRouter...",
-                        percent=50,
-                    )
-                    reply = openrouter_client.chat(
-                        request_text,
-                        system=(
-                            "You are Brahma Evo, a concise, helpful desktop assistant. "
-                            "Reply naturally and briefly. Do not mention internal implementation details."
-                            + _injected_instructions("fallback")
-                        ),
-                    )
-                    print("[BRAHMA EVO] 🌐 OpenRouter answered successfully!")
-                except Exception as e_or:
-                    print(f"[BRAHMA EVO] ⚠️ OpenRouter failed: {e_or}")
-
-            # 3. If user explicitly configured Local AI, is in Offline Mode, or cloud provider failed: run Local Brain
-            if (not reply
-                    and "local" in active_chain
-                    and (configured_provider == "Local" or is_offline_mode or not (is_cloud_gemini or is_cloud_openrouter))
-                    and local_brain.is_available()):
-                try:
-                    self.ui.update_task_workspace(
-                        status="Thinking (Local AI)",
-                        output=f"Processing on local model ({local_model_target})...",
-                        percent=50,
-                    )
-                    prompt_txt = ""
-                    try:
-                        if PROMPT_PATH.exists():
-                            prompt_txt = PROMPT_PATH.read_text(encoding="utf-8").strip()
-                    except Exception:
-                        pass
-                    if not prompt_txt:
-                        prompt_txt = "You are Brahma Evo, the autonomous desktop operating system."
-
-                    system_prompt = (
-                        f"{prompt_txt}\n\n"
-                        "CRITICAL OPERATING SYSTEM DIRECTIVE:\n"
-                        "- You have FULL DIRECT ACCESS and authority over this Windows PC via your tools.\n"
-                        "- NEVER state that you are a text-based AI, that you cannot perform automations, or that you lack real-time access.\n"
-                        "- Whenever the user requests an action (opening an app, changing volume, setting a reminder, running a protocol, organizing files, searching, etc.), ALWAYS call the corresponding tool.\n"
-                        "- Keep responses concise, direct, and conversational."
-                    )
-
-                    # Local models get the same bounded, relevance-ranked tool
-                    # surface Gemini Live gets. This is what makes MCP tools
-                    # reachable here at all: the static TOOL_DECLARATIONS list
-                    # contains only native tools, and its size swamps a 3B
-                    # context window. Anything not advertised stays reachable
-                    # through the search_tools / call_tool meta-tools, and any
-                    # usage rules for the advertised groups arrive as JIT context.
-                    local_tools, local_skill_ctx = local_brain.resolve_tools(
-                        request_text, TOOL_DECLARATIONS
-                    )
-                    if local_skill_ctx:
-                        system_prompt = f"{system_prompt}\n\n{local_skill_ctx}"
-
-                    # Optional instruction blocks for this layer. Opt-in and
-                    # per-layer: a layer with nothing registered contributes an
-                    # empty string, so this is free when unused.
-                    try:
-                        from core import instruction_injector
-
-                        injected = instruction_injector.compose("local")
-                        if injected:
-                            system_prompt = f"{system_prompt}{injected}"
-                    except Exception:
-                        pass
-                    print(
-                        f"[BRAHMA EVO] 🧰 Local turn advertising {len(local_tools)} tool(s) "
-                        f"for {local_model_target}."
-                    )
-
-                    messages = [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": request_text}
-                    ]
-
-                    res = local_brain.chat_complete(
-                        messages,
-                        model=local_model_target,
-                        tools=local_tools,
-                        focus_core=True
-                    )
-                    msg = res.get("choices", [{}])[0].get("message", {})
-                    tool_calls = msg.get("tool_calls")
-                    if tool_calls:
-                        for tc in tool_calls:
-                            call_id = tc.get("id", "call_local")
-                            fn_info = tc.get("function", {})
-                            fn_name = fn_info.get("name")
-                            fn_args_raw = fn_info.get("arguments", {})
-                            if isinstance(fn_args_raw, str):
-                                try:
-                                    fn_args = json.loads(fn_args_raw)
-                                except Exception:
-                                    fn_args = {}
-                            else:
-                                fn_args = fn_args_raw or {}
-
-                            print(f"[BRAHMA EVO] 🔒 Local Brain executing tool: {fn_name}({fn_args})")
-                            self.ui.update_task_workspace(
-                                status=f"Executing {fn_name}",
-                                output=f"Running action: {fn_name} on local machine...",
-                                percent=75,
-                            )
-                            tool_result = self._execute_tool_sync(fn_name, fn_args, call_id)
-
-                            messages.append(msg)
-                            messages.append({
-                                "role": "tool",
-                                "tool_call_id": call_id,
-                                "name": fn_name,
-                                "content": str(tool_result)
-                            })
-                            try:
-                                followup_res = local_brain.chat_complete(
-                                    messages,
-                                    model=local_model_target,
-                                    temperature=0.3
-                                )
-                                followup_reply = followup_res.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-                                if followup_reply:
-                                    reply = followup_reply
-                            except Exception as e_fu:
-                                print(f"[BRAHMA EVO] ⚠️ Local Brain follow-up failed: {e_fu}")
-                                reply = str(tool_result) if tool_result else f"{fn_name.replace('_', ' ').capitalize()} completed."
-                    else:
-                        reply = msg.get("content", "").strip()
-                    print(f"[BRAHMA EVO] 🔒 Local Brain ({local_model_target}) answered successfully!")
-                except Exception as e_loc:
-                    print(f"[BRAHMA EVO] ⚠️ Local Brain failed: {e_loc}")
-
-            # 4. Fallback cascading: if primary cloud choice failed, try secondary cloud choice
-            if not reply and not is_offline_mode:
-                if is_cloud_gemini and self._prefer_openrouter() and "openrouter" in active_chain:
-                    try:
-                        reply = openrouter_client.chat(request_text)
-                    except Exception:
-                        pass
-                elif is_cloud_openrouter and "gemini" in active_chain:
-                    try:
+                    if pid == "gemini":
                         reply = _gemini_text_reply(request_text)
-                    except Exception:
-                        pass
-
-            # 4b. Ultimate offline safety net: Local Brain fallback
-            if not reply and "local" in active_chain and local_brain.is_available():
-                try:
-                    res = local_brain.chat_complete([
-                        {"role": "system", "content": "You are Brahma Evo, the autonomous desktop operating system. You control this PC. Never claim you cannot do automations."},
-                        {"role": "user", "content": request_text}
-                    ], model=local_model_target, tools=None, focus_core=False)
-                    msg_net = res.get("choices", [{}])[0].get("message", {})
-                    tc_net = msg_net.get("tool_calls")
-                    if tc_net:
-                        call_id = tc_net[0].get("id", "call_local")
-                        fn_name = tc_net[0].get("function", {}).get("name")
-                        fn_args_raw = tc_net[0].get("function", {}).get("arguments", {})
-                        if isinstance(fn_args_raw, str):
-                            try:
-                                fn_args = json.loads(fn_args_raw)
-                            except Exception:
-                                fn_args = {}
-                        else:
-                            fn_args = fn_args_raw or {}
-                        reply = self._execute_tool_sync(fn_name, fn_args, call_id)
+                    elif pid == "openrouter":
+                        reply = openrouter_client.chat_as(
+                            "openrouter", request_text, system=plain_system
+                        )
+                    elif pid == "custom":
+                        reply = openrouter_client.chat_as(
+                            "custom", request_text, system=plain_system
+                        )
+                    elif pid == "local":
+                        reply = self._local_brain_reply(
+                            request_text, local_model_target
+                        )
                     else:
-                        reply = msg_net.get("content", "").strip()
-                    print(f"[BRAHMA EVO] 🔒 Local Brain offline safety net answered ({local_model_target})!")
-                except Exception as e_net:
-                    print(f"[BRAHMA EVO] ⚠️ Offline Local Brain fallback failed: {e_net}")
+                        continue
+                except Exception as exc:
+                    reason = str(exc).strip() or exc.__class__.__name__
+                    attempt_errors.append((label, reason))
+                    print(f"[BRAHMA EVO] \u26a0\ufe0f {label} failed: {reason}")
+                    if pid == "gemini" and _is_gemini_limit_error(exc):
+                        self._throttled_to_openrouter()
+                    continue
+
+                reply = (reply or "").strip()
+                if reply:
+                    print(f"[BRAHMA EVO] \u2705 {label} answered successfully!")
+                    break
+                attempt_errors.append((label, "returned an empty response"))
+
             reply = (reply or "").strip()
             # An emotion tag is an instruction-layer artefact, not speech. Strip
             # it before logging and before TTS so "[SMILE]" is never vocalised,
             # then hand the tag to the shared delivery seam.
             reply, emotion = self._split_emotion_tag(reply)
             self._deliver_avatar_emotion(emotion)
+            provider_error = None
             if not reply:
-                reply = "I’m ready, sir."
+                # Nothing answered: surface the real reasons. The old
+                # unconditional "I'm ready, sir." made every provider outage
+                # look like success and hid the cause entirely.
+                detail = "; ".join(
+                    f"{label}: {reason}" for label, reason in attempt_errors
+                )
+                if not detail:
+                    detail = (
+                        "no providers are enabled in Settings > AI Providers"
+                        if not order
+                        else "no provider was attempted"
+                    )
+                err = f"No reply from any provider -> {detail}"
+                print(f"[BRAHMA EVO] \u26a0\ufe0f {err}")
+                self.ui.write_log(f"ERR: {err}")
+                provider_error = detail
+                reply = (
+                    "No AI providers are enabled. Please enable one in Settings."
+                    if not order
+                    else
+                    "I could not reach any configured AI provider. Please check the provider settings."
+                )
             self.ui.write_log(f"Brahma Evo: {reply}")
             if not getattr(self.ui, "muted", False):
                 self.speak(reply, proactive=True)
             try:
-                self.ui.finish_task_workspace(reply, "Reply delivered.", 100)
+                if provider_error is None:
+                    self.ui.finish_task_workspace(reply, "Reply delivered.", 100)
+                else:
+                    self.ui.finish_task_workspace(provider_error, "No provider replied.", 100)
             except Exception:
                 pass
+
             if not self.ui.muted:
                 self.ui.set_state("LISTENING")
         except Exception as e:

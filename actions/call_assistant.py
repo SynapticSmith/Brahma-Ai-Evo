@@ -455,19 +455,19 @@ class CallAssistant:
 
     def _transcribe_audio(self, wav_bytes: bytes) -> str:
         """Sends audio chunk to Gemini for fast speech-to-text."""
+        from core import llm_gateway
+
         api_key = _get_api_key()
-        if not api_key:
-            return ""
         try:
-            from google import genai
             from google.genai import types
-            client = genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
-            response = client.models.generate_content(
+            response = llm_gateway.generate_content(
                 model="gemini-2.5-flash-lite",
                 contents=[
                     types.Part.from_bytes(data=wav_bytes, mime_type="audio/wav"),
                     "Transcribe the spoken audio verbatim. Return only the transcribed text, nothing else.",
                 ],
+                api_key=api_key,
+                purpose="call transcription",
             )
             return (getattr(response, "text", "") or "").strip()
         except Exception as e:
@@ -476,6 +476,8 @@ class CallAssistant:
 
     def _generate_ai_response(self, caller_text: str) -> str:
         """Synthesizes a polite, 1-2 sentence assistant reply."""
+        from core import llm_gateway
+
         api_key = _get_api_key()
         history_str = "\n".join(f"{t['speaker']}: {t['text']}" for t in self.transcript[-6:])
 
@@ -494,24 +496,25 @@ Guidelines:
 4. Do not make false promises or disclose private data.
 5. Return ONLY the spoken response text with no quotes or meta-text.
 """
-        if api_key:
-            try:
-                from google import genai
-                client = genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
-                resp = client.models.generate_content(
-                    model="gemini-2.5-flash-lite",
-                    contents=prompt,
-                )
-                txt = (getattr(resp, "text", "") or "").strip()
-                if txt:
-                    return txt
-            except Exception as e:
-                logger.warning(f"[CallAssistant] LLM reply error: {e}")
+        try:
+            resp = llm_gateway.generate_content(
+                model="gemini-2.5-flash-lite",
+                contents=prompt,
+                api_key=api_key,
+                purpose="call reply synthesis",
+            )
+            txt = (getattr(resp, "text", "") or "").strip()
+            if txt:
+                return txt
+        except Exception as e:
+            logger.warning(f"[CallAssistant] LLM reply error: {e}")
 
         return f"Understood. I have made a note of that for {self.owner_name}. Is there anything else you'd like me to pass along?"
 
     def _generate_ai_closing(self, caller_text: str) -> str:
         """Synthesizes an ultra-natural, warm human closing acknowledgment and says goodbye."""
+        from core import llm_gateway
+
         api_key = _get_api_key()
         prompt = f"""You are answering a live phone call on behalf of your friend and colleague {self.owner_name}.
 The caller just said: "{caller_text}".
@@ -524,24 +527,25 @@ Rules:
 - End with a friendly signoff like "Catch you later, bye!" or "Talk soon, bye!"
 - Output ONLY the exact spoken response line, nothing else. No quotes, no markdown.
 """
-        if api_key:
-            try:
-                from google import genai
-                client = genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
-                resp = client.models.generate_content(
-                    model="gemini-2.5-flash-lite",
-                    contents=prompt,
-                )
-                txt = (getattr(resp, "text", "") or "").strip().strip('"')
-                if txt:
-                    return txt
-            except Exception as e:
-                logger.warning(f"[CallAssistant] AI closing reply error: {e}")
+        try:
+            resp = llm_gateway.generate_content(
+                model="gemini-2.5-flash-lite",
+                contents=prompt,
+                api_key=api_key,
+                purpose="call closing reply",
+            )
+            txt = (getattr(resp, "text", "") or "").strip().strip('"')
+            if txt:
+                return txt
+        except Exception as e:
+            logger.warning(f"[CallAssistant] AI closing reply error: {e}")
 
         return f"Got it! I've noted that down for {self.owner_name} and I'll pass it to him right away. Bye!"
 
     def _finalize_call_report(self):
         """Generates a structured post-call summary card and notifies the user."""
+        from core import llm_gateway
+
         duration_sec = int(time.time() - self.start_time)
         mins, secs = divmod(duration_sec, 60)
         duration_str = f"{mins}m {secs}s" if mins > 0 else f"{secs}s"
@@ -554,10 +558,8 @@ Rules:
         urgency = "Normal"
 
         api_key = _get_api_key()
-        if api_key and self.transcript:
+        if self.transcript:
             try:
-                from google import genai
-                client = genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
                 sum_prompt = f"""Summarize this phone call screened by Brahma AI Evo on behalf of {self.owner_name}:
 Caller: {self.caller_name}
 Duration: {duration_str}
@@ -572,10 +574,12 @@ Output a clean JSON object:
   "action_item": "Clear next action for {self.owner_name} (e.g. Call back regarding invoice before 5 PM)"
 }}
 """
-                resp = client.models.generate_content(
+                resp = llm_gateway.generate_content(
                     model="gemini-2.5-flash-lite",
                     contents=sum_prompt,
-                    config={"response_mime_type": "application/json"}
+                    config={"response_mime_type": "application/json"},
+                    api_key=api_key,
+                    purpose="call summary",
                 )
                 raw_json = (getattr(resp, "text", "") or "").strip()
                 data = json.loads(raw_json)

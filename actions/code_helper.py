@@ -25,12 +25,13 @@ def _get_api_key() -> str:
 
 
 def _get_gemini(model: str = GEMINI_MODEL):
-    from google import genai
-    _c = genai.Client(api_key=_get_api_key())
+    from core import llm_gateway
 
     class _W:
         def generate_content(self, contents):
-            return _c.models.generate_content(model=model, contents=contents)
+            return llm_gateway.generate_content(
+                contents, model=model, purpose="code assistant"
+            )
 
     return _W()
 
@@ -457,10 +458,9 @@ def _screen_debug_action(description, file_path, player, speak=None) -> str:
             print(f"[Code] ⚠️ Could not read file: {err}")
 
     try:
-        from google import genai
         from google.genai import types
 
-        client = genai.Client(api_key=_get_api_key())
+        from core import llm_gateway
 
         image_bytes  = screenshot_path.read_bytes()
         _image_to_base64(screenshot_path)
@@ -488,9 +488,10 @@ Be specific and actionable. If you see an error message, quote it exactly."""
             analysis_prompt,
         ]
 
-        response = client.models.generate_content(
+        response = llm_gateway.generate_content(
             model="gemini-flash-latest",
             contents=contents,
+            purpose="screen debug",
         )
 
         analysis = response.text.strip()

@@ -89,10 +89,9 @@ def analyze_error(
             "user_message":  "Trying a different approach, sir."
         }
 
-    from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=_get_api_key())
+    from core import llm_gateway
 
     prompt = f"""Failed step:
 Tool: {step.get('tool')}
@@ -106,10 +105,11 @@ Error:
 Attempt number: {attempt}"""
 
     try:
-        response = client.models.generate_content(
+        response = llm_gateway.generate_content(
             model="gemini-3.1-flash-lite",
             contents=prompt,
             config=types.GenerateContentConfig(system_instruction=ERROR_ANALYST_PROMPT),
+            purpose="error analysis",
         )
         text     = response.text.strip()
         text     = re.sub(r"```(?:json)?", "", text).strip().rstrip("`").strip()
@@ -150,9 +150,7 @@ def generate_fix(step: dict, error: str, fix_suggestion: str) -> dict:
 
     Returns a modified step dict.
     """
-    from google import genai
-
-    client = genai.Client(api_key=_get_api_key())
+    from core import llm_gateway
 
     prompt = f"""A task step failed. Generate a replacement step.
 
@@ -168,8 +166,9 @@ Write a Python script that accomplishes the same goal differently.
 Return ONLY the Python code, no explanation."""
 
     try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash", contents=prompt
+        response = llm_gateway.generate_content(
+            model="gemini-2.5-flash", contents=prompt,
+            purpose="auto-fix generation",
         )
         code = response.text.strip()
         code = re.sub(r"```(?:python)?", "", code).strip().rstrip("`").strip()

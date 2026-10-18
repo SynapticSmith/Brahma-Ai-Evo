@@ -21,13 +21,15 @@ def _get_api_key() -> str:
 
 
 def _gemini_search(query: str) -> str:
-    from google import genai
+    from core import llm_gateway
 
-    client   = genai.Client(api_key=_get_api_key())
-    response = client.models.generate_content(
+    response = llm_gateway.generate_content(
+        query,
         model="gemini-2.5-flash",
-        contents=query,
         config={"tools": [{"google_search": {}}]},
+        api_key=_get_api_key(),
+        links=("gemini",),  # live search needs grounding; never fake it from memory
+        purpose="web search",
     )
 
     text = ""

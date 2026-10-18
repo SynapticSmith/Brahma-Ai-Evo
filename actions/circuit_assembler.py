@@ -340,16 +340,13 @@ def solve_circuit_with_ai(prompt: str, image_bytes: Optional[bytes] = None) -> O
     Uses Gemini 2.5 Flash multimodal intelligence to resolve component pinouts,
     wiring paths, safety checks, and step-by-step instructions.
     """
+    from core import llm_gateway
+
     api_key = get_api_key()
-    if not api_key:
-        logger.warning("[CircuitAssembler] No Gemini API key found.")
-        return None
 
     try:
-        from google import genai
         from google.genai import types
 
-        client = genai.Client(api_key=api_key)
         system_instruction = (
             "You are Brahma Circuit Architect, an expert electrical engineer and embedded systems designer. "
             "Your task is to analyze electronic components (either identified from the screen image or the user's description) "
@@ -394,7 +391,7 @@ def solve_circuit_with_ai(prompt: str, image_bytes: Optional[bytes] = None) -> O
                 f"Design the wiring diagram and assembly instructions for these parts: {prompt}"
             )
 
-        resp = client.models.generate_content(
+        resp = llm_gateway.generate_content(
             model="gemini-2.5-flash",
             contents=contents,
             config=types.GenerateContentConfig(
@@ -402,6 +399,8 @@ def solve_circuit_with_ai(prompt: str, image_bytes: Optional[bytes] = None) -> O
                 temperature=0.2,
                 response_mime_type="application/json",
             ),
+            api_key=api_key,
+            purpose="circuit solver",
         )
 
         raw = (resp.text or "").strip()

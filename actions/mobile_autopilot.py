@@ -31,6 +31,8 @@ Respond ONLY with a JSON object in this format:
     return prompt
 
 def mobile_autopilot(parameters: dict, response=None, player=None, session_memory=None, speak=None) -> str:
+    from core import llm_gateway
+
     target = parameters.get("target") or parameters.get("device_id") or "Android"
     instruction = parameters.get("instruction")
     
@@ -38,11 +40,10 @@ def mobile_autopilot(parameters: dict, response=None, player=None, session_memor
         return json.dumps({"success": False, "error": "Missing instruction."})
 
     try:
-        from google import genai
         from agent.planner import _get_api_key
-        client = genai.Client(api_key=_get_api_key())
+        api_key = _get_api_key()
     except Exception as e:
-        return json.dumps({"success": False, "error": f"Failed to initialize Gemini: {e}"})
+        return json.dumps({"success": False, "error": f"Failed to initialize LLM: {e}"})
 
     if speak:
         speak(f"Taking over {target} to complete your task.")
@@ -71,8 +72,10 @@ def mobile_autopilot(parameters: dict, response=None, player=None, session_memor
         prompt = _build_prompt(instruction, ui_tree)
         
         try:
-            llm_response = client.models.generate_content(
-                model="gemini-3.1-flash-lite", contents=prompt
+            llm_response = llm_gateway.generate_content(
+                model="gemini-3.1-flash-lite", contents=prompt,
+                api_key=api_key,
+                purpose="mobile autopilot step",
             )
             text = llm_response.text.strip()
             text = re.sub(r"```(?:json)?", "", text).strip().rstrip("`").strip()

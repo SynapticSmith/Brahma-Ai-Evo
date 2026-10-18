@@ -65,15 +65,14 @@ def _get_api_key() -> str:
 
 
 def _gemini_client():
-    """A `google.genai` client wrapped to keep the old `model.generate_content(...)` shape."""
-    from google import genai
-
-    client = genai.Client(api_key=_get_api_key())
+    """Keeps the old `model.generate_content(...)` shape, now backed by
+    `core.llm_gateway` so summarisation follows the provider router."""
+    from core import llm_gateway
 
     class _Model:
         def generate_content(self, contents, **kwargs):
-            return client.models.generate_content(
-                model="gemini-2.5-flash", contents=contents, **kwargs
+            return llm_gateway.generate_content(
+                contents, model="gemini-2.5-flash", purpose="docx summarisation", **kwargs
             )
 
     return _Model()

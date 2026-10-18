@@ -14,7 +14,6 @@ from typing import Callable
 import mss
 import mss.tools
 import sounddevice as sd
-from google import genai
 from google.genai import types
 
 try:
@@ -220,7 +219,9 @@ class MeetingAssistant:
     def latest_speech(self) -> str:
         return self._last_speech
 
-    def _transcribe_audio(self, client, wav_bytes: bytes) -> str:
+    def _transcribe_audio(self, wav_bytes: bytes) -> str:
+        from core import llm_gateway
+
         prompt = (
             "Transcribe the spoken words from this meeting audio. "
             "Return only the words other people are speaking. "
@@ -230,10 +231,11 @@ class MeetingAssistant:
             types.Part.from_bytes(data=wav_bytes, mime_type="audio/wav"),
             prompt,
         ]
-        response = client.models.generate_content(
+        response = llm_gateway.generate_content(
             model="gemini-2.5-flash",
             contents=contents,
             config={"temperature": 0.0},
+            purpose="meeting transcription",
         )
         return _extract_text(response).strip()
 
@@ -248,15 +250,6 @@ class MeetingAssistant:
         loopback = bool(source.get("loopback"))
         label = source.get("label") or "audio source"
         print(f"[MeetingAssistant] audio source: {label}")
-
-        try:
-            client = genai.Client(
-                api_key=_get_api_key(),
-                http_options={"api_version": "v1beta"},
-            )
-        except Exception as exc:
-            print(f"[MeetingAssistant] audio model init failed: {exc}")
-            return
 
         extra = None
         if loopback:
@@ -308,7 +301,7 @@ class MeetingAssistant:
                         digest = hashlib.sha1(wav_bytes).hexdigest()
                         if digest == self._last_audio_hash:
                             continue
-                        speech = self._transcribe_audio(client, wav_bytes)
+                        speech = self._transcribe_audio(wav_bytes)
                         speech = re.sub(r"\s+", " ", (speech or "").strip())
                         if speech:
                             self._last_audio_hash = digest
@@ -330,22 +323,7 @@ class MeetingAssistant:
             print(f"[MeetingAssistant] audio loop failed: {exc}")
 
     def _loop(self) -> None:
-        try:
-            client = genai.Client(
-                api_key=_get_api_key(),
-                http_options={"api_version": "v1beta"},
-            )
-        except Exception as exc:
-            if self._on_update:
-                self._on_update({
-                    "active": False,
-                    "title": self._title,
-                    "summary": "Meeting mode could not start.",
-                    "answer": str(exc),
-                    "status": "error",
-                })
-            self.stop()
-            return
+        from core import llm_gateway
 
         while not self._stop_event.is_set():
             try:
@@ -380,10 +358,11 @@ Answer: ...
                     types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
                     prompt,
                 ]
-                response = client.models.generate_content(
+                response = llm_gateway.generate_content(
                     model="gemini-2.5-flash",
                     contents=contents,
                     config={"temperature": 0.2},
+                    purpose="meeting screen analysis",
                 )
                 text = _extract_text(response)
                 summary, answer = _clean_response(text)

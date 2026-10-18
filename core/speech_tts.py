@@ -308,6 +308,27 @@ ENGINES: Dict[str, Dict[str, Any]] = {
 
 _FALLBACK_CHAIN = ("edge", "sapi")
 
+# Engine id -> provider_router id whose kill switch also gates the engine.
+# A disabled provider must never be dialed just because its voice engine is
+# selected; speak() skips it the same way it skips a failed probe. The map is
+# deliberately separate from ENGINES so the engine catalogue stays declarative
+# and tests can monkeypatch either side.
+_ENGINE_PROVIDER = {"gemini": "gemini"}
+
+
+def _provider_enabled(provider_id: str) -> bool:
+    """True unless the provider is explicitly disabled in Settings.
+
+    A missing/broken router counts as enabled: routing policy failing to load
+    should not stop the assistant from speaking.
+    """
+    try:
+        from core import provider_router
+
+        return bool(provider_router.is_enabled(provider_id))
+    except Exception:
+        return True
+
 
 def available_engines() -> List[Dict[str, Any]]:
     """Engine catalogue for the settings UI."""
@@ -635,6 +656,9 @@ def speak(text: str, engine_id: Optional[str] = None, use_sink: bool = True) -> 
     order.extend(e for e in _FALLBACK_CHAIN if e != chosen)
 
     for candidate in order:
+        gated_provider = _ENGINE_PROVIDER.get(candidate)
+        if gated_provider and not _provider_enabled(gated_provider):
+            continue
         fn_name = _SPEAKERS.get(candidate)
         fn = globals().get(fn_name) if fn_name else None
         if fn is None:

@@ -313,57 +313,60 @@ class BrahmaDevAgent:
 
     def _call_llm(self) -> str:
         """Dispatches conversation to Gemini directly with model fallback and rate-limit retries."""
+        from core import llm_gateway
+
         try:
             with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
                 keys = json.load(f)
             gemini_key = keys.get("gemini_api_key", "").strip()
 
-            if gemini_key:
-                import time
-                from google import genai
-                from google.genai import types
+            import time
+            from google.genai import types
 
-                client = genai.Client(api_key=gemini_key)
+            system_instruction = BRAHMA_DEV_SYSTEM_PROMPT
+            contents = []
+            for msg in self.history:
+                if msg["role"] == "system":
+                    system_instruction = msg["content"]
+                else:
+                    role = "user" if msg["role"] == "user" else "model"
+                    contents.append(types.Content(
+                        role=role,
+                        parts=[types.Part.from_text(text=msg["content"])]
+                    ))
 
-                system_instruction = BRAHMA_DEV_SYSTEM_PROMPT
-                contents = []
-                for msg in self.history:
-                    if msg["role"] == "system":
-                        system_instruction = msg["content"]
-                    else:
-                        role = "user" if msg["role"] == "user" else "model"
-                        contents.append(types.Content(
-                            role=role,
-                            parts=[types.Part.from_text(text=msg["content"])]
-                        ))
+            # Attempt primary model and fallback model with retries
+            models_to_try = ["gemini-2.5-flash", "gemini-3.6-flash"]
+            last_err = None
 
-                # Attempt primary model and fallback model with retries
-                models_to_try = ["gemini-2.5-flash", "gemini-3.6-flash"]
-                last_err = None
+            for model_name in models_to_try:
+                for attempt in range(3):
+                    try:
+                        resp = llm_gateway.generate_content(
+                            model=model_name,
+                            contents=contents,
+                            config={"system_instruction": system_instruction, "temperature": 0.2},
+                            api_key=gemini_key,
+                            purpose="dev agent turn",
+                        )
+                        if resp.text:
+                            return resp.text.strip()
+                    except llm_gateway.GatewayError as unavailable:
+                        logger.warning(f"[BrahmaDev] LLM gateway unavailable: {unavailable}")
+                        break
+                    except Exception as e:
+                        last_err = e
+                        err_str = str(e).lower()
+                        if "429" in err_str or "quota" in err_str or "resource_exhausted" in err_str or "503" in err_str:
+                            time.sleep(2 * (attempt + 1))
+                            continue
+                        else:
+                            break
 
-                for model_name in models_to_try:
-                    for attempt in range(3):
-                        try:
-                            resp = client.models.generate_content(
-                                model=model_name,
-                                contents=contents,
-                                config={"system_instruction": system_instruction, "temperature": 0.2}
-                            )
-                            if resp.text:
-                                return resp.text.strip()
-                        except Exception as e:
-                            last_err = e
-                            err_str = str(e).lower()
-                            if "429" in err_str or "quota" in err_str or "resource_exhausted" in err_str or "503" in err_str:
-                                time.sleep(2 * (attempt + 1))
-                                continue
-                            else:
-                                break
-
-                if last_err:
-                    logger.warning(f"[BrahmaDev] Gemini calls exhausted: {last_err}")
+            if last_err:
+                logger.warning(f"[BrahmaDev] LLM calls exhausted: {last_err}")
         except Exception as e:
-            logger.warning(f"[BrahmaDev] Direct Gemini setup error: {e}")
+            logger.warning(f"[BrahmaDev] Direct LLM setup error: {e}")
 
         # Check if openrouter key actually exists before falling back
         try:

@@ -307,32 +307,42 @@ Preferred Name: {name_hint or 'auto_generate'}
 Additional Context: {context_hints}
 """
 
-        gemini_key = _get_gemini_api_key()
-        if gemini_key:
-            try:
-                from google import genai
-                g_client = genai.Client(api_key=gemini_key, http_options={"api_version": "v1beta"})
-                for model_name in ("gemini-2.5-flash-lite", "gemini-3.6-flash", "gemini-2.5-flash", "gemini-flash-latest"):
-                    try:
-                        resp = g_client.models.generate_content(
-                            model=model_name,
-                            contents=prompt,
-                            config={
-                                "temperature": 0.2,
-                                "system_instruction": system_instructions,
-                                "response_mime_type": "application/json"
-                            }
-                        )
-                        raw = getattr(resp, "text", "") or ""
-                        data = cls._parse_json_response(raw)
-                        if "manifest" in data and "code" in data:
-                            data["success"] = True
-                            return data
-                    except Exception as e:
-                        logger.warning(f"[Forge] Model {model_name} failed: {e}")
-                        continue
-            except Exception as exc:
-                logger.error(f"[Forge] Gemini client error: {exc}")
+        try:
+            from core import llm_gateway
+
+            for model_name in ("gemini-2.5-flash-lite", "gemini-3.6-flash", "gemini-2.5-flash", "gemini-flash-latest"):
+                try:
+                    resp = llm_gateway.generate_content(
+                        prompt,
+                        model=model_name,
+                        config={
+                            "temperature": 0.2,
+                            "system_instruction": system_instructions,
+                            "response_mime_type": "application/json"
+                        },
+                        max_tokens=8192,
+                        purpose="skill synthesis",
+                    )
+                    raw = resp.text
+                except llm_gateway.GatewayError as unavailable:
+                    logger.warning(f"[Forge] LLM gateway unavailable: {unavailable}")
+                    break
+                except Exception as e:
+                    logger.warning(f"[Forge] Model {model_name} failed: {e}")
+                    continue
+                try:
+                    data = cls._parse_json_response(raw)
+                except Exception:
+                    data = {}
+                if "manifest" in data and "code" in data:
+                    data["success"] = True
+                    return data
+                if resp.provider != "gemini":
+                    # A non-Gemini link ignores `model`; retrying the loop
+                    # would just re-ask the same provider for the same answer.
+                    break
+        except Exception as exc:
+            logger.error(f"[Forge] Synthesis gateway error: {exc}")
 
         # Fallback to Unified llm_client if available
         try:
@@ -376,27 +386,34 @@ Critical Repair Instructions:
     "code": "Fully corrected, runnable Python code"
 }}
 """
-        gemini_key = _get_gemini_api_key()
-        if gemini_key:
-            try:
-                from google import genai
-                g_client = genai.Client(api_key=gemini_key, http_options={"api_version": "v1beta"})
-                for model_name in ("gemini-2.5-flash-lite", "gemini-3.6-flash", "gemini-2.5-flash", "gemini-flash-latest"):
-                    try:
-                        resp = g_client.models.generate_content(
-                            model=model_name,
-                            contents=prompt,
-                            config={"temperature": 0.1, "response_mime_type": "application/json"}
-                        )
-                        raw = getattr(resp, "text", "") or ""
-                        data = cls._parse_json_response(raw)
-                        if "code" in data:
-                            data["success"] = True
-                            return data
-                    except Exception as e:
-                        logger.warning(f"[Forge] Repair model {model_name} failed: {e}")
-                        continue
-            except Exception as exc:
-                logger.error(f"[Forge] Repair Gemini error: {exc}")
+        try:
+            from core import llm_gateway
+
+            for model_name in ("gemini-2.5-flash-lite", "gemini-3.6-flash", "gemini-2.5-flash", "gemini-flash-latest"):
+                try:
+                    resp = llm_gateway.generate_content(
+                        prompt,
+                        model=model_name,
+                        config={"temperature": 0.1, "response_mime_type": "application/json"},
+                        purpose="skill repair",
+                    )
+                    raw = resp.text
+                except llm_gateway.GatewayError as unavailable:
+                    logger.warning(f"[Forge] LLM gateway unavailable: {unavailable}")
+                    break
+                except Exception as e:
+                    logger.warning(f"[Forge] Repair model {model_name} failed: {e}")
+                    continue
+                try:
+                    data = cls._parse_json_response(raw)
+                except Exception:
+                    data = {}
+                if "code" in data:
+                    data["success"] = True
+                    return data
+                if resp.provider != "gemini":
+                    break
+        except Exception as exc:
+            logger.error(f"[Forge] Repair gateway error: {exc}")
 
         return {"success": False, "error": "Repair attempt failed."}

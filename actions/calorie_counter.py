@@ -115,6 +115,8 @@ def _encode_image_b64(frame: np.ndarray) -> tuple[str, str]:
 
 def _analyze_food_multimodal(image_b64: Optional[str], query: str) -> dict:
     """Uses LLM client to analyze food visual or description and produce structured JSON."""
+    from core import llm_gateway
+
     system_prompt = (
         "You are Brahma AI's Precision Nutrition Engine. "
         "Analyze the food shown in the image or described in the user's prompt. "
@@ -172,33 +174,33 @@ def _analyze_food_multimodal(image_b64: Optional[str], query: str) -> dict:
             clean = clean[start : end + 1]
         return json.loads(clean)
     except Exception as e:
-        logger.warning(f"Unified LLM vision failed ({e}), attempting direct Gemini fallback...")
+        logger.warning(f"Unified LLM vision failed ({e}), attempting direct LLM fallback...")
 
-    # Direct Gemini API fallback
+    # Direct LLM fallback
     try:
         cfg = _get_api_config()
         api_key = cfg.get("gemini_api_key")
-        if api_key:
-            from google import genai
-            from google.genai import types as gtypes
-            client = genai.Client(api_key=api_key)
-            contents: list[Any] = []
-            if image_b64:
-                raw_bytes = base64.b64decode(image_b64)
-                contents.append(gtypes.Part.from_bytes(data=raw_bytes, mime_type="image/jpeg"))
-            contents.append(f"{system_prompt}\n\nUser request: {query}")
+        from google.genai import types as gtypes
 
-            resp = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=contents,
-            )
-            text = (resp.text or "").strip()
-            start = text.find("{")
-            end = text.rfind("}")
-            if start != -1 and end != -1:
-                return json.loads(text[start : end + 1])
+        contents: list[Any] = []
+        if image_b64:
+            raw_bytes = base64.b64decode(image_b64)
+            contents.append(gtypes.Part.from_bytes(data=raw_bytes, mime_type="image/jpeg"))
+        contents.append(f"{system_prompt}\n\nUser request: {query}")
+
+        resp = llm_gateway.generate_content(
+            model="gemini-2.5-flash",
+            contents=contents,
+            api_key=api_key,
+            purpose="food vision fallback",
+        )
+        text = (resp.text or "").strip()
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1:
+            return json.loads(text[start : end + 1])
     except Exception as e2:
-        logger.error(f"Gemini fallback failed: {e2}")
+        logger.error(f"LLM fallback failed: {e2}")
 
     return {
         "food_detected": True,

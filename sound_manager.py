@@ -14,10 +14,12 @@ import wave
 import struct
 import json
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from PyQt6.QtCore import QObject, QUrl
-from PyQt6.QtMultimedia import QSoundEffect
+
+if TYPE_CHECKING:  # annotation-only: QtMultimedia must not load at boot (see _ensure_audio)
+    from PyQt6.QtMultimedia import QSoundEffect
 
 BASE_DIR = Path(__file__).resolve().parent
 SOUNDS_DIR = BASE_DIR / "assets" / "sounds"
@@ -157,10 +159,10 @@ class SoundManager(QObject):
         self._volume = 0.75  # 0.0 to 1.0
         self._last_telemetry_time = 0.0
         self._telemetry_cooldown = 0.22  # Minimum 220ms between telemetry chirps
-        self._effects: dict[str, QSoundEffect] = {}
+        self._effects: dict[str, "QSoundEffect"] = {}
+        self._audio_loaded = False
 
         self._load_settings()
-        self._init_audio()
 
     def _load_settings(self):
         try:
@@ -187,8 +189,27 @@ class SoundManager(QObject):
         except Exception:
             pass
 
+    def _ensure_audio(self):
+        """Load the effects on first use, never at construction.
+
+        The module-level ``sound_mgr`` singleton is built while the app
+        boots, so doing this in ``__init__`` (or importing QtMultimedia at
+        module scope) loaded the media backend and printed its codec/backend
+        probe warnings in every boot log -- even with sound effects switched
+        off or before anything played. Deferring keeps boot clean and makes
+        the disabled state load no multimedia at all.
+        """
+        if self._audio_loaded or not self._enabled:
+            return
+        self._audio_loaded = True
+        self._init_audio()
+
     def _init_audio(self):
         try:
+            # Imported here, not at module load: QtMultimedia probes backends
+            # and codecs on import and warns about whatever it finds missing.
+            from PyQt6.QtMultimedia import QSoundEffect
+
             _generate_default_sounds(SOUNDS_DIR)
 
             sound_files = {
@@ -244,6 +265,7 @@ class SoundManager(QObject):
     def _play(self, name: str):
         if not self._enabled:
             return
+        self._ensure_audio()
         eff = self._effects.get(name)
         if eff:
             try:

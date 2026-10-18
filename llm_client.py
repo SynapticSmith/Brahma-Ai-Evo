@@ -25,6 +25,11 @@ OLLAMA_DEFAULT_URL = "http://localhost:11434/v1"
 DEFAULT_LOCAL_URL = OLLAMA_DEFAULT_URL
 DEFAULT_LOCAL_MODEL = "llama3.2"
 
+# (connect, read) seconds for every chat request. Never None: an unbounded
+# post() parks the caller (and the UI, which sits in THINKING until the reply
+# arrives) forever when a server accepts the connection and then goes silent.
+REQUEST_TIMEOUT = (10.0, 180.0)
+
 
 def _strip_json_fence(raw: str) -> str:
     """Removes markdown code fences from a model response."""
@@ -104,13 +109,19 @@ class UnifiedAIClient:
                 endpoint,
                 headers=self._auth_headers(api_key),
                 json=payload,
-                timeout=None,
+                timeout=REQUEST_TIMEOUT,
             )
             if resp.status_code == 200:
                 data = resp.json()
                 content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
                 return content.strip() if content else None
             logger.error(f"[LLM Client] {label} error {resp.status_code}: {resp.text[:400]}")
+            return None
+        except requests.Timeout as e:
+            logger.error(
+                f"[LLM Client] {label} timed out after "
+                f"{REQUEST_TIMEOUT[1]:.0f}s reading {endpoint}: {e}"
+            )
             return None
         except Exception as e:
             logger.error(f"[LLM Client] {label} request failed: {e}")
@@ -275,6 +286,96 @@ class UnifiedAIClient:
             messages.append({"role": "user", "content": prompt})
             return self._route_chat(messages, temperature, max_tokens)
         return openrouter_client.chat(prompt, system, history, model, max_tokens, temperature)
+
+    def chat_as(
+        self,
+        provider_id: str,
+        prompt: str,
+        system: str = "You are a helpful assistant.",
+        history: Optional[list[dict]] = None,
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+        image_b64: Optional[str] = None,
+        image_mime: str = "image/png",
+    ) -> str:
+        """Route one call to an *explicit* provider id.
+
+        Unlike ``chat``, which follows whatever Settings has selected, this is
+        for callers that iterate the provider chain and need each link to
+        behave exactly as that link (the reply ladder's failover and the
+        LLM gateway's auxiliary routing). Optional image attachment uses the
+        OpenAI ``image_url`` content shape, which every link here speaks.
+        Raises RuntimeError with an actionable message when the provider is
+        disabled, unconfigured, or returns nothing -- never an empty string.
+        """
+        self.reload_settings()
+        pid = (provider_id or "").strip().lower()
+        try:
+            from core import provider_router
+        except ImportError:
+            provider_router = None
+        if provider_router is not None:
+            provider_router.guard(pid)
+
+        if pid == "openrouter":
+            if image_b64:
+                return openrouter_client.vision(
+                    prompt, image_b64, image_mime, system, None, max_tokens
+                )
+            return openrouter_client.chat(
+                prompt, system, history, None, max_tokens, temperature
+            )
+
+        if pid == "local":
+            url, model, key = self._local_url, self._local_model, self._local_api_key
+            label = "Local AI"
+            hint = (
+                "Local AI request failed. Check that the server is running and "
+                "that the URL and model in Settings > AI Providers are correct."
+            )
+        elif pid == "custom":
+            self._require_custom()
+            url, model, key = self._custom_url, self._custom_model, self._custom_api_key
+            label = "Custom provider"
+            hint = (
+                f"Custom provider request failed. Verify {self._custom_url}"
+                "/chat/completions and the configured model/API key in "
+                "Settings > AI Providers."
+            )
+        else:
+            raise ValueError(
+                f"chat_as: unsupported provider '{provider_id}' "
+                "(expected openrouter/local/custom)"
+            )
+
+        messages: List[Dict[str, Any]] = [{"role": "system", "content": system}]
+        if history:
+            messages.extend(history)
+        if image_b64:
+            messages.append({
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{image_mime};base64,{image_b64}"},
+                    },
+                    {"type": "text", "text": prompt},
+                ],
+            })
+        else:
+            messages.append({"role": "user", "content": prompt})
+        result = self._openai_chat_completion(
+            messages,
+            url=url,
+            model=model,
+            api_key=key,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            label=label,
+        )
+        if result:
+            return result
+        raise RuntimeError(hint)
 
     def chat_json(self, prompt: str, system: str = "Return ONLY valid JSON.", model: Optional[str] = None, max_tokens: int = 4096) -> dict:
         self.reload_settings()
