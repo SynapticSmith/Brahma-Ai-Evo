@@ -31,6 +31,7 @@ The advertised surface is therefore:
 
 from __future__ import annotations
 
+import copy
 import logging
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
@@ -94,18 +95,61 @@ def _truthy(value: Any, default: bool = False) -> bool:
 
 
 def budget() -> int:
-    """How many declarations may be advertised, clamped to the hard ceiling."""
+    """How many declarations may be advertised, clamped to the hard ceiling.
+
+    The budget counts *everything* sent in the setup frame — pinned core,
+    meta-tools and retrieved tools. ``resolve()`` subtracts the pinned and meta
+    slots itself and clamps against the provider ceiling, so the full
+    ``GEMINI_MAX_TOOLS`` is a safe value here: a budget of 128 advertises at
+    most 128 declarations, never more.
+    """
     raw = _settings.get("tool_index_budget", DEFAULT_ADVERTISED_BUDGET)
     try:
         value = int(raw)
     except (TypeError, ValueError):
         value = DEFAULT_ADVERTISED_BUDGET
-    # Leave headroom for the meta-tools and any caller-side additions.
-    return max(6, min(value, GEMINI_MAX_TOOLS - len(META_DECLARATIONS)))
+    return max(6, min(value, GEMINI_MAX_TOOLS))
+
+
+def search_limit_cap() -> int:
+    """Largest ``limit`` the ``search_tools`` meta-tool will honour.
+
+    Tracks the session budget (budget − 2) so widening "Tools sent per
+    session" in Settings widens discovery too: a budget of 62+ allows 60
+    results, 128 allows 126. The floor of 6 keeps the default reachable even
+    at the smallest budget.
+    """
+    return max(6, budget() - 2)
 
 
 def enabled() -> bool:
     return get_index().enabled and _truthy(_settings.get("tool_index_enabled", True), True)
+
+
+def _meta_declarations() -> List[Dict[str, Any]]:
+    """META_DECLARATIONS with the search_tools ``limit`` text made truthful.
+
+    The advertised maximum depends on the live session budget
+    (:func:`search_limit_cap`), so the static description in
+    ``tool_index.SEARCH_TOOLS_DECLARATION`` would lie the moment the user
+    changes the setting. The copy is deep so the shared declaration is never
+    mutated across sessions or budgets.
+    """
+    cap = search_limit_cap()
+    out: List[Dict[str, Any]] = []
+    for decl in META_DECLARATIONS:
+        decl = copy.deepcopy(decl)
+        if decl.get("name") == ti.META_SEARCH_TOOL:
+            props = (decl.get("parameters") or {}).get("properties") or {}
+            limit_spec = props.get("limit")
+            if isinstance(limit_spec, dict):
+                limit_spec["description"] = (
+                    f"How many tools to return. Default 6, maximum {cap} "
+                    "(this session's tool budget minus 2, set in Settings → "
+                    "Tool & Skill Index)."
+                )
+        out.append(decl)
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -225,7 +269,7 @@ def build_session_payload(intent: str = "") -> Dict[str, Any]:
         logger.error("[ToolBridge] Index resolution failed (%s); falling back to legacy payload.", exc)
         return _legacy_payload()
 
-    declarations = list(resolved["declarations"]) + list(META_DECLARATIONS)
+    declarations = list(resolved["declarations"]) + _meta_declarations()
     if len(declarations) > GEMINI_MAX_TOOLS:  # belt and braces
         declarations = declarations[:GEMINI_MAX_TOOLS]
 
@@ -326,7 +370,7 @@ def _handle_search(args: Dict[str, Any]) -> str:
         limit = int(args.get("limit") or 6)
     except (TypeError, ValueError):
         limit = 6
-    limit = max(1, min(limit, 15))
+    limit = max(1, min(limit, search_limit_cap()))
 
     index = get_index()
     hits = index.search(intent, k=limit)

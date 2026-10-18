@@ -6,8 +6,13 @@ theme, with the verification evidence that backs each group.
 
 - **Baseline (before this work):** `e0bd3c5` - last commit by GodxSuryaansh.
 - **Range documented:** `e0bd3c5..HEAD`.
-- **Commits in range:** 103 (all authored by SynapticSmith).
-- **Diff footprint:** 231 files changed, 141,610 insertions(+), 17,371 deletions(-).
+- **Commits in range:** 111 (all authored by SynapticSmith; the original 103 was
+  measured at `67b18b4`, the last commit of the section-10 inventory).
+- **HEAD at last update:** `664ae4b` (2026-10-17) - see section 13.5 for the
+  close-out commits after `7c44152`.
+- **Diff footprint:** 234 files changed, 143,373 insertions(+), 17,375 deletions(-)
+  (re-measured at `664ae4b`; the original 231 / 141,610 / 17,371 predates the
+  close-out documentation commits - section 13.5).
 - **Product version in tree:** `1.0.0` (see section 12 for the `1.0.1` bump).
 - **Source material:** this repository's `git` history plus
   `docs/CODE-REVIEW-TODO.md`, `docs/ONE-391-changes.md`,
@@ -258,6 +263,12 @@ Evidence captured at HEAD:
 - `ruff check .` - **All checks passed!**
 - `docs/CODE-REVIEW-TODO.md` - 834 lines, **all items `[x]`**.
 
+**Carry-forward at `664ae4b` (2026-10-17).** Everything committed after the
+`7c44152` verification point is **documentation-only** (`git diff --stat
+7c44152..664ae4b` touches exactly two files: this log and
+`docs/VERSION-1.0.1-CHANGES.md`, +912 lines, zero source). No source, test, or
+CI file changed, so the evidence above carries forward to HEAD unchanged.
+
 One cosmetic drift was found while verifying: the tracker states `ui.py` is 830
 lines; the file is actually **809** lines at HEAD (an earlier entry says 816).
 Functionally irrelevant; safe to correct in place.
@@ -440,6 +451,8 @@ f36b811 docs: close P4-19 (god-object split complete) - all TODO items now done
 - `docs/ONE-391-tool-index.md` - tool/skill index and Gemini 128-tool cap notes.
 - `docs/ONE-391-avatar-backends.md` - four-backend avatar contract.
 - `docs/ONE-391-next-steps.md` - known limitations and deferrals.
+- `docs/VERSION-1.0.1-CHANGES.md` - companion narrative change record for the
+  release (added by `664ae4b`; see section 13.5).
 
 Excluded by request: `docs/agent-orchestrator-bridge.md` (forward-looking design,
 not shipped behavior).
@@ -507,7 +520,9 @@ PyAudio from the dependency set entirely:
 Post-log commits not otherwise listed in section 10, in order: `ebc38d5` (this
 log), `3bab287` (correct `ui.py` line count), `ab25f8c` (re-pin
 agent-orchestrator-bridge refs), `6cd00f5` (pin pytest for the unit suite),
-`d5fe4d5`, `7c44152`.
+`d5fe4d5`, `7c44152`, `b8603b9` (add section 13 to this log), `664ae4b` (add
+`docs/VERSION-1.0.1-CHANGES.md`). Full detail on the close-out tail is in
+section 13.5.
 
 ### 13.4 Verification at `7c44152`
 
@@ -518,3 +533,21 @@ agent-orchestrator-bridge refs), `6cd00f5` (pin pytest for the unit suite),
   (previously the one blocker on a silent input device).
 - CI run **38999772123** on `main` - **success** (`static-gate`, `lint`,
   `tests`).
+
+### 13.5 Close-out commits after `7c44152` (the newest tail)
+
+The five commits that followed the last code-verification point, in order.
+The first is CI-relevant; the remaining four are documentation.
+
+| Commit | Date | Subject | What it changed |
+| --- | --- | --- | --- |
+| `6cd00f5` | 2026-10-16 | ci: install pytest for unit suite (pin in requirements-dev.txt) | `.github/workflows/ci.yml` (+4/-1) now installs the dev requirements before the `tests` job, and `requirements-dev.txt` (+6/-2) pins `pytest` alongside `ruff==0.17.1` - the Windows CI job previously assumed `pytest` was preinstalled on the runner image. |
+| `d5fe4d5` | 2026-10-16 | fix(voice): capture standby wake word via sounddevice (drop PyAudio); enforce Python 3.11/3.12 in bootstrap | Described in section 13.2. |
+| `7c44152` | 2026-10-16 | test(wakeword): make the real-mic harness deterministic via a shared speech-energy gate | Described in section 13.2; the last commit carrying source changes. |
+| `b8603b9` | 2026-10-17 | docs: log the upstream issue #2 fix (PyAudio -> sounddevice) in the 1.0.1 change log | Added section 13 (this addendum: 61 lines) to this log. |
+| `664ae4b` | 2026-10-17 | Document Version 1.0.1 changes | Added `docs/VERSION-1.0.1-CHANGES.md` (851 lines) - the companion narrative change record covering the full release from the original provider/MCP request through the god-object split and item fixes. |
+
+**Net effect on this log's claims:** commit-count figures were corrected
+(section header: 103 -> 111 in range) and verification evidence was carried
+forward to `664ae4b` (section 8). No behavioural claim in this log changed:
+the post-`7c44152` tail is `6cd00f5` (CI plumbing) plus documentation only.

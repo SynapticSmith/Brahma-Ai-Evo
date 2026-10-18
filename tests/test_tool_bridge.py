@@ -107,6 +107,57 @@ def test_budget_is_honoured_and_clamped(bridge):
     assert tool_bridge.budget() >= 6
 
 
+def test_search_limit_tracks_the_session_budget(bridge):
+    """search_tools widens with the advertised budget: 64 → 62, 128 → 126."""
+    tool_bridge.configure(settings={"tool_index_budget": 24})
+    assert tool_bridge.search_limit_cap() == 22
+
+    tool_bridge.configure(settings={"tool_index_budget": 64})
+    assert tool_bridge.search_limit_cap() == 62
+
+    tool_bridge.configure(settings={"tool_index_budget": 128})
+    assert tool_bridge.search_limit_cap() == 126
+
+    # A silly value is clamped to the provider ceiling, never above it.
+    tool_bridge.configure(settings={"tool_index_budget": 100000})
+    assert tool_bridge.search_limit_cap() == GEMINI_MAX_TOOLS - 2
+
+
+def test_search_limit_is_clamped_by_the_cap_at_execution_time(bridge):
+    """An over-large 'limit' argument returns at most the cap, without raising."""
+    idx, _ = bridge
+    tool_bridge.configure(settings={"tool_index_budget": 16})
+    for i in range(40):
+        idx.upsert(ToolEntry(
+            name=f"calyx_t{i}",
+            description=f"Calyx operation number {i} on the vault.",
+            source="mcp:Calyx",
+        ))
+    out = asyncio.run(tool_bridge.execute_meta(
+        "search_tools", {"intent": "calyx vault operation", "limit": 9999}))
+    found = int(re.search(r"Found (\d+) tool", out).group(1))
+    assert found <= tool_bridge.search_limit_cap() == 14
+
+
+def test_advertised_search_declaration_shows_the_live_maximum(bridge):
+    """The schema the model sees states the current cap, not a stale 15."""
+    tool_bridge.configure(settings={"tool_index_budget": 128})
+    decls = tool_bridge.build_session_payload("")["declarations"]
+    search = next(d for d in decls if d["name"] == "search_tools")
+    desc = search["parameters"]["properties"]["limit"]["description"]
+    assert "maximum 126" in desc
+
+    # The shared module-level declaration must not be mutated by the rewrite.
+    static = ti.SEARCH_TOOLS_DECLARATION["parameters"]["properties"]["limit"]["description"]
+    assert "maximum 126" not in static
+
+    # A different budget re-advertises its own number.
+    tool_bridge.configure(settings={"tool_index_budget": 64})
+    decls = tool_bridge.build_session_payload("")["declarations"]
+    search = next(d for d in decls if d["name"] == "search_tools")
+    assert "maximum 62" in search["parameters"]["properties"]["limit"]["description"]
+
+
 def test_disabled_index_falls_back_to_the_legacy_surface(bridge):
     """Escape hatch exists, and warns in the log that it will be rejected."""
     tool_bridge.prime(_native_declarations(), _FakeRegistry())

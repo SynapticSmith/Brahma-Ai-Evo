@@ -709,7 +709,8 @@ class SystemConnectivityPage(QWidget):
         # attention window on tool schemas; 4-12 keeps it usable there.
         budget_box = QComboBox()
         current = int(settings.get("tool_index_budget", 24) or 24)
-        for value in (4, 8, 12, 16, 24, 32, 48, 64):
+        # 128 is Gemini's hard ceiling (GEMINI_MAX_TOOLS); budget() clamps there.
+        for value in (4, 8, 12, 16, 24, 32, 48, 64, 80, 96, 112, 128):
             budget_box.addItem(f"{value} tools", value)
         found = budget_box.findData(current)
         # Derive the default index rather than hardcoding it: the preset list grew
@@ -724,7 +725,9 @@ class SystemConnectivityPage(QWidget):
 
         hint = QLabel(
             "Fewer tools means a smaller prompt and faster routing. Anything above the "
-            "limit is sent lazily via search_tools, so raising this is optional."
+            "limit is sent lazily via search_tools, so raising this is optional. "
+            "The search_tools cap follows this budget (budget − 2), so a budget of "
+            "64 lets search return up to 62 tools, 128 lets it return up to 126."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")

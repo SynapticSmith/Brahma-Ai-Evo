@@ -1491,7 +1491,12 @@ SEARCH_TOOLS_DECLARATION: Dict[str, Any] = {
             },
             "limit": {
                 "type": "INTEGER",
-                "description": "How many tools to return. Default 6, maximum 15.",
+                "description": (
+                    "How many tools to return. Default 6. The maximum tracks the "
+                    "session's tool budget minus 2 (Settings → Tool & Skill Index); "
+                    "tool_bridge rewrites this description with the exact number at "
+                    "connect time."
+                ),
             },
         },
         "required": ["intent"],

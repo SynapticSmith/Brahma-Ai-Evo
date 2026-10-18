@@ -8,6 +8,20 @@ agents/runtimes** on other machines. Adds §1.4, §2.7, §4.11-§4.13, and Appen
 **History:** rev 1 = first pass; rev 2 = added the concurrency model, concrete adapter
 protocol details, a corrected security section, a detection matrix, and per-phase
 acceptance criteria.
+**Amendment (2026-10-17):** three small fixes folded in after verifying the codebase
+against the plan at `664ae4b` (post-1.0.1): §4.10 now requires **atomic** persistence
+via `core/user_paths.atomic_write_json` (the P0-2 house standard), §7's test plan
+explicitly inherits the stricter post-1.0.1 gate (ruff ruleset, pytest, real
+`precommit_check.py` git hook, Windows CI), and the Phase 1 module-path typo
+(`agents/mcp_server.py`) is corrected to `adapters/mcp_server.py`. No design change.
+**Amendment 2 (2026-10-17, ADR-014…ADR-017):** build-owner decisions — discovery is
+**fully opt-in** (master switch false AND every `local_agent_scan.*` layer defaults
+false); every agent call's full output is **durably persisted and referencable**
+(`output_ref` + pinned `read_agent_artifact` tool; only the in-model slice is capped at
+256 KiB); fan-out budget numbers are **user-configurable** (`local_agent_budget_defaults`
+/ `local_agent_budget_overrides`); and the CLI vendor catalog is the sanctioned extension
+point for future agents (candidate entry + fixture + optional adapter; zero core
+changes). Authoritative defaults schema: `docs/AGENT-BRIDGE-BUILD-TODO.md` §1.8.
 **Goal:** enable Brahma Evo to act as a **top-level ("god") orchestrator**: receive an
 instruction from the user, **discover every AI agent *and every agent orchestrator***
 installed on or reachable from this machine, open a channel to each, delegate the work
@@ -772,20 +786,29 @@ New key in `%LOCALAPPDATA%\BrahmaAI\config\app_settings.json`:
 ```jsonc
 {
   "local_agents": [ /* AgentRecord[], see 4.2 */ ],
-  "local_agents_seeded": true,        // migration guard (pattern: core/mcp_manager.py:343)
-  "local_agent_bridge_enabled": true, // master kill switch (pattern: provider_enabled_*)
-  "local_agent_scan": {
-    "port_sweep": true,
-    "process_scan": true,
-    "vendor_configs": true,
-    "known_dirs": true
-  }
+  "local_agents_seeded": true,          // migration guard (pattern: core/mcp_manager.py:343)
+  "local_agent_bridge_enabled": false,  // master kill switch; ships DISABLED (ADR-007/014)
+  "local_agent_scan": {                 // ALL layers default false — fully opt-in (ADR-014)
+    "port_sweep": false,
+    "process_scan": false,
+    "vendor_configs": false,
+    "known_dirs": false,
+    "orchestrators": false
+  },
+  "local_agent_budget_defaults":  { "max_concurrent": 2, "max_spend_usd": 5.00 }, // ADR-016
+  "local_agent_budget_overrides": {}, // per-adapter overrides, edited on the Local Agents page
+  "local_agent_artifact_retention_days": 0, // 0 = keep agent outputs forever (ADR-015)
+  "local_agent_connect_on_boot": false      // safe classes only when true (ADR-005)
 }
 ```
 
 Defaults authored in the settings schema at `core/ui_startup.py:66 _default_app_settings()`.
-Persist with read-modify-write (§2.5). A master kill switch mirrors the provider flags
-(`core/provider_router.py:95 is_enabled`).
+Persist with read-modify-write (§2.5), **written atomically** via
+`core/user_paths.atomic_write_json` — P0-2 made atomic writes the house standard and
+`config_manager.save_settings` already routes through them; the bridge's own
+`registry.py` must do the same (never a bare write: a crash or concurrent writer
+mid-scan must not corrupt the `local_agents` registry). A master kill switch mirrors
+the provider flags (`core/provider_router.py:95 is_enabled`).
 
 ---
 
@@ -872,7 +895,7 @@ runs in < 1.5 s warm.
 
 **Phase 1 — connect safe classes (HTTP + MCP)**
 Ollama / LM Studio / OpenCode via `llm_client` + `poll_opencode_models`; MCP servers from
-Layer D via the extracted MCP client transport (`agents/mcp_server.py`, §4.4.1 — **not** a
+Layer D via the extracted MCP client transport (`adapters/mcp_server.py`, §4.4.1 — **not** a
 second `MCPServerManager`). Publish tools + resync. Extend the existing button into a
 real agent list.
 *Accept:* a discovered Ollama shows its models and answers a routed prompt; a discovered
@@ -905,6 +928,19 @@ mDNS browsing + `brahma_connect` protocol extension; also cover remote Tier 3 ru
 
 Follow the house style (fakes + tmp paths, no real processes — cf.
 `tests/test_mcp_server_config.py`):
+
+> **Gate (stricter since 1.0.1 — verified at `664ae4b`).** Everything in this plan
+> must clear the full house gate, not just pass locally: the curated **ruff**
+> blocking ruleset (`F401`, `F841`, `F811`, `F541`, `F821` — configured in
+> `pyproject.toml`, `ruff==0.17.1` in `requirements-dev.txt`), the **unit suite**
+> (167 tests at 1.0.1, offscreen Qt, `pytest.ini` bounds collection to `tests/`),
+> **`scripts/precommit_check.py`** — installed as a real git hook
+> (`.git/hooks/pre-commit`; fast static pass by default, `PRECOMMIT_FULL=1` for
+> the full suite + 7 acceptance harnesses) and it **blocks on credentials in any
+> committable file** — and the **Windows CI workflow**
+> (`.github/workflows/ci.yml`: `static-gate`, `lint`, `tests` jobs). New
+> bridge tests are ordinary citizens of this gate; the credential blocker
+> directly reinforces §4.7.5 (no secret values in the registry JSON or fixtures).
 
 - **Discovery** — one test per layer with fake `shutil.which`, an in-memory registry stub,
   tmp vendor-config files (valid / missing / corrupt JSON / CRLF), a fake port probe, and a
