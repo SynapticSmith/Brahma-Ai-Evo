@@ -450,7 +450,6 @@ class MainWindow(_ApplyStateMixin, _RuntimeMixin, _WiringMixin, _PanelsMixin, _S
         self._settings_bridge = None
         self._api_ready = False
         self._app_settings_cache: dict | None = None
-        import threading
         self._gui_thread_id = threading.get_ident()
         self._ui_call_sig.connect(self._on_ui_call, Qt.ConnectionType.QueuedConnection)
         self._overlay: QWidget | None = None

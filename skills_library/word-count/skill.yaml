@@ -1,0 +1,18 @@
+id: word-count
+name: Word Count
+description: Count words, lines and characters in a block of text. Use when the user asks for the size or length of some text.
+category: text
+tags: [text, words, count, length, statistics]
+active: true
+executable: true
+tool_name: word_count
+parameters:
+  type: OBJECT
+  properties:
+    text:
+      type: STRING
+      description: The text to analyse.
+  required: [text]
+instructions: |
+  Use this skill when the user asks how long a piece of text is, how many words
+  it contains, or wants a character/line count. Prefer it over estimating.

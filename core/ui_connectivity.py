@@ -726,8 +726,9 @@ class SystemConnectivityPage(QWidget):
         hint = QLabel(
             "Fewer tools means a smaller prompt and faster routing. Anything above the "
             "limit is sent lazily via search_tools, so raising this is optional. "
-            "The search_tools cap follows this budget (budget − 2), so a budget of "
-            "64 lets search return up to 62 tools, 128 lets it return up to 126."
+            "The search_tools cap follows this budget (budget minus the 5 always-on "
+            "discovery meta-tools), so a budget of 64 lets search return up to 59 "
+            "tools, 128 lets it return up to 123."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
@@ -1009,6 +1010,175 @@ class SystemConnectivityPage(QWidget):
         btn_refresh = QPushButton("Refresh")
         btn_refresh.setFixedWidth(90)
         btn_refresh.clicked.connect(lambda: _rebuild())
+        btn_row.addWidget(btn_refresh)
+        btn_row.addStretch(1)
+        lay.addLayout(btn_row)
+
+        _rebuild()
+        return card
+
+    def _build_skills_library_card(self):
+        """Lists every skill in the Skills Library as a toggle.
+
+        Skills are on-demand playbooks. Unlike tools they are not sent to the
+        model at all until the agent explicitly asks for one, so this list can be
+        long without costing prompt space. Toggling a skill off hides it from
+        ``search_skills`` and un-publishes it if it was executable; the master
+        switch turns the whole library (and both of its meta-tools) off. The
+        inventory is re-scanned on Refresh, which is how a skill dropped into the
+        library folder shows up without a restart.
+        """
+        card = self._card(
+            "Skills Library",
+            "On-demand task playbooks, loaded only when the agent asks for one — "
+            "never injected automatically. Executable skills also appear as tools.",
+        )
+        lay = card.layout()
+
+        master = QCheckBox("Enable the Skills Library")
+        master.setChecked(bool(self._load_app_settings().get("skills_library_enabled", True)))
+        master.setStyleSheet(f"color: {C.WHITE};")
+        lay.addWidget(master)
+
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
+        body_lay.setSpacing(6)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setMaximumHeight(320)
+        scroll.setStyleSheet(
+            f"QScrollArea {{ border: 1px solid {C.BORDER}; border-radius: 6px; background: transparent; }}"
+        )
+        scroll.setWidget(body)
+        lay.addWidget(scroll)
+
+        footer = QLabel("")
+        footer.setWordWrap(True)
+        footer.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
+        lay.addWidget(footer)
+
+        def _clear(layout):
+            while layout.count():
+                item = layout.takeAt(0)
+                widget = item.widget()
+                if widget is not None:
+                    widget.setParent(None)
+                    widget.deleteLater()
+                else:
+                    sub = item.layout()
+                    if sub is not None:
+                        _clear(sub)
+
+        def _apply(skill_id, enabled):
+            merged = self._load_app_settings()
+            disabled = set(merged.get("disabled_skills") or [])
+            if enabled:
+                disabled.discard(skill_id)
+            else:
+                disabled.add(skill_id)
+            merged["disabled_skills"] = sorted(disabled)
+            self._replace_app_settings(merged)
+            try:
+                from core import tool_bridge
+
+                tool_bridge.configure(settings=merged)
+                tool_bridge.sync_skills()
+            except Exception as exc:
+                footer.setText(f"Saved, but the running library could not be updated: {exc}")
+                return
+            _refresh_footer()
+
+        def _apply_master(enabled):
+            merged = self._load_app_settings()
+            merged["skills_library_enabled"] = bool(enabled)
+            self._replace_app_settings(merged)
+            try:
+                from core import tool_bridge
+
+                tool_bridge.configure(settings=merged)
+                tool_bridge.sync_skills()
+            except Exception as exc:
+                footer.setText(f"Saved, but the running library could not be updated: {exc}")
+                return
+            _refresh_footer()
+
+        def _refresh_footer():
+            try:
+                from core import tool_bridge
+
+                snap = tool_bridge.snapshot().get("skills") or {}
+            except Exception:
+                snap = {}
+            if not snap:
+                footer.setText("Skills Library unavailable.")
+                return
+            total = snap.get("skills", 0)
+            exe = snap.get("executable", 0)
+            off = len(snap.get("disabled") or [])
+            state = "on" if snap.get("enabled", True) else "off"
+            footer.setText(f"{total} skills · {exe} executable · {off} hidden · library {state}")
+
+        def _rebuild(force=False):
+            _clear(body_lay)
+            try:
+                from core import skills_library, tool_bridge
+
+                if force:
+                    skills_library.get_library().refresh(force=True)
+                    tool_bridge.sync_skills()
+                catalog = tool_bridge.skills_catalog()
+            except Exception as exc:
+                err = QLabel(f"Skills Library unavailable: {exc}")
+                err.setStyleSheet("color: #ff5555; font-size: 11px;")
+                body_lay.addWidget(err)
+                _refresh_footer()
+                return
+
+            groups = catalog.get("groups") or []
+            if not groups:
+                note = QLabel(
+                    "No skills installed yet. Add one under skills_library/ in the app "
+                    "folder, or in the user skills folder, then Refresh."
+                )
+                note.setWordWrap(True)
+                note.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
+                body_lay.addWidget(note)
+
+            for group in groups:
+                skills = group.get("skills") or []
+                head = QLabel(
+                    f"<b>{group.get('label') or 'General'}</b> "
+                    f"<span style='color:{C.TEXT_DIM}'>({len(skills)})</span>"
+                )
+                head.setTextFormat(Qt.TextFormat.RichText)
+                head.setStyleSheet(f"color: {C.WHITE}; margin-top: 6px;")
+                body_lay.addWidget(head)
+
+                for skill in skills:
+                    sid = str(skill.get("skill_id") or "")
+                    label = str(skill.get("name") or sid)
+                    if skill.get("executable"):
+                        label += "  ·  executable"
+                    box = QCheckBox(label)
+                    box.setChecked(bool(skill.get("enabled", True)))
+                    box.setToolTip(str(skill.get("description") or sid))
+                    box.setStyleSheet(f"color: {C.TEXT}; margin-left: 18px;")
+                    box.stateChanged.connect(
+                        lambda _state, skill_id=sid, widget=box: _apply(skill_id, widget.isChecked())
+                    )
+                    body_lay.addWidget(box)
+
+            body_lay.addStretch(1)
+            _refresh_footer()
+
+        master.stateChanged.connect(lambda _s: _apply_master(master.isChecked()))
+
+        btn_row = QHBoxLayout()
+        btn_refresh = QPushButton("Refresh")
+        btn_refresh.setFixedWidth(90)
+        btn_refresh.clicked.connect(lambda: _rebuild(force=True))
         btn_row.addWidget(btn_refresh)
         btn_row.addStretch(1)
         lay.addLayout(btn_row)
@@ -2170,6 +2340,10 @@ class SystemConnectivityPage(QWidget):
 
         # Per-tool access list: default tools + one section per MCP server.
         lay.addWidget(self._build_tool_visibility_card())
+
+        # Skills Library: the on-demand playbook layer, next to the tool list so
+        # the two "what the agent can reach" surfaces read together.
+        lay.addWidget(self._build_skills_library_card())
 
         # Speech Engines — sits next to the tool index because both describe how
         # a request reaches the model and how the answer gets back out.

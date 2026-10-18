@@ -92,6 +92,12 @@ def _default_app_settings() -> dict:
         # through the search_tools / call_tool meta-tools.
         "tool_index_enabled": True,
         "tool_index_budget": 24,
+        # Skills Library (core/skills_library.py). An on-demand layer of task
+        # playbooks, independent of the tool index: nothing from it reaches the
+        # model until the agent calls search_skills / load_skill, so it can hold
+        # thousands of skills. `disabled_skills` hides individual skill ids.
+        "skills_library_enabled": True,
+        "disabled_skills": [],
         # Per-provider kill switches for the failover chain (core/provider_router.py).
         # All default True so behaviour is unchanged until someone toggles one.
         # Switch OpenRouter off to guarantee zero cloud egress from background work.

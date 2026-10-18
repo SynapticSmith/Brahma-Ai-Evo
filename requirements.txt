@@ -72,3 +72,10 @@ kokoro-onnx==0.6.1
 # hashed n-gram TF-IDF scorer (stdlib + numpy), which is faster but weaker on
 # paraphrase. Install with `pip install fastembed`.
 fastembed==0.8.1
+
+# --- Skills Library (core/skills_library.py) --------------------------------
+# The library reads YAML, JSON and Markdown skill definitions. YAML support is
+# technically optional — the loader degrades to JSON/Markdown when it is absent —
+# but the bundled example skills under skills_library/ are YAML, so it is pinned
+# here to make a fresh clone behave the same as the verified host.
+PyYAML==6.0.3

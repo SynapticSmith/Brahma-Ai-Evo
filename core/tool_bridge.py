@@ -8,8 +8,9 @@ Responsibilities
   and everything the custom MCP bridge registers.
 * Decide what the model actually sees, and assemble the matching
   ``[ACTIVE SKILL CONTEXT]`` block.
-* Execute the three discovery meta-tools (``search_tools``, ``call_tool``,
-  ``get_skill_manual``).
+* Execute the discovery meta-tools (``search_tools``, ``call_tool``,
+  ``get_skill_manual``, and — for :mod:`core.skills_library` — ``search_skills``
+  and ``load_skill``).
 
 Why the discovery layer exists
 ------------------------------
@@ -18,15 +19,26 @@ documented as first-and-only-first message; a second ``setup`` frame mid-stream
 closes the socket with ``1007 Request contains an invalid argument`` — the exact
 error that broke the 130-tool handshake. So the advertised surface has to be
 small and constant, and everything else has to be reachable *through* a tool
-rather than *as* a tool. That is what these three do.
+rather than *as* a tool. That is what these five do.
 
 The advertised surface is therefore:
 
     pinned core tools  +  search_tools  +  call_tool  +  get_skill_manual
+                     +  search_skills +  load_skill
                      +  top-k retrieved tools
 
 …whose size is bounded by ``tool_index_budget`` regardless of whether 50 or
 50,000 tools are installed.
+
+The Skills Library
+------------------
+``search_skills`` / ``load_skill`` reach :mod:`core.skills_library`, a *peer* of
+the tool catalogue rather than a part of it. The library holds task playbooks —
+mostly instructional, so most of them never become tools. Only the library's
+**executable** skills are published into ``DynamicToolRegistry`` (and therefore
+indexed here); instructional skills are returned solely by ``load_skill``, on
+request, so a library of tens of thousands of skills costs the context almost
+nothing.
 """
 
 from __future__ import annotations
@@ -56,6 +68,10 @@ _executor: Optional[Callable[[str, Dict[str, Any]], Any]] = None
 #: Settings, refreshed from app_settings.json on load.
 _settings: Dict[str, Any] = {}
 
+#: Ceiling on a single ``search_skills`` call. Skills are metadata, not tool
+#: declarations, so this is a library-side cap rather than a budget one.
+SKILLS_SEARCH_MAX = 25
+
 
 # --------------------------------------------------------------------------- #
 # Configuration
@@ -78,6 +94,18 @@ def configure(settings: Optional[Dict[str, Any]] = None,
     index = get_index()
     index.set_enabled(bool(_settings.get("tool_index_enabled", True)))
     index.set_disabled(_settings.get("disabled_tools") or [])
+
+    # The Skills Library is a peer of the tool index and is configured the same
+    # way: an on/off switch plus a persisted set of disabled skills.
+    try:
+        from core import skills_library
+
+        lib = skills_library.get_library()
+        lib.set_enabled(_truthy(_settings.get("skills_library_enabled", True), True))
+        lib.set_disabled(_settings.get("disabled_skills") or [])
+    except Exception as exc:  # never fatal: the index alone is still usable
+        logger.warning("[ToolBridge] Skills library not configured: %s", exc)
+
     logger.info(
         "[ToolBridge] configured (enabled=%s, budget=%s, disabled=%d)",
         _settings.get("tool_index_enabled", True),
@@ -114,12 +142,15 @@ def budget() -> int:
 def search_limit_cap() -> int:
     """Largest ``limit`` the ``search_tools`` meta-tool will honour.
 
-    Tracks the session budget (budget − 2) so widening "Tools sent per
-    session" in Settings widens discovery too: a budget of 62+ allows 60
-    results, 128 allows 126. The floor of 6 keeps the default reachable even
-    at the smallest budget.
+    Tracks the session budget minus the always-advertised meta-tools
+    (``len(ti.META_TOOLS)`` — currently 5: search_tools, call_tool,
+    get_skill_manual, search_skills, load_skill), so widening "Tools sent per
+    session" in Settings widens discovery too: a budget of 64 allows 59
+    results, 128 allows 123. Deriving the subtraction from ``META_TOOLS``
+    keeps the formula correct if another meta-tool is ever added. The floor
+    of 6 keeps the default reachable even at the smallest budget.
     """
-    return max(6, budget() - 2)
+    return max(6, budget() - len(ti.META_TOOLS))
 
 
 def enabled() -> bool:
@@ -127,27 +158,34 @@ def enabled() -> bool:
 
 
 def _meta_declarations() -> List[Dict[str, Any]]:
-    """META_DECLARATIONS with the search_tools ``limit`` text made truthful.
+    """META_DECLARATIONS with the ``limit`` texts made truthful.
 
-    The advertised maximum depends on the live session budget
-    (:func:`search_limit_cap`), so the static description in
-    ``tool_index.SEARCH_TOOLS_DECLARATION`` would lie the moment the user
-    changes the setting. The copy is deep so the shared declaration is never
-    mutated across sessions or budgets.
+    The ``search_tools`` maximum depends on the live session budget
+    (:func:`search_limit_cap`), and the ``search_skills`` maximum on
+    :data:`SKILLS_SEARCH_MAX`, so the static descriptions in
+    ``tool_index`` would lie the moment either value changes. The copy is
+    deep so the shared declarations are never mutated across sessions or
+    budgets.
     """
     cap = search_limit_cap()
     out: List[Dict[str, Any]] = []
     for decl in META_DECLARATIONS:
         decl = copy.deepcopy(decl)
+        props = (decl.get("parameters") or {}).get("properties") or {}
+        limit_spec = props.get("limit")
+        if not isinstance(limit_spec, dict):
+            out.append(decl)
+            continue
         if decl.get("name") == ti.META_SEARCH_TOOL:
-            props = (decl.get("parameters") or {}).get("properties") or {}
-            limit_spec = props.get("limit")
-            if isinstance(limit_spec, dict):
-                limit_spec["description"] = (
-                    f"How many tools to return. Default 6, maximum {cap} "
-                    "(this session's tool budget minus 2, set in Settings → "
-                    "Tool & Skill Index)."
-                )
+            limit_spec["description"] = (
+                f"How many tools to return. Default 6, maximum {cap} "
+                "(this session's tool budget minus the always-on discovery "
+                "meta-tools, set in Settings → Tool & Skill Index)."
+            )
+        elif decl.get("name") == ti.META_SEARCH_SKILLS_TOOL:
+            limit_spec["description"] = (
+                f"How many skills to return. Default 6, maximum {SKILLS_SEARCH_MAX}."
+            )
         out.append(decl)
     return out
 
@@ -241,6 +279,74 @@ def put_manual(manual: SkillManual) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Skills Library
+# --------------------------------------------------------------------------- #
+
+
+def skills_library() -> Any:
+    """The process-wide :class:`core.skills_library.SkillsLibrary`."""
+    from core import skills_library as sl
+
+    return sl.get_library()
+
+
+def sync_skills(registry: Any = None) -> Dict[str, int]:
+    """Publishes the library's *executable* skills and indexes them as tools.
+
+    Instructional skills are deliberately never published: they are pure
+    context and are reached only through ``load_skill``. Publishing therefore
+    costs almost nothing even when the library holds tens of thousands of
+    skills, because only the executable minority become tools.
+    """
+    if registry is None:
+        try:
+            from core.dynamic_registry import DynamicToolRegistry
+
+            registry = DynamicToolRegistry
+        except Exception:
+            registry = None
+
+    try:
+        from core import skills_library
+
+        lib = skills_library.get_library()
+    except Exception as exc:
+        logger.warning("[ToolBridge] Skills library unavailable: %s", exc)
+        return {"skills": 0, "executable": 0, "published": 0, "indexed": 0}
+
+    published = 0
+    indexed = 0
+    # Always publish, even when the library is switched off: ``publish`` then
+    # un-registers anything it had previously exposed, so turning the master
+    # switch off hides the skills' tools too.
+    try:
+        published = lib.publish(registry)
+    except Exception as exc:
+        logger.warning("[ToolBridge] Publishing skills failed: %s", exc)
+    if registry is not None:
+        try:
+            indexed = sync_registry(registry)
+            get_index().rebuild()
+        except Exception as exc:
+            logger.warning("[ToolBridge] Indexing published skills failed: %s", exc)
+
+    stats = lib.stats()
+    logger.info(
+        "[ToolBridge] skills synced: %d skill(s), %d executable, %d published, %d indexed",
+        stats.skills,
+        stats.executable,
+        published,
+        indexed,
+    )
+    return {
+        "skills": stats.skills,
+        "executable": stats.executable,
+        "published": published,
+        "indexed": indexed,
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Session payload
 # --------------------------------------------------------------------------- #
 
@@ -326,9 +432,15 @@ TOOL_DECLARATIONS_CACHE: List[Sequence[Dict[str, Any]]] = []
 
 
 def prime(native_declarations: Sequence[Dict[str, Any]], registry: Any) -> None:
-    """Records the native declarations and performs the first catalog sync."""
+    """Records the native declarations and performs the first catalog sync.
+
+    The Skills Library is synced *first* so that executable skills are already
+    registered when the catalog is built, and so a library of any size is
+    reflected in the very first session payload.
+    """
     TOOL_DECLARATIONS_CACHE.clear()
     TOOL_DECLARATIONS_CACHE.append(list(native_declarations))
+    sync_skills(registry)
     sync_all(native_declarations, registry)
 
 
@@ -355,6 +467,10 @@ async def execute_meta(name: str, args: Dict[str, Any]) -> str:
             return _handle_manual(args)
         if name == ti.META_CALL_TOOL:
             return await _handle_call(args)
+        if name == ti.META_SEARCH_SKILLS_TOOL:
+            return _handle_search_skills(args)
+        if name == ti.META_LOAD_SKILL_TOOL:
+            return _handle_load_skill(args)
     except Exception as exc:
         logger.error("[ToolBridge] Meta-tool %s failed: %s", name, exc, exc_info=True)
         return f"Error: {name} failed: {exc}"
@@ -405,6 +521,117 @@ def _handle_search(args: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _handle_search_skills(args: Dict[str, Any]) -> str:
+    """Searches the Skills Library. Metadata only — nothing is loaded here."""
+    intent = str(args.get("intent") or args.get("query") or "").strip()
+    if not intent:
+        return "Error: search_skills requires an 'intent' describing the task."
+
+    try:
+        limit = int(args.get("limit") or 6)
+    except (TypeError, ValueError):
+        limit = 6
+    limit = max(1, min(limit, SKILLS_SEARCH_MAX))
+    executable_only = _truthy(args.get("executable_only"), False)
+
+    try:
+        from core import skills_library
+
+        lib = skills_library.get_library()
+    except Exception as exc:
+        return f"Error: the Skills Library is unavailable: {exc}"
+
+    if not lib.enabled:
+        return "The Skills Library is switched off in Settings, so no skills are available."
+
+    hits = lib.search(intent, limit=limit, executable_only=executable_only)
+    if not hits:
+        return (
+            f"No skill matches {intent!r}. The library holds {lib.stats().skills} skill(s). "
+            "Try different wording, or proceed without a skill."
+        )
+
+    lines = [f"Found {len(hits)} skill(s) for {intent!r}:"]
+    for rank, hit in enumerate(hits, start=1):
+        meta = hit.meta
+        kind = (
+            f"executable (run as tool '{meta.resolved_tool_name()}')"
+            if meta.executable
+            else "instructional"
+        )
+        lines.append(
+            f"\n{rank}. skill_id: {meta.skill_id}"
+            f"\n   does: {meta.description or meta.name}"
+            f"\n   type: {kind}"
+            f"\n   category: {meta.category}"
+        )
+    lines.append("\nTo use one, call: load_skill(skill_id=<exact id>)")
+    return "\n".join(lines)
+
+
+def _handle_load_skill(args: Dict[str, Any]) -> str:
+    """Loads one skill into context, on request.
+
+    For an executable skill this also ensures the underlying tool is published
+    and indexed, so the agent can run it immediately with ``call_tool`` even if
+    the skill was added after the session connected.
+    """
+    skill_id = str(args.get("skill_id") or args.get("skill") or args.get("name") or "").strip()
+    if not skill_id:
+        return "Error: load_skill requires a 'skill_id' (from search_skills)."
+
+    try:
+        from core import skills_library
+
+        lib = skills_library.get_library()
+    except Exception as exc:
+        return f"Error: the Skills Library is unavailable: {exc}"
+
+    if not lib.enabled:
+        return "The Skills Library is switched off in Settings, so no skills are available."
+
+    spec = lib.get(skill_id, include_disabled=False)
+    if spec is None:
+        if lib.has(skill_id):
+            return f"Skill '{skill_id}' is disabled. Enable it in Settings to use it."
+        suggestions = [h.skill_id for h in lib.search(skill_id, limit=3)]
+        hint = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
+        return f"No skill named '{skill_id}'.{hint} Use search_skills to find the right id."
+
+    # Executable skills added after startup would not be in the tool index yet;
+    # publishing and indexing here keeps load_skill sufficient on its own to make
+    # the skill runnable, without a full registry re-enumeration.
+    if spec.executable:
+        try:
+            lib.publish()
+            _index_skill_tool(spec)
+        except Exception as exc:
+            logger.warning("[ToolBridge] Could not publish skill '%s' on load: %s", skill_id, exc)
+
+    return spec.rendered()
+
+
+def _index_skill_tool(spec: Any) -> None:
+    """Make a just-loaded executable skill reachable through ``call_tool``.
+
+    A Live session fixes its tool list at connect time, so a skill published
+    afterwards can only be reached through the meta-tools. Upserting it here is
+    what lets ``call_tool`` find it mid-session.
+    """
+    from core.skills_library import SKILL_SOURCE
+
+    index = get_index()
+    index.upsert(
+        ToolEntry(
+            name=spec.resolved_tool_name(),
+            description=spec.description or f"Skill {spec.name or spec.skill_id}",
+            parameters=spec.parameters or {"type": "OBJECT", "properties": {}},
+            source=SKILL_SOURCE,
+        )
+    )
+    index.rebuild()
+
+
 def _handle_manual(args: Dict[str, Any]) -> str:
     skill_id = str(args.get("skill_id") or args.get("skill") or args.get("name") or "").strip()
     if not skill_id:
@@ -412,6 +639,11 @@ def _handle_manual(args: Dict[str, Any]) -> str:
 
     manual = get_index().manual(skill_id)
     if manual is None:
+        # A Skills Library skill is also a legitimate manual target, so
+        # get_skill_manual keeps working for one id space instead of two.
+        fallback = _skill_manual_fallback(skill_id)
+        if fallback:
+            return fallback
         index = get_index()
         known = sorted(set(index.skill_ids()) | {m.skill_id for m in index.manuals()})
         return (
@@ -423,6 +655,26 @@ def _handle_manual(args: Dict[str, Any]) -> str:
     if not rendered:
         return f"The manual for '{skill_id}' is empty."
     return f"[SKILL MANUAL: {manual.title or manual.skill_id}]\n{rendered}"
+
+
+def _skill_manual_fallback(skill_id: str) -> str:
+    """Serve a Skills Library skill through ``get_skill_manual`` as well.
+
+    Keeps the two discovery surfaces consistent: any id ``search_skills`` can
+    return is also readable by the manual tool.
+    """
+    try:
+        from core import skills_library
+
+        lib = skills_library.get_library()
+    except Exception:
+        return ""
+    if not lib.enabled:
+        return ""
+    spec = lib.get(skill_id, include_disabled=False)
+    if spec is None:
+        return ""
+    return spec.rendered()
 
 
 async def _handle_call(args: Dict[str, Any]) -> str:
@@ -502,7 +754,18 @@ def snapshot() -> Dict[str, Any]:
         "gemini_limit": GEMINI_MAX_TOOLS,
         "disabled": len(index.disabled()),
         "mcp_servers": mcp,
+        "skills": _skills_snapshot(),
     }
+
+
+def _skills_snapshot() -> Dict[str, Any]:
+    """Read-only Skills Library status, or ``{}`` when it cannot be read."""
+    try:
+        from core import skills_library
+
+        return skills_library.get_library().manifest()
+    except Exception:
+        return {}
 
 
 def explain(query: str, k: int = 8) -> List[Dict[str, Any]]:
@@ -583,3 +846,89 @@ def tool_catalog() -> Dict[str, Any]:
         "disabled": sorted(disabled),
         "default_count": sum(len(groups[k]["tools"]) for k in default_keys),
     }
+
+
+# --------------------------------------------------------------------------- #
+# Skills Library management surface
+# --------------------------------------------------------------------------- #
+
+
+def skills_catalog(limit: int = 500) -> Dict[str, Any]:
+    """Grouped view of the Skills Library, for the Settings UI.
+
+    Every skill is listed with its ``enabled`` flag, so a disabled skill can be
+    switched back on. ``limit`` bounds the response because the library is built
+    for tens of thousands of entries; the count is always reported in full.
+    """
+    try:
+        from core import skills_library
+
+        lib = skills_library.get_library()
+    except Exception as exc:
+        return {"groups": [], "skills": [], "total": 0, "error": str(exc)}
+
+    disabled = lib.disabled()
+    groups: Dict[str, Dict[str, Any]] = {}
+    listed = 0
+    for meta in lib.entries(include_disabled=True):
+        listed += 1
+        if listed > max(1, int(limit)):
+            continue
+        key = meta.category or "general"
+        group = groups.get(key)
+        if group is None:
+            group = {"id": key, "label": key.title(), "skills": []}
+            groups[key] = group
+        group["skills"].append(
+            {
+                "skill_id": meta.skill_id,
+                "name": meta.name,
+                "description": meta.description,
+                "executable": meta.executable,
+                "source": meta.source,
+                "tags": list(meta.tags),
+                "tool_name": meta.resolved_tool_name() if meta.executable else "",
+                "enabled": meta.active and meta.skill_id not in disabled,
+            }
+        )
+
+    ordered = sorted(groups.values(), key=lambda g: g["id"].lower())
+    for group in ordered:
+        group["skills"].sort(key=lambda s: s["skill_id"].lower())
+    return {
+        "groups": ordered,
+        "total": len(lib.entries(include_disabled=True)),
+        "enabled": lib.enabled,
+        "disabled": sorted(disabled),
+        "limit": max(1, int(limit)),
+    }
+
+
+def disabled_skills() -> List[str]:
+    """Skill ids currently switched off."""
+    try:
+        from core import skills_library
+
+        return sorted(skills_library.get_library().disabled())
+    except Exception:
+        return []
+
+
+def set_disabled_skills(skill_ids: Iterable[str]) -> None:
+    """Replaces the switched-off skill set. Takes effect on the next search/load."""
+    try:
+        from core import skills_library
+
+        skills_library.get_library().set_disabled(list(skill_ids or []))
+    except Exception as exc:
+        logger.warning("[ToolBridge] Could not set disabled skills: %s", exc)
+
+
+def set_skills_enabled(enabled: bool) -> None:
+    """Turns the whole Skills Library on or off."""
+    try:
+        from core import skills_library
+
+        skills_library.get_library().set_enabled(bool(enabled))
+    except Exception as exc:
+        logger.warning("[ToolBridge] Could not toggle skills library: %s", exc)

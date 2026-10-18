@@ -1,7 +1,7 @@
 """Integration tests for the tool bridge and its wiring into main.py.
 
 These exercise the real code path that broke the Live handshake: catalog
-population, session-payload assembly, and the three discovery meta-tools. They
+population, session-payload assembly, and the five discovery meta-tools. They
 import ``main`` lazily and skip the GUI when it cannot load headless, so they
 stay runnable in CI.
 """
@@ -108,19 +108,24 @@ def test_budget_is_honoured_and_clamped(bridge):
 
 
 def test_search_limit_tracks_the_session_budget(bridge):
-    """search_tools widens with the advertised budget: 64 → 62, 128 → 126."""
+    """search_tools widens with the advertised budget: 64 → 59, 128 → 123.
+
+    The subtraction is ``len(META_TOOLS)`` — the always-advertised
+    meta-tools — so adding another meta-tool cannot silently push the
+    payload over the provider ceiling.
+    """
     tool_bridge.configure(settings={"tool_index_budget": 24})
-    assert tool_bridge.search_limit_cap() == 22
+    assert tool_bridge.search_limit_cap() == 24 - len(ti.META_TOOLS)
 
     tool_bridge.configure(settings={"tool_index_budget": 64})
-    assert tool_bridge.search_limit_cap() == 62
+    assert tool_bridge.search_limit_cap() == 59
 
     tool_bridge.configure(settings={"tool_index_budget": 128})
-    assert tool_bridge.search_limit_cap() == 126
+    assert tool_bridge.search_limit_cap() == 123
 
     # A silly value is clamped to the provider ceiling, never above it.
     tool_bridge.configure(settings={"tool_index_budget": 100000})
-    assert tool_bridge.search_limit_cap() == GEMINI_MAX_TOOLS - 2
+    assert tool_bridge.search_limit_cap() == GEMINI_MAX_TOOLS - len(ti.META_TOOLS)
 
 
 def test_search_limit_is_clamped_by_the_cap_at_execution_time(bridge):
@@ -136,26 +141,34 @@ def test_search_limit_is_clamped_by_the_cap_at_execution_time(bridge):
     out = asyncio.run(tool_bridge.execute_meta(
         "search_tools", {"intent": "calyx vault operation", "limit": 9999}))
     found = int(re.search(r"Found (\d+) tool", out).group(1))
-    assert found <= tool_bridge.search_limit_cap() == 14
+    assert found <= tool_bridge.search_limit_cap() == 11
 
 
 def test_advertised_search_declaration_shows_the_live_maximum(bridge):
     """The schema the model sees states the current cap, not a stale 15."""
     tool_bridge.configure(settings={"tool_index_budget": 128})
     decls = tool_bridge.build_session_payload("")["declarations"]
+    # Every meta-tool, including the skills pair, is always advertised.
+    assert {d["name"] for d in META_DECLARATIONS} <= {d["name"] for d in decls}
     search = next(d for d in decls if d["name"] == "search_tools")
     desc = search["parameters"]["properties"]["limit"]["description"]
-    assert "maximum 126" in desc
+    assert "maximum 123" in desc
 
     # The shared module-level declaration must not be mutated by the rewrite.
     static = ti.SEARCH_TOOLS_DECLARATION["parameters"]["properties"]["limit"]["description"]
-    assert "maximum 126" not in static
+    assert "maximum 123" not in static
 
     # A different budget re-advertises its own number.
     tool_bridge.configure(settings={"tool_index_budget": 64})
     decls = tool_bridge.build_session_payload("")["declarations"]
     search = next(d for d in decls if d["name"] == "search_tools")
-    assert "maximum 62" in search["parameters"]["properties"]["limit"]["description"]
+    assert "maximum 59" in search["parameters"]["properties"]["limit"]["description"]
+
+    # search_skills states its library-side maximum (SKILLS_SEARCH_MAX).
+    skills = next(d for d in decls if d["name"] == "search_skills")
+    assert f"maximum {tool_bridge.SKILLS_SEARCH_MAX}" in (
+        skills["parameters"]["properties"]["limit"]["description"]
+    )
 
 
 def test_disabled_index_falls_back_to_the_legacy_surface(bridge):

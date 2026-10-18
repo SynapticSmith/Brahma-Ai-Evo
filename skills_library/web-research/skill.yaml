@@ -1,0 +1,39 @@
+id: web-research
+name: Web Research
+description: Plan and run a rigorous web research pass, then report findings with traceable sources.
+version: "1.0.0"
+category: research
+tags:
+  - web
+  - research
+  - sources
+  - investigation
+active: true
+executable: false
+instructions: |
+  Use this skill whenever a request depends on current, external or contested
+  information and the answer must be trustworthy.
+
+  1. Restate the request as 2-4 concrete, answerable sub-questions.
+  2. Search for primary sources first (official docs, filings, papers, first-hand
+     posts), then corroborating secondary sources.
+  4. Record the source URL beside every non-obvious claim.
+  5. Note the publication date of each source and flag anything older than a year
+     as possibly stale.
+  5. If two credible sources disagree, say so explicitly instead of picking one.
+  6. Close with the answer, the evidence, and anything you could not confirm.
+manual: |
+  Quality bar
+  -----------
+  - Prefer a source that is closer to the original fact (the filing, not the
+    article about the filing).
+  - Never present a single source as consensus.
+  - If no reliable source is found, say so plainly rather than filling the gap
+    with plausible-sounding prose.
+  - Keep quotes short and attribute them.
+
+  Output shape
+  ------------
+  Answer first (2-4 sentences), then a short evidence list:
+
+  - Claim — source URL (date)

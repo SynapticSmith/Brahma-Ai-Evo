@@ -52,7 +52,9 @@ pointed at locally-installed AI tools, or at the orchestrators that run them.
 
 - It has a **budgeted, search-backed tool surface** (`core/tool_index.py` +
   `core/tool_bridge.py`) that lets thousands of tools be reachable by the Gemini Live
-  model through **three discovery meta-tools**, so new agent capabilities require **no
+  model through **five discovery meta-tools** (the original three plus
+  `search_skills` / `load_skill` from the Skills Library), so new agent capabilities
+  require **no
   change to the Live handshake** and cannot break the 128-declaration ceiling.
 - It has a **universal execution backend** (`core/dynamic_registry.py`) that accepts any
   in-process callable as a tool — the same path MCP servers already use.
@@ -174,8 +176,10 @@ boot `asyncio.run(brahma_evo.run())` `main.py:4142`). The model's tool surface i
    (`GEMINI_MAX_TOOLS = 128`, `core/tool_index.py:88`; the reason is documented in
    `docs/ONE-391-tool-index.md`). So the advertised set is small and constant:
    `DEFAULT_ADVERTISED_BUDGET = 24` (`:92`) + pinned `undo`/`recall_memory` (`:96`) + the
-   three meta-tools `search_tools` / `call_tool` / `get_skill_manual`
-   (`META_TOOLS`, `core/tool_index.py:106`).
+   five meta-tools `search_tools` / `call_tool` / `get_skill_manual` /
+   `search_skills` / `load_skill`
+   (`META_TOOLS`, `core/tool_index.py:110`). The `search_tools` result cap is
+   `budget − len(META_TOOLS)` (`search_limit_cap`, `core/tool_bridge.py`).
 3. `core/tool_bridge.py` builds the per-session payload
    (`build_session_payload`, `core/tool_bridge.py:204`; budget clamps at
    `core/tool_index.py:1315-1316`) and executes the meta-tools

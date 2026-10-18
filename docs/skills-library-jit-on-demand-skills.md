@@ -1,202 +1,263 @@
-# Skills Library - JIT On-Demand Skills Architecture & Plan
+# Skills Library — JIT / On-Demand Skills
 
-**Status**: Planning Phase  
-**Created**: 2026-10-17  
-**Purpose**: Design for a standalone, JIT-loadable skills library supporting 10,000+ skills with on-demand access
+**Status**: Implemented (2026-10-17)
+**Purpose**: A standalone, JIT-loadable skills library that can hold tens of
+thousands of skills while almost none of them are resident in the model's
+context.
 
-## Executive Summary
+---
 
-The current codebase has:
-- **Tool Index** (`core/tool_index.py`) - Hybrid search over tools with budgeted advertising (max 128 tools to Gemini). Uses meta-tools `search_tools`, `call_tool`, `get_skill_manual`.
-- **SkillManual** concept - Per-group usage guides that are injected as JIT context only when a tool from that group is advertised.
-- **DynamicToolRegistry** (`core/dynamic_registry.py`) - Loads executable "skills" from `features/` and external tools. These become executable tools callable via the normal tool execution path.
-- **MCP Manager** (`core/mcp_manager.py`) - Ingests MCP server instructions/prompts/resources into SkillManuals.
+## 1. Executive summary
 
-The user wants a **standalone Skills Library** that is its own thing for "actual skills" - separate from `features/`, with its own on-demand access pattern. It should support both:
-1. Injecting skill instructions/context on demand (like SkillManual does)
-2. Making skills executable tools (like DynamicSkill does)
+Brahma already keeps its *tool* catalogue small with a just-in-time discovery
+layer: only pinned tools plus the always-advertised meta-tools (`search_tools`,
+`call_tool`, `get_skill_manual`, and — added with the library itself —
+`search_skills`, `load_skill`) plus the top-k retrieved tools are ever sent to
+Gemini, and everything else is reached *through* a tool rather than *as* a tool.
 
-But critically - only load what is needed, JIT/on-request, supporting 10,000+ skills without bloating context.
-## 1. Key Observations About Current Design
+The Skills Library applies the same idea to a second, distinct kind of content:
+**skills** — task playbooks and small capabilities kept deliberately apart from
+`features/` and from the tool catalogue. Two shapes are supported:
 
-### Current Skill System
+- **Instructional skills** — pure context (a method, a house style, a
+  checklist). They have no callable tool; their value is their instructions.
+- **Executable skills** — they ship an `executor.py` and become ordinary tools
+  once the agent has asked for them.
 
-1. **DynamicSkill** (in dynamic_registry.py): Represents an executable skill. Loaded from:
-- `features/` (codebase native features) - single `.py` files or directories with `skill.py` + `manifest.json`
-- AppData `skills/` vault
-- External tools registered via `register_external_tool()` (MCP tools)
+Nothing is injected automatically. A skill is *searched* and then *loaded* only
+when the model decides it needs one, which is what makes a library of 10,000+
+skills cost almost nothing per turn.
 
-2. **SkillManual** (in tool_index.py): Usage guide for a `skill_id` group. Rendered only when any tool from that group is advertised. Used for JIT instruction injection. MCP servers auto-publish manuals from their instructions/prompts/resources.
+---
 
-3. **Tool Index Groups**: Tools have `skill_id` for grouping; manuals keyed by `skill_id`. This means multiple tools can share one manual - efficient for large server APIs (e.g. 80 Synapse tools share 1 guide).
+## 2. What was built
 
-### The Gap
+| File | Role |
+|---|---|
+| `core/skills_library.py` | The library: discovery, metadata index, lazy materialisation, LRU cache, search, publish, execute. |
+| `core/tool_index.py` | Two new meta-tool declarations (`search_skills`, `load_skill`); `META_TOOLS` / `META_DECLARATIONS` extended. |
+| `core/tool_bridge.py` | Wires the library into the session: `sync_skills()`, the two meta-tool handlers, a `get_skill_manual` fallback, and the management API. |
+| `core/ui_connectivity.py` | Settings card: per-skill toggles, a master switch, and a live re-scan. |
+| `core/ui_startup.py` | Defaults for `skills_library_enabled` / `disabled_skills`. |
+| `core/prompt.txt` | The agent's *SKILLS LIBRARY* instructions, so the layer is reachable, not just advertised. |
+| `requirements.txt` | PyYAML pinned (the bundled example skills are YAML). |
+| `skills_library/` | Shipped built-in skills plus `README.md` documenting the format. |
+| `tests/test_skills_library.py` | 24 unit tests (discovery, laziness, search, execution, publish, scale). |
+| `tests/test_skills_bridge.py` | 19 integration tests (advertising, both meta-tools, executable publish/call, management surface). |
 
-The user wants a dedicated "skills library" abstraction. Current "skills" in DynamicToolRegistry are conflated with "features/tools" and loaded from `features/`. The ask is for skills as a standalone concept with its own library, manageable, modifiable, supporting massive scale (10k+) with strict JIT loading.
+No change to `main.py` was required: `tool_bridge.configure()` applies the
+library's settings, and `tool_bridge.prime()` calls `sync_skills()` before the
+first catalog sync.
 
-## 2. Design Goals
+---
 
-1. **Standalone Skills Library** - Separate from `features/`. Own storage, lifecycle, API.
-2. **Massive Scale (10,000+)** - Must not load all into memory; index/catalog only, load on demand.
-3. **True JIT Loading** - Only load when explicitly requested (no automatic injection on every call). Optional call pattern only.
-4. **Dual Nature** - Skills can be both: 
-- Executable tools (can be invoked as functions)
-- Instructional/contextual (can have manuals/instructions injected on demand)
-5. **Manageable & Modifiable** - Add/edit/disable individual skills easily, without codebase changes.
-6. **Searchable On-Demand** - Need a skill discovery mechanism (like `search_tools` but for skills). Should integrate with Tool Index or be parallel.
-7. **Separate from Features** - Keep `features/` for built-in/core features, skills library for pluggable/extended skill definitions.
+## 3. Storage layout (as built)
 
-## 3. Proposed Architecture
-
-### 3.1 New Module: `core/skills_library.py`
-
-Create a dedicated Skills Library manager separate from DynamicToolRegistry.
-
-**Key Classes**:
-
-```python
-@dataclass
-class SkillDefinition:
-    """Definition of a standalone skill in the library."""
-    skill_id: str                    # Unique ID (e.g. "code-reviewer", "research-assistant")
-    name: str
-    description: str                 # For discovery/indexing
-    version: str = "1.0.0"
-    category: str = "general"
-    tags: List[str] = field(default_factory=list)
-    active: bool = True
-    executable: bool = False         # Whether it can be invoked as a tool
-    tool_name: Optional[str] = None  # If exposed as executable tool
-    parameters: Dict[str, Any] = field(default_factory=lambda: {"type": "OBJECT", "properties": {}})
-    instructions: str = ""           # Core instructions/context for this skill
-    manual: str = ""                 # Extended usage guide/manual
-    dependencies: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    path: Optional[Path] = None      # Source file/dir
-    checksum: Optional[str] = None
-    source: str = "library"          # "builtin" | "user" | "external"
-```
-
-**Core Classes**:
-- `SkillsLibrary` - Main manager class with methods: `load()`, `get(skill_id)`, `search(query, **filters)`, `index_all()`, `reload()`, `enable/disable()`
-- `SkillInstance` - Loaded/runtime instance (similar to DynamicSkill) for executable skills
-
-### 3.2 Storage Layout
-
-Proposed structure (split between builtin and user):
+A skill is a **directory**:
 
 ```
-skills_library/                # Builtin skills shipped with repo
-  ├── README.md
-  ├── builtin/
-  │   ├── reasoning/
-  │   │   ├── skill.yaml       # Metadata + instructions/manual
-  │   │   └── executor.py      # Optional executable implementation
-  │   ├── writing/
-  │   └── research/
-  └── (examples)
-
-# User-defined skills in user data dir
-{user_data_dir}/skills_library/
-  ├── user/
-  │   ├── custom-skill/
-  │   │   ├── skill.yaml
-  │   │   └── executor.py
-  │   └── ...
+<root>/<dir>/
+    skill.yaml      # or skill.yml / skill.json / SKILL.md
+    executor.py     # optional; required when executable: true
 ```
 
-**Format**: YAML for `skill.yaml` (human-editable, supports multiline strings for instructions/manual). Executor as optional Python module for executable skills.
+…or a **single file** (instructional only):
 
-### 3.3 Integration with Tool Index
+```
+<root>/<name>.yaml | .yml | .json | .md
+```
 
-The Tool Index already has the right abstractions. Recommended approach:
+Two roots are scanned, in order, and a **later root overrides an earlier one**
+on an id collision:
 
-1. **Skills Library registers with Tool Index**:
-- For executable skills: Create ToolEntry with `source="skill_lib"`, `skill_id=skill.skill_id`, and register via ToolIndex. Also coordinate with DynamicToolRegistry for execution.
-- For instructional-only skills: Publish as SkillManual via `tool_index.put_manual(SkillManual(skill_id=..., title=..., body=..., origin="skills_lib"))`
+1. `<repo>/skills_library` — built-ins that ship with the codebase (`builtin`).
+2. `<user data>/skills_library` — the editable/user layer (`user`),
+   `%LOCALAPPDATA%\BrahmaAI\skills_library` on Windows.
 
-2. **Discovery via existing meta-tools**: By registering in Tool Index, `search_tools(intent)` will discover executable skills. Instructional skills can be discovered when searching (if their descriptions are indexed) and their manuals retrieved via existing `get_skill_manual(skill_id)`.
+> **Delta from the original plan.** The plan proposed
+> `skills_library/builtin/…` and `…/skills_library/user/…` subdirectories. The
+> two *roots* already encode that split, so the extra `builtin/` and `user/`
+> levels were dropped: a skill lives directly under its root. Override order is
+> what gives the user layer its "shadows the built-in" behaviour.
 
-This reuses the battle-tested JIT discovery mechanism with no protocol changes.
+Markdown skills (`SKILL.md`, `<name>.md`) support optional YAML frontmatter;
+with no frontmatter the whole body becomes `instructions`, so the simplest
+possible skill is just prose. `README.md`, `index.md`, `changelog`, `license`
+and `skill` stems are never treated as skills.
 
-### 3.4 Executable vs Instructional Skills
+Everything is fail-soft: a malformed or hostile definition is skipped with a
+warning and can never stop the library (or the app) from loading.
 
-**Executable Skills** (`executable: true`): Have implementation that produces actions/results.
-- Implementation in `executor.py` with `execute(**kwargs)` function (sync/async, matching DynamicSkill contract)
-- Registered as ToolEntry in Tool Index → discoverable via `search_tools`, callable via `call_tool()`
-- Loaded fully only when executed (or when first needed)
+---
 
-**Instructional Skills** (`executable: false`): Pure instructions/context.
-- No executor needed. `instructions` and `manual` fields contain guidance.
-- Published as SkillManual keyed by `skill_id` → loaded via `get_skill_manual(skill_id)` on demand
-- Injected as JIT context only when explicitly requested (not auto-injected)
+## 4. Data model
 
-### 3.5 On-Demand Access Pattern (True JIT)
+Two dataclasses, deliberately split by cost:
 
-To support 10k+ skills without memory bloat:
+- **`SkillMeta`** — the always-resident catalogue row: `skill_id`, `name`,
+  `description`, `category`, `tags`, `executable`, `active`, `source`, `path`,
+  `version`, `mtime`, `size`, `checksum`. It has **no** `instructions`, `manual`
+  or `parameters`. This is what a 10,000-skill scan retains.
+- **`SkillSpec`** — the fully materialised skill, including `instructions`,
+  `manual` and `parameters`. Returned by `SkillsLibrary.get()` and cached.
 
-1. **Metadata-Only Indexing**: On startup/library init, scan all skill.yaml files and build lightweight index (skill_id, name, description, tags, category, executable, active, source, path). Do NOT load full `instructions`, `manual`, or `executor.py` into memory.
-2. **Lazy Loading**: Full SkillDefinition (including large instruction bodies) loaded only on:
-- Explicit get: `skills_library.get(skill_id)` 
-- When tool is executed (executable skill)
-- When `get_skill_manual(skill_id)` is called for that skill
-3. **LRU Caching**: Cache loaded full definitions (max N entries, e.g. 100-200) with TTL to avoid repeated file I/O while allowing edits to take effect reasonably.
-4. **Search**: Search operates on metadata index only - fast, O(n) trivial even for 10k skills, or build simple in-memory search structure.
-5. **No Preloading**: Never load all skills. This satisfies "only load what's needed, JIT/on-request".
+`SkillHit` (a ranked result) and `LibraryStats` (diagnostics) round it out.
 
-## 4. Implementation Plan
+> **Delta from the original plan.** The plan named the full-spec dataclass
+> `SkillDefinition`. It is `SkillSpec` here, with `SkillMeta` split out so the
+> resident catalogue is provably body-free (asserted in the tests).
 
-### Phase 1: Core Foundation (S, ~1 day)
-- [ ] Create `core/skills_library.py` with `SkillDefinition` dataclass and `SkillsLibrary` class
-- [ ] Define YAML schema/loader with validation
-- [ ] Create directory structure (`skills_library/builtin/`, user data dir)
-- [ ] Implement metadata indexing (lazy load full content)
-- [ ] Add LRU cache for loaded definitions
-- [ ] Unit tests for basic CRUD/load/search
+### Parsing
 
-### Phase 2: Tool Index Integration (M, ~1-2 days)
-- [ ] Bridge: On library init, register executable skills as ToolEntry in ToolIndex
-- [ ] Bridge: Publish SkillManuals for instructional skills
-- [ ] Ensure skills appear in search results via `search_tools`
-- [ ] Respect disabled/active flags
-- [ ] Tests for discovery through existing meta-tools
+`_read_definition()` reads the file **once** and returns `(mapping, checksum)`.
+The checksum is taken from the same bytes that were parsed, so a large scan
+never pays a second read per skill. YAML uses PyYAML (present, but treated as
+optional: JSON and Markdown still work without it).
 
-### Phase 3: Execution Integration (M, ~1 day)
-- [ ] Create executor adapter for executable skills
-- [ ] Integrate with ToolBridge/DynamicToolRegistry execution path
-- [ ] Handle sync/async execute() like DynamicSkill
-- [ ] Tests for execution
+---
 
-### Phase 4: Builtin Skills & Examples (S, ~0.5 day)
-- [ ] Create example builtin skills (instructional + executable)
-- [ ] Add README and schema docs
+## 5. Lazy indexing and caching
 
-### Phase 5: Testing & Validation (M, ~1 day)
-- [ ] Generate 10,000 synthetic skills (metadata only) to test scale
-- [ ] Verify true JIT: full content not loaded until requested
-- [ ] Verify context injection via `get_skill_manual()` works
-- [ ] Backward compatibility - no breaking changes
-- [ ] Integration tests
+- `SkillsLibrary()` construction reads nothing.
+- `refresh()` scans every definition **once** to build the metadata catalogue and
+  a lightweight inverted index (`token -> row indices`). It does **not** retain
+  instructions or import executor modules (verified by
+  `test_scan_does_not_import_executor_modules`).
+- `get(skill_id)` materialises a full `SkillSpec` on demand and remembers it in
+  an LRU cache (default 256 entries). Entries are invalidated by **checksum**,
+  so an edit is picked up on the next `get` after a `refresh`.
+- `execute_skill()` imports `executor.py` **only** when the skill is actually
+  run; imported modules are cached separately.
 
-## 5. Recommended Design Decisions
+**Why not reuse the Tool Index's RRF/embeddings for skills?** The tool index's
+semantic backends build a dense `(n, 4096)` n-gram matrix; at 10,000 skills that
+is ~160 MB. The library instead uses a weighted token-overlap scorer over a
+prebuilt inverted index (name ×3.0, tags ×2.5, category ×2.0, description ×1.0,
+plus exact-id and phrase boosts), which is memory-light and fast at that scale.
+Executable skills still get the full tool-index machinery for free, because they
+are published as ordinary tools (see §7).
 
-1. **Standalone module, separate dirs** - Create `core/skills_library.py`, storage split between repo `skills_library/builtin/` and user data `skills_library/user/`.
+---
 
-2. **Reuse Tool Index** - Don't create parallel search; register skills in Tool Index. Leverages existing RRF fusion, MMR diversity, per-source caps. Existing meta-tools work unchanged.
+## 6. Discovery: two meta-tools
 
-3. **Lazy metadata indexing** - Index on init from file scan. Load full bodies only on demand. LRU cache prevents thrashing.
+Two declarations are added to `META_DECLARATIONS` (and therefore to
+`META_TOOLS`, which the budget maths already accounts for):
 
-4. **YAML + optional executor.py** - Most editable for instructions/manuals. Python only where execution needed.
+| Tool | Behaviour |
+|---|---|
+| `search_skills(intent, limit=6, executable_only=false)` | Scores the metadata catalogue and returns matching ids, descriptions, category, and whether each is executable. Loads nothing. |
+| `load_skill(skill_id)` | Materialises exactly one skill and returns its instructions (and manual, if any) as a tool result. For an executable skill it also publishes and indexes the underlying tool so `call_tool` can run it immediately. |
 
-5. **Keep features/ separate** - Different purpose and lifecycle.
+Both fail soft: an empty or disabled library returns a readable message, never
+an exception.
 
-## 6. Definition of Done
+`get_skill_manual(skill_id)` also falls back to the library, so any id
+`search_skills` can return is readable by the existing manual tool. This keeps
+one id space instead of two, without auto-publishing thousands of manuals.
 
-- [ ] `core/skills_library.py` implemented with full API
-- [ ] True JIT loading verified (content loaded only on demand)
-- [ ] Executable skills discoverable via `search_tools` and callable via `call_tool`
-- [ ] Instructional skills retrievable via `get_skill_manual(skill_id)`
-- [ ] Supports 10k+ skills with minimal memory overhead
-- [ ] No breaking changes to existing APIs
-- [ ] Tests passing
-- [ ] Example skills and documentation
+> **Delta from the original plan.** The plan proposed discovering skills through
+> the existing `search_tools` and retrieving instructions through
+> `get_skill_manual` only. That works for *executable* skills (they are tools)
+> but not for *instructional* ones, which have no tool to be discovered by — the
+> exact case the library exists to serve. Hence the two dedicated meta-tools.
+> Skills are therefore a peer discovery surface, not a rider on the tool one,
+> which is also what "its own thing, with its own on-demand access" asked for.
+
+---
+
+## 7. Executable skills
+
+- `SkillsLibrary.publish(registry)` registers each **available executable** skill
+  as an external tool via `DynamicToolRegistry.register_external_tool()`.
+  Instructional skills are never published.
+- The default tool name is `skill_<sanitized id>`; an explicit `tool_name` in the
+  definition overrides it. Registration cannot shadow a native feature: the
+  registry lets filesystem/native skills win on collision.
+- Published tools get `source="skill_library"`, so `tool_bridge.sync_registry()`
+  indexes them like any other tool — discoverable via `search_tools`, runnable via
+  `call_tool`, and subject to the same budget.
+- `publish()` is idempotent and un-registers skills that were disabled or
+  removed. It skips registries that cannot host external tools.
+- `execute(**kwargs)` may be synchronous or async; the library awaits coroutines.
+- A skill marked `executable: true` with no `executor.py` is downgraded to
+  instructional (with a warning) rather than breaking anything.
+- `load_skill` on an executable skill calls `lib.publish()` and upserts a single
+  `ToolEntry`, so a skill added *after* the session connected is still runnable
+  that turn — without a full registry re-enumeration.
+
+---
+
+## 8. Management surface
+
+On the library: `refresh(force)`, `entries()`, `get()`, `search()`,
+`enable()` / `disable()` / `set_disabled()`, `publish()`, `stats()`,
+`manifest()`.
+
+On the bridge (for the Settings UI): `sync_skills()`, `skills_catalog()`,
+`disabled_skills()` / `set_disabled_skills()`, `set_skills_enabled()`, and a
+`skills` block inside `snapshot()`.
+
+**Settings card.** Settings → System & Connectivity → *Skills Library* lists every
+skill grouped by category with an on/off checkbox and a master switch, next to
+the tool list. Checking a skill off adds it to `disabled_skills` and re-syncs
+live (no restart); an executable skill that is switched off is also un-published,
+so its tool disappears too. **Refresh** forces a re-scan of the library folders,
+which is how a newly dropped-in skill appears. The master switch is the same
+"off" path the meta-tools report.
+
+Settings read by `tool_bridge.configure()` from `app_settings.json`:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `skills_library_enabled` | `true` | Master switch. Off = both meta-tools report "switched off". |
+| `disabled_skills` | `[]` | Skill ids that are hidden and un-published. |
+
+A skill can also switch itself off in its definition with `active: false`.
+
+---
+
+## 9. Scaling to 10,000+ skills
+
+| Cost | Scale behaviour |
+|---|---|
+| Resident memory | One small `SkillMeta` per skill — no bodies retained. |
+| Startup | One small file read per definition, once, on first access. |
+| Search | Weighted token overlap over a prebuilt inverted index — no dense matrices. |
+| Per-turn context | Two extra declarations, constant regardless of library size. |
+| Execution | `executor.py` imported only when that skill is actually run. |
+
+`test_scale_thousands_of_skills_stay_searchable` builds hundreds of skills and
+asserts the catalogue stays body-free while search still returns hits.
+
+---
+
+## 10. Tests
+
+- **`tests/test_skills_library.py`** (24 tests): YAML / Markdown / frontmatter /
+  JSON discovery, README and index exclusion, malformed-file tolerance,
+  metadata-only catalogue, lazy executor import, checksum invalidation on edit,
+  user-over-builtin override, `active: false`, disable/enable, ranking,
+  exact-id boost, executable-only filter, sync/async execution, publish
+  idempotence, `sanitize_identifier`, and a 400-skill scale check.
+- **`tests/test_skills_bridge.py`** (19 tests): both meta-tools are advertised and
+  recognised, an in-budget payload, `search_skills` (match / missing intent / no
+  match / executable reporting / executable-only), `load_skill` (instructions /
+  unknown-id suggestion / disabled / missing id), the `get_skill_manual`
+  fallback, executable publish + `call_tool`, `sync_skills` publishing only
+  executables, and the management surface (`skills_catalog`, disabled setter,
+  master switch, snapshot).
+- The full pre-existing suite (213 tests) and `accept_391.py` still pass.
+
+---
+
+## 11. Definition of done
+
+- [x] `core/skills_library.py` implemented with the full API.
+- [x] True JIT verified — bodies and executor modules load only on demand.
+- [x] Executable skills discoverable via `search_skills`/`search_tools` and
+      callable via `call_tool`.
+- [x] Instructional skills retrievable via `load_skill` and `get_skill_manual`.
+- [x] Thousands of skills supported with a metadata-only resident catalogue.
+- [x] No breaking changes — the full pre-existing suite still passes.
+- [x] Built-in example skills, README, and this design record.

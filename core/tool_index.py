@@ -28,8 +28,9 @@ So "retrieve the right k tools per turn and re-send them" is not an option on
 this transport. The engine therefore has to make the *advertised* surface small
 and constant, and give the model a way to reach the rest on demand:
 
-* **Fixed-size advertised surface.** A small set of *pinned* tools plus three
-  meta-tools is sent to Gemini. Token cost and the 128 ceiling are both
+* **Fixed-size advertised surface.** A small set of *pinned* tools plus the
+  discovery meta-tools (``META_TOOLS`` — five today, see :mod:`core.tool_bridge`)
+  is sent to Gemini. Token cost and the 128 ceiling are both
   constant regardless of how many tools are installed.
 * **The rest of the catalog lives behind discovery.** ``search_tools`` (rank
   the catalog against an intent) and ``call_tool`` (execute by name) let the
@@ -98,12 +99,22 @@ DEFAULT_PINNED_TOOLS = (
     "recall_memory",
 )
 
-#: The three discovery primitives. Always advertised whenever the index is
-#: enabled — without them the unadvertised catalog is unreachable.
+#: The discovery primitives. Always advertised whenever the index is enabled —
+#: without them the unadvertised catalog is unreachable. ``search_skills`` and
+#: ``load_skill`` are the same idea for :mod:`core.skills_library`: they reach
+#: the skill catalogue, which is a peer of (not part of) the tool catalogue.
 META_SEARCH_TOOL = "search_tools"
 META_CALL_TOOL = "call_tool"
 META_MANUAL_TOOL = "get_skill_manual"
-META_TOOLS = (META_SEARCH_TOOL, META_CALL_TOOL, META_MANUAL_TOOL)
+META_SEARCH_SKILLS_TOOL = "search_skills"
+META_LOAD_SKILL_TOOL = "load_skill"
+META_TOOLS = (
+    META_SEARCH_TOOL,
+    META_CALL_TOOL,
+    META_MANUAL_TOOL,
+    META_SEARCH_SKILLS_TOOL,
+    META_LOAD_SKILL_TOOL,
+)
 
 #: Reciprocal Rank Fusion constant. 60 is the value from the original RRF paper.
 RRF_K = 60
@@ -1546,10 +1557,66 @@ GET_MANUAL_DECLARATION: Dict[str, Any] = {
     },
 }
 
+SEARCH_SKILLS_DECLARATION: Dict[str, Any] = {
+    "name": META_SEARCH_SKILLS_TOOL,
+    "description": (
+        "Search the Skills Library — a catalogue of thousands of task playbooks that "
+        "are NOT loaded into context by default. Returns matching skill ids, what each "
+        "does, and whether it is executable. "
+        "Call this when the task has a known method worth following (research, review, "
+        "analysis, a house style) or when you are unsure which approach fits. Then call "
+        "load_skill with the chosen skill_id to actually receive the instructions."
+    ),
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "intent": {
+                "type": "STRING",
+                "description": (
+                    "What the task needs, in plain words "
+                    "(e.g. 'verify a claim against primary sources', 'review code for bugs')."
+                ),
+            },
+            "limit": {
+                "type": "INTEGER",
+                "description": "How many skills to return. Default 6.",
+            },
+            "executable_only": {
+                "type": "BOOLEAN",
+                "description": "Set true to return only skills that can be run as tools.",
+            },
+        },
+        "required": ["intent"],
+    },
+}
+
+LOAD_SKILL_DECLARATION: Dict[str, Any] = {
+    "name": META_LOAD_SKILL_TOOL,
+    "description": (
+        "Load one skill from the Skills Library into context. Returns its instructions "
+        "(and longer manual, if any). For an executable skill it also makes the "
+        "underlying tool reachable, so you can then run it with call_tool. "
+        "Use a skill_id returned by search_skills. Load only the skills you actually "
+        "need — this is the on-demand path, nothing is loaded automatically."
+    ),
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "skill_id": {
+                "type": "STRING",
+                "description": "Exact skill id from search_skills, e.g. 'web-research'.",
+            },
+        },
+        "required": ["skill_id"],
+    },
+}
+
 META_DECLARATIONS: Tuple[Dict[str, Any], ...] = (
     SEARCH_TOOLS_DECLARATION,
     CALL_TOOL_DECLARATION,
     GET_MANUAL_DECLARATION,
+    SEARCH_SKILLS_DECLARATION,
+    LOAD_SKILL_DECLARATION,
 )
 
 
