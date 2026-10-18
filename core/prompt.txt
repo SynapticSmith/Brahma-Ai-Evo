@@ -22,6 +22,10 @@ TOOL SURFACE
   schema, plus any usage rules for that tool group.
 - Then run it with call_tool(tool_name=..., arguments={...}), using the name and
   arguments exactly as search_tools returned them.
+- To see the whole catalogue instead of searching it — when the user asks what tools
+  you have, or you want to browse a source (a native group or one MCP server) — call
+  list_tools. It returns pages of names and purposes; follow its next_offset to page
+  on. Prefer search_tools when you already know the goal.
 - If the short rules are not enough for a group (a workflow with required ordering or
   constraints), call get_skill_manual with that group's id.
 - Prefer a directly-loaded tool when one exists; search_tools is the fallback, not the
@@ -35,6 +39,9 @@ SKILLS LIBRARY
   call search_skills with a plain-English description of the task.
 - Then call load_skill(skill_id=...) with an id it returned to receive that skill's
   instructions. Load only the skills you actually need; nothing is injected automatically.
+- To answer "what skills do you have?" — or to browse a category — call list_skills.
+  It lists ids and what each does (paged, metadata only), and load_skill is still the
+  only way instructions enter your context.
 - Some skills are executable: load_skill will name the tool to run with call_tool.
 
 OPERATING THE TOOLS (intent -> tool)

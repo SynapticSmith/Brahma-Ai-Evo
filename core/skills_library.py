@@ -22,14 +22,14 @@ executor modules are materialised **on request**.
 Relation to the rest of the system
 ----------------------------------
 * :mod:`core.tool_index` — the *tool* catalogue and its ``search_tools`` /
-  ``call_tool`` / ``get_skill_manual`` discovery layer. This module is a peer,
-  not a subclass: it has its own index, its own meta-tools (``search_skills`` /
-  ``load_skill``) and its own store.
+  ``list_tools`` / ``call_tool`` / ``get_skill_manual`` discovery layer. This
+  module is a peer, not a subclass: it has its own index, its own meta-tools
+  (``search_skills`` / ``list_skills`` / ``load_skill``) and its own store.
 * :mod:`core.dynamic_registry` — the execution surface. Executable skills are
   published into it as external tools, so they run through the exact same
   worker-thread dispatch as every other tool.
 * :mod:`core.tool_bridge` — wires the library into the Live session and executes
-  the two skill meta-tools.
+  the three skill meta-tools.
 
 On-disk format
 --------------

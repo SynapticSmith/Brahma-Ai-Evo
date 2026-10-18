@@ -414,7 +414,10 @@ def test_cold_start_is_deterministic(index):
 
 
 def test_cold_start_prefers_native_over_mcp(index):
-    names = [d["name"] for d in index.resolve("", budget=8)["declarations"]]
+    # Room for exactly one retrieved tool: the pins and the always-advertised
+    # meta-tools take up the rest of the budget.
+    budget = len(ti.DEFAULT_PINNED_TOOLS) + len(ti.META_TOOLS) + 1
+    names = [d["name"] for d in index.resolve("", budget=budget)["declarations"]]
     assert "web_search" in names
 
 

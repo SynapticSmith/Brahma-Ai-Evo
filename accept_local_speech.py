@@ -59,7 +59,9 @@ def test_local_tool_surface() -> None:
 
     check("resolve_tools returns a non-empty surface", bool(picked), f"{len(picked)} tools")
     check("discovery meta-tools are reachable locally",
-          {"search_tools", "call_tool", "get_skill_manual"} <= names, f"{sorted(names)[:5]}")
+          {"search_tools", "list_tools", "call_tool", "get_skill_manual",
+           "search_skills", "list_skills", "load_skill"} <= names,
+          f"{sorted(names)[:5]}")
     check("surface is smaller than the static list", len(picked) < len(static),
           f"{len(picked)} vs {len(static)} static")
 

@@ -29,13 +29,16 @@ this transport. The engine therefore has to make the *advertised* surface small
 and constant, and give the model a way to reach the rest on demand:
 
 * **Fixed-size advertised surface.** A small set of *pinned* tools plus the
-  discovery meta-tools (``META_TOOLS`` — five today, see :mod:`core.tool_bridge`)
+  discovery meta-tools (``META_TOOLS`` — seven today, see :mod:`core.tool_bridge`)
   is sent to Gemini. Token cost and the 128 ceiling are both
   constant regardless of how many tools are installed.
 * **The rest of the catalog lives behind discovery.** ``search_tools`` (rank
   the catalog against an intent) and ``call_tool`` (execute by name) let the
-  model reach any of the thousands of remaining tools. ``get_skill_manual``
-  pulls a server's usage guide only when it is actually needed.
+  model reach any of the thousands of remaining tools. ``list_tools`` is the
+  browse-shaped twin of ``search_tools`` — it enumerates the whole catalogue
+  in pages when the user asks "what can you do?" rather than naming a task.
+  ``get_skill_manual`` pulls a server's usage guide only when it is actually
+  needed.
 
 Retrieval is deliberately **self-contained**: no external vector database, no
 local LLM router (this machine is CPU-only, where even a 3B model takes
@@ -100,21 +103,34 @@ DEFAULT_PINNED_TOOLS = (
 )
 
 #: The discovery primitives. Always advertised whenever the index is enabled —
-#: without them the unadvertised catalog is unreachable. ``search_skills`` and
-#: ``load_skill`` are the same idea for :mod:`core.skills_library`: they reach
-#: the skill catalogue, which is a peer of (not part of) the tool catalogue.
+#: without them the unadvertised catalog is unreachable. ``search_skills`` /
+#: ``load_skill`` and ``list_skills`` are the same idea for
+#: :mod:`core.skills_library`: they reach the skill catalogue, which is a peer
+#: of (not part of) the tool catalogue. Each library has a search-shaped tool
+#: (rank an intent) and a list-shaped one (enumerate on request).
 META_SEARCH_TOOL = "search_tools"
 META_CALL_TOOL = "call_tool"
 META_MANUAL_TOOL = "get_skill_manual"
+META_LIST_TOOLS_TOOL = "list_tools"
 META_SEARCH_SKILLS_TOOL = "search_skills"
 META_LOAD_SKILL_TOOL = "load_skill"
+META_LIST_SKILLS_TOOL = "list_skills"
 META_TOOLS = (
     META_SEARCH_TOOL,
     META_CALL_TOOL,
     META_MANUAL_TOOL,
+    META_LIST_TOOLS_TOOL,
     META_SEARCH_SKILLS_TOOL,
     META_LOAD_SKILL_TOOL,
+    META_LIST_SKILLS_TOOL,
 )
+
+#: Paging shared by the two enumeration meta-tools (``list_tools`` /
+#: ``list_skills``). Declared here, next to the declarations, so the numbers
+#: written into the schemas the model reads cannot drift from the numbers the
+#: handlers actually enforce.
+LIST_PAGE_DEFAULT = 50
+LIST_PAGE_MAX = 100
 
 #: Reciprocal Rank Fusion constant. 60 is the value from the original RRF paper.
 RRF_K = 60
@@ -1504,9 +1520,9 @@ SEARCH_TOOLS_DECLARATION: Dict[str, Any] = {
                 "type": "INTEGER",
                 "description": (
                     "How many tools to return. Default 6. The maximum tracks the "
-                    "session's tool budget minus 2 (Settings → Tool & Skill Index); "
-                    "tool_bridge rewrites this description with the exact number at "
-                    "connect time."
+                    "session's tool budget minus the always-advertised discovery "
+                    "meta-tools (Settings → Tool & Skill Index); tool_bridge rewrites "
+                    "this description with the exact number at connect time."
                 ),
             },
         },
@@ -1534,6 +1550,44 @@ CALL_TOOL_DECLARATION: Dict[str, Any] = {
             },
         },
         "required": ["tool_name", "arguments"],
+    },
+}
+
+LIST_TOOLS_DECLARATION: Dict[str, Any] = {
+    "name": META_LIST_TOOLS_TOOL,
+    "description": (
+        "Enumerate the tool catalogue when you want to browse instead of search — "
+        "typically when the user asks what tools or capabilities you have, or when "
+        "you want to see what a source (a native group or one MCP server) offers "
+        "before narrowing down. Returns one line per tool (name, group, purpose, "
+        "arguments) in pages of "
+        f"{LIST_PAGE_DEFAULT}, at most {LIST_PAGE_MAX} per call, with a 'next_offset'. "
+        "For a known goal prefer search_tools, which ranks instead of listing; "
+        "run a result with call_tool."
+    ),
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "offset": {
+                "type": "INTEGER",
+                "description": "0-based index to start the page at. Default 0; use the 'next_offset' from the previous call.",
+            },
+            "limit": {
+                "type": "INTEGER",
+                "description": (
+                    f"How many tools to return. Default {LIST_PAGE_DEFAULT}, "
+                    f"maximum {LIST_PAGE_MAX}."
+                ),
+            },
+            "source": {
+                "type": "STRING",
+                "description": (
+                    "Optional filter: exact source or group id — 'native', 'mcp:Calyx', "
+                    "'skill_library', or a tool group's skill_id."
+                ),
+            },
+        },
+        "required": [],
     },
 }
 
@@ -1611,12 +1665,51 @@ LOAD_SKILL_DECLARATION: Dict[str, Any] = {
     },
 }
 
+LIST_SKILLS_DECLARATION: Dict[str, Any] = {
+    "name": META_LIST_SKILLS_TOOL,
+    "description": (
+        "Enumerate the Skills Library when you want to browse it instead of search it "
+        "— typically when the user asks what skills you have, or what playbooks exist "
+        "in a category. Returns one line per skill (id, what it does, type, category) "
+        f"in pages of {LIST_PAGE_DEFAULT}, at most {LIST_PAGE_MAX} per call, with a "
+        "'next_offset'. It returns metadata only; call load_skill to actually receive "
+        "a skill's instructions. For a known task prefer search_skills, which ranks."
+    ),
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "offset": {
+                "type": "INTEGER",
+                "description": "0-based index to start the page at. Default 0; use the 'next_offset' from the previous call.",
+            },
+            "limit": {
+                "type": "INTEGER",
+                "description": (
+                    f"How many skills to return. Default {LIST_PAGE_DEFAULT}, "
+                    f"maximum {LIST_PAGE_MAX}."
+                ),
+            },
+            "category": {
+                "type": "STRING",
+                "description": "Optional filter: only skills in this category, e.g. 'research'.",
+            },
+            "executable_only": {
+                "type": "BOOLEAN",
+                "description": "Set true to list only skills that can be run as tools.",
+            },
+        },
+        "required": [],
+    },
+}
+
 META_DECLARATIONS: Tuple[Dict[str, Any], ...] = (
     SEARCH_TOOLS_DECLARATION,
     CALL_TOOL_DECLARATION,
+    LIST_TOOLS_DECLARATION,
     GET_MANUAL_DECLARATION,
     SEARCH_SKILLS_DECLARATION,
     LOAD_SKILL_DECLARATION,
+    LIST_SKILLS_DECLARATION,
 )
 
 

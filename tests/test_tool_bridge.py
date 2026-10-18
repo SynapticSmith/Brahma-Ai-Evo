@@ -1,7 +1,7 @@
 """Integration tests for the tool bridge and its wiring into main.py.
 
 These exercise the real code path that broke the Live handshake: catalog
-population, session-payload assembly, and the five discovery meta-tools. They
+population, session-payload assembly, and the seven discovery meta-tools. They
 import ``main`` lazily and skip the GUI when it cannot load headless, so they
 stay runnable in CI.
 """
@@ -108,7 +108,7 @@ def test_budget_is_honoured_and_clamped(bridge):
 
 
 def test_search_limit_tracks_the_session_budget(bridge):
-    """search_tools widens with the advertised budget: 64 → 59, 128 → 123.
+    """search_tools widens with the advertised budget: 64 → 57, 128 → 121.
 
     The subtraction is ``len(META_TOOLS)`` — the always-advertised
     meta-tools — so adding another meta-tool cannot silently push the
@@ -118,10 +118,10 @@ def test_search_limit_tracks_the_session_budget(bridge):
     assert tool_bridge.search_limit_cap() == 24 - len(ti.META_TOOLS)
 
     tool_bridge.configure(settings={"tool_index_budget": 64})
-    assert tool_bridge.search_limit_cap() == 59
+    assert tool_bridge.search_limit_cap() == 57
 
     tool_bridge.configure(settings={"tool_index_budget": 128})
-    assert tool_bridge.search_limit_cap() == 123
+    assert tool_bridge.search_limit_cap() == 121
 
     # A silly value is clamped to the provider ceiling, never above it.
     tool_bridge.configure(settings={"tool_index_budget": 100000})
@@ -141,7 +141,7 @@ def test_search_limit_is_clamped_by_the_cap_at_execution_time(bridge):
     out = asyncio.run(tool_bridge.execute_meta(
         "search_tools", {"intent": "calyx vault operation", "limit": 9999}))
     found = int(re.search(r"Found (\d+) tool", out).group(1))
-    assert found <= tool_bridge.search_limit_cap() == 11
+    assert found <= tool_bridge.search_limit_cap() == 9
 
 
 def test_advertised_search_declaration_shows_the_live_maximum(bridge):
@@ -152,17 +152,17 @@ def test_advertised_search_declaration_shows_the_live_maximum(bridge):
     assert {d["name"] for d in META_DECLARATIONS} <= {d["name"] for d in decls}
     search = next(d for d in decls if d["name"] == "search_tools")
     desc = search["parameters"]["properties"]["limit"]["description"]
-    assert "maximum 123" in desc
+    assert "maximum 121" in desc
 
     # The shared module-level declaration must not be mutated by the rewrite.
     static = ti.SEARCH_TOOLS_DECLARATION["parameters"]["properties"]["limit"]["description"]
-    assert "maximum 123" not in static
+    assert "maximum 121" not in static
 
     # A different budget re-advertises its own number.
     tool_bridge.configure(settings={"tool_index_budget": 64})
     decls = tool_bridge.build_session_payload("")["declarations"]
     search = next(d for d in decls if d["name"] == "search_tools")
-    assert "maximum 59" in search["parameters"]["properties"]["limit"]["description"]
+    assert "maximum 57" in search["parameters"]["properties"]["limit"]["description"]
 
     # search_skills states its library-side maximum (SKILLS_SEARCH_MAX).
     skills = next(d for d in decls if d["name"] == "search_skills")
@@ -204,7 +204,52 @@ def test_is_meta_tool(bridge):
     assert tool_bridge.is_meta_tool("search_tools")
     assert tool_bridge.is_meta_tool("call_tool")
     assert tool_bridge.is_meta_tool("get_skill_manual")
+    assert tool_bridge.is_meta_tool("list_tools")
+    assert tool_bridge.is_meta_tool("list_skills")
     assert not tool_bridge.is_meta_tool("web_search")
+
+
+def test_list_tools_pages_through_the_whole_catalogue(bridge):
+    """The browse path: every tool reachable without an intent, a page at a time."""
+    idx, _ = bridge
+    for i in range(30):
+        idx.upsert(ToolEntry(
+            name=f"calyx_op_{i:02d}",
+            description=f"Calyx operation number {i} on the vault.",
+            parameters={"type": "OBJECT", "properties": {"query": {"type": "STRING"}}},
+            source="mcp:Calyx",
+        ))
+
+    first = asyncio.run(tool_bridge.execute_meta("list_tools", {"limit": 10}))
+    assert "1. calyx_op_00" in first
+    assert "10 of 30 tool(s)" in first
+    assert "list_tools(offset=10)" in first  # tells the model how to page on
+
+    last = asyncio.run(tool_bridge.execute_meta("list_tools", {"offset": 20, "limit": 10}))
+    assert "positions 21-30" in last
+    assert "calyx_op_00" not in last  # paging actually moves the window
+    assert "Next page" not in last  # and stops at the end instead of looping
+
+
+def test_list_tools_can_be_filtered_by_source_and_survives_a_bad_page(bridge):
+    idx, _ = bridge
+    idx.upsert(ToolEntry(name="web_search", description="Search the web.", source="native"))
+    idx.upsert(ToolEntry(name="mcp_Synapse_click", description="Click a control.", source="mcp:Synapse"))
+
+    scoped = asyncio.run(tool_bridge.execute_meta("list_tools", {"source": "mcp:Synapse"}))
+    assert "mcp_Synapse_click" in scoped
+    assert "web_search" not in scoped
+
+    unknown = asyncio.run(tool_bridge.execute_meta("list_tools", {"source": "mcp:Nobody"}))
+    assert "No tools with source" in unknown
+    assert "mcp:Synapse" in unknown  # names a real alternative
+
+    past_end = asyncio.run(tool_bridge.execute_meta("list_tools", {"offset": 999}))
+    assert "past the end" in past_end
+
+    nonsense = asyncio.run(tool_bridge.execute_meta(
+        "list_tools", {"offset": "soon", "limit": "lots"}))
+    assert nonsense.startswith("Listing")  # bad paging args degrade to page 1
 
 
 def test_search_tools_returns_schemas_the_model_can_use(bridge):
@@ -285,6 +330,10 @@ def test_meta_tools_never_raise(bridge):
         ("get_skill_manual", {"skill_id": ["a", "b"]}),
         ("search_tools", {"intent": "x", "limit": "lots"}),
         ("search_tools", {"intent": "x", "limit": 9999}),
+        ("list_tools", {"offset": ["a"], "limit": {}}),
+        ("list_tools", {"source": None}),
+        ("list_skills", {"offset": -5, "category": ""}),
+        ("list_skills", {"executable_only": "sometimes"}),
     ):
         out = asyncio.run(tool_bridge.execute_meta(name, args))
         assert isinstance(out, str) and out

@@ -8,9 +8,9 @@ Responsibilities
   and everything the custom MCP bridge registers.
 * Decide what the model actually sees, and assemble the matching
   ``[ACTIVE SKILL CONTEXT]`` block.
-* Execute the discovery meta-tools (``search_tools``, ``call_tool``,
-  ``get_skill_manual``, and — for :mod:`core.skills_library` — ``search_skills``
-  and ``load_skill``).
+* Execute the discovery meta-tools (``search_tools``, ``list_tools``,
+  ``call_tool``, ``get_skill_manual``, and — for :mod:`core.skills_library` —
+  ``search_skills``, ``list_skills`` and ``load_skill``).
 
 Why the discovery layer exists
 ------------------------------
@@ -19,33 +19,40 @@ documented as first-and-only-first message; a second ``setup`` frame mid-stream
 closes the socket with ``1007 Request contains an invalid argument`` — the exact
 error that broke the 130-tool handshake. So the advertised surface has to be
 small and constant, and everything else has to be reachable *through* a tool
-rather than *as* a tool. That is what these five do.
+rather than *as* a tool. That is what these seven do.
 
 The advertised surface is therefore:
 
-    pinned core tools  +  search_tools  +  call_tool  +  get_skill_manual
-                     +  search_skills +  load_skill
-                     +  top-k retrieved tools
+    pinned core tools  +  search_tools  +  list_tools  +  call_tool
+                     +  get_skill_manual +  search_skills  +  list_skills
+                     +  load_skill +  top-k retrieved tools
 
 …whose size is bounded by ``tool_index_budget`` regardless of whether 50 or
 50,000 tools are installed.
 
+Each catalogue is reachable two ways: *search-shaped* (``search_tools`` /
+``search_skills`` rank an intent) and *list-shaped* (``list_tools`` /
+``list_skills`` enumerate in pages, for "what do you have?" questions where
+there is no intent to rank against). The list pair is optional for the model —
+it never has to call it — but it costs a fixed slot in the budget, so
+``search_limit_cap`` and ``resolve`` both subtract ``len(META_TOOLS)``.
+
 The Skills Library
 ------------------
-``search_skills`` / ``load_skill`` reach :mod:`core.skills_library`, a *peer* of
-the tool catalogue rather than a part of it. The library holds task playbooks —
-mostly instructional, so most of them never become tools. Only the library's
-**executable** skills are published into ``DynamicToolRegistry`` (and therefore
-indexed here); instructional skills are returned solely by ``load_skill``, on
-request, so a library of tens of thousands of skills costs the context almost
-nothing.
+``search_skills`` / ``list_skills`` / ``load_skill`` reach
+:mod:`core.skills_library`, a *peer* of the tool catalogue rather than a part of
+it. The library holds task playbooks — mostly instructional, so most of them
+never become tools. Only the library's **executable** skills are published into
+``DynamicToolRegistry`` (and therefore indexed here); instructional skills are
+returned solely by ``load_skill``, on request, so a library of tens of thousands
+of skills costs the context almost nothing.
 """
 
 from __future__ import annotations
 
 import copy
 import logging
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from core import tool_index as ti
 from core.tool_index import (
@@ -143,12 +150,12 @@ def search_limit_cap() -> int:
     """Largest ``limit`` the ``search_tools`` meta-tool will honour.
 
     Tracks the session budget minus the always-advertised meta-tools
-    (``len(ti.META_TOOLS)`` — currently 5: search_tools, call_tool,
-    get_skill_manual, search_skills, load_skill), so widening "Tools sent per
-    session" in Settings widens discovery too: a budget of 64 allows 59
-    results, 128 allows 123. Deriving the subtraction from ``META_TOOLS``
-    keeps the formula correct if another meta-tool is ever added. The floor
-    of 6 keeps the default reachable even at the smallest budget.
+    (``len(ti.META_TOOLS)`` — currently 7: search_tools, list_tools, call_tool,
+    get_skill_manual, search_skills, list_skills, load_skill), so widening
+    "Tools sent per session" in Settings widens discovery too: a budget of 64
+    allows 57 results, 128 allows 121. Deriving the subtraction from
+    ``META_TOOLS`` keeps the formula correct if another meta-tool is ever added.
+    The floor of 6 keeps the default reachable even at the smallest budget.
     """
     return max(6, budget() - len(ti.META_TOOLS))
 
@@ -463,12 +470,16 @@ async def execute_meta(name: str, args: Dict[str, Any]) -> str:
     try:
         if name == ti.META_SEARCH_TOOL:
             return _handle_search(args)
+        if name == ti.META_LIST_TOOLS_TOOL:
+            return _handle_list_tools(args)
         if name == ti.META_MANUAL_TOOL:
             return _handle_manual(args)
         if name == ti.META_CALL_TOOL:
             return await _handle_call(args)
         if name == ti.META_SEARCH_SKILLS_TOOL:
             return _handle_search_skills(args)
+        if name == ti.META_LIST_SKILLS_TOOL:
+            return _handle_list_skills(args)
         if name == ti.META_LOAD_SKILL_TOOL:
             return _handle_load_skill(args)
     except Exception as exc:
@@ -521,6 +532,86 @@ def _handle_search(args: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _page_window(args: Dict[str, Any], total: int) -> Tuple[int, int]:
+    """``(offset, limit)`` for the enumeration meta-tools, clamped.
+
+    The window is bounded by :data:`tool_index.LIST_PAGE_MAX` so a single
+    ``list_*`` call can never dump the whole catalogue into the model's
+    context — enumerating is deliberately a paged operation.
+    """
+    try:
+        offset = int(args.get("offset") or 0)
+    except (TypeError, ValueError):
+        offset = 0
+    offset = max(0, min(offset, total))
+    try:
+        limit = int(args.get("limit") or ti.LIST_PAGE_DEFAULT)
+    except (TypeError, ValueError):
+        limit = ti.LIST_PAGE_DEFAULT
+    return offset, max(1, min(limit, ti.LIST_PAGE_MAX))
+
+
+def _handle_list_tools(args: Dict[str, Any]) -> str:
+    """Enumerates the tool catalogue in pages — the browse twin of search_tools.
+
+    Where ``search_tools`` answers "which tool for this goal?", this answers
+    "what tools do you have?", including the ones no intent would have matched.
+    """
+    index = get_index()
+    all_entries = index.entries()
+
+    source = str(args.get("source") or args.get("group") or "").strip().lower()
+    entries = all_entries
+    if source:
+        entries = [
+            e for e in all_entries
+            if source in {e.source.lower(), (e.skill_id or "").lower()}
+        ]
+        if not entries:
+            known = sorted(
+                {e.source for e in all_entries}
+                | {e.skill_id for e in all_entries if e.skill_id}
+            )
+            return (
+                f"No tools with source or group {source!r}. "
+                f"Known sources: {', '.join(known) or '(none)'}. "
+                "Call list_tools() without 'source' to list everything."
+            )
+
+    entries = sorted(entries, key=lambda e: e.name.lower())
+    offset, limit = _page_window(args, len(entries))
+    page = entries[offset:offset + limit]
+    if not page:
+        return (
+            f"offset {offset} is past the end: the catalogue holds "
+            f"{len(entries)} tool(s). Call list_tools(offset=0) to start over."
+        )
+
+    scope = f" matching source/group {source!r}" if source else ""
+    lines = [f"Listing {len(page)} of {len(entries)} tool(s){scope} "
+             f"— positions {offset + 1}-{offset + len(page)}:"]
+    for position, entry in enumerate(page, start=offset + 1):
+        schema = entry.parameters or {}
+        props = schema.get("properties") if isinstance(schema, dict) else None
+        argspec = ", ".join(sorted(props.keys())) if isinstance(props, dict) and props else "none"
+        lines.append(
+            f"{position}. {entry.name} [{entry.skill_id or entry.source}] — "
+            f"{entry.short_description(160)} (args: {argspec})"
+        )
+
+    next_offset = offset + len(page)
+    if next_offset < len(entries):
+        lines.append(
+            f"\n{len(entries) - next_offset} more. Next page: "
+            f"list_tools(offset={next_offset})."
+        )
+    lines.append(
+        "Run one with call_tool(tool_name=<exact name>, arguments={...}), or use "
+        "search_tools(intent=...) to rank the catalogue against a specific goal."
+    )
+    return "\n".join(lines)
+
+
 def _handle_search_skills(args: Dict[str, Any]) -> str:
     """Searches the Skills Library. Metadata only — nothing is loaded here."""
     intent = str(args.get("intent") or args.get("query") or "").strip()
@@ -566,6 +657,84 @@ def _handle_search_skills(args: Dict[str, Any]) -> str:
             f"\n   category: {meta.category}"
         )
     lines.append("\nTo use one, call: load_skill(skill_id=<exact id>)")
+    return "\n".join(lines)
+
+
+def _handle_list_skills(args: Dict[str, Any]) -> str:
+    """Enumerates the Skills Library in pages — the browse twin of search_skills.
+
+    Metadata only: nothing is loaded here, so listing a library of thousands of
+    skills costs one line each and leaves ``load_skill`` as the sole path that
+    pulls instructions into context.
+    """
+    try:
+        from core import skills_library
+
+        lib = skills_library.get_library()
+    except Exception as exc:
+        return f"Error: the Skills Library is unavailable: {exc}"
+
+    if not lib.enabled:
+        return "The Skills Library is switched off in Settings, so no skills are available."
+
+    metas = lib.entries(include_disabled=False)
+
+    filters: List[str] = []
+    category = str(args.get("category") or "").strip()
+    if category:
+        filters.append(f"category {category!r}")
+        lowered = category.lower()
+        metas = [m for m in metas if m.category.lower() == lowered]
+    if _truthy(args.get("executable_only"), False):
+        filters.append("executable only")
+        metas = [m for m in metas if m.executable]
+
+    if not metas:
+        if filters:
+            known = sorted({m.category for m in lib.entries(include_disabled=False)})
+            return (
+                f"No skills match ({', '.join(filters)}). "
+                f"Categories in the library: {', '.join(known) or '(none)'}. "
+                "Call list_skills() with no filters to list everything."
+            )
+        return (
+            "The Skills Library is empty — no skills installed. "
+            "Add skill folders under skills_library/ in the app folder."
+        )
+
+    metas = sorted(metas, key=lambda m: m.skill_id.lower())
+    offset, limit = _page_window(args, len(metas))
+    page = metas[offset:offset + limit]
+    if not page:
+        return (
+            f"offset {offset} is past the end: {len(metas)} skill(s) match. "
+            "Call list_skills(offset=0) to start over."
+        )
+
+    scope = f" ({', '.join(filters)})" if filters else ""
+    lines = [f"Listing {len(page)} of {len(metas)} skill(s){scope} "
+             f"— positions {offset + 1}-{offset + len(page)}:"]
+    for position, meta in enumerate(page, start=offset + 1):
+        kind = (
+            f"executable, run as tool '{meta.resolved_tool_name()}'"
+            if meta.executable
+            else "instructional"
+        )
+        lines.append(
+            f"{position}. {meta.skill_id} [{meta.category}] — "
+            f"{meta.description or meta.name} ({kind})"
+        )
+
+    next_offset = offset + len(page)
+    if next_offset < len(metas):
+        lines.append(
+            f"\n{len(metas) - next_offset} more. Next page: "
+            f"list_skills(offset={next_offset})."
+        )
+    lines.append(
+        "Metadata only — call load_skill(skill_id=<exact id>) for the instructions, "
+        "or search_skills(intent=...) to rank the library against a task."
+    )
     return "\n".join(lines)
 
 

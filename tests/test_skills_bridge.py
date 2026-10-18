@@ -1,6 +1,6 @@
 """Integration tests for the Skills Library wiring into :mod:`core.tool_bridge`.
 
-These pin down the contract the library was built for: two always-advertised
+These pin down the contract the library was built for: three always-advertised
 meta-tools reach a catalogue of any size, nothing is loaded until it is asked
 for, and an executable skill becomes an ordinary callable tool once loaded.
 """
@@ -195,6 +195,64 @@ def test_search_skills_executable_only(env):
     out = _run("search_skills", {"intent": "research words and sources", "executable_only": True})
     assert "word-count" in out
     assert "web-research" not in out
+
+
+# --------------------------------------------------------------------------- #
+# list_skills
+# --------------------------------------------------------------------------- #
+
+
+def test_list_skills_is_advertised_and_reachable(env):
+    declarations = tool_bridge.build_session_payload("research something")["declarations"]
+    names = {d["name"] for d in declarations}
+    assert {"search_skills", "list_skills", "load_skill"} <= names
+    assert tool_bridge.is_meta_tool("list_skills")
+
+
+def test_list_skills_lists_every_skill_without_loading_any(env):
+    lib, builtin, idx, calls, registry = env
+    _write_skill(builtin, "web-research", RESEARCH)
+    _write_skill(builtin, "word-count", WORD_COUNT, WORD_COUNT_EXECUTOR)
+    lib.refresh(force=True)
+
+    out = _run("list_skills", {})
+    assert "web-research" in out
+    assert "word-count" in out
+    assert "instructional" in out and "executable" in out
+    assert "load_skill(skill_id=" in out  # tells the model how to actually use one
+    # Listing is metadata only: nothing enters context and nothing runs.
+    assert calls == []
+
+
+def test_list_skills_pages_and_filters(env):
+    lib, builtin, idx, calls, registry = env
+    _write_skill(builtin, "web-research", RESEARCH)
+    _write_skill(builtin, "word-count", WORD_COUNT, WORD_COUNT_EXECUTOR)
+    lib.refresh(force=True)
+
+    page = _run("list_skills", {"limit": 1, "offset": 0})
+    assert "1 of 2 skill(s)" in page
+    assert "list_skills(offset=1)" in page
+    # Sorted by id, so web-research is page 1 and word-count is page 2.
+    second = _run("list_skills", {"limit": 1, "offset": 1})
+    assert "positions 2-2" in second
+    assert "Next page" not in second
+
+    only_exec = _run("list_skills", {"executable_only": True})
+    assert "word-count" in only_exec
+    assert "web-research" not in only_exec
+
+    wrong_cat = _run("list_skills", {"category": "cooking"})
+    assert "No skills match" in wrong_cat
+    assert "research" in wrong_cat  # names a category that does exist
+
+    past_end = _run("list_skills", {"offset": 40})
+    assert "past the end" in past_end
+
+
+def test_list_skills_reports_an_empty_library(env):
+    out = _run("list_skills", {})
+    assert "empty" in out.lower()
 
 
 # --------------------------------------------------------------------------- #
