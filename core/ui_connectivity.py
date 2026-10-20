@@ -1516,6 +1516,24 @@ class SystemConnectivityPage(QWidget):
         inten_row.addWidget(inten_value)
         outer.addLayout(inten_row)
 
+        lib_row = QHBoxLayout()
+        lib_row.addStretch(1)
+        btn_avatar_lib = QPushButton("Avatar library…")
+        btn_avatar_lib.setToolTip("Install or import Live2D, VRM and 3D backgrounds")
+        lib_row.addWidget(btn_avatar_lib)
+        outer.addLayout(lib_row)
+
+        def _open_avatar_library():
+            try:
+                from core.ui_avatar_library import AvatarLibraryDialog
+                dialog = AvatarLibraryDialog(self, on_changed=lambda: (_refresh(), _persist()))
+                dialog.exec()
+                _refresh()
+            except Exception as exc:
+                QMessageBox.warning(self, "Avatar library", f"Could not open the avatar library:\n{exc}")
+
+        btn_avatar_lib.clicked.connect(_open_avatar_library)
+
         status_rows = {}
         asset_rows = {}
         for info in probes:
@@ -1524,14 +1542,19 @@ class SystemConnectivityPage(QWidget):
             line.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
             outer.addWidget(line)
             status_rows[info["id"]] = line
-            if info["id"] in ("live2d", "vrm"):
+            if info["id"] in ("live2d", "vrm", "scene_background"):
                 row = QHBoxLayout()
-                row.addWidget(QLabel("Model"))
+                if info["id"] == "scene_background":
+                    row.addWidget(QLabel("Background"))
+                else:
+                    row.addWidget(QLabel("Model"))
                 edit = QLineEdit(info["asset"] or "")
-                edit.setPlaceholderText(
-                    "folder containing a .model3.json"
-                    if info["id"] == "live2d" else "path to a .vrm file"
-                )
+                if info["id"] == "live2d":
+                    edit.setPlaceholderText("folder containing a .model3.json")
+                elif info["id"] == "vrm":
+                    edit.setPlaceholderText("path to a .vrm file")
+                else:
+                    edit.setPlaceholderText("background folder")
                 row.addWidget(edit, 1)
                 outer.addLayout(row)
                 asset_rows[info["id"]] = edit

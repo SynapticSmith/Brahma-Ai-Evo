@@ -438,6 +438,7 @@ def clear_webengine_sink(fn: Optional[Callable[[str, float], bool]] = None) -> N
 
 LIVE2D_PAGE = "assets/avatar_live2d/index.html"
 THREE_PAGE = "assets/web_background/index.html"
+BACKGROUND_PAGE = "assets/backgrounds/index.html"
 L2D_VENDOR = "assets/avatar_live2d/vendor"
 L2D_RUNTIME_FILES = ("live2dcubismcore.min.js", "framework.js")
 
@@ -627,6 +628,8 @@ def active_page_path() -> str:
             return os.path.join(root, LIVE2D_PAGE)
         if bid == "vrm":
             return os.path.join(root, VRM_PAGE)
+        if bid == "scene_background":
+            return os.path.join(root, BACKGROUND_PAGE)
     return os.path.join(root, THREE_PAGE)
 
 
@@ -648,6 +651,10 @@ def active_model_url() -> str:
         info = scan_vrm_model(asset_path(bid))
         if info["ok"]:
             return _file_url(info["path"])
+    if bid == "scene_background":
+        info = scan_background_asset(asset_path(bid))
+        if info.get("ok") and info.get("file"):
+            return _file_url(str(info["file"]))
     return ""
 
 
@@ -672,43 +679,18 @@ def diagnostics() -> str:
 # ---------------------------------------------------------------------------
 # Built-in backends. All scaffolded: probes are real, renderers are not.
 # ---------------------------------------------------------------------------
-@register(
-    "three_reactive",
-    label="3D background (emotion-reactive)",
-    kind="3d_reactive",
-    transport="webengine",
-    hint="Drives the existing WebEngine background. No extra asset needed.",
-)
-class ThreeReactiveBackend(AvatarBackend):
-    """Emotion/audio-reactive intensity on the existing Three.js background.
+class _HeldMoodMixin:
+    """The set_emotion body every WebEngine backend shares.
 
-    The cheapest of the four and the only one with no asset: the app already
-    renders a reactive WebGL background and already ships an audio level into
-    it, so an emotion is a mood applied on top of that look rather than a new
-    renderer to maintain.
-
-    Implementation is the WebEngine channel above plus three functions on the
-    page (`window.setAvatarEmotion`, and the composition in
-    `updateSimulation`). Nothing here knows how many rings or shaders exist.
+    All of them route a mood through the same sink and, when the page is not
+    attached yet, hold it so a tag produced during boot is not dropped. Only
+    `probe` and `status` differ between them, which is why that logic is here
+    rather than copied per backend.
     """
 
     def __init__(self) -> None:
         self.last_reason = ""
         self.last: Optional[tuple] = None
-
-    def probe(self) -> Dict[str, Any]:
-        if not _setting("enable_3d_background", True):
-            return {"available": False,
-                    "detail": "3D background is switched off - enable "
-                              "'3D background animation' in Settings > "
-                              "Providers & Resources"}
-        if webengine_sink_attached():
-            return {"available": True,
-                    "detail": "renderer attached - emotion drives the existing "
-                              "3D background"}
-        return {"available": True,
-                "detail": "ready - the mood is held until the background "
-                          "finishes loading"}
 
     def set_emotion(self, tag: str, **kw: Any) -> bool:
         self.last_reason = ""
@@ -735,6 +717,41 @@ class ThreeReactiveBackend(AvatarBackend):
         self.last_reason += "held for the renderer"
         return True
 
+
+@register(
+    "three_reactive",
+    label="3D background (emotion-reactive)",
+    kind="3d_reactive",
+    transport="webengine",
+    hint="Drives the existing WebEngine background. No extra asset needed.",
+)
+class ThreeReactiveBackend(_HeldMoodMixin, AvatarBackend):
+    """Emotion/audio-reactive intensity on the existing Three.js background.
+
+    The cheapest of the four and the only one with no asset: the app already
+    renders a reactive WebGL background and already ships an audio level into
+    it, so an emotion is a mood applied on top of that look rather than a new
+    renderer to maintain.
+
+    Implementation is the WebEngine channel above plus three functions on the
+    page (`window.setAvatarEmotion`, and the composition in
+    `updateSimulation`). Nothing here knows how many rings or shaders exist.
+    """
+
+    def probe(self) -> Dict[str, Any]:
+        if not _setting("enable_3d_background", True):
+            return {"available": False,
+                    "detail": "3D background is switched off - enable "
+                              "'3D background animation' in Settings > "
+                              "Providers & Resources"}
+        if webengine_sink_attached():
+            return {"available": True,
+                    "detail": "renderer attached - emotion drives the existing "
+                              "3D background"}
+        return {"available": True,
+                "detail": "ready - the mood is held until the background "
+                          "finishes loading"}
+
     def status(self) -> str:
         held = pending_mood()
         if held and held.get("backend") in ("", self.backend_id):
@@ -744,6 +761,55 @@ class ThreeReactiveBackend(AvatarBackend):
             return ("3D background: renderer attached"
                     + (f", last {last[0]} @ {last[1]:.2f}" if last else ""))
         return "3D background: ready, waiting for the page to load"
+
+
+@register(
+    "scene_background",
+    label="Custom 3D background",
+    kind="background",
+    transport="webengine",
+    hint="Needs a folder with scene.glb/.gltf or a panorama .hdr/.jpg.",
+)
+class SceneBackgroundBackend(_HeldMoodMixin, AvatarBackend):
+    """A user-supplied scene or 360 panorama, in its own page.
+
+    This is the same transport as the other WebEngine backends - the renderer
+    is a document that exposes the seven hooks - but the asset is a folder
+    rather than a model. Keeping it a backend rather than a mode of
+    `three_reactive` means "which background" is the same question as "which
+    avatar", and the existing selection/asset settings carry it with no new
+    state to keep in sync.
+    """
+
+    def scan(self) -> Dict[str, Any]:
+        return scan_background_asset(asset_path(self.backend_id))
+
+    def probe(self) -> Dict[str, Any]:
+        if not _setting("enable_3d_background", True):
+            return {"available": False,
+                    "detail": "3D background is switched off - enable "
+                              "'3D background animation' in Settings > "
+                              "Providers & Resources"}
+        info = self.scan()
+        if not info.get("ok"):
+            reason = info.get("error") or "no background folder selected"
+            return {"available": False,
+                    "detail": f"no usable background selected - {reason}"}
+        kind = "360 panorama" if info.get("kind") == "panorama" else "3D scene"
+        detail = f"{kind} ready: {info.get('name') or 'background'}"
+        warnings = info.get("warnings") or []
+        if warnings:
+            detail += f" (warning: {warnings[0]})"
+        return {"available": True, "detail": detail}
+
+    def status(self) -> str:
+        info = self.scan()
+        if not info.get("ok"):
+            return f"Custom background: {info.get('error') or 'not configured'}"
+        held = pending_mood()
+        if held and held.get("backend") in ("", self.backend_id):
+            return f"Custom background: renderer not attached, holding {held['tag']}"
+        return f"Custom background: {info.get('name') or 'ready'}"
 
 
 @register(
@@ -932,6 +998,18 @@ def scan_vrm_model(path: str) -> Dict[str, Any]:
         out["verdict"] = "undeclared"
     out["ok"] = True
     return out
+
+
+def scan_background_asset(folder: str) -> Dict[str, Any]:
+    """Validate a background folder. Lazy import keeps core's start-up lean."""
+    try:
+        from core import avatar_catalog
+
+        return avatar_catalog.scan_background(folder)
+    except Exception as exc:
+        return {"ok": False, "error": f"background scan unavailable: {exc}",
+                "folder": folder or "", "name": "", "kind": "", "file": "",
+                "bytes": 0, "warnings": []}
 
 
 @register(

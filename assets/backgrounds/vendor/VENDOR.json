@@ -1,0 +1,9 @@
+{
+  "source": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/",
+  "licence": "MIT (three.js authors)",
+  "note": "HDRLoader and its RGBELoader alias, vendored to match the three r186 build already used by assets/avatar_vrm/vendor. The import map in ../index.html points 'three' at that build, so only these two addons are duplicated here.",
+  "packages": [
+    { "package": "three", "version": "0.186.1", "file": "loaders/HDRLoader.js", "bytes": 12079 },
+    { "package": "three", "version": "0.186.1", "file": "loaders/RGBELoader.js", "bytes": 268 }
+  ]
+}

@@ -53,12 +53,13 @@ def main() -> int:
         ids = ar.backend_ids()
         for bid, label in (
             ("three_reactive", "emotion-reactive on the existing 3D background"),
+            ("scene_background", "a user-supplied 3D scene or 360 panorama"),
             ("live2d", "Live2D 2D"),
             ("vrm", "VRM 3D humanoid"),
             ("osc_vmc", "external avatar over VMC/OSC (Project Nova's route)"),
         ):
             check(f"backend registered: {bid} ({label})", bid in ids)
-        check("registry order is stable and complete", len(ids) == 4, str(ids))
+        check("registry order is stable and complete", len(ids) == 5, str(ids))
 
         section("B. Every backend declares kind and transport")
         for b in ar.all_backends():

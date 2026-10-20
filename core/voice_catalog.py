@@ -33,7 +33,6 @@ Design rules
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import subprocess
@@ -42,6 +41,8 @@ import tempfile
 import time
 import urllib.request
 from typing import Any, Callable, Dict, List, Optional, Tuple
+
+from core import file_download
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -535,10 +536,8 @@ def kokoro_model_family(model_filename: str) -> str:
 # Downloading
 # ---------------------------------------------------------------------------
 def _part_size(part: str) -> int:
-    try:
-        return os.path.getsize(part)
-    except Exception:
-        return 0
+    # Kept as a module-level name: earlier code and tests reach for it here.
+    return file_download.part_size(part)
 
 
 def _download_attempt(
@@ -551,57 +550,20 @@ def _download_attempt(
     cancel: Optional[Callable[[], bool]],
     timeout: float,
 ) -> Tuple[int, int, str]:
-    """One transfer attempt, resuming from whatever is already in `part`.
+    return file_download.download_attempt(
+        url,
+        part,
+        label,
+        total=total,
+        on_progress=on_progress,
+        cancel=cancel,
+        timeout=timeout,
+        user_agent=_USER_AGENT,
+    )
 
-    Returns (bytes_on_disk, total_bytes, error). `error` is "" when the attempt
-    ended cleanly, which does NOT mean it is complete -- the caller compares
-    bytes against total, because a dropped connection makes `read()` return an
-    empty chunk instead of raising, i.e. a truncated body looks like EOF.
-    """
-    done = _part_size(part)
-    if total and done > total:
-        _discard(part)  # nonsense length: start over rather than trust it
-        done = 0
 
-    headers = {"User-Agent": _USER_AGENT}
-    if done:
-        headers["Range"] = f"bytes={done}-"
-
-    try:
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            status = int(getattr(response, "status", 200) or 200)
-            if done and status != 206:
-                # The server ignored the Range header, so the body starts at
-                # byte 0; appending it to the partial file would corrupt it.
-                done = 0
-            if not total:
-                if status == 206:
-                    # Content-Range: "bytes 100-999/1000" -> take the /1000.
-                    tail = (response.headers.get("Content-Range") or "").rpartition("/")[2]
-                    total = int(tail) if tail.isdigit() else 0
-                else:
-                    try:
-                        total = int(response.headers.get("Content-Length") or 0)
-                    except Exception:
-                        total = 0
-            with open(part, "ab" if done else "wb") as out:
-                while True:
-                    if cancel is not None and cancel():
-                        return done, total, "Cancelled."
-                    chunk = response.read(1024 * 256)
-                    if not chunk:
-                        break
-                    out.write(chunk)
-                    done += len(chunk)
-                    if on_progress is not None and total:
-                        try:
-                            on_progress(done, total, label)
-                        except Exception:
-                            pass
-    except Exception as exc:
-        return _part_size(part), total, f"{type(exc).__name__}: {exc}"
-    return _part_size(part), total, ""
+def _discard(path: str) -> None:
+    file_download.discard(path)
 
 
 def download_file(
@@ -616,100 +578,23 @@ def download_file(
     timeout: float = 60.0,
     attempts: int = 5,
 ) -> Tuple[bool, str]:
-    """Stream `url` to `dest`, verify it, then atomically move it into place.
+    """Voice downloads are ordinary resumable downloads; see file_download.
 
-    Returns (ok, error). The `.part` suffix is what makes this safe: a partial
-    file is never left under the final name, so core/speech_tts.py cannot
-    auto-discover a truncated model and crash on it.
-
-    Large models (Kokoro fp32 is 326 MB) routinely lose a connection partway
-    through, and the short read is silent, so each attempt resumes with a
-    Range request from the bytes already on disk instead of starting over.
+    The docstring lives with the implementation. Voice catalog keeps this
+    wrapper so its public surface (and the tests that pin it) do not move.
     """
-    os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
-    part = dest + ".part"
-    label = os.path.basename(dest)
-    total = int(expected_size or 0)
-    last_err = ""
-    stalled = 0
-
-    for attempt in range(1, max(1, attempts) + 1):
-        if cancel is not None and cancel():
-            _discard(part)
-            return False, "Cancelled."
-        previous = _part_size(part)
-        done, total, err = _download_attempt(
-            url,
-            part,
-            label,
-            total=total,
-            on_progress=on_progress,
-            cancel=cancel,
-            timeout=timeout,
-        )
-        if err == "Cancelled.":
-            _discard(part)
-            return False, "Cancelled."
-        if total and done >= total:
-            break
-        if not total and not err:
-            total = done  # unknown length, clean EOF: trust what arrived
-            break
-        last_err = err or f"connection closed after {done} of {total} bytes"
-        # Only keep retrying while attempts actually gain ground: a server that
-        # keeps returning the same short body will never finish, and a Kokoro
-        # model is far too large to re-request on a loop.
-        stalled = stalled + 1 if done <= previous else 0
-        if stalled >= 2:
-            break
-        if attempt < attempts:
-            time.sleep(min(2.0, 0.5 * attempt))
-
-    done = _part_size(part)
-    if total and done != total:
-        _discard(part)
-        return False, (
-            f"Download failed ({label}): {last_err or 'incomplete'}"
-            + (f" (got {done} of {total} bytes)" if total else "")
-        )
-
-    if expected_size and done != int(expected_size):
-        _discard(part)
-        return False, (
-            f"Size mismatch for {label}: {done} bytes, expected {expected_size}."
-        )
-    if expected_sha256 or expected_md5:
-        expected = (expected_sha256 or expected_md5).lower()
-        algorithm = hashlib.sha256 if expected_sha256 else hashlib.md5
-        try:
-            digest = algorithm()
-            with open(part, "rb") as fh:
-                for chunk in iter(lambda: fh.read(1024 * 1024), b""):
-                    digest.update(chunk)
-            actual = digest.hexdigest()
-        except Exception as exc:
-            _discard(part)
-            return False, f"Could not verify {label}: {exc}"
-        if actual != expected:
-            _discard(part)
-            return False, (
-                f"Checksum mismatch for {label} "
-                f"(downloaded file is corrupt or was tampered with)."
-            )
-
-    try:
-        os.replace(part, dest)
-    except Exception as exc:
-        _discard(part)
-        return False, f"Could not finalise {label}: {exc}"
-    return True, ""
-
-
-def _discard(path: str) -> None:
-    try:
-        os.remove(path)
-    except Exception:
-        pass
+    return file_download.download_file(
+        url,
+        dest,
+        expected_size=expected_size,
+        expected_md5=expected_md5,
+        expected_sha256=expected_sha256,
+        on_progress=on_progress,
+        cancel=cancel,
+        timeout=timeout,
+        attempts=attempts,
+        user_agent=_USER_AGENT,
+    )
 
 
 def download_entry(
