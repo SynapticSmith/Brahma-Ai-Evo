@@ -19,7 +19,7 @@ documented as first-and-only-first message; a second ``setup`` frame mid-stream
 closes the socket with ``1007 Request contains an invalid argument`` — the exact
 error that broke the 130-tool handshake. So the advertised surface has to be
 small and constant, and everything else has to be reachable *through* a tool
-rather than *as* a tool. That is what these seven do.
+rather than *as* a tool. That is what these meta-tools do.
 
 The advertised surface is therefore:
 
@@ -150,11 +150,12 @@ def search_limit_cap() -> int:
     """Largest ``limit`` the ``search_tools`` meta-tool will honour.
 
     Tracks the session budget minus the always-advertised meta-tools
-    (``len(ti.META_TOOLS)`` — currently 7: search_tools, list_tools, call_tool,
-    get_skill_manual, search_skills, list_skills, load_skill), so widening
-    "Tools sent per session" in Settings widens discovery too: a budget of 64
-    allows 57 results, 128 allows 121. Deriving the subtraction from
-    ``META_TOOLS`` keeps the formula correct if another meta-tool is ever added.
+    (``len(ti.META_TOOLS)`` — search_tools, list_tools, call_tool,
+    get_skill_manual, get_tool_surface, search_skills, list_skills,
+    load_skill), so widening "Tools sent per session" in Settings widens
+    discovery too: a budget of 64 allows 56 results, 128 allows 120.
+    Deriving the subtraction from ``META_TOOLS`` keeps the formula correct if
+    another meta-tool is ever added.
     The floor of 6 keeps the default reachable even at the smallest budget.
     """
     return max(6, budget() - len(ti.META_TOOLS))
@@ -460,6 +461,79 @@ def is_meta_tool(name: str) -> bool:
     return name in {d["name"] for d in META_DECLARATIONS}
 
 
+# --------------------------------------------------------------------------- #
+# The agent's own operating manual (``get_tool_surface``)
+# --------------------------------------------------------------------------- #
+
+
+def _prompt_manual() -> str:
+    """The on-demand half of the two-tier prompt, with a readable fallback.
+
+    Reads ``core/prompt.txt`` through :mod:`core.prompt_parts` so the manual
+    always matches the file the resident core was taken from. Returns "" when
+    the file is unreadable, which the handler turns into a plain message.
+    """
+    try:
+        from core import prompt_parts
+
+        _core, manual = prompt_parts.load_prompt_tiers()
+        return manual
+    except Exception:
+        return ""
+
+
+def _manual_sections(manual: str) -> "List[Tuple[str, str]]":
+    """Split the manual into ``(heading, body)`` pairs at blank-line boundaries.
+
+    ``body`` includes its own heading line, so joining bodies back together
+    reproduces a faithful excerpt of the file.
+    """
+    sections: "List[Tuple[str, str]]" = []
+    current: "List[str]" = []
+
+    def _flush() -> None:
+        if current:
+            sections.append((current[0].strip(), "\n".join(current).strip()))
+            current.clear()
+
+    for line in manual.splitlines():
+        if not line.strip():
+            _flush()
+            continue
+        current.append(line)
+    _flush()
+    return sections
+
+
+async def _handle_tool_surface(args: Dict[str, Any]) -> str:
+    """Read the agent's own operating manual (the on-demand prompt tier).
+
+    ``section`` filters by heading substring; omitting it returns everything.
+    Like the other discovery handlers this never raises - a miss returns a
+    readable line the model can act on.
+    """
+    want = str(args.get("section") or "").strip().lower()
+    manual = _prompt_manual().strip()
+    if not manual:
+        return (
+            "No operating manual is available (core/prompt.txt could not be read). "
+            "Use search_tools to find tools by goal."
+        )
+    if not want:
+        return manual
+    hits = [
+        body for heading, body in _manual_sections(manual)
+        if want in heading.lower()
+    ]
+    if not hits:
+        return (
+            f"No manual section matches '{want}'. "
+            "Call get_tool_surface with no arguments to read the whole manual, "
+            "or use search_tools to find tools by goal."
+        )
+    return "\n\n".join(hits)
+
+
 async def execute_meta(name: str, args: Dict[str, Any]) -> str:
     """Runs one discovery meta-tool and returns model-facing text.
 
@@ -474,6 +548,8 @@ async def execute_meta(name: str, args: Dict[str, Any]) -> str:
             return _handle_list_tools(args)
         if name == ti.META_MANUAL_TOOL:
             return _handle_manual(args)
+        if name == ti.META_SURFACE_TOOL:
+            return await _handle_tool_surface(args)
         if name == ti.META_CALL_TOOL:
             return await _handle_call(args)
         if name == ti.META_SEARCH_SKILLS_TOOL:
@@ -736,6 +812,11 @@ def _handle_list_skills(args: Dict[str, Any]) -> str:
         "or search_skills(intent=...) to rank the library against a task."
     )
     return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------- #
+# Tool-group manuals (``get_skill_manual``)
+# --------------------------------------------------------------------------- #
 
 
 def _handle_load_skill(args: Dict[str, Any]) -> str:

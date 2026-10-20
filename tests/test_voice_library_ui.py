@@ -171,8 +171,6 @@ def test_selecting_a_kokoro_model_selects_its_pack(app, tmp_path, monkeypatch, r
     assert idx >= 0
     page._kokoro_model_box.setCurrentIndex(idx)
 
-    from core import speech_tts
-
     assert recorded_settings["speech_tts_kokoro_model"] == "kokoro-v1.1-zh.onnx"
     assert recorded_settings["speech_tts_kokoro_voices"] == "voices-v1.1-zh.bin", (
         "picking a model must bring its matching voice pack along"

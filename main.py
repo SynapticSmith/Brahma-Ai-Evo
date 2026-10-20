@@ -201,9 +201,56 @@ def _ensure_desktop_shortcut() -> None:
         _startup_log(f"desktop shortcut creation skipped: {exc}")
 
 
+def _prompt_core_and_manual() -> tuple:
+    """``(core, manual)`` for the two-tier prompt, with the legacy fallback.
+
+    ``core/prompt.txt`` holds both halves separated by ``--- MANUAL ---``. A
+    file predating the split (no marker) yields ``(whole_text, "")`` so an
+    older prompt still boots; the resident core then keeps the old behaviour
+    rather than losing the only copy of its instructions.
+    """
+    try:
+        from core import prompt_parts
+
+        core_prompt, manual = prompt_parts.load_prompt_tiers(PROMPT_PATH)
+        if core_prompt:
+            return core_prompt, manual
+    except Exception:
+        pass
+    try:
+        legacy = PROMPT_PATH.read_text(encoding="utf-8").strip()
+    except Exception:
+        legacy = ""
+    return legacy, ""
+
+
+def _prompt_tier() -> str:
+    """Resolve the prompt tier for this process from Settings.
+
+    ``prompt_tier`` (``lite`` | ``full`` | ``auto``) decides whether the model
+    gets just the resident core or the combined prompt; see
+    :mod:`core.prompt_parts`. Failure to read settings must never break the
+    prompt, so the lean tier is the fallback.
+    """
+    try:
+        from core import config_manager
+        from core import prompt_parts
+
+        settings = config_manager.load_settings() or {}
+        return prompt_parts.tier_for(settings, settings.get("local_ai_url", ""))
+    except Exception:
+        return "core"
+
+
 def _load_system_prompt() -> str:
     try:
-        base_prompt = PROMPT_PATH.read_text(encoding="utf-8")
+        core_prompt, manual = _prompt_core_and_manual()
+        if _prompt_tier() == "full":
+            base_prompt = f"{core_prompt}\n\n{manual}" if manual else core_prompt
+        else:
+            base_prompt = core_prompt
+        if not base_prompt:
+            raise ValueError("empty prompt file")
     except Exception:
         base_prompt = (
             "You are Brahma Evo, a calm, direct, and professional AI assistant. "
@@ -3490,17 +3537,46 @@ class BrahmaLive:
         produced neither content nor tool calls, which the ladder counts as a
         failed attempt instead of speaking a scripted non-answer.
         """
-        prompt_txt = ""
-        try:
-            if PROMPT_PATH.exists():
-                prompt_txt = PROMPT_PATH.read_text(encoding="utf-8").strip()
-        except Exception:
-            pass
-        if not prompt_txt:
-            prompt_txt = "You are Brahma Evo, the autonomous desktop operating system."
+        messages = self._agentic_seed_messages(request_text)
+        local_tools, _skill_ctx = local_brain.resolve_tools(
+            request_text, TOOL_DECLARATIONS
+        )
+        print(
+            f"[BRAHMA EVO] \U0001f9f0 Local turn: prompt tier "
+            f"'{_prompt_tier()}', {len(messages[0]['content'])} chars, "
+            f"{len(local_tools)} tool(s) for {local_model_target}."
+        )
+        res = local_brain.chat_complete(
+            messages, model=local_model_target, tools=local_tools, focus_core=True
+        )
+        return self._finish_tool_turn(
+            res, messages, source="local", model_label=local_model_target
+        )
+
+    def _agentic_seed_messages(self, request_text: str, *, advertise_discovery: bool = True) -> list:
+        """The first messages of an agentic turn: system prompt + user request.
+
+        The system prompt is the *tiered* one (see ``core/prompt_parts``):
+        resident behaviour plus, when the tier asks for it, the manual. The
+        discovery and Skills-Library rules are always resident; the per-domain
+        routing manual is one ``get_tool_surface`` call away. Every
+        OpenAI-compatible path (local, custom, and any future one) seeds from
+        here, so the agent brief cannot drift between providers.
+
+        ``advertise_discovery=False`` is for an endpoint known to reject tool
+        arrays: it drops the "call get_tool_surface" line, which without tools
+        would be an instruction the model can never follow.
+        """
+        core_prompt, manual = _prompt_core_and_manual()
+        if not core_prompt:
+            core_prompt = "You are Brahma Evo, the autonomous desktop operating system."
+        tier = _prompt_tier()
+        system_prompt = core_prompt
+        if manual and tier == "full":
+            system_prompt = f"{system_prompt}\n\n{manual}"
 
         system_prompt = (
-            f"{prompt_txt}\n\n"
+            f"{system_prompt}\n\n"
             "CRITICAL OPERATING SYSTEM DIRECTIVE:\n"
             "- You have FULL DIRECT ACCESS and authority over this Windows PC via your tools.\n"
             "- NEVER state that you are a text-based AI, that you cannot perform automations, or that you lack real-time access.\n"
@@ -3508,40 +3584,59 @@ class BrahmaLive:
             "- Keep responses concise, direct, and conversational."
         )
 
-        # Local models get the same bounded, relevance-ranked tool surface
-        # Gemini Live gets. This is what makes MCP tools reachable here at
-        # all: the static TOOL_DECLARATIONS list contains only native tools,
-        # and its size swamps a 3B context window. Anything not advertised
-        # stays reachable through the search_tools / call_tool meta-tools.
-        local_tools, local_skill_ctx = local_brain.resolve_tools(
-            request_text, TOOL_DECLARATIONS
-        )
-        if local_skill_ctx:
-            system_prompt = f"{system_prompt}\n\n{local_skill_ctx}"
+        # The held manual is one call away; say so once, but only when this
+        # endpoint actually has a tool surface.
+        if manual and tier != "full" and advertise_discovery:
+            system_prompt = (
+                f"{system_prompt}\n\n"
+                "The full per-domain tool manual is available on demand: get it "
+                "with the get_tool_surface tool (call it with no arguments) "
+                "whenever the right tool for a request is not obvious. "
+                "search_tools finds a tool by goal; call_tool runs the exact "
+                "name it returns. Never claim a capability is missing before "
+                "you have looked."
+            )
 
-        # Optional instruction blocks for this layer. Opt-in and per-layer:
-        # an empty contribution is free when unused.
+        if advertise_discovery:
+            _tools, skill_ctx = local_brain.resolve_tools(
+                request_text, TOOL_DECLARATIONS
+            )
+            if skill_ctx:
+                system_prompt = f"{system_prompt}\n\n{skill_ctx}"
+
+        # Optional instruction blocks. The "local"/"custom" layers are
+        # separate by design; compose both so the custom endpoint is not the
+        # only OpenAI-compatible path that can be silenced.
         try:
             from core import instruction_injector
 
-            injected = instruction_injector.compose("local")
-            if injected:
-                system_prompt = f"{system_prompt}{injected}"
+            layers = ["custom", "local"] if advertise_discovery else ["local"]
+            for layer in layers:
+                try:
+                    injected = instruction_injector.compose(layer)
+                except Exception:
+                    injected = ""
+                if injected:
+                    system_prompt = f"{system_prompt}{injected}"
         except Exception:
             pass
-        print(
-            f"[BRAHMA EVO] \U0001f9f0 Local turn advertising {len(local_tools)} tool(s) "
-            f"for {local_model_target}."
-        )
 
-        messages = [
+        return [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": request_text},
         ]
-        res = local_brain.chat_complete(
-            messages, model=local_model_target, tools=local_tools, focus_core=True
-        )
-        msg = res["choices"][0].get("message", {})
+
+    def _finish_tool_turn(self, res, messages: list, *, source: str,
+                          model_label: str) -> str:
+        """Finish one OpenAI-protocol tool turn and return the spoken text.
+
+        Shared by the local and custom endpoints: append the assistant
+        message once, run every call, then take ONE follow-up. Raises
+        LocalBrainError for the local ladder (the caller must see real
+        transport failures); the custom path owns its own call wrapper and
+        passes ``source="custom"``.
+        """
+        msg = (res.get("choices") or [{}])[0].get("message", {}) or {}
         tool_calls = msg.get("tool_calls")
         if not tool_calls:
             return (msg.get("content") or "").strip()
@@ -3575,7 +3670,7 @@ class BrahmaLive:
                 })
                 continue
 
-            print(f"[BRAHMA EVO] \U0001f512 Local Brain executing tool: {fn_name}({fn_args})")
+            print(f"[BRAHMA EVO] \U0001f512 {source.title()} brain executing tool: {fn_name}({fn_args})")
             self.ui.update_task_workspace(
                 status=f"Executing {fn_name}",
                 output=f"Running action: {fn_name} on local machine...",
@@ -3591,20 +3686,83 @@ class BrahmaLive:
             summaries.append(str(tool_result or "").strip())
 
         try:
-            followup_res = local_brain.chat_complete(
-                messages, model=local_model_target, temperature=0.3
-            )
-            followup_reply = (
-                followup_res["choices"][0].get("message", {}).get("content") or ""
-            ).strip()
+            if source == "local":
+                followup_res = local_brain.chat_complete(
+                    messages, model=model_label, temperature=0.3
+                )
+                followup_reply = (
+                    followup_res["choices"][0].get("message", {}).get("content") or ""
+                ).strip()
+            else:
+                # Verbatim follow-up: `messages` already holds the system
+                # prompt, the assistant tool-call turn and the tool results.
+                followup_msg = openrouter_client.chat_as_completion(
+                    "custom", "", full_messages=messages, tools=[],
+                )
+                followup_reply = (followup_msg.get("content") or "").strip()
             if followup_reply:
                 return followup_reply
         except Exception as e_fu:
-            print(f"[BRAHMA EVO] \u26a0\ufe0f Local Brain follow-up failed: {e_fu}")
+            print(f"[BRAHMA EVO] \u26a0\ufe0f {source.title()} brain follow-up failed: {e_fu}")
 
         # The tools ran; report what they actually did rather than nothing.
         detail = " / ".join(s for s in summaries if s)
-        return detail or f"{local_model_target} returned no usable response."
+        return detail or f"{model_label} returned no usable response."
+
+    def _custom_brain_turn(self, request_text: str, label: str = "Custom provider") -> str:
+        """One agentic turn against the user's custom OpenAI-compatible endpoint.
+
+        The custom endpoint used to receive a two-line system prompt and no
+        tools at all, so it could not act — only chat. It now receives the
+        same tiered prompt and bounded tool surface as the local path, runs
+        its tool calls through the same executor, and degrades gracefully: if
+        the endpoint rejects the tool array outright the model is marked
+        tool-less for the session and the turn is retried as a plain reply,
+        because a tool-less server still answers but crashes on a tools array.
+        """
+        messages = self._agentic_seed_messages(
+            request_text, advertise_discovery=not self._custom_tools_broken
+        )
+        tools = []
+        if not self._custom_tools_broken:
+            tools, _skill_ctx = local_brain.resolve_tools(
+                request_text, TOOL_DECLARATIONS
+            )
+        try:
+            # The seed is the complete conversation (system + user), so it is
+            # sent verbatim: prepending `system` again and appending the prompt
+            # would double both.
+            msg = openrouter_client.chat_as_completion(
+                "custom", "", full_messages=messages, tools=tools,
+            )
+        except Exception as exc:
+            if not tools or "tool" not in str(exc).lower():
+                raise
+            self._custom_tools_broken = True
+            print(
+                f"[BRAHMA EVO] \u26a0\ufe0f {label} rejected the tool surface; "
+                "this endpoint will be treated as tool-less for the session."
+            )
+            msg = openrouter_client.chat_as_completion(
+                "custom", "", full_messages=messages,
+            )
+        return self._finish_tool_turn(
+            {"choices": [{"message": msg}]}, messages,
+            source="custom", model_label=label,
+        )
+
+    @property
+    def _custom_tools_broken(self) -> bool:
+        """True once this session's custom endpoint rejected the tool array.
+
+        Class-level default False, then set per turn by ``_fallback_reply``;
+        reading a missing attribute must never raise inside a provider loop.
+        """
+        return bool(getattr(self, "_custom_tools_broken_", False))
+
+    @_custom_tools_broken.setter
+    def _custom_tools_broken(self, value: bool) -> None:
+        self._custom_tools_broken_ = bool(value)
 
     def _fallback_reply(self, text: str, memory_ctx: str = ""):
         try:
@@ -3666,6 +3824,7 @@ class BrahmaLive:
             # (provider label, reason) for every failed attempt; surfaced to
             # the user verbatim when nothing answered.
             attempt_errors: list = []
+            self._custom_tools_broken = False
 
             # Attempt the chain: selected provider first, then failover.
             # Every failure keeps its reason so an all-fail turn reports
@@ -3691,9 +3850,7 @@ class BrahmaLive:
                             "openrouter", request_text, system=plain_system
                         )
                     elif pid == "custom":
-                        reply = openrouter_client.chat_as(
-                            "custom", request_text, system=plain_system
-                        )
+                        reply = self._custom_brain_turn(request_text, label)
                     elif pid == "local":
                         reply = self._local_brain_reply(
                             request_text, local_model_target

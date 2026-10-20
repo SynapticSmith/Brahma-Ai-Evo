@@ -991,6 +991,45 @@ Verified: `precommit_check.py` SAFE TO COMMIT - pytest **265 passed**, all
 seven acceptance harnesses `ALL CRITERIA PASS`, `ruff` clean. Per-item detail
 and evidence live in `docs/VERSION-1.0.1-LOG.md` section 19.
 
+## 21. Post-release (2026-10-20): two-tier prompt, JIT awareness, and an agentic custom endpoint
+
+The last three sections made the local model survive slow hardware and
+tool-less models. This one fixes why it was still *weak at using tools*: the
+prompt was one 14.9 KB document re-sent (and, on Ollama, re-prefilled) every
+turn, and the custom endpoint received neither the prompt nor a single tool.
+
+`core/prompt.txt` is now two tiers in one file, split by a `--- MANUAL ---`
+marker. The **resident core** (9.9 KB) keeps everything behavioural -
+identity, the turn loop, principles, the capability inventory, the JIT
+discovery rules, memory, safety, autonomy, communication. The **on-demand
+manual** (6.3 KB) holds the per-domain intent-to-tool routing table plus the
+`TOOL SURFACE` / `SKILLS LIBRARY` reference detail, and is served by a new
+always-advertised `get_tool_surface` meta-tool (with an optional section
+filter) on every path that has a tool surface. `prompt_tier` chooses: `lite`
+(default, core only), `full` (the old combined prompt), `auto` (full except
+on loopback). A file without the marker still loads as a single core.
+
+The custom endpoint used to get a two-line system prompt and no tools, so it
+could only chat. It now gets the same turn as the local brain: the tiered
+prompt through one shared builder (`_agentic_seed_messages`), the same
+bounded relevance-ranked tool surface, the same tool executor, and a shared
+follow-up path - with the tool-less degradation the local link already had,
+so a custom model without tool templates falls back to a plain reply instead
+of failing the turn. `llm_client.chat_as_completion` carries `tools` and
+returns the full message; `chat_as` is now a text wrapper over it, so no
+existing caller changed.
+
+Verified: pytest **331 passed** (11 new prompt-tier tests plus 6 covering the
+completion-message contract), all seven acceptance harnesses
+`ALL CRITERIA PASS`, `ruff` clean, `scripts/precommit_check.py` **SAFE TO
+COMMIT**. Verification also caught and fixed three follow-on defects: an order-unstable ranking sort
+(`core/tool_index.py`, equal RRF scores now tie-break on name), a test that
+raced the deliberate background semantic warm-up, and the wake-word harness's
+hardware branch, which now skips honestly when no capture device can be opened
+instead of reporting a false regression. Per-item detail and evidence live in
+`docs/VERSION-1.0.1-LOG.md` section 20.
+
+
 ---
 
 *See `ONE-391-changes.md`, `ONE-391-tool-index.md`, `ONE-391-avatar-backends.md`,

@@ -89,10 +89,27 @@ def test_payload_always_carries_the_discovery_tools(bridge):
 
 
 def test_payload_is_deterministic_for_the_same_intent(bridge):
+    idx, _ = bridge
     tool_bridge.sync_native(_native_declarations())
+    # The semantic backend warms on a background thread (see
+    # ToolIndex.rebuild -> _EmbedBackend.schedule_build), so the *set* of
+    # backends fused into a ranking can grow between two calls taken
+    # microseconds apart. That is by design: the handshake never blocks on the
+    # model. Determinism is promised for a settled backend set, so wait for the
+    # warm-up before comparing, exactly as the semantic-backend test does.
+    import time
+
+    tool_bridge.build_session_payload("send an email")
+    deadline = time.time() + 90
+    while time.time() < deadline and "embed" not in idx.stats().backends:
+        time.sleep(0.5)
+
     a = [d["name"] for d in tool_bridge.build_session_payload("send an email")["declarations"]]
     b = [d["name"] for d in tool_bridge.build_session_payload("send an email")["declarations"]]
     assert a == b
+    # The discovery surface is always in the payload, so a meta-tools change
+    # can never silently alter only one of these two builds.
+    assert {d["name"] for d in META_DECLARATIONS} <= set(b)
 
 
 def test_budget_is_honoured_and_clamped(bridge):
@@ -108,7 +125,7 @@ def test_budget_is_honoured_and_clamped(bridge):
 
 
 def test_search_limit_tracks_the_session_budget(bridge):
-    """search_tools widens with the advertised budget: 64 → 57, 128 → 121.
+    """search_tools widens with the advertised budget: the cap is budget - metas.
 
     The subtraction is ``len(META_TOOLS)`` — the always-advertised
     meta-tools — so adding another meta-tool cannot silently push the
@@ -118,10 +135,10 @@ def test_search_limit_tracks_the_session_budget(bridge):
     assert tool_bridge.search_limit_cap() == 24 - len(ti.META_TOOLS)
 
     tool_bridge.configure(settings={"tool_index_budget": 64})
-    assert tool_bridge.search_limit_cap() == 57
+    assert tool_bridge.search_limit_cap() == 64 - len(ti.META_TOOLS)
 
     tool_bridge.configure(settings={"tool_index_budget": 128})
-    assert tool_bridge.search_limit_cap() == 121
+    assert tool_bridge.search_limit_cap() == 128 - len(ti.META_TOOLS)
 
     # A silly value is clamped to the provider ceiling, never above it.
     tool_bridge.configure(settings={"tool_index_budget": 100000})
@@ -141,7 +158,8 @@ def test_search_limit_is_clamped_by_the_cap_at_execution_time(bridge):
     out = asyncio.run(tool_bridge.execute_meta(
         "search_tools", {"intent": "calyx vault operation", "limit": 9999}))
     found = int(re.search(r"Found (\d+) tool", out).group(1))
-    assert found <= tool_bridge.search_limit_cap() == 9
+    assert found <= tool_bridge.search_limit_cap()
+    assert tool_bridge.search_limit_cap() == 16 - len(ti.META_TOOLS)
 
 
 def test_advertised_search_declaration_shows_the_live_maximum(bridge):
@@ -152,17 +170,19 @@ def test_advertised_search_declaration_shows_the_live_maximum(bridge):
     assert {d["name"] for d in META_DECLARATIONS} <= {d["name"] for d in decls}
     search = next(d for d in decls if d["name"] == "search_tools")
     desc = search["parameters"]["properties"]["limit"]["description"]
-    assert "maximum 121" in desc
+    assert f"maximum {128 - len(ti.META_TOOLS)}" in desc
 
     # The shared module-level declaration must not be mutated by the rewrite.
     static = ti.SEARCH_TOOLS_DECLARATION["parameters"]["properties"]["limit"]["description"]
-    assert "maximum 121" not in static
+    assert f"maximum {128 - len(ti.META_TOOLS)}" not in static
 
     # A different budget re-advertises its own number.
     tool_bridge.configure(settings={"tool_index_budget": 64})
     decls = tool_bridge.build_session_payload("")["declarations"]
     search = next(d for d in decls if d["name"] == "search_tools")
-    assert "maximum 57" in search["parameters"]["properties"]["limit"]["description"]
+    assert f"maximum {64 - len(ti.META_TOOLS)}" in (
+        search["parameters"]["properties"]["limit"]["description"]
+    )
 
     # search_skills states its library-side maximum (SKILLS_SEARCH_MAX).
     skills = next(d for d in decls if d["name"] == "search_skills")

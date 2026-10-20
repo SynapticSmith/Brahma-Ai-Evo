@@ -15,6 +15,7 @@ piper, kokoro) are absent on purpose: every assertion below must hold on a
 machine where they are NOT installed, because that is the common case.
 Usage: py -3.11 accept_local_speech.py
 """
+import asyncio
 import re
 import sys
 from pathlib import Path
@@ -60,7 +61,7 @@ def test_local_tool_surface() -> None:
     check("resolve_tools returns a non-empty surface", bool(picked), f"{len(picked)} tools")
     check("discovery meta-tools are reachable locally",
           {"search_tools", "list_tools", "call_tool", "get_skill_manual",
-           "search_skills", "list_skills", "load_skill"} <= names,
+           "get_tool_surface", "search_skills", "list_skills", "load_skill"} <= names,
           f"{sorted(names)[:5]}")
     check("surface is smaller than the static list", len(picked) < len(static),
           f"{len(picked)} vs {len(static)} static")
@@ -96,7 +97,11 @@ def test_local_tool_surface() -> None:
           "tools=TOOL_DECLARATIONS" not in src)
     check("_fallback_reply routes through resolve_tools", "resolve_tools(" in src)
     check("JIT skill context is injected when present",
-          "local_skill_ctx" in src)
+          "skill_ctx" in src)
+    check("the custom endpoint gets the same agentic turn as local",
+          "_custom_brain_turn(" in src and "chat_as_completion(" in src)
+    check("the tiered prompt is shared by every OpenAI-compatible path",
+          "_agentic_seed_messages(" in src)
 
 
 # ---------------------------------------------------------------------------
@@ -496,6 +501,46 @@ def test_gemini_untouched() -> None:
           "tool_bridge.build_session_payload(last_intent)" in lsrc)
 
 
+# ---------------------------------------------------------------------------
+# F. Two-tier prompt (resident core + on-demand manual)
+# ---------------------------------------------------------------------------
+def test_two_tier_prompt() -> None:
+    section("F. Two-tier prompt and the on-demand manual")
+    from core import prompt_parts, tool_bridge
+
+    prompt = Path(__file__).resolve().parent / "core" / "prompt.txt"
+    raw = prompt.read_text(encoding="utf-8")
+    core, manual = prompt_parts.load_prompt_tiers(prompt)
+
+    check("prompt.txt carries exactly one manual marker",
+          [ln.strip() for ln in raw.splitlines()].count(prompt_parts.MANUAL_MARKER) == 1)
+    check("the resident core is a substantial, bounded brief",
+          1500 < len(core) < 12000,
+          f"core {len(core)} chars vs manual {len(manual)} chars")
+    check("behaviour stays resident in the core",
+          "HOW A TURN WORKS" in core and "SAFETY AND REVERSIBILITY" in core)
+    check("the routing table moved on demand",
+          "OPERATING THE TOOLS" not in core and "OPERATING THE TOOLS" in manual)
+    check("the pinned SKILLS LIBRARY header survives in the manual",
+          "SKILLS LIBRARY" in manual)
+    check("the lean tier is the default",
+          prompt_parts.tier_for({}) == prompt_parts.TIER_CORE)
+    check("auto picks the core for a same-machine endpoint",
+          prompt_parts.tier_for({"prompt_tier": "auto"}, "http://localhost:11434")
+          == prompt_parts.TIER_CORE)
+
+    whole = asyncio.run(tool_bridge.execute_meta("get_tool_surface", {}))
+    check("get_tool_surface serves the manual",
+          whole.startswith("TOOL SURFACE") and "SKILLS LIBRARY" in whole)
+    filtered = asyncio.run(
+        tool_bridge.execute_meta("get_tool_surface", {"section": "skills"})
+    )
+    check("get_tool_surface can return one section",
+          "SKILLS LIBRARY" in filtered and "TOOL SURFACE" not in filtered)
+    check("get_tool_surface is advertised as a discovery meta-tool",
+          tool_bridge.is_meta_tool("get_tool_surface"))
+
+
 def main() -> int:
     print("=" * 74)
     print("ONE-391 local model + local speech acceptance")
@@ -505,6 +550,7 @@ def main() -> int:
     test_voice_api_contracts()
     test_offline_mode()
     test_gemini_untouched()
+    test_two_tier_prompt()
     print("\n" + "=" * 74)
     return report()
 

@@ -723,16 +723,17 @@ class SystemConnectivityPage(QWidget):
         budget_row.addStretch(1)
         lay.addLayout(budget_row)
 
-        # Derive the meta-tool count and cap rather than hardcoding them: the
-        # discovery surface grew (search/list for both catalogues), and a stale
-        # number here would misdescribe the setting.
+        # Derive the meta-tool count, cap and worked examples rather than
+        # hardcoding them: the discovery surface grew again (the on-demand
+        # prompt manual is a discovery tool too), and a stale number here
+        # would misdescribe the setting in the user's face.
         try:
             from core import tool_index as _ti
 
             meta_count = len(_ti.META_TOOLS)
             page_default = _ti.LIST_PAGE_DEFAULT
         except Exception:
-            meta_count, page_default = 7, 50
+            meta_count, page_default = 8, 50
 
         hint = QLabel(
             "Fewer tools means a smaller prompt and faster routing. Anything above the "
@@ -740,7 +741,8 @@ class SystemConnectivityPage(QWidget):
             f"The search_tools cap follows this budget (budget minus the {meta_count} "
             "always-on discovery meta-tools, which include list_tools and list_skills "
             f"for browsing everything in {page_default}-tool pages), so a budget of 64 "
-            "lets search return up to 57 tools, 128 lets it return up to 121."
+            f"lets search return up to {64 - meta_count} tools, 128 lets it return up "
+            f"to {128 - meta_count}."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")

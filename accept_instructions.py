@@ -174,7 +174,8 @@ def main() -> int:
               call in src
               and src.index(call) < src.index("self.speak(reply", src.index(call)))
         check("injector is wired into the local prompt",
-              'instruction_injector.compose("local")' in src)
+              'instruction_injector.compose("local")' in src
+              or ('"local"' in src and "instruction_injector.compose(layer)" in src))
 
         # Execute the strip exactly as the fallback path does, so a NameError
         # cannot hide behind a source match.
@@ -313,14 +314,26 @@ def main() -> int:
               '_injected_instructions(layer)' in src3 or '_injected_instructions("fallback")' in src3)
         check("OpenRouter leg composes the fallback layer",
               '_injected_instructions("fallback")' in src3)
-        check("local leg still composes local",
-              'instruction_injector.compose("local")' in src3)
+        # The OpenAI-compatible seed (local + custom) composes its layers in a
+        # small loop now, so the layer names live in a list rather than in two
+        # literal call sites. Assert the layer is still requested and still
+        # composed, not the exact call form.
+        local_prompt_site = (
+            'instruction_injector.compose("local")' in src3
+            or ('"local"' in src3 and "instruction_injector.compose(layer)" in src3)
+        )
+        check("local leg still composes local", local_prompt_site)
         check("every provider leg is covered", all(
             marker in (src3 + lsrc) for marker in (
                 '_injected_instructions("live")',
                 '_injected_instructions("fallback")',
                 'instruction_injector.compose("local")',
-            )))
+            )) or all(
+                marker in (src3 + lsrc) for marker in (
+                    '_injected_instructions("live")',
+                    '_injected_instructions("fallback")',
+                    "instruction_injector.compose(layer)",
+                )))
 
         # ------------------------------------------------------------------
         section("K. Settings persist across restart and cannot self-revert")

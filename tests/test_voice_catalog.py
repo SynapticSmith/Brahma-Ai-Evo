@@ -9,7 +9,6 @@ Network is not touched: Piper manifest parsing runs from a fixture, Kokoro is
 static release data, and downloads are served by a local HTTP server.
 """
 import hashlib
-import json
 import threading
 from functools import partial
 from http.server import (

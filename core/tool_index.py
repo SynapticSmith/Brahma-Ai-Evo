@@ -29,7 +29,7 @@ this transport. The engine therefore has to make the *advertised* surface small
 and constant, and give the model a way to reach the rest on demand:
 
 * **Fixed-size advertised surface.** A small set of *pinned* tools plus the
-  discovery meta-tools (``META_TOOLS`` — seven today, see :mod:`core.tool_bridge`)
+  discovery meta-tools (``META_TOOLS``, see :mod:`core.tool_bridge`)
   is sent to Gemini. Token cost and the 128 ceiling are both
   constant regardless of how many tools are installed.
 * **The rest of the catalog lives behind discovery.** ``search_tools`` (rank
@@ -111,6 +111,11 @@ DEFAULT_PINNED_TOOLS = (
 META_SEARCH_TOOL = "search_tools"
 META_CALL_TOOL = "call_tool"
 META_MANUAL_TOOL = "get_skill_manual"
+#: Returns the agent's own operating manual — the on-demand half of the
+#: two-tier system prompt in ``core/prompt.txt`` (see ``core.prompt_parts``).
+#: It is a peer of the discovery tools because the manual is reference
+#: material fetched on demand, not a resident declaration.
+META_SURFACE_TOOL = "get_tool_surface"
 META_LIST_TOOLS_TOOL = "list_tools"
 META_SEARCH_SKILLS_TOOL = "search_skills"
 META_LOAD_SKILL_TOOL = "load_skill"
@@ -123,6 +128,7 @@ META_TOOLS = (
     META_SEARCH_SKILLS_TOOL,
     META_LOAD_SKILL_TOOL,
     META_LIST_SKILLS_TOOL,
+    META_SURFACE_TOOL,
 )
 
 #: Paging shared by the two enumeration meta-tools (``list_tools`` /
@@ -1175,7 +1181,10 @@ class ToolIndex:
                     elif len(flat) > 5 and flat in needle:
                         hit.score += 0.5
 
-        hits.sort(key=lambda h: h.score, reverse=True)
+        # Deterministic order: equal RRF scores must not depend on the order the
+        # backends happened to emit their (tied) results, or two identical
+        # builds of the same intent can differ. Break ties on the tool name.
+        hits.sort(key=lambda h: (-h.score, h.name.lower()))
         diversified = self._diversify(hits, k)
         self._stats.last_query_ms = round((time.perf_counter() - started) * 1000.0, 2)
         return diversified
@@ -1702,6 +1711,32 @@ LIST_SKILLS_DECLARATION: Dict[str, Any] = {
     },
 }
 
+GET_SURFACE_DECLARATION: Dict[str, Any] = {
+    "name": META_SURFACE_TOOL,
+    "description": (
+        "Read your own operating manual — the per-domain routing table plus the "
+        "tool-surface and capability rules. Call this whenever you need to know "
+        "exactly which tool fits a request (presenting, files, web, apps, "
+        "messages, PC control, devices, media, memory) or how the discovery "
+        "layer reaches tools that are not loaded. Read it before improvising, "
+        "and before claiming a capability is missing."
+    ),
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "section": {
+                "type": "STRING",
+                "description": (
+                    "Optional heading filter: return only the manual sections "
+                    "whose heading contains this text (e.g. 'devices', 'media', "
+                    "'tool surface'). Omit to read the whole manual."
+                ),
+            },
+        },
+        "required": [],
+    },
+}
+
 META_DECLARATIONS: Tuple[Dict[str, Any], ...] = (
     SEARCH_TOOLS_DECLARATION,
     CALL_TOOL_DECLARATION,
@@ -1710,6 +1745,10 @@ META_DECLARATIONS: Tuple[Dict[str, Any], ...] = (
     SEARCH_SKILLS_DECLARATION,
     LOAD_SKILL_DECLARATION,
     LIST_SKILLS_DECLARATION,
+    # Appended, never inserted: existing nothing-to-count assumptions (and the
+    # declaration-order tests) depend on the original seven keeping their
+    # positions.
+    GET_SURFACE_DECLARATION,
 )
 
 

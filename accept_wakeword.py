@@ -73,9 +73,41 @@ def wait_for(pred, timeout: float = 10.0) -> bool:
 # ---------------------------------------------------------------------------
 # A. The real microphone and the real recognition pipeline.
 # ---------------------------------------------------------------------------
+def _capture_device_usable() -> tuple[bool, str]:
+    """Can this machine actually open an input stream right now?
+
+    Section A drives the REAL microphone. On a headless/CI box, or after the
+    OS audio stack drops its capture endpoints (unplugged headset, sleeping
+    audio service -- PortAudio then reports ``-9999 Unanticipated host error``
+    on every host API), no capture device can be opened and the section would
+    fail for a reason that is not a code defect. Probe first and skip honestly
+    instead of reporting a false regression.
+    """
+    try:
+        import sounddevice as sd
+    except Exception as exc:
+        return False, f"sounddevice unavailable ({exc})"
+    try:
+        with sd.InputStream(samplerate=16000, blocksize=1600, channels=1,
+                            dtype="int16"):
+            pass
+        return True, ""
+    except Exception as exc:
+        return False, str(exc)[:90]
+
+
 def test_real_microphone() -> None:
     print("\nA. Real microphone, real capture, real STT call")
     import speech_recognition as sr
+
+    usable, why = _capture_device_usable()
+    if not usable:
+        print("  [SKIP] no usable capture device -- section A needs real "
+              "hardware")
+        print(f"         ({why})")
+        print("         scripted capture (sections B/C) still proves the "
+              "detection logic")
+        return
 
     h = Harness()
     calls: list[int] = []

@@ -110,7 +110,17 @@ class UnifiedAIClient:
         response_format: Optional[dict] = None,
         label: str = "OpenAI-compatible",
         timeout: tuple = REQUEST_TIMEOUT,
-    ) -> Optional[str]:
+        tools: Optional[List[Dict[str, Any]]] = None,
+        return_message: bool = False,
+    ) -> Optional[Any]:
+        """One OpenAI-compatible chat call.
+
+        ``tools`` (already in OpenAI ``{"type": "function"}`` shape) is sent
+        when given, so a tool-capable OpenAI-compatible provider can answer
+        with ``tool_calls``. With ``return_message`` the whole assistant
+        message is returned for the tool loop; otherwise the content string
+        (the historical behaviour) is returned.
+        """
         payload: Dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -120,6 +130,8 @@ class UnifiedAIClient:
             payload["max_tokens"] = max_tokens
         if response_format:
             payload["response_format"] = response_format
+        if tools:
+            payload["tools"] = tools
 
         endpoint = f"{url}/chat/completions"
         try:
@@ -131,7 +143,10 @@ class UnifiedAIClient:
             )
             if resp.status_code == 200:
                 data = resp.json()
-                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                message = data.get("choices", [{}])[0].get("message", {}) or {}
+                if return_message:
+                    return message
+                content = message.get("content", "")
                 return content.strip() if content else None
             logger.error(f"[LLM Client] {label} error {resp.status_code}: {resp.text[:400]}")
             return None
@@ -325,6 +340,56 @@ class UnifiedAIClient:
         OpenAI ``image_url`` content shape, which every link here speaks.
         Raises RuntimeError with an actionable message when the provider is
         disabled, unconfigured, or returns nothing -- never an empty string.
+
+        This is a *text* call: the result is the assistant's message content.
+        Callers that also need to run tools use
+        :meth:`chat_as_completion`, which returns the raw message.
+        """
+        message = self.chat_as_completion(
+            provider_id,
+            prompt,
+            system=system,
+            history=history,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            image_b64=image_b64,
+            image_mime=image_mime,
+        )
+        return (message.get("content") or "").strip() or (
+            # A reply ladder treats an empty reply as a failed attempt, and
+            # "cannot answer" is the honest signal here: the message carried
+            # tool calls, not speech, and only the tool loop can finish it.
+            "The provider returned tool calls instead of a reply."
+        )
+
+    def chat_as_completion(
+        self,
+        provider_id: str,
+        prompt: str,
+        *,
+        system: str = "You are a helpful assistant.",
+        history: Optional[list[dict]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        full_messages: Optional[List[Dict[str, Any]]] = None,
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+        image_b64: Optional[str] = None,
+        image_mime: str = "image/png",
+    ) -> Dict[str, Any]:
+        """Like ``chat_as``, but returns the full assistant message.
+
+        The message is ``content`` plus any ``tool_calls`` -- the shape the
+        OpenAI tool protocol needs when a caller runs tools on a
+        OpenAI-compatible provider other than LocalBrain (the custom
+        endpoint). ``tools`` rides the same request, so a custom endpoint
+        gets the same bounded advertisement the local path builds.
+
+        ``full_messages``, when given, is the *complete* conversation and is
+        sent verbatim -- no system prepend, no prompt append. This is the
+        follow-up shape of a tool loop, where the conversation already carries
+        its own system message, the assistant tool-call turn and the tool
+        results; wrapping those again would send two system messages and an
+        empty user turn, which some OpenAI-compatible servers reject.
         """
         self.reload_settings()
         pid = (provider_id or "").strip().lower()
@@ -336,13 +401,18 @@ class UnifiedAIClient:
             provider_router.guard(pid)
 
         if pid == "openrouter":
-            if image_b64:
-                return openrouter_client.vision(
+            # OpenRouter is walked with an explicit system prompt and no tool
+            # array; that is the transport's contract (openrouter_client).
+            text = (
+                openrouter_client.vision(
                     prompt, image_b64, image_mime, system, None, max_tokens
                 )
-            return openrouter_client.chat(
-                prompt, system, history, None, max_tokens, temperature
+                if image_b64
+                else openrouter_client.chat(
+                    prompt, system, history, None, max_tokens, temperature
+                )
             )
+            return {"content": (text or "").strip()}
 
         timeout = REQUEST_TIMEOUT
         if pid == "local":
@@ -370,22 +440,26 @@ class UnifiedAIClient:
                 "(expected openrouter/local/custom)"
             )
 
-        messages: List[Dict[str, Any]] = [{"role": "system", "content": system}]
-        if history:
-            messages.extend(history)
-        if image_b64:
-            messages.append({
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:{image_mime};base64,{image_b64}"},
-                    },
-                    {"type": "text", "text": prompt},
-                ],
-            })
+        if full_messages is not None:
+            # Verbatim: the caller owns the whole conversation (tool loop).
+            messages: List[Dict[str, Any]] = list(full_messages)
         else:
-            messages.append({"role": "user", "content": prompt})
+            messages = [{"role": "system", "content": system}]
+            if history:
+                messages.extend(history)
+            if image_b64:
+                messages.append({
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{image_mime};base64,{image_b64}"},
+                        },
+                        {"type": "text", "text": prompt},
+                    ],
+                })
+            else:
+                messages.append({"role": "user", "content": prompt})
         result = self._openai_chat_completion(
             messages,
             url=url,
@@ -395,6 +469,8 @@ class UnifiedAIClient:
             max_tokens=max_tokens,
             label=label,
             timeout=timeout,
+            tools=tools,
+            return_message=True,
         )
         if result:
             return result

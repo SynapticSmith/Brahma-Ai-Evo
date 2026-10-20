@@ -33,7 +33,6 @@ from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -677,7 +676,6 @@ class VoiceLibraryDialog(QDialog):
         self._cancel.clear()
         self._set_busy(True)
         self._bar.setValue(0)
-        label = str(entry.get("label") or entry.get("filename") or "voice")
 
         # A Kokoro model without its matching pack is unusable, so fetch the
         # pack first (it is the smaller of the two: fail cheap).
