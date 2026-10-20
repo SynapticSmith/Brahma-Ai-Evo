@@ -117,6 +117,13 @@ def _default_app_settings() -> dict:
         "speech_whisper_model": "base.en",
         "speech_tts_engine": "edge",
         "speech_tts_voice": "",
+        # Per-engine local voice selection (core/speech_tts.py). Blank means
+        # auto-discover, which is the old behaviour, so existing installs are
+        # unaffected. Filled in by the Voice Library in Settings.
+        "speech_tts_piper_voice": "",
+        "speech_tts_kokoro_model": "",
+        "speech_tts_kokoro_voices": "",
+        "speech_tts_kokoro_voice": "",
         "attention_message_prompts": True,
         "attention_call_prompts": True,
         "developer_mode_enabled": False,

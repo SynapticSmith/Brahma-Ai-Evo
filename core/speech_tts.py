@@ -75,12 +75,61 @@ def get_voice() -> str:
 
 
 def set_voice(voice: str) -> None:
+    _set_setting("speech_tts_voice", voice)
+
+
+# ---------------------------------------------------------------------------
+# Per-engine voice selection. One shared "Voice file" field cannot serve these
+# engines once more than one voice is installed: Piper wants a voice KEY (the
+# manifest id, resolved inside the voices folder) and Kokoro wants a model
+# FILENAME plus a voice NAME from inside the voices pack. Each is stored
+# separately so switching engines never leaves another engine's value behind,
+# and every one degrades to auto-discovery when unset or when the file the
+# user pointed at has since been deleted.
+# ---------------------------------------------------------------------------
+def _set_setting(key: str, value: Any) -> None:
     try:
         from memory import config_manager
 
-        config_manager.set_setting("speech_tts_voice", voice)
+        config_manager.set_setting(key, value)
     except Exception:
         pass
+
+
+def get_piper_voice() -> str:
+    """Piper voice key, e.g. ``en_US-lessac-medium``. "" = auto-discover."""
+    return str(_setting("speech_tts_piper_voice", "") or "").strip()
+
+
+def set_piper_voice(voice_key: str) -> None:
+    _set_setting("speech_tts_piper_voice", (voice_key or "").strip())
+
+
+def get_kokoro_model() -> str:
+    """Kokoro model filename, e.g. ``kokoro-v1.0.onnx``. "" = auto-discover."""
+    return str(_setting("speech_tts_kokoro_model", "") or "").strip()
+
+
+def set_kokoro_model(filename: str) -> None:
+    _set_setting("speech_tts_kokoro_model", (filename or "").strip())
+
+
+def get_kokoro_voices() -> str:
+    """Kokoro voices-pack filename, e.g. ``voices-v1.0.bin``. "" = match the model."""
+    return str(_setting("speech_tts_kokoro_voices", "") or "").strip()
+
+
+def set_kokoro_voices(filename: str) -> None:
+    _set_setting("speech_tts_kokoro_voices", (filename or "").strip())
+
+
+def get_kokoro_voice() -> str:
+    """Voice NAME inside the pack, e.g. ``af_heart``."""
+    return str(_setting("speech_tts_kokoro_voice", "") or "").strip()
+
+
+def set_kokoro_voice(voice_name: str) -> None:
+    _set_setting("speech_tts_kokoro_voice", (voice_name or "").strip())
 
 
 # ---------------------------------------------------------------------------
@@ -189,11 +238,25 @@ def _piper_voice_path() -> str:
     Piper's release layout is ``<name>.onnx`` + ``<name>.onnx.json`` (the config
     keeps the full original extension), so the sibling is derived from the full
     filename rather than from a stem that has already been stripped.
+
+    A configured voice is a manifest KEY (``en_US-lessac-medium``), resolved
+    inside the voices folder; an explicit file path still wins because the
+    Voice field predates the library and users may have pointed it somewhere.
     """
     configured = get_voice()
     if configured and os.path.isfile(configured) and os.path.isfile(configured + ".json"):
         return configured
     directory = os.path.join(_voices_dir(), "piper")
+    selected = get_piper_voice()
+    if selected:
+        # A key, a filename, or a full path are all accepted.
+        candidate = selected if selected.endswith(".onnx") else selected + ".onnx"
+        for attempt in (os.path.join(directory, candidate), candidate):
+            if os.path.isfile(attempt) and (
+                os.path.isfile(attempt + ".json")
+                or os.path.isfile(os.path.splitext(attempt)[0] + ".json")
+            ):
+                return attempt
     onnx = _first_with_suffix(directory, (".onnx",))
     if onnx and os.path.isfile(onnx + ".json"):
         return onnx
@@ -207,25 +270,156 @@ def _kokoro_model_path() -> str:
     configured = get_voice()
     if configured and os.path.isfile(configured):
         return configured
-    return _first_with_suffix(os.path.join(_voices_dir(), "kokoro"), (".onnx",))
+    directory = os.path.join(_voices_dir(), "kokoro")
+    selected = get_kokoro_model()
+    if selected:
+        candidate = selected if selected.endswith(".onnx") else selected + ".onnx"
+        for attempt in (os.path.join(directory, candidate), candidate):
+            if os.path.isfile(attempt):
+                return attempt
+    return _first_with_suffix(directory, (".onnx",))
 
 
 def _kokoro_voices_path() -> str:
-    """Kokoro ships a separate voices.bin; the constructor requires both paths."""
+    """Kokoro ships a separate voices.bin; the constructor requires both paths.
+
+    The pack must match the model family (a v1.1-zh model needs the v1.1-zh
+    pack), so an explicit selection is only honoured when it is the pack the
+    chosen model asks for. Otherwise the matching pack is found automatically,
+    falling back to whatever is there.
+    """
     directory = os.path.join(_voices_dir(), "kokoro")
+    model = _kokoro_model_path()
+    required = ""
+    if model:
+        try:
+            from core import voice_catalog
+
+            required = voice_catalog.kokoro_bin_for_model(os.path.basename(model))
+        except Exception:
+            required = ""
+
+    selected = get_kokoro_voices()
+    if selected:
+        candidate = selected if selected.endswith((".bin", ".voices")) else selected + ".bin"
+        for attempt in (os.path.join(directory, candidate), candidate):
+            if os.path.isfile(attempt) and (not required or os.path.basename(attempt) == required):
+                return attempt
+
+    for name in (required,):
+        if name:
+            found = os.path.join(directory, name)
+            if os.path.isfile(found):
+                return found
     found = _first_with_suffix(directory, (".bin",))
     if found:
         return found
     return _first_with_suffix(directory, (".voices",))
 
 
-def _kokoro_probe_subprocess(model_path: str, voices_path: str, timeout: float = 90.0) -> bool:
+def _kokoro_voice_name(voices_path: str) -> Tuple[str, str]:
+    """The voice to speak with, and the language tag to pass to create().
+
+    The chosen voice is only honoured when it actually exists in the pack --
+    asking for a name the pack does not carry fails at create() time, which
+    used to mean silence. Chinese packs are detected from the voice prefix
+    (``z...``), and the returned language is what Kokoro expects.
+    """
+    wanted = get_kokoro_voice()
+    available: List[str] = []
+    try:
+        from core import voice_catalog
+
+        available = voice_catalog.kokoro_voice_names(voices_path)
+    except Exception:
+        available = []
+
+    if wanted and (not available or wanted in available):
+        voice = wanted
+    elif available:
+        voice = "af_heart" if "af_heart" in available else available[0]
+    else:
+        voice = wanted or "af_heart"
+    return voice, kokoro_lang_for_voice(voice)
+
+
+def kokoro_lang_for_voice(voice: str) -> str:
+    """The espeak language tag Kokoro needs for a voice.
+
+    ``cmn`` -- not ``zh`` or ``zh-cn`` -- is the tag the bundled espeak-ng
+    backend accepts for Mandarin; the others raise "not supported by the
+    espeak backend", and speaking a Chinese voice with ``en-us`` only produces
+    phonemes for the wrong language. Kokoro's Chinese voices are all ``z*``
+    (zf_/zm_), the English ones are ``a*``/``b*``.
+    """
+    return "cmn" if str(voice).startswith("z") else "en-us"
+
+
+def kokoro_available_voices() -> List[str]:
+    """Voice names inside the installed pack, for the Settings picker."""
+    try:
+        from core import voice_catalog
+
+        return voice_catalog.kokoro_voice_names(_kokoro_voices_path())
+    except Exception:
+        return []
+
+
+def piper_available_voices() -> List[Dict[str, str]]:
+    """Installed Piper voice pairs ([{"id", "path"}]), for the Settings picker."""
+    try:
+        from core import voice_catalog
+
+        return voice_catalog.installed_piper_voices()
+    except Exception:
+        return []
+
+
+def _kokoro_probe_candidates(voices_path: str, voice: str) -> List[str]:
+    """Voice names to try in the child process, most preferred first.
+
+    A Chinese pack has no ``af_heart``, so falling back to that alone would
+    report a perfectly good zh model as unusable. Always include a name that
+    really is in the pack.
+    """
+    candidates: List[str] = []
+    if voice:
+        candidates.append(voice)
+    try:
+        from core import voice_catalog
+
+        available = voice_catalog.kokoro_voice_names(voices_path)
+    except Exception:
+        available = []
+    if "af_heart" in available:
+        candidates.append("af_heart")
+    elif available:
+        candidates.append(available[0])
+    else:
+        candidates.append("af_heart")
+    seen: List[str] = []
+    for name in candidates:
+        if name and name not in seen:
+            seen.append(name)
+    return seen
+
+
+def _kokoro_probe_subprocess(
+    model_path: str,
+    voices_path: str,
+    timeout: float = 90.0,
+    voice: str = "",
+) -> bool:
     """Load the Kokoro model in a child process to see whether it survives.
 
     A mismatched quantisation can make onnxruntime's CPU provider die with an
     access violation, which is a hard process crash that no in-process try/except
     can catch -- selecting that model would take Brahma down every time it tried
     to speak. Probing out-of-process turns a crash into a False.
+
+    The voice tried inside the child matters: the pack must contain it, and a
+    Chinese pack has no ``af_heart``. Candidates are tried in order, so a
+    missing name is not misreported as a broken model.
     """
     import subprocess
     import sys as _sys
@@ -234,12 +428,22 @@ def _kokoro_probe_subprocess(model_path: str, voices_path: str, timeout: float =
         "import sys\n"
         "from kokoro_onnx import Kokoro\n"
         "k = Kokoro(sys.argv[1], sys.argv[2])\n"
-        "s, r = k.create('ok', voice='af_heart', speed=1.0, lang='en-us')\n"
-        "sys.exit(0 if len(s) > 0 else 3)\n"
+        "for voice in sys.argv[3].split(','):\n"
+        "    if not voice:\n"
+        "        continue\n"
+        "    lang = 'cmn' if voice.startswith('z') else 'en-us'\n"
+        "    try:\n"
+        "        s, r = k.create('ok', voice=voice, speed=1.0, lang=lang)\n"
+        "        if len(s) > 0:\n"
+        "            sys.exit(0)\n"
+        "    except Exception:\n"
+        "        continue\n"
+        "sys.exit(3)\n"
     )
+    candidates = ",".join(_kokoro_probe_candidates(voices_path, voice))
     try:
         result = subprocess.run(
-            [_sys.executable, "-c", script, model_path, voices_path],
+            [_sys.executable, "-c", script, model_path, voices_path, candidates],
             timeout=timeout,
             capture_output=True,
         )
@@ -260,10 +464,10 @@ def _kokoro_model_usable() -> bool:
     model, voices = _kokoro_model_path(), _kokoro_voices_path()
     if not (model and voices):
         return False
-    key = f"{model}|{voices}"
+    key = f"{model}|{voices}|{get_kokoro_voice()}"
     cached = _probe_cache.get(key)
     if cached is None:
-        cached = _kokoro_probe_subprocess(model, voices)
+        cached = _kokoro_probe_subprocess(model, voices, voice=get_kokoro_voice())
         if len(_probe_cache) >= _PROBE_CACHE_LIMIT:
             _probe_cache.clear()
         _probe_cache[key] = cached
@@ -280,14 +484,16 @@ ENGINES: Dict[str, Dict[str, Any]] = {
     "piper": {
         "label": "Piper (local neural)",
         "probe": lambda: _probe_piper() and bool(_piper_voice_path()),
-        "detail": "Offline. Needs BOTH a voice .onnx and its .json in %LOCALAPPDATA%\\BrahmaAI\\voices\\piper.",
+        "detail": "Offline. Needs BOTH a voice .onnx and its .json in %LOCALAPPDATA%\\BrahmaAI\\voices\\piper. "
+                  "Use Settings -> Voice library to browse and download voices.",
         "local": True,
     },
     "kokoro": {
         "label": "Kokoro (local neural ONNX)",
         "probe": lambda: _probe_kokoro() and _kokoro_model_usable(),
-        "detail": "Offline. Needs a model .onnx AND voices.bin in %LOCALAPPDATA%\\BrahmaAI\\voices\\kokoro. "
-                  "The model is load-tested in a child process; a quantisation that crashes onnxruntime is reported as unavailable.",
+        "detail": "Offline. Needs a model .onnx AND a matching voices pack in %LOCALAPPDATA%\\BrahmaAI\\voices\\kokoro. "
+                  "Use Settings -> Voice library to browse and download models. The model is load-tested in a child "
+                  "process; a quantisation that crashes onnxruntime is reported as unavailable.",
         "local": True,
     },
     "sapi": {
@@ -471,6 +677,7 @@ def _speak_kokoro(text: str) -> bool:
     voices_path = _kokoro_voices_path()
     if not (model_path and voices_path):
         return False
+    voice, lang = _kokoro_voice_name(voices_path)
     with _kokoro_lock:
         key = f"{model_path}|{voices_path}"
         kokoro = _kokoro_cache.get(key)
@@ -478,7 +685,7 @@ def _speak_kokoro(text: str) -> bool:
             kokoro = Kokoro(model_path, voices_path)
             _kokoro_cache.clear()
             _kokoro_cache[key] = kokoro
-        samples, rate = kokoro.create(text, voice="af_heart", speed=1.0, lang="en-us")
+        samples, rate = kokoro.create(text, voice=voice, speed=1.0, lang=lang)
         wav_path = os.path.join(tempfile.gettempdir(), f"brahma_kokoro_{uuid.uuid4().hex}.wav")
         try:
             write_wave(wav_path, samples, rate)

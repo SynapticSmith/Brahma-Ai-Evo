@@ -1238,6 +1238,7 @@ class SystemConnectivityPage(QWidget):
         lay.addWidget(stt_title)
 
         stt_box = QComboBox()
+        self._stt_box = stt_box
         self._stt_engines = _stt.available_engines()
         for eng in self._stt_engines:
             mark = "" if eng["available"] else "  (not installed)"
@@ -1284,16 +1285,51 @@ class SystemConnectivityPage(QWidget):
         voice_row.addWidget(QLabel("Voice file"))
         self._tts_voice = QLineEdit(str(settings.get("speech_tts_voice", "") or ""))
         self._tts_voice.setPlaceholderText(
-            r"Optional. Leave blank to auto-discover under %LOCALAPPDATA%\BrahmaAI\voices"
+            r"Optional override. Leave blank to use the voices picked below"
         )
         voice_row.addWidget(self._tts_voice, 1)
         lay.addLayout(voice_row)
+
+        # --- per-engine local voices (piper / kokoro) ------------------------ #
+        # One shared "Voice file" cannot serve these engines once more than one
+        # voice is installed: Piper picks a voice KEY, Kokoro a model FILENAME
+        # plus a voice NAME inside the pack. Shown only for the engine they
+        # belong to, so the card stays readable.
+        self._piper_row = QHBoxLayout()
+        self._piper_label = QLabel("Piper voice")
+        self._piper_row.addWidget(self._piper_label)
+        self._piper_voice_box = QComboBox()
+        self._piper_voice_box.setMinimumWidth(260)
+        self._piper_row.addWidget(self._piper_voice_box, 1)
+        lay.addLayout(self._piper_row)
+
+        self._kokoro_model_row = QHBoxLayout()
+        self._kokoro_model_label = QLabel("Kokoro model")
+        self._kokoro_model_row.addWidget(self._kokoro_model_label)
+        self._kokoro_model_box = QComboBox()
+        self._kokoro_model_box.setMinimumWidth(260)
+        self._kokoro_model_row.addWidget(self._kokoro_model_box, 1)
+        lay.addLayout(self._kokoro_model_row)
+
+        self._kokoro_voice_row = QHBoxLayout()
+        self._kokoro_voice_label = QLabel("Kokoro voice")
+        self._kokoro_voice_row.addWidget(self._kokoro_voice_label)
+        self._kokoro_voice_box = QComboBox()
+        self._kokoro_voice_box.setMinimumWidth(260)
+        self._kokoro_voice_row.addWidget(self._kokoro_voice_box, 1)
+        lay.addLayout(self._kokoro_voice_row)
 
         test_row = QHBoxLayout()
         btn_speak = QPushButton("Speak test")
         btn_speak.setFixedWidth(110)
         btn_speak.clicked.connect(self._on_speech_test)
         test_row.addWidget(btn_speak)
+        btn_library = QPushButton("Voice library…")
+        btn_library.setToolTip(
+            "Browse and download Piper voices and Kokoro models from Settings."
+        )
+        btn_library.clicked.connect(self._on_voice_library)
+        test_row.addWidget(btn_library)
         test_row.addStretch(1)
         lay.addLayout(test_row)
 
@@ -1313,11 +1349,18 @@ class SystemConnectivityPage(QWidget):
             merged["speech_tts_voice"] = self._tts_voice.text().strip()
             self._replace_app_settings(merged)
             self._refresh_speech_status()
+            self._refresh_local_voice_widgets()
 
         stt_box.currentIndexChanged.connect(lambda _i: _persist())
         tts_box.currentIndexChanged.connect(lambda _i: _persist())
         self._whisper_model.editingFinished.connect(lambda: _persist())
         self._tts_voice.editingFinished.connect(lambda: _persist())
+
+        self._piper_voice_box.currentIndexChanged.connect(self._on_piper_voice_changed)
+        self._kokoro_model_box.currentIndexChanged.connect(self._on_kokoro_model_changed)
+        self._kokoro_voice_box.currentIndexChanged.connect(self._on_kokoro_voice_changed)
+
+        self._refresh_local_voice_widgets()
 
         return card
 
@@ -2026,6 +2069,184 @@ class SystemConnectivityPage(QWidget):
             threading.Thread(target=_run, daemon=True, name="speech-test").start()
         except Exception as exc:
             self._speech_status.setText(f"Speech test failed to start: {exc}")
+
+    # ------------------------------------------------------------------
+    # Local voice pickers + the Voice Library dialog
+    # ------------------------------------------------------------------
+    def _refresh_local_voice_widgets(self):
+        """Rebuild the Piper/Kokoro voice combos and show the relevant rows.
+
+        Rebuilt from what is on disk every time, because the Voice Library can
+        add or remove voices while the card is open, and because the pickers
+        are only meaningful for the engine they belong to.
+        """
+        try:
+            from core import speech_tts as _tts
+        except Exception:
+            return
+        try:
+            engine = self._tts_box.currentData() if hasattr(self, "_tts_box") else ""
+        except Exception:
+            engine = ""
+
+        try:
+            current_piper = _tts.get_piper_voice()
+            box = self._piper_voice_box
+            box.blockSignals(True)
+            box.clear()
+            box.addItem("(auto-discover)", "")
+            for voice in _tts.piper_available_voices():
+                box.addItem(voice.get("id") or voice.get("path") or "?", voice.get("id") or "")
+            idx = box.findData(current_piper)
+            box.setCurrentIndex(idx if idx >= 0 else 0)
+            box.blockSignals(False)
+        except Exception:
+            pass
+
+        try:
+            from core import voice_catalog
+
+            current_model = _tts.get_kokoro_model()
+            box = self._kokoro_model_box
+            box.blockSignals(True)
+            box.clear()
+            box.addItem("(auto-discover)", "")
+            for name in voice_catalog.installed_kokoro_models():
+                box.addItem(name, name)
+            idx = box.findData(current_model)
+            box.setCurrentIndex(idx if idx >= 0 else 0)
+            box.blockSignals(False)
+
+            current_voice = _tts.get_kokoro_voice()
+            box = self._kokoro_voice_box
+            box.blockSignals(True)
+            box.clear()
+            for name in _tts.kokoro_available_voices():
+                box.addItem(name, name)
+            idx = box.findText(current_voice)
+            box.setCurrentIndex(idx if idx >= 0 else 0)
+            box.blockSignals(False)
+        except Exception:
+            pass
+
+        # Show only the rows the current engine owns. PyQt6 does not expose
+        # QLayout.isVisible()/setVisible(), so visibility is driven from the
+        # widgets in each row rather than from the layout itself.
+        try:
+            show_piper = engine == "piper"
+            show_kokoro = engine == "kokoro"
+            for widget in (self._piper_label, self._piper_voice_box):
+                widget.setVisible(show_piper)
+            for widget in (
+                self._kokoro_model_label, self._kokoro_model_box,
+                self._kokoro_voice_label, self._kokoro_voice_box,
+            ):
+                widget.setVisible(show_kokoro)
+        except Exception:
+            pass
+
+    def _on_piper_voice_changed(self, _index: int) -> None:
+        try:
+            from core import speech_tts as _tts
+
+            _tts.set_piper_voice(self._piper_voice_box.currentData() or "")
+            # The legacy Voice file field is a path override that would win
+            # over the picker; clear it so this choice is what is spoken.
+            _tts.set_voice("")
+            try:
+                self._tts_voice.setText("")
+            except Exception:
+                pass
+            self._refresh_speech_status()
+        except Exception:
+            pass
+
+    def _on_kokoro_model_changed(self, _index: int) -> None:
+        try:
+            from core import speech_tts as _tts
+            from core import voice_catalog
+
+            model = self._kokoro_model_box.currentData() or ""
+            _tts.set_kokoro_model(model)
+            _tts.set_voice("")
+            try:
+                self._tts_voice.setText("")
+            except Exception:
+                pass
+            if model:
+                # A model only speaks with its matching pack; select it so the
+                # user does not have to know that pairing.
+                required = voice_catalog.kokoro_bin_for_model(model)
+                if required and required in voice_catalog.installed_kokoro_bins():
+                    _tts.set_kokoro_voices(required)
+            self._refresh_local_voice_widgets()
+            self._refresh_speech_status()
+        except Exception:
+            pass
+
+    def _on_kokoro_voice_changed(self, _index: int) -> None:
+        try:
+            from core import speech_tts as _tts
+
+            _tts.set_kokoro_voice(self._kokoro_voice_box.currentText().strip())
+            self._refresh_speech_status()
+        except Exception:
+            pass
+
+    def _on_voice_library(self):
+        """Open the Voice Library dialog, then re-read whatever it changed."""
+        try:
+            from core.ui_voice_library import VoiceLibraryDialog
+        except Exception as exc:
+            try:
+                self._speech_status.setText(f"Voice library unavailable: {exc}")
+            except Exception:
+                pass
+            return
+        try:
+            dialog = VoiceLibraryDialog(self, on_changed=self._after_voice_library_change)
+            dialog.exec()
+        except Exception as exc:
+            try:
+                self._speech_status.setText(f"Voice library failed to open: {exc}")
+            except Exception:
+                pass
+            return
+        self._after_voice_library_change()
+
+    def _after_voice_library_change(self):
+        """Engine availability and installed voices may have just changed."""
+        self._refresh_engine_marks()
+        self._refresh_local_voice_widgets()
+        self._refresh_speech_status()
+
+    def _refresh_engine_marks(self):
+        """Update the "(not installed)" marks on the engine combos in place."""
+        try:
+            from core import speech_stt as _stt
+            from core import speech_tts as _tts
+
+            pairs = (
+                (getattr(self, "_stt_box", None), _stt.available_engines()),
+                (getattr(self, "_tts_box", None), _tts.available_engines()),
+            )
+        except Exception:
+            return
+        for box, engines in pairs:
+            if box is None:
+                continue
+            marks = {
+                e["id"]: ("" if e["available"] else "  (not installed)") for e in engines
+            }
+            try:
+                for i in range(box.count()):
+                    engine_id = box.itemData(i)
+                    if engine_id not in marks:
+                        continue
+                    label = str(box.itemText(i)).split("  (not installed)")[0]
+                    box.setItemText(i, f"{label}{marks[engine_id]}")
+            except Exception:
+                continue
 
     def _build_custom_mcp_card(self):
         """Card for registering arbitrary MCP servers from Settings.
