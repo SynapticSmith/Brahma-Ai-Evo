@@ -54,8 +54,8 @@ DEFAULT_MODEL = "qwen2.5:3b"
 # model, patience over fast failure (a refused connection still surfaces
 # instantly without touching any timeout, and the budget stays finite).
 TIMEOUT_PROFILES: Dict[str, Dict[str, float]] = {
-    "fast": {"response": 180.0, "first_token": 180.0},
-    "slow": {"response": 600.0, "first_token": 600.0},
+    "fast": {"response": 900.0, "first_token": 900.0},
+    "slow": {"response": 1500.0, "first_token": 1500.0},
 }
 DEFAULT_TIMEOUT_PROFILE = "slow"  # inconclusive auto-detection resolves here
 # Streaming: once tokens are flowing, the maximum allowed silence between
