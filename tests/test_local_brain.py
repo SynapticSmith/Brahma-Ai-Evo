@@ -230,7 +230,7 @@ def _capture_timeout(monkeypatch, brain):
 def test_cpu_resident_model_gets_slow_budgets(monkeypatch):
     """A model Ollama reports with zero VRAM is on the CPU: prefill of the
     system context can take minutes, so chat_complete must ask for the slow
-    whole-body budget, not the GPU-era 180 s."""
+    whole-body budget, not the fast one."""
     brain = _brain_with_settings(monkeypatch, {})
     monkeypatch.setattr(brain, "_get_json", lambda url: _fake_ps(0))
     captured = _capture_timeout(monkeypatch, brain)
@@ -238,7 +238,8 @@ def test_cpu_resident_model_gets_slow_budgets(monkeypatch):
     brain.chat_complete(messages=[{"role": "user", "content": "hi"}])
 
     assert brain.active_profile() == "slow"
-    assert captured["timeout"] == TIMEOUT_PROFILES["slow"]["response"] == 600.0
+    assert captured["timeout"] == TIMEOUT_PROFILES["slow"]["response"]
+    assert TIMEOUT_PROFILES["slow"]["response"] > TIMEOUT_PROFILES["fast"]["response"]
 
 
 def test_vram_resident_model_keeps_fast_budgets(monkeypatch):
@@ -253,7 +254,7 @@ def test_vram_resident_model_keeps_fast_budgets(monkeypatch):
     brain.chat_complete(messages=[{"role": "user", "content": "hi"}])
 
     assert brain.active_profile() == "fast"
-    assert captured["timeout"] == TIMEOUT_PROFILES["fast"]["response"] == 180.0
+    assert captured["timeout"] == TIMEOUT_PROFILES["fast"]["response"]
 
 
 def test_partial_offload_gets_slow_budgets(monkeypatch):
@@ -269,7 +270,7 @@ def test_partial_offload_gets_slow_budgets(monkeypatch):
     brain.chat_complete(messages=[{"role": "user", "content": "hi"}])
 
     assert brain.active_profile() == "slow"
-    assert captured["timeout"] == TIMEOUT_PROFILES["slow"]["response"] == 600.0
+    assert captured["timeout"] == TIMEOUT_PROFILES["slow"]["response"]
 
 
 def test_probe_failure_resolves_to_slow_and_is_cached(monkeypatch):
@@ -289,7 +290,7 @@ def test_probe_failure_resolves_to_slow_and_is_cached(monkeypatch):
     brain.chat_complete(messages=[{"role": "user", "content": "hi"}])
 
     assert brain.active_profile() == "slow"
-    assert captured["timeout"] == TIMEOUT_PROFILES["slow"]["response"] == 600.0
+    assert captured["timeout"] == TIMEOUT_PROFILES["slow"]["response"]
     # One probe only: the failure is remembered for the TTL.
     brain.active_profile()
     assert len(calls) == 1
@@ -301,12 +302,12 @@ def test_settings_profile_override_beats_auto(monkeypatch):
     slow = _brain_with_settings(monkeypatch, {"local_timeout_profile": "slow"})
     monkeypatch.setattr(slow, "_get_json", lambda url: _fake_ps(99))
     assert slow.active_profile() == "slow"
-    assert slow.response_timeout() == 600.0
+    assert slow.response_timeout() == TIMEOUT_PROFILES["slow"]["response"]
 
     fast = _brain_with_settings(monkeypatch, {"local_timeout_profile": "fast"})
     monkeypatch.setattr(fast, "_get_json", lambda url: _fake_ps(0))
     assert fast.active_profile() == "fast"
-    assert fast.response_timeout() == 180.0
+    assert fast.response_timeout() == TIMEOUT_PROFILES["fast"]["response"]
 
     weird = _brain_with_settings(monkeypatch, {"local_timeout_profile": "turbo"})
     assert weird._timeout_profile == "auto"
@@ -349,8 +350,9 @@ def test_ps_load_speed_parsing():
 def test_cold_start_resolves_to_slow_and_reprobes(monkeypatch):
     """The reported field failure: on the first turn after startup the target
     model is not in /api/ps yet, so the probe is inconclusive - it must
-    resolve to the 600 s budget (not 180 s), and the inconclusive verdict
-    must NOT be cached, so the next turn can find the model loaded."""
+    resolve to the patient (slow) budget, never the fast one, and the
+    inconclusive verdict must NOT be cached, so the next turn can find the
+    model loaded."""
     brain = _brain_with_settings(monkeypatch, {})
     calls = []
 
@@ -361,8 +363,8 @@ def test_cold_start_resolves_to_slow_and_reprobes(monkeypatch):
     monkeypatch.setattr(brain, "_get_json", fake_get)
 
     assert brain.active_profile() == "slow"  # probe 1
-    assert brain.response_timeout() == TIMEOUT_PROFILES["slow"]["response"] == 600.0  # probe 2
-    assert brain.first_token_timeout() == 600.0  # probe 3
+    assert brain.response_timeout() == TIMEOUT_PROFILES["slow"]["response"]  # probe 2
+    assert brain.first_token_timeout() == TIMEOUT_PROFILES["slow"]["first_token"]  # probe 3
     assert brain.active_profile() == "slow"  # probe 4
     # Uncached inconclusive verdict: every resolution re-probes, so the turn
     # after Ollama lazily loads the model sees the real residency.
@@ -410,7 +412,7 @@ def test_open_stream_uses_profile_first_token_budget(monkeypatch):
     )
     brain._open_stream(req)
 
-    assert captured["timeout"] == TIMEOUT_PROFILES["slow"]["first_token"] == 600.0
+    assert captured["timeout"] == TIMEOUT_PROFILES["slow"]["first_token"]
 
 
 class _FakeSock:
