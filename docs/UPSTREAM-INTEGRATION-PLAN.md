@@ -736,6 +736,42 @@ python -c "import main, ui, llm_client"
 
 ---
 
+## 14. Upstream Update — 2026-10-28
+
+This plan was written when upstream was three commits past the merge base and stopped at `c8d9c0f`. Upstream `main` is now `bfb2868` (2026-10-27), **seven** commits past `e0bd3c5` and **four** past the commit the security report was filed against.
+
+### What changed
+
+| Commit | Date | Title | Assessment |
+|---|---|---|---|
+| `9dd02cf` | 2026-10-26 | feat(voice): overhaul real-time voice pipeline | Adds `core/claude_tools.py` (`bash`, `python_repl`), `core/mcp_manager.py`, `core/skills_engine.py`, unauthenticated `POST /gateway/execute`, and auto-approval of `HELLO` pairing. **Do not merge without containment.** |
+| `b3c4160` | 2026-10-26 | build(installer): bundle skills directory | Packaging only. |
+| `62b1591` | 2026-10-26 | Fix OpenRouter client dynamic key reloading | Provider plumbing only. |
+| `bfb2868` | 2026-10-27 | Add public Privacy Policy | Documentation only. |
+
+### Security findings status
+
+None of the seven commits touches `core/skill_forge.py`, `core/skill_crucible.py`, `plugin_manager.py`, `updater.py`, `core/updater.py`, or `smart_home/storage.py`. The eight findings in [SECURITY-ANALYSIS-ISSUE-4.md](SECURITY-ANALYSIS-ISSUE-4.md) therefore remain open in upstream. `9dd02cf` adds new execution and network surface rather than reducing it.
+
+### Integration guidance
+
+1. **Do not merge `9dd02cf` wholesale.** Port the voice/UI improvements separately.
+2. If `bash` / `python_repl` are wanted, route them through the execution policy and confirmation layer rather than exposing them as raw model tools.
+3. If MCP is wanted, replace `shell=True` spawning with an argv array and a pinned/hashed server package.
+4. Keep the fork's gateway at loopback until token auth and human pairing exist. The fork predates `/gateway/execute`; it must not gain the route without auth.
+5. The upstream installer is unsigned (`codesign_identity=None`, no `signtool` step) and `BrahmaEvo_Setup.spec` sets `uac_admin=True`. Treat any published `.exe` as an unsigned build.
+
+### Reference
+
+The public analysis and engineering follow-ups are posted on [issue #4](https://github.com/titechprabhasolutions/Brahma-Ai-Evo/issues/4):
+
+- main reply: <https://github.com/titechprabhasolutions/Brahma-Ai-Evo/issues/4#issuecomment-6480568426>
+- upstream status/corrections: <https://github.com/titechprabhasolutions/Brahma-Ai-Evo/issues/4#issuecomment-6481448264>
+- architecture part 1 (execution surfaces): <https://github.com/titechprabhasolutions/Brahma-Ai-Evo/issues/4#issuecomment-6481448606>
+- architecture part 2 (updates, secrets, gateway, model): <https://github.com/titechprabhasolutions/Brahma-Ai-Evo/issues/4#issuecomment-6481448988>
+
+---
+
 **END OF PLAN** 
 
 *This document is a living plan. Update the tracking matrix, decision log, and status as you progress through the integration.* 
