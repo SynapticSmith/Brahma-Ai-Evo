@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import os
 import threading
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional
 
 from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
@@ -34,7 +34,6 @@ from PyQt6.QtWidgets import (
     QDialog,
     QFileDialog,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -520,8 +519,9 @@ class AvatarLibraryDialog(QDialog):
                 runtime = avatar_runtime.runtime_present()
             except Exception as exc:
                 entries, installed, runtime = [], [], []
+                error = f"Live2D catalogue error: {exc}"
                 def _e():
-                    self._op_label.setText(f"Live2D catalogue error: {exc}")
+                    self._op_label.setText(error)
                 self._run_on_ui(_e)
                 def _done():
                     self._loading = False
@@ -558,7 +558,7 @@ class AvatarLibraryDialog(QDialog):
             self._l2d_runtime.setStyleSheet(f"color: {C.GREEN}; font-size: 11px;")
         else:
             self._l2d_runtime.setText("not installed")
-            self._l2d_runtime.setStyleSheet(f"color: #ff9f43; font-size: 11px;")
+            self._l2d_runtime.setStyleSheet("color: #ff9f43; font-size: 11px;")
         self._op_label.setText(f"{len(entries)} in catalogue - {len(installed)} installed")
 
     def _sel_l2d_cat(self):
@@ -665,8 +665,9 @@ class AvatarLibraryDialog(QDialog):
                 self._vrm_installed = avatar_catalog.installed_vrm()
             except Exception as exc:
                 self._vrm_entries, self._vrm_installed = [], []
+                error = f"VRM error: {exc}"
                 def _e():
-                    self._op_label.setText(f"VRM error: {exc}")
+                    self._op_label.setText(error)
                 self._run_on_ui(_e)
             def _apply():
                 self._loading = False
@@ -798,8 +799,9 @@ class AvatarLibraryDialog(QDialog):
                 poly = avatar_catalog.polyhaven_catalog(force=False)
             except Exception as exc:
                 inst, poly = [], []
+                error = f"Background error: {exc}"
                 def _e():
-                    self._op_label.setText(f"Background error: {exc}")
+                    self._op_label.setText(error)
                 self._run_on_ui(_e)
             def _apply():
                 self._loading = False

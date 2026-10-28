@@ -54,7 +54,7 @@ import shutil
 import struct
 import time
 import urllib.request
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from core import file_download
 from core.user_paths import get_user_data_dir
