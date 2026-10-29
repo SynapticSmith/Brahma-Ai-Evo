@@ -34,9 +34,10 @@ database migration is required; the new tables are additive.
 | Provider-reported token usage | Done |
 | Policy hot-reload (fail-safe) | Done |
 | Subdirectory instructions (path-driven) | Done |
+| Streaming output (text + tool calls) | Done |
 | Python floor + CI matrix | Done |
 | Docs | This file + `AGENTIC-HARNESS.md` |
-| Commit | `agent: add the agentic harness` + hardening commit |
+| Commit | One commit per hardening batch on `main` (see `git log --oneline`) |
 
 ---
 
@@ -55,6 +56,7 @@ agent/context.py        ContextBudget, ConversationContext, compaction
 agent/session.py        AgentSession (agent_* tables), SessionRecord
 agent/prompts.py        resident prompt + AGENTS.md/BRAHMA.md loader
 agent/providers.py      local/custom/openrouter/stub completers + summariser
+agent/streaming.py      delta assembler + SSE transport (stdlib urllib)
 agent/retry.py          transient classifier + cancellation-aware backoff
 agent/__main__.py       `python -m agent` CLI
 ```
@@ -76,7 +78,10 @@ Modified:
 New tests: `tests/test_agent_permissions.py`, `test_agent_code_tools.py`,
 `test_agent_context.py`, `test_agent_session.py`, `test_agent_loop.py`,
 `test_agent_cli.py`, `test_agent_retry.py`, `test_agent_prompts.py`,
-`test_agent_approval.py` — all pure-Python (no display, no model).
+`test_agent_approval.py`, `test_agent_parallel.py`, `test_agent_usage.py`,
+`test_agent_policy_reload.py`, `test_agent_instructions.py`,
+`test_agent_streaming.py` — all pure-Python (no display, no model). HUD-only
+behaviour lives in `tests/test_confirmation_overlay.py`.
 
 ---
 
@@ -332,6 +337,40 @@ while a rebuilt system prompt is invisible to the tool protocol and reaches the
 model before its next action. The `instructions` event names what loaded, so
 the CLI and HUD can show it.
 
+### D26 — Streaming is additive, opt-in, and reset-aware
+
+A coding loop makes several slow model calls and a local model can spend a
+minute in prefill; a UI that shows nothing for that minute looks wedged. But
+streaming must not become a second execution path: the transcript, repeat
+detection, compaction and resume all assume one assistant message per call.
+
+The loop therefore keeps `complete(messages, tools)` as the contract and treats
+streaming as an **optional attribute** on the completer:
+`complete.stream(messages, tools, on_delta)`. `AgentLoop(stream=True)` uses it
+when present; when absent it calls `complete` and emits one `stream_fallback`
+event. No capability flag to negotiate, no provider registry to extend, and a
+third-party completer written before streaming existed keeps working.
+
+`agent/streaming.py` owns the assembly: text appends in order, tool calls merge
+by `index` with `arguments` concatenated (each delta is a fragment of the JSON),
+the final message is sorted by index, and a usage-only tail chunk updates usage
+without emitting anything. Both the local runtime's existing SSE reader and a
+new stdlib `urllib` reader for OpenAI-compatible endpoints feed the same
+assembler, so a garbled tool call has one place to be fixed.
+
+The subtle case is **retry after first token**. The retry wrapper sees a
+transient failure mid-stream and reissues the request, but the UI is already
+showing text that will never be completed. `on_retry` emits `delta` with
+`kind: "reset"` before the `retry` event; the CLI closes the line and prints
+"partial output discarded", the HUD does the same, and the next attempt starts
+from an empty assembler. Only the successful attempt reaches the transcript.
+
+Two smaller fixes came with it: `AgentLoop._emit`'s first parameter is now
+`event_type` (a delta's own `kind` field collided with it), and OpenRouter's
+base URL is normalised with `_endpoint_base()` because `or_client.API_URL`
+already ends in `/chat/completions` while the shared transport appends that
+path itself.
+
 ### D20 — Parallel dispatch is whole-turn and read-only
 
 Model turns often contain several `read_file`/`glob_files`/`grep_files` calls,
@@ -368,8 +407,8 @@ and the default `python` are 3.14 and lack `ruff`/`pytest`.
 
 ```
 py -3.11 -m ruff check .                 # All checks passed!
-py -3.11 -m pytest tests -q              # 501 passed  (QT_QPA_PLATFORM=offscreen)
-py -3.11 -m pytest tests -q -k agent     # 167 passed
+py -3.11 -m pytest tests -q              # 530 passed  (QT_QPA_PLATFORM=offscreen)
+py -3.11 -m pytest tests -q -k agent     # 196 passed
 py -3.11 -c "import main; ..."           # 66 declarations, all six tools present
 py -3.11 -m agent tools                  # lists the six primitives
 py -3.11 -m agent permissions show       # reports built-in defaults
@@ -383,7 +422,7 @@ Notes:
   `len(TOOL_DECLARATIONS) == 66` and that
   `{read_file, write_file, edit_file, glob_files, grep_files, run_command}` are
   all present.
-* The 167 harness tests run without a display or a model:
+* The 196 harness tests run without a display or a model:
   `py -3.11 -m pytest tests -q -k agent`.
 * `python -m agent run --provider stub --json` is the cheapest end-to-end
   smoke test (used by `test_agent_cli`).
@@ -410,6 +449,10 @@ Notes:
   `tests/test_agent_instructions.py` (15): ancestor-chain order, directory vs
   file paths, ignored directories, outside paths, dedupe across turns, depth
   and character budgets, and the system-prompt injection the next request sees.
+* Streaming is covered by `tests/test_agent_streaming.py` (27): text and
+  fragmented tool-call assembly, usage-only tails, error chunks, SSE parsing and
+  HTTP error bodies, the stub transport, loop `delta` / `reset` /
+  `stream_fallback` events, and the CLI printer's no-duplicate rule.
 
 ---
 
@@ -417,20 +460,21 @@ Notes:
 
 Ordered by value, with the honest reason each was left out.
 
-1. **Streaming responses.** The loop waits for a complete message. Needed for
-   perceived latency and for editing large files without a long pause. Requires
-   a partial-tool-call assembler and a provider-side event contract; the loop's
-   `Completer` signature would become a generator.
-2. **Subagents / a tool scheduler.** Read-only calls within a turn now run in
+1. **Subagents / a tool scheduler.** Read-only calls within a turn now run in
    parallel, but the decision is whole-turn: one write or approval prompt
    serialises everything. A per-call scheduler and a subagent layer can be built
    on the event stream.
-3. **Session replay in the GUI.** The CLI can `resume`; the HUD cannot. A
+2. **Session replay in the GUI.** The CLI can `resume`; the HUD cannot. A
    session picker would map `agent_sessions` into the existing conversation UI.
-4. **Approval UX is still plain text.** The banner now shows the command, cwd,
+3. **Approval UX is still plain text.** The banner now shows the command, cwd,
    rule, and a diff, but there is no syntax highlighting or per-hunk folding,
    and the TTY prompt prints the same block. Naming the remembered scope is
    done; reviewing a 1 600-character diff on a HUD is the remaining friction.
+4. **Streaming is not universal.** The local, custom, OpenRouter and stub
+   transports stream; the GUI's custom path and the voice path announce
+   `stream_fallback` and use one request. The assembler follows the protocol
+   (argument fragments are concatenated), so a non-compliant server that
+   repeats a full arguments blob would produce invalid JSON.
 5. **Sandboxing.** `run_command` is `shell=True` with policy as the only
    barrier. A Windows job-object / container option would let `--yolo` be safe
    in more places.

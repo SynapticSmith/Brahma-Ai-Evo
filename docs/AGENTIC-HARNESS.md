@@ -92,6 +92,7 @@ Three invariants make the rest of the design work:
 | `agent/runtime.py` | The single dispatch boundary; approval callbacks; process-wide `configure()` | …you are wiring the harness into a new host. |
 | `agent/approval_detail.py` | Banner text: rule, command/cwd, unified diffs, and the ALWAYS ALLOW label | …an approval banner is unhelpful or names the wrong thing. |
 | `agent/usage.py` | Provider-reported token counts, normalised and summed | …you need real cost numbers instead of the local estimate. |
+| `agent/streaming.py` | Delta assembler (text + fragmented tool calls) and an SSE transport over `urllib` | …streamed text or a tool call is garbled. |
 | `agent/loop.py` | Bounded agent loop, repeat detection, stop reasons, event stream | …the agent stops early or will not stop. |
 | `agent/context.py` | Character budget, protocol-safe compaction, output truncation | …context is overflowing or a resumed prompt is rejected. |
 | `agent/session.py` | Durable messages/events in SQLite; list/open/resume | …resume loses messages. |
@@ -212,6 +213,57 @@ message per `tool_call` in model order. `tool_start` / `tool_end` events may
 interleave between workers; `tool_call` and `tool_result` events stay ordered.
 An event sink must therefore tolerate being called from a worker thread (the
 CLI writes one line per event; the GUI's sink re-emits through a Qt signal).
+
+### Streaming output
+
+Streaming is **opt-in and additive**. The loop contract stays one assistant
+message per call; `stream=True` only changes when the text becomes visible. A
+completer may expose a callable `stream` attribute:
+
+```python
+complete(messages, tool_schemas) -> assistant message
+complete.stream(messages, tool_schemas, on_delta) -> assistant message
+```
+
+The loop uses `stream` instead of `complete` when it exists. A completer
+without one is still called normally and the run emits a single
+`stream_fallback` event saying why — never a crash, never a silent downgrade.
+
+`agent/streaming.py` owns the two halves of the work:
+
+* `StreamAssembler` merges OpenAI `choices[0].delta` chunks. Text accumulates
+  in order; `tool_calls` merge **by `index`** and their `arguments` strings are
+  concatenated, because each delta carries a fragment of the JSON. The result
+  is sorted by index and shaped like any other assistant message, so the
+  transcript, repeat detection and session store do not know streaming
+  happened. A usage-only tail chunk (`choices: []`) updates usage and emits
+  nothing.
+* `openai_stream(url, payload)` posts the request with `urllib` and parses
+  server-sent events. It is stdlib-only on purpose: the harness CI installs
+  only pytest, and a custom endpoint or OpenRouter must stream without pulling
+  `requests` (or an SDK) into `agent/`.
+
+Each update is normalised to one of two deltas and forwarded as a `delta`
+event:
+
+| delta `kind` | Fields | Meaning |
+| --- | --- | --- |
+| `text` | `text` | Append this to the visible answer. |
+| `tool_call` | `index`, `id?`, `name?`, `arguments?` | A fragment of a call being assembled. |
+| `reset` | `reason` | Drop what you have shown for this turn. |
+
+`reset` matters because retries happen **after** the first token: if a stream
+fails mid-answer and the request is retried, the UI is holding text that will
+never be completed. `on_retry` emits `reset` before the `retry` event, and the
+assembler starts empty on the next attempt, so the finished `assistant` event
+and the transcript contain the successful attempt only.
+
+The CLI's `--stream` renders deltas as they arrive, suppresses the duplicate
+`assistant` text for that turn, and prints an explicit "partial output
+discarded" line on reset. `--json` emits every `delta` unchanged, which is the
+hook a TUI or an editor plugin uses. The GUI enables streaming on the local
+text path only (`local_brain.generate_chat_stream`); the custom path has no
+streaming transport, so it announces `stream_fallback` and uses one request.
 
 ### Protocol shape
 
@@ -469,6 +521,7 @@ Common flags (all of `run` and `resume`):
 | `--cwd` | cwd | Workspace root; containment is enforced against it. |
 | `--provider` | `auto` | `auto \| local \| custom \| openrouter \| stub`. `auto` = local → custom → openrouter. |
 | `--model` | provider default | |
+| `--stream` | off | Render text as it arrives; falls back to one request when the provider has no streaming transport. |
 | `--max-turns` | 40 | Loop hard stop. |
 | `--repeat-limit` | 3 | Identical-call threshold. |
 | `--max-parallel-tools` | 4 | Concurrent read-only calls; `1` disables parallelism. |
@@ -554,6 +607,8 @@ Every event is a dict with `type` plus fields. The same objects go to
 | `permission` | `name`, `decision` (`ask\|allow\|always\|denied\|deny\|error`), `rule`, `reason` | Only when a call was gated or served from a session approval. |
 | `compaction` | `dropped`, `summary_chars`, `total_chars` | After folding. |
 | `retry` | `attempt`, `delay_s`, `error` | Before waiting to retry a transient model-call failure. |
+| `delta` | `turn`, `kind` (`text\|tool_call\|reset`), `text` / `index`, `id?`, `name?`, `arguments?` / `reason` | Only while streaming; `reset` says to drop the partial answer. |
+| `stream_fallback` | `reason` | Once, when `--stream` was requested but the provider has no streaming transport. |
 | `policy_reload` | `ok`, `source`, `error` (when `ok=False`) | When an edited policy file was adopted or rejected. |
 | `instructions` | `loaded[labels]`, `chars`, `truncated` | When a turn touched a directory whose instruction file was not in the prompt yet. |
 | `error` | `error` | Loop-level fatal. |
@@ -637,6 +692,7 @@ unchanged); only the loop around it is new.
 | `tests/test_agent_parallel.py` | Concurrent reads, `max_parallel_tools` cap, write/`ask` serialisation, submission-order results, cancellation fillers for undispatched calls. |
 | `tests/test_agent_usage.py` | OpenAI/Gemini/SDK usage shapes, unknown vs zero, summed totals only from real halves, accumulation, per-turn `assistant.usage`. |
 | `tests/test_agent_policy_reload.py` | An edit takes effect mid-session, malformed edits keep the last good policy, no-file policies never reload, throttle/`force`, event payload, deny not widened by a session approval. |
+| `tests/test_agent_streaming.py` | Delta assembly (text, fragmented tool calls, usage tails, error chunks), SSE parsing and HTTP error bodies, endpoint normalisation, stub streaming, loop delta/`reset`/`stream_fallback` events, and the CLI printer's no-duplicate rule. |
 | `tests/test_confirmation_overlay.py` | HUD banner: ALWAYS ALLOW only for session-approvable calls, remembers-what hint, diff box, irreversible header. |
 
 They do not need a model. The `test_agent_*` files are pure-Python and need
@@ -664,8 +720,10 @@ These are known and deliberate, not surprises:
 
 * **OpenRouter tools go through `llm_client._openai_chat_completion`.**
   `chat_as_completion("openrouter", ...)` walks `or_client`, which drops the
-  `tools` array. The adapter reuses the shared OpenAI transport directly.
-  If that private method changes shape, fix `agent/providers.py` first.
+  `tools` array. The adapter reuses the shared OpenAI transport directly, and
+  `_endpoint_base()` strips `or_client.API_URL`'s `/chat/completions` because
+  that transport appends the path itself. If that private method changes shape,
+  fix `agent/providers.py` first.
 * **The GUI approval path needs a worker thread.** `ask_blocking` refuses on
   the Qt main thread by design. The text path already runs in a worker; the
   voice path uses `asyncio.to_thread`. A new caller must do the same or the
@@ -681,9 +739,13 @@ These are known and deliberate, not surprises:
   model with the same authority as the repository's own file. Vendored and
   generated directories are skipped, but review an unfamiliar tree before
   letting an agent work inside it.
-* **No streaming.** The loop waits for a complete assistant message. Token
-  streaming would need a provider-side event protocol and a partial-tool-call
-  assembler.
+* **Streaming is wired only where a transport exists.** Local (the existing
+  Ollama-compatible SSE reader), custom OpenAI-compatible endpoints,
+  OpenRouter and the stub stream; the GUI's custom path and the voice path do
+  not, so they emit `stream_fallback` and use one request. The assembler
+  follows the protocol and *concatenates* argument fragments, so a
+  non-compliant server that repeats the whole `arguments` blob on every chunk
+  would produce invalid JSON. (A repeated full tool *name* is tolerated.)
 * **Parallelism is read-only and whole-turn.** A turn with a single write,
   `exec`, native call, or approval prompt runs entirely sequentially; there is
   no per-call scheduler, and no subagent layer yet. A coordinator can be built

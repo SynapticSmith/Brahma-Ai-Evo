@@ -52,6 +52,50 @@ def test_bare_words_are_treated_as_a_run(tmp_path: Path, capsys):
     assert json.loads(capsys.readouterr().out.strip().splitlines()[-1])["type"] == "result"
 
 
+def test_stream_prints_the_answer_once_and_emits_delta_events(tmp_path: Path, capsys):
+    code = main(
+        [
+            "run",
+            "say hello",
+            "--cwd",
+            str(tmp_path),
+            "--provider",
+            "stub",
+            "--no-session",
+            "--stream",
+            "--json",
+        ]
+    )
+    lines = [json.loads(line) for line in capsys.readouterr().out.strip().splitlines()]
+
+    assert code == 0
+    deltas = [line for line in lines if line.get("type") == "delta"]
+    assert deltas and all(delta["kind"] == "text" for delta in deltas)
+    streamed = "".join(delta["text"] for delta in deltas)
+    assert streamed == lines[-1]["text"]
+
+
+def test_stream_human_mode_does_not_repeat_the_answer(tmp_path: Path, capsys):
+    code = main(
+        [
+            "run",
+            "say hello",
+            "--cwd",
+            str(tmp_path),
+            "--provider",
+            "stub",
+            "--no-session",
+            "--stream",
+        ]
+    )
+    out, err = capsys.readouterr()
+
+    assert code == 0
+    assert out.count("[stub provider]") == 1
+    assert "[stopped: completed" in out
+    assert "completed · 1 turn(s)" in err
+
+
 def test_tools_json_lists_the_six_primitives(capsys):
     code = main(["tools", "--json"])
     tools = json.loads(capsys.readouterr().out)

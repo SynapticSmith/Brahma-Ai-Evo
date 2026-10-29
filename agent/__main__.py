@@ -75,6 +75,8 @@ def _render_event(event: Dict[str, Any]) -> Optional[str]:
         labels = ", ".join(event.get("loaded") or [])
         suffix = " (truncated)" if event.get("truncated") else ""
         return f"  ~~ loaded instructions: {labels}{suffix}"
+    if kind == "stream_fallback":
+        return f"  ~~ streaming unavailable: {event.get('reason')}"
     if kind == "error":
         return f"  !! {event.get('error')}"
     if kind == "stop":
@@ -83,19 +85,60 @@ def _render_event(event: Dict[str, Any]) -> Optional[str]:
 
 
 def _make_printer(as_json: bool):
+    # Streaming writes text without a newline, so the printer owns "is a line
+    # open?". Every line-shaped event closes it first, and the `assistant`
+    # event that finishes a streamed turn is suppressed (its text already
+    # reached the terminal one delta at a time).
+    state = {"open": False, "streamed_turn": None}
+
+    def close_line() -> None:
+        if state["open"]:
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            state["open"] = False
+
     def print_event(event: Dict[str, Any]) -> None:
         if as_json:
             sys.stdout.write(json.dumps(event, ensure_ascii=False, default=str) + "\n")
             sys.stdout.flush()
             return
+
+        if event.get("type") == "delta":
+            kind = event.get("kind")
+            if kind == "text":
+                text = str(event.get("text") or "")
+                if text:
+                    sys.stdout.write(text)
+                    sys.stdout.flush()
+                    state["open"] = True
+                    state["streamed_turn"] = event.get("turn")
+                    print_event.streamed_text = True
+            elif kind == "reset":
+                close_line()
+                sys.stderr.write("  ~~ partial output discarded (retrying the request)\n")
+                sys.stderr.flush()
+                state["streamed_turn"] = None
+            # Tool-call fragments are noise on a terminal; the `assistant`
+            # event that follows names the finished call.
+            return
+
+        close_line()
+        if event.get("type") == "assistant" and event.get("turn") == state["streamed_turn"]:
+            state["streamed_turn"] = None
+            return
+
         line = _render_event(event)
         if line is not None:
             stream = sys.stderr if event.get("type") in (
-                "permission", "compaction", "policy_reload", "error"
+                "permission", "compaction", "policy_reload", "error", "stream_fallback"
             ) else sys.stdout
             stream.write(line + "\n")
             stream.flush()
 
+    #: True once a text delta reached the terminal, so the caller does not
+    #: print the same answer again after the run (and does when streaming fell
+    #: back and only the `assistant` event carried it).
+    print_event.streamed_text = False
     return print_event
 
 
@@ -234,6 +277,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         on_event=printer,
         summarizer=summarizer,
         cancel=runtime.cancel_event,
+        stream=args.stream,
     )
     runtime.reset_cancel()
     restore = _install_cancel(runtime)
@@ -245,7 +289,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if args.json:
         sys.stdout.write(json.dumps({"type": "result", **result.to_dict()}, ensure_ascii=False) + "\n")
     else:
-        if result.text:
+        if result.text and not getattr(printer, "streamed_text", False):
             sys.stdout.write("\n" + result.text + "\n")
         usage = result.usage or {}
         tokens = (
@@ -298,6 +342,7 @@ def _cmd_resume(args: argparse.Namespace) -> int:
         on_event=printer,
         summarizer=build_summarizer(completer) if args.summarize else None,
         cancel=runtime.cancel_event,
+        stream=args.stream,
     )
     runtime.reset_cancel()
     restore = _install_cancel(runtime)
@@ -308,7 +353,7 @@ def _cmd_resume(args: argparse.Namespace) -> int:
     if args.json:
         sys.stdout.write(json.dumps({"type": "result", **result.to_dict()}, ensure_ascii=False) + "\n")
     else:
-        if result.text:
+        if result.text and not getattr(printer, "streamed_text", False):
             sys.stdout.write("\n" + result.text + "\n")
     return EXIT_OK if result.ok else EXIT_ERROR
 
@@ -378,6 +423,11 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-context-chars", type=int, default=120_000, help="Compaction threshold")
     parser.add_argument("--timeout", type=float, default=120.0, help="Per-command tool timeout in seconds")
     parser.add_argument("--json", action="store_true", help="Emit NDJSON events on stdout")
+    parser.add_argument(
+        "--stream",
+        action="store_true",
+        help="Render model text as it arrives (falls back when unsupported)",
+    )
     parser.add_argument("--headless", action="store_true", help="Never prompt for approval")
     parser.add_argument("--yolo", action="store_true", help="Allow every tool class (use only in a sandbox)")
     parser.add_argument("--allow", action="append", metavar="CLASS", help="Allow a tool class, repeatable/comma-separated")

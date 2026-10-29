@@ -176,6 +176,7 @@ class AgentLoop:
         cancel: Optional[threading.Event] = None,
         summarizer: Optional[Summarizer] = None,
         context: Optional[ConversationContext] = None,
+        stream: bool = False,
     ):
         self._complete = complete
         self._tools: List[Any] = list(tools) if tools is not None else list(all_specs())
@@ -195,6 +196,18 @@ class AgentLoop:
         # the loop, even when a caller forgets to pass the event explicitly.
         self._cancel = cancel if cancel is not None else self._runtime.cancel_event
         self._summarizer = summarizer
+        #: Streaming is opt-in. A completer advertises support with a callable
+        #: ``stream`` attribute; without one the run still works, just without
+        #: incremental output (announced once by ``stream_fallback``).
+        self.stream = bool(stream)
+        self._streamer = getattr(complete, "stream", None)
+        if not callable(self._streamer):
+            self._streamer = None
+        #: Set by :meth:`_on_delta` when the current attempt produced output.
+        #: A retry needs a ``reset`` so a UI drops the partial text.
+        self._delta_sent = False
+        self._turn = 0
+        self._stream_fallback_reported = False
         self._events: List[Dict[str, Any]] = []
         self._repeat_counts: Dict[str, int] = {}
         self._tool_calls_made = 0
@@ -225,12 +238,12 @@ class AgentLoop:
     def context(self) -> ConversationContext:
         return self._context
 
-    def _emit(self, kind: str, **data: Any) -> None:
-        event = {"type": kind, **data}
+    def _emit(self, event_type: str, **data: Any) -> None:
+        event = {"type": event_type, **data}
         if len(self._events) < 4000:
             self._events.append(event)
         if self._session is not None:
-            self._session.log_event(kind, data)
+            self._session.log_event(event_type, data)
         sink = self._on_event or self._runtime.event_sink
         if sink is not None:
             try:
@@ -291,10 +304,19 @@ class AgentLoop:
         Classification lives in :mod:`agent.retry`; this method only turns a
         retry into an event so the user can see the run is stalling on the
         provider rather than thinking.
+
+        With ``stream=True`` and a completer that exposes ``stream``, the call
+        goes through the streaming transport instead. A failure *after* the
+        first delta means the UI is holding text that will no longer arrive, so
+        the retry emits a ``delta`` of kind ``reset`` first; the assembler
+        starts from empty on the next attempt.
         """
 
         def on_retry(attempt: int, delay: float, exc: BaseException) -> None:
             self._retries += 1
+            if self._delta_sent:
+                self._delta_sent = False
+                self._emit("delta", turn=self._turn, kind="reset", reason="retry")
             self._emit(
                 "retry",
                 attempt=attempt,
@@ -302,14 +324,55 @@ class AgentLoop:
                 error=f"{type(exc).__name__}: {exc}"[:300],
             )
 
+        streamer = self._streamer if self.stream else None
+        if streamer is not None:
+            def attempt() -> Any:
+                self._delta_sent = False
+                return streamer(messages, tools, self._on_delta)
+        else:
+            def attempt() -> Any:
+                return self._complete(messages, tools)
+
         return call_with_retry(
-            lambda: self._complete(messages, tools),
+            attempt,
             attempts=self.retry_attempts,
             base_delay=self.retry_base_delay,
             max_delay=self.retry_max_delay,
             cancel=self._cancel,
             on_retry=on_retry,
         )
+
+    def _on_delta(self, delta: Any) -> None:
+        """Forward one incremental update as a ``delta`` event."""
+        if not isinstance(delta, Mapping):
+            return
+        kind = delta.get("kind")
+        self._delta_sent = True
+        if kind == "text":
+            text = delta.get("text")
+            if isinstance(text, str) and text:
+                self._emit("delta", turn=self._turn, kind="text", text=text)
+            return
+        if kind == "tool_call":
+            payload: Dict[str, Any] = {"turn": self._turn, "kind": "tool_call"}
+            index = delta.get("index")
+            if isinstance(index, int):
+                payload["index"] = index
+            for key in ("id", "name", "arguments"):
+                value = delta.get(key)
+                if isinstance(value, str) and value:
+                    payload[key] = value
+            self._emit("delta", **payload)
+
+    def _announce_stream(self) -> None:
+        if not self.stream or self._stream_fallback_reported:
+            return
+        if self._streamer is None:
+            self._stream_fallback_reported = True
+            self._emit(
+                "stream_fallback",
+                reason="this provider has no streaming transport; using a single request",
+            )
 
     def _can_run_parallel(self, parsed: List[Dict[str, Any]]) -> bool:
         """True when every call is an allowed, non-repeated read.
@@ -413,6 +476,7 @@ class AgentLoop:
         if prompt:
             message = ctx.append_user(prompt)
             self._persist(message)
+        self._announce_stream()
         if self._session is not None:
             self._emit("session_start", session_id=self._session.id, cwd=str(self._runtime.workspace))
 
@@ -444,6 +508,7 @@ class AgentLoop:
                                 pass
 
                 self._emit("turn_start", turn=turn, chars=ctx.chars)
+                self._turn = turn
 
                 if first_response is not None:
                     response, first_response = first_response, None

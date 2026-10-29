@@ -3670,6 +3670,7 @@ class BrahmaLive:
         from agent.loop import AgentLoop
         from agent.runtime import current as current_agent_runtime
         from agent.spec import all_specs
+        from agent.streaming import collect as collect_stream
 
         surface: list = []
         try:
@@ -3691,6 +3692,16 @@ class BrahmaLive:
                 return local_brain.chat_complete(
                     msgs, model=model_label, tools=tools, focus_core=True
                 )
+
+            def _stream(msgs, tools, on_delta):
+                # Same transport, same schema formatting; only the delivery is
+                # incremental. `generate_chat_stream` owns the stream timeouts.
+                return collect_stream(
+                    local_brain.generate_chat_stream(msgs, model=model_label, tools=tools),
+                    on_delta,
+                )
+
+            _complete.stream = _stream
         else:
             def _complete(msgs, tools):
                 # Verbatim follow-up: `msgs` already carries the system
@@ -3719,6 +3730,7 @@ class BrahmaLive:
             max_turns=AGENT_MAX_TURNS,
             on_event=self._agent_event,
             cancel=runtime.cancel_event,
+            stream=source == "local",
         )
         try:
             result = loop.run(first_response=res)
@@ -3737,6 +3749,21 @@ class BrahmaLive:
         """Mirror loop telemetry into the console and the task workspace."""
         try:
             kind = event.get("type")
+            # Streaming writes without a newline; close that line before any
+            # line-shaped event so the log does not glue two records together.
+            if getattr(self, "_agent_stream_open", False) and kind != "delta":
+                print()
+                self._agent_stream_open = False
+            if kind == "delta":
+                channel = event.get("kind")
+                if channel == "text":
+                    text = event.get("text") or ""
+                    if text:
+                        print(text, end="", flush=True)
+                        self._agent_stream_open = True
+                elif channel == "reset":
+                    print("\n[BRAHMA EVO] \u21ba partial response discarded, retrying")
+                return
             if kind == "tool_call":
                 print(f"[BRAHMA EVO] \U0001f6e0 {event.get('name')} {event.get('arguments')}")
             elif kind == "compaction":
@@ -3754,6 +3781,8 @@ class BrahmaLive:
             elif kind == "policy_reload":
                 state = "reloaded" if event.get("ok") else "reload failed (old rules kept)"
                 print(f"[BRAHMA EVO] \U0001f4dc policy {state}")
+            elif kind == "stream_fallback":
+                print(f"[BRAHMA EVO] streaming unavailable: {event.get('reason')}")
             elif kind == "stop":
                 print(f"[BRAHMA EVO] \U0001f3c1 agent stopped: {event.get('reason')} "
                       f"after {event.get('turns')} turn(s)")
