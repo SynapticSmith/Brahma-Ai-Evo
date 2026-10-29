@@ -116,6 +116,39 @@ class ToolExecutor:
         except Exception as exc:
             print(f"[BRAHMA EVO] ⚠️ Meta-tool '{name}' unavailable: {exc}")
 
+        # Architectural proxy: if this is not a meta-tool and not a known built-in,
+        # try to route it through call_tool (for gateways that allow direct calls to
+        # discovered tools, or as a safety net). This keeps the system backend-agnostic.
+        try:
+            from core import tool_bridge as _tb
+            if not _tb.is_meta_tool(name):
+                # Check if it's a known tool in declarations or will be handled by the big if-elif
+                known = name in {tool.get("name") for tool in self._tool_declarations}
+                if not known:
+                    try:
+                        from core import tool_index as _ti
+                        if _ti.get_index().get(name) is not None:
+                            known = True
+                    except Exception:
+                        pass
+                if not known:
+                    try:
+                        from core.dynamic_registry import DynamicToolRegistry
+                        if DynamicToolRegistry.has_tool(name):
+                            known = True
+                    except Exception:
+                        pass
+                if not known:
+                    print(f"[BRAHMA EVO] 🔀 Routing unknown/deferred tool '{name}' via call_tool proxy")
+                    try:
+                        text = await _tb.execute_meta("call_tool", {"tool_name": name, "arguments": args})
+                        call_id = getattr(fc, "id", None) or f"call_{name}"
+                        return types.FunctionResponse(name=name, id=call_id, response={"result": text})
+                    except Exception as exc:
+                        print(f"[BRAHMA EVO] ⚠️ Proxy routing failed for '{name}': {exc}")
+        except Exception:
+            pass
+
         print(f"[BRAHMA EVO] 🔧 {name}  {args}")
         self._host.speak(f"Working on {name.replace('_', ' ')}...")
         self._host.ui.set_state("THINKING")

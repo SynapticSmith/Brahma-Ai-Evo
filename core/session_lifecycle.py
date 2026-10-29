@@ -472,6 +472,13 @@ class SessionLifecycle:
             parts.append(mem_str)
         parts.append(sys_prompt)
         parts.append(
+            "CRITICAL TOOL USAGE RULE: You only have a LIMITED set of functions declared to you. "
+            "Tools found via search_tools/list_tools/get_skill_manual that are NOT in your declared functions "
+            "MUST be called through call_tool(tool_name='exact_name', arguments={...}). "
+            "NEVER call undeclared tools directly - doing so will cause the session to crash with 'Requested entity was not found'. "
+            "When in doubt, use search_tools to find the right tool, then use call_tool to run it."
+        )
+        parts.append(
             "Wake-word mode: if the microphone is muted, still listen for the words 'Brahma Evo', 'hey', 'hi', and 'hello'. "
             "When you hear one of these activation cues, keep the session friendly and concise, "
             "and wait for the user's next command. "

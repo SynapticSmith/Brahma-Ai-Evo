@@ -255,12 +255,38 @@ class AudioIO:
                         fn_responses = []
                         for fc in response.tool_call.function_calls:
                             print(f"[BRAHMA EVO] 📞 {fc.name}")
-                            fr = await self._host._execute_tool(fc)
-                            fn_responses.append(fr)
+                            try:
+                                fr = await self._host._execute_tool(fc)
+                                fn_responses.append(fr)
+                            except Exception as exc:
+                                print(f"[BRAHMA EVO] ⚠️ Tool call error for {fc.name}: {exc}")
+                                # Try to route through call_tool as last resort
+                                try:
+                                    from core import tool_bridge
+                                    if not tool_bridge.is_meta_tool(fc.name):
+                                        args = dict(getattr(fc, "args", {}) or {})
+                                        text = await tool_bridge.execute_meta("call_tool", {"tool_name": fc.name, "arguments": args})
+                                        try:
+                                            from google.genai import types
+                                            fn_responses.append(types.FunctionResponse(name=fc.name, id=getattr(fc, "id", None), response={"result": text}))
+                                        except Exception:
+                                            fn_responses.append({"name": fc.name, "id": getattr(fc, "id", None), "response": {"result": text}})
+                                        continue
+                                except Exception:
+                                    pass
+                                try:
+                                    from google.genai import types
+                                    fn_responses.append(types.FunctionResponse(name=fc.name, id=getattr(fc, "id", None), response={"result": f"Tool execution failed: {exc}"}))
+                                except Exception:
+                                    fn_responses.append({"name": fc.name, "id": getattr(fc, "id", None), "response": {"result": f"Tool execution failed: {exc}"}})
                         self._host.ui.set_state("THINKING")
-                        await self._host.session.send_tool_response(
-                            function_responses=fn_responses
-                        )
+                        try:
+                            await self._host.session.send_tool_response(
+                                function_responses=fn_responses
+                            )
+                        except Exception as exc:
+                            print(f"[BRAHMA EVO] ⚠️ Failed to send tool responses: {exc}")
+                            raise
 
         except Exception as e:
             print(f"[BRAHMA EVO] ❌ Recv: {e}")

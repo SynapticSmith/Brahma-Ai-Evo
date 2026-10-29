@@ -1542,8 +1542,10 @@ SEARCH_TOOLS_DECLARATION: Dict[str, Any] = {
 CALL_TOOL_DECLARATION: Dict[str, Any] = {
     "name": META_CALL_TOOL,
     "description": (
-        "Run a tool that you retrieved with search_tools but do not have loaded. "
-        "Use the tool name exactly as search_tools returned it. "
+        "MANDATORY: Run any tool that is NOT in your declared function list. "
+        "Use this when a tool comes from search_tools/list_tools/load_skill. "
+        "Use the tool name exactly as returned. "
+        "NEVER call undeclared tools directly - doing so will crash the session. "
         "Prefer a directly-loaded tool when one exists; use this for everything else."
     ),
     "parameters": {

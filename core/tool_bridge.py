@@ -603,7 +603,9 @@ def _handle_search(args: Dict[str, Any]) -> str:
             lines.append(f"   manual: call get_skill_manual with skill_id='{entry.skill_id}'")
 
     lines.append(
-        "\nTo run one, call: call_tool(tool_name=<exact name>, arguments={...})"
+        "\n⚠️ CRITICAL: You CANNOT call this tool directly. It may not be declared as an available function. "
+        "You MUST use call_tool(tool_name=<exact name>, arguments={...}) with the exact name above. "
+        "Calling it directly will crash the session."
     )
     return "\n".join(lines)
 
@@ -682,8 +684,8 @@ def _handle_list_tools(args: Dict[str, Any]) -> str:
             f"list_tools(offset={next_offset})."
         )
     lines.append(
-        "Run one with call_tool(tool_name=<exact name>, arguments={...}), or use "
-        "search_tools(intent=...) to rank the catalogue against a specific goal."
+        "⚠️ CRITICAL: Tools not in your declared function list MUST be called via call_tool(tool_name=<exact name>, arguments={...}). "
+        "Do NOT call them directly or the session will crash. Or use search_tools(intent=...) to rank the catalogue against a specific goal."
     )
     return "\n".join(lines)
 
@@ -732,7 +734,7 @@ def _handle_search_skills(args: Dict[str, Any]) -> str:
             f"\n   type: {kind}"
             f"\n   category: {meta.category}"
         )
-    lines.append("\nTo use one, call: load_skill(skill_id=<exact id>)")
+    lines.append("\nTo use one, call: load_skill(skill_id=<exact id>). If it's executable, use call_tool with the tool name it returns - NEVER call it directly.")
     return "\n".join(lines)
 
 
@@ -808,8 +810,9 @@ def _handle_list_skills(args: Dict[str, Any]) -> str:
             f"list_skills(offset={next_offset})."
         )
     lines.append(
-        "Metadata only — call load_skill(skill_id=<exact id>) for the instructions, "
-        "or search_skills(intent=...) to rank the library against a task."
+        "⚠️ CRITICAL: Metadata only — call load_skill(skill_id=<exact id>) for the instructions. "
+        "If executable, you MUST use call_tool - never call discovered tools directly. "
+        "Or search_skills(intent=...) to rank the library against a task."
     )
     return "\n".join(lines)
 
