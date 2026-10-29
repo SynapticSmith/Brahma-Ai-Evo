@@ -71,6 +71,10 @@ def _render_event(event: Dict[str, Any]) -> Optional[str]:
         if event.get("ok"):
             return f"  ~~ policy reloaded from {event.get('source')}"
         return f"  !! policy reload failed, keeping the old rules: {event.get('error')}"
+    if kind == "instructions":
+        labels = ", ".join(event.get("loaded") or [])
+        suffix = " (truncated)" if event.get("truncated") else ""
+        return f"  ~~ loaded instructions: {labels}{suffix}"
     if kind == "error":
         return f"  !! {event.get('error')}"
     if kind == "stop":

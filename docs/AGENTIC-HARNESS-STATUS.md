@@ -33,6 +33,7 @@ database migration is required; the new tables are additive.
 | Cancellation-safe transcript | Done |
 | Provider-reported token usage | Done |
 | Policy hot-reload (fail-safe) | Done |
+| Subdirectory instructions (path-driven) | Done |
 | Python floor + CI matrix | Done |
 | Docs | This file + `AGENTIC-HARNESS.md` |
 | Commit | `agent: add the agentic harness` + hardening commit |
@@ -245,8 +246,9 @@ wrote. `load_project_instructions` now walks up to three parent directories
 the nearest file is read last and wins, and skips the drive/filesystem root.
 Truncation keeps the **tail** for the same reason. A blind recursive scan for
 subdirectory files was rejected: without knowing which paths the model will
-touch it would pull in unrelated packages and burn the context budget. That is
-still a gap, and it needs per-turn path awareness rather than a bigger glob.
+touch it would pull in unrelated packages and burn the context budget. That was
+left as a gap at the time; D25 closes it with per-turn path awareness rather
+than a bigger glob.
 
 ### D19 — "Always allow" is session-scoped and scoped to the thing approved
 
@@ -308,6 +310,28 @@ from a dict with no `source` is never re-read. Session approvals survive the
 reload but are still consulted only after `evaluate()`, so a new `deny` is
 immediate and a remembered "always allow" cannot widen it.
 
+### D25 — Subdirectory instructions follow the touched paths
+
+The upward instruction walk stops at the workspace, so `packages/foo/AGENTS.md`
+was invisible to an agent working in `packages/foo`. A recursive scan is the
+wrong fix: it reads `node_modules`, pays for it every turn, and lets rules from
+untouched packages compete with the ones that matter.
+
+The loop now derives the directories from the **paths a turn actually named**
+(`path`, `cwd`, `file`, … in the tool arguments). It walks only between the
+workspace and those paths, shallowest first, so reading
+`packages/foo/app.py` appends `packages/AGENTS.md` then
+`packages/foo/AGENTS.md`. Paths outside the workspace, the workspace itself, and
+anything under vendored/generated directories are ignored. Depth (12), per-file
+characters (4 000) and a per-run budget (6 000) bound the cost; a `seen` set
+makes a second turn in the same package a `stat`, not a re-read.
+
+The text goes into the **system prompt**, not the transcript: a synthetic
+`system`/`user` message mid-conversation complicates resume and compaction,
+while a rebuilt system prompt is invisible to the tool protocol and reaches the
+model before its next action. The `instructions` event names what loaded, so
+the CLI and HUD can show it.
+
 ### D20 — Parallel dispatch is whole-turn and read-only
 
 Model turns often contain several `read_file`/`glob_files`/`grep_files` calls,
@@ -344,8 +368,8 @@ and the default `python` are 3.14 and lack `ruff`/`pytest`.
 
 ```
 py -3.11 -m ruff check .                 # All checks passed!
-py -3.11 -m pytest tests -q              # 467 passed  (QT_QPA_PLATFORM=offscreen)
-py -3.11 -m pytest tests -q -k agent     # 133 passed
+py -3.11 -m pytest tests -q              # 501 passed  (QT_QPA_PLATFORM=offscreen)
+py -3.11 -m pytest tests -q -k agent     # 167 passed
 py -3.11 -c "import main; ..."           # 66 declarations, all six tools present
 py -3.11 -m agent tools                  # lists the six primitives
 py -3.11 -m agent permissions show       # reports built-in defaults
@@ -359,7 +383,7 @@ Notes:
   `len(TOOL_DECLARATIONS) == 66` and that
   `{read_file, write_file, edit_file, glob_files, grep_files, run_command}` are
   all present.
-* The 133 harness tests run without a display or a model:
+* The 167 harness tests run without a display or a model:
   `py -3.11 -m pytest tests -q -k agent`.
 * `python -m agent run --provider stub --json` is the cheapest end-to-end
   smoke test (used by `test_agent_cli`).
@@ -382,6 +406,10 @@ Notes:
   unknown vs zero, summed totals only from real halves, mid-session edits,
   malformed edits keeping the last good rules, the throttle, and a deny that a
   remembered approval cannot widen.
+* Path-driven subdirectory instructions are covered by
+  `tests/test_agent_instructions.py` (15): ancestor-chain order, directory vs
+  file paths, ignored directories, outside paths, dedupe across turns, depth
+  and character budgets, and the system-prompt injection the next request sees.
 
 ---
 
@@ -397,19 +425,16 @@ Ordered by value, with the honest reason each was left out.
    parallel, but the decision is whole-turn: one write or approval prompt
    serialises everything. A per-call scheduler and a subagent layer can be built
    on the event stream.
-3. **Subdirectory instruction files.** The upward walk now covers parents, but
-   an `AGENTS.md` inside `packages/foo/` is still not read. Needs the set of
-   paths the model is actually touching (plus a cache), not a recursive scan.
-4. **Session replay in the GUI.** The CLI can `resume`; the HUD cannot. A
+3. **Session replay in the GUI.** The CLI can `resume`; the HUD cannot. A
    session picker would map `agent_sessions` into the existing conversation UI.
-5. **Approval UX is still plain text.** The banner now shows the command, cwd,
+4. **Approval UX is still plain text.** The banner now shows the command, cwd,
    rule, and a diff, but there is no syntax highlighting or per-hunk folding,
    and the TTY prompt prints the same block. Naming the remembered scope is
    done; reviewing a 1 600-character diff on a HUD is the remaining friction.
-6. **Sandboxing.** `run_command` is `shell=True` with policy as the only
+5. **Sandboxing.** `run_command` is `shell=True` with policy as the only
    barrier. A Windows job-object / container option would let `--yolo` be safe
    in more places.
-7. **Voice-path session persistence.** Gemini owns the live history, so voice
+6. **Voice-path session persistence.** Gemini owns the live history, so voice
    turns do not write `agent_*` rows. Unifying them would need a transcript
    bridge from the live session.
 

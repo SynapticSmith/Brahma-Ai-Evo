@@ -95,7 +95,7 @@ Three invariants make the rest of the design work:
 | `agent/loop.py` | Bounded agent loop, repeat detection, stop reasons, event stream | …the agent stops early or will not stop. |
 | `agent/context.py` | Character budget, protocol-safe compaction, output truncation | …context is overflowing or a resumed prompt is rejected. |
 | `agent/session.py` | Durable messages/events in SQLite; list/open/resume | …resume loses messages. |
-| `agent/prompts.py` | Resident system prompt + `AGENTS.md` / `BRAHMA.md` loader | …the model behaves against project conventions. |
+| `agent/prompts.py` | Resident system prompt + `AGENTS.md` / `BRAHMA.md` loader, path-driven subdirectory discovery | …the model behaves against project conventions. |
 | `agent/providers.py` | Loop-compatible completers for local/custom/OpenRouter/stub; summariser | …tool calling fails on one provider only. |
 | `agent/retry.py` | Transient-error classifier, exponential backoff with jitter, cancellation-aware wait | …a run stalled on a 503 or retried something it should not. |
 | `agent/__main__.py` | `python -m agent` CLI | …you need a scriptable surface. |
@@ -555,6 +555,7 @@ Every event is a dict with `type` plus fields. The same objects go to
 | `compaction` | `dropped`, `summary_chars`, `total_chars` | After folding. |
 | `retry` | `attempt`, `delay_s`, `error` | Before waiting to retry a transient model-call failure. |
 | `policy_reload` | `ok`, `source`, `error` (when `ok=False`) | When an edited policy file was adopted or rejected. |
+| `instructions` | `loaded[labels]`, `chars`, `truncated` | When a turn touched a directory whose instruction file was not in the prompt yet. |
 | `error` | `error` | Loop-level fatal. |
 | `stop` | `reason`, `turns`, `tool_calls` | Last event of every run. |
 
@@ -581,6 +582,36 @@ capped at 8 000 characters; the **tail** is kept when it overflows, because the
 nearest instructions are the ones that matter. The harness never edits these
 files on its own.
 
+### Subdirectory instructions are path-driven
+
+A workspace-wide recursive scan would read `node_modules`, cost a stat-and-read
+per turn, and let rules from packages nobody is touching outrank the ones that
+matter. Instead the loop uses the paths a turn actually named: after the tool
+results are appended, `AgentLoop._load_directory_instructions` collects every
+string argument whose key is a path (`path`, `cwd`, `file`, …) and walks only
+the directories **between the workspace and that path**, shallowest first. A
+file contributes its ancestors; an existing directory contributes itself. So
+reading `packages/foo/app.py` loads `packages/AGENTS.md` and
+`packages/foo/AGENTS.md`, in that order, and nothing else.
+
+* Paths outside the workspace, the workspace itself, and anything under a
+  vendored/generated directory (`node_modules`, `.git`, `dist`, `build`,
+  `.venv`, `site-packages`, …) contribute nothing.
+* The walk stops after 12 levels below the workspace, a single file is capped
+  at 4 000 characters (head kept, `[truncated]` marker), and each run has a
+  6 000-character budget for dynamically loaded text; when it is exhausted a
+  `[directory instructions truncated]` marker is appended.
+* Each file is loaded **once per run** (`seen` holds the normalised paths), so
+  a second turn in the same package costs one `stat`, not another copy in the
+  prompt.
+* The text is appended to the **system prompt** for the next request, not
+  inserted as a message. That keeps the OpenAI tool protocol intact and means
+  the model sees the rules before it acts, without a synthetic user turn or a
+  second copy in the transcript. An `instructions` event records the labels,
+  character count, and whether anything was truncated.
+* Discovery is per run, not persisted: a resumed session rebuilds the base
+  prompt and re-discovers as it touches paths again.
+
 The CLI builds the prompt with
 `build_system_prompt(workspace, permission_note=policy_note())`. The GUI text
 path reuses the app's existing core prompt (tool-index tiering and manuals are
@@ -600,6 +631,7 @@ unchanged); only the loop around it is new.
 | `tests/test_agent_cli.py` | Stub run, stdin prompt, missing prompt, bare-word run, tools/permissions/sessions, NDJSON shape, exit codes. |
 | `tests/test_agent_retry.py` | Transient vs permanent classification, backoff shape, retry budget, cancellation during backoff, loop `retry` events and `usage["retries"]`, runtime flags, CLI Ctrl-C handler. |
 | `tests/test_agent_prompts.py` | Instruction-file priority, bounded upward walk and its env override, root exclusion, tail-preserving truncation, prompt ordering. |
+| `tests/test_agent_instructions.py` | Path-driven subdirectory discovery: ancestor chain order, directory-vs-file paths, ignored/vendored dirs, outside paths, dedupe and `seen`, depth and character budgets, loop injection into the next request, one load per file. |
 | `tests/test_agent_approval.py` | Session "always allow" keying (tool vs exact command), bool answers not remembered, deny never widened, reconfigure survival, confirm tri-state and timeout. |
 | `tests/test_agent_approval_detail.py` | Banner text: rule-first ordering, command/cwd, real diffs, create vs overwrite, bounded output, path-scoped session keys. |
 | `tests/test_agent_parallel.py` | Concurrent reads, `max_parallel_tools` cap, write/`ask` serialisation, submission-order results, cancellation fillers for undispatched calls. |
@@ -638,11 +670,17 @@ These are known and deliberate, not surprises:
   the Qt main thread by design. The text path already runs in a worker; the
   voice path uses `asyncio.to_thread`. A new caller must do the same or the
   approval silently becomes a denial.
-* **`AGENTS.md` is still workspace-and-parents only.** The upward walk is
-  bounded (three levels, `BRAHMA_AGENT_INSTRUCTION_PARENTS` to change it), but
-  an `AGENTS.md` in a *subdirectory* of the workspace is not loaded yet. Doing
-  that correctly needs the set of paths the model is touching, not a blind
-  recursive scan.
+* **Instruction discovery follows the paths the model names.** A subdirectory
+  `AGENTS.md` is loaded when a tool call touches a path inside that directory;
+  a convention that only matters through an import the model has not mentioned
+  yet is not loaded until it does. The upward walk is bounded (three levels,
+  `BRAHMA_AGENT_INSTRUCTION_PARENTS` to change it) and the downward walk is
+  bounded by depth and characters, but there is no import-graph analysis.
+* **Instruction files are trusted input.** They are project conventions, not
+  data: a cloned third-party tree that ships an `AGENTS.md` is speaking to the
+  model with the same authority as the repository's own file. Vendored and
+  generated directories are skipped, but review an unfamiliar tree before
+  letting an agent work inside it.
 * **No streaming.** The loop waits for a complete assistant message. Token
   streaming would need a provider-side event protocol and a partial-tool-call
   assembler.

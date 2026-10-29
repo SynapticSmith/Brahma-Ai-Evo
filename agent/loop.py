@@ -26,9 +26,14 @@ import json
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Set
 
 from .context import ContextBudget, ConversationContext, truncate_tool_output
+from .prompts import (
+    MAX_SUBDIR_INSTRUCTION_CHARS,
+    PATH_ARG_KEYS,
+    load_directory_instructions,
+)
 from .retry import Cancelled, call_with_retry
 from .runtime import AgentRuntime, current as current_runtime
 from .session import AgentSession
@@ -198,6 +203,11 @@ class AgentLoop:
         #: usage; ``estimated_tokens`` stays as the local fallback.
         self._tokens: Dict[str, int] = {}
         self._usage_reports = 0
+        #: Absolute paths of directory instruction files already in the system
+        #: prompt, and the characters still available for new ones. Per run:
+        #: a resumed session starts from a freshly built prompt.
+        self._seen_instruction_files: Set[str] = set()
+        self._instruction_budget = MAX_SUBDIR_INSTRUCTION_CHARS
 
         if context is not None:
             self._context = context
@@ -350,6 +360,46 @@ class AgentLoop:
                 self._session.append_message(message)
             except Exception:
                 pass
+
+    def _load_directory_instructions(self, parsed: List[Dict[str, Any]]) -> None:
+        """Append instructions for the directories this turn actually touched.
+
+        Paths come from the tool arguments, not a recursive scan: reading
+        ``packages/foo/app.py`` pulls in ``packages/AGENTS.md`` and
+        ``packages/foo/AGENTS.md`` and nothing else. The text is appended to the
+        **system prompt**, which keeps the OpenAI tool protocol untouched and
+        means the next request sees the rules without a synthetic user message
+        or a second copy in the transcript. A file is never loaded twice, and a
+        per-run character budget stops a wander through a large tree from
+        crowding the window.
+        """
+        if self._instruction_budget <= 0:
+            return
+        raw_paths = [
+            value
+            for item in parsed
+            for key, value in item["args"].items()
+            if key in PATH_ARG_KEYS and isinstance(value, str) and value.strip()
+        ]
+        if not raw_paths:
+            return
+        found = load_directory_instructions(
+            self._runtime.workspace,
+            raw_paths,
+            seen=self._seen_instruction_files,
+            budget=self._instruction_budget,
+        )
+        if not found.text:
+            return
+        self._instruction_budget = max(0, self._instruction_budget - len(found.text))
+        ctx = self._context
+        ctx.system = f"{ctx.system}\n\n{found.text}" if ctx.system else found.text
+        self._emit(
+            "instructions",
+            loaded=list(found.labels),
+            chars=len(found.text),
+            truncated=found.truncated,
+        )
 
     # -- run ---------------------------------------------------------------
 
@@ -519,6 +569,8 @@ class AgentLoop:
                         chars=len(output),
                         preview=output[:400],
                     )
+
+                self._load_directory_instructions(parsed)
 
                 if cancelled or self._cancelled():
                     stop_reason = STOP_CANCELLED

@@ -3748,6 +3748,12 @@ class BrahmaLive:
             elif kind == "retry":
                 print(f"[BRAHMA EVO] \u21bb provider retry {event.get('attempt')} "
                       f"in {event.get('delay_s')}s: {event.get('error')}")
+            elif kind == "instructions":
+                print(f"[BRAHMA EVO] \U0001f4c4 loaded instructions: "
+                      f"{', '.join(event.get('loaded') or [])}")
+            elif kind == "policy_reload":
+                state = "reloaded" if event.get("ok") else "reload failed (old rules kept)"
+                print(f"[BRAHMA EVO] \U0001f4dc policy {state}")
             elif kind == "stop":
                 print(f"[BRAHMA EVO] \U0001f3c1 agent stopped: {event.get('reason')} "
                       f"after {event.get('turns')} turn(s)")

@@ -46,6 +46,13 @@ scope.
   `reset_cancel()`. Never kill the worker thread — writes and child processes
   must finish.
 
+## Instructions
+
+`AGENTS.md` (also `BRAHMA.md`, `.brahma/AGENTS.md`) is read from the workspace
+and up to three parent directories, plus any subdirectory the run actually
+touches through a tool argument. Keep package-specific rules next to the package
+they govern; `agent/prompts.py` owns discovery and its budgets.
+
 ## Approvals
 
 - The HUD's ALWAYS ALLOW button and the CLI's `a` answer remember an approval
