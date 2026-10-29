@@ -151,11 +151,14 @@ AgentResult(
   ends the run with `repeat_loop`. Prompt rules alone do not stop this.
 * **Cancellation.** Checked before each turn, each call, and during a retry
   backoff. The flag is a `threading.Event` on `AgentRuntime`
-  (`runtime.cancel()` / `reset_cancel()`); the loop never kills a thread, so an
-  in-flight file write or command finishes instead of being torn in half.
-  Sources: Ctrl-C in the CLI (first press cancels, second aborts with exit
-  `130`), `Ctrl+Shift+X` in the GUI, or `agent.runtime.cancel()` from any host.
-  A new turn calls `reset_cancel()` so a stale Stop press cannot kill it.
+  (`runtime.cancel()` / `reset_cancel()`), and `AgentLoop` uses it by default
+  when no `cancel=` is passed. The loop never kills a thread, so an in-flight
+  file write or command finishes instead of being torn in half. Calls that were
+  emitted to the model but never dispatched still receive a `tool` message
+  (`CANCELLED_TOOL_OUTPUT`) so the transcript remains resumable. Sources: Ctrl-C
+  in the CLI (first press cancels, second aborts with exit `130`),
+  `Ctrl+Shift+X` in the GUI, or `agent.runtime.cancel()` from any host. A new
+  turn calls `reset_cancel()` so a stale Stop press cannot kill it.
 * **Provider retries.** `AgentLoop` routes every model call through
   `agent/retry.py`, so both the CLI and the GUI get it. Transient statuses
   (`408`, `425`, `429`, `500`, `502`, `503`, `504`), timeouts, resets, and
@@ -172,6 +175,23 @@ AgentResult(
 * **Errors never unwind the turn.** A raised handler becomes
   `Tool 'x' failed: …`; a raised completer becomes `stop_reason=error`. The
   loop owns the boundary.
+
+### Parallel read-only calls
+
+A turn that contains two or more calls may run them concurrently — but only
+when **every** call is a policy-`allow`ed, non-repeated `read` spec
+(`read_file`, `glob_files`, `grep_files`). One write, one `exec`, one native
+tool, or one `ask` anywhere in the turn serialises the whole turn. That is
+deliberate: stacked approval banners and interleaved side effects are worse
+than the latency saved, and `native_dispatch` is single-threaded.
+
+`max_parallel_tools` (GUI default 4; CLI `--max-parallel-tools`, `1` disables)
+caps the pool. Results are collected with `future.result()` in **submission
+order**, never `as_completed`, because the transcript must contain one `tool`
+message per `tool_call` in model order. `tool_start` / `tool_end` events may
+interleave between workers; `tool_call` and `tool_result` events stay ordered.
+An event sink must therefore tolerate being called from a worker thread (the
+CLI writes one line per event; the GUI's sink re-emits through a Qt signal).
 
 ### Protocol shape
 
@@ -392,6 +412,7 @@ Common flags (all of `run` and `resume`):
 | `--model` | provider default | |
 | `--max-turns` | 40 | Loop hard stop. |
 | `--repeat-limit` | 3 | Identical-call threshold. |
+| `--max-parallel-tools` | 4 | Concurrent read-only calls; `1` disables parallelism. |
 | `--retries` | 3 | Attempts per model call on a transient failure. |
 | `--max-context-chars` | 120000 | Compaction threshold. |
 | `--timeout` | 120 | Per-command tool timeout. |
@@ -520,6 +541,7 @@ unchanged); only the loop around it is new.
 | `tests/test_agent_retry.py` | Transient vs permanent classification, backoff shape, retry budget, cancellation during backoff, loop `retry` events and `usage["retries"]`, runtime flags, CLI Ctrl-C handler. |
 | `tests/test_agent_prompts.py` | Instruction-file priority, bounded upward walk and its env override, root exclusion, tail-preserving truncation, prompt ordering. |
 | `tests/test_agent_approval.py` | Session "always allow" keying (tool vs exact command), bool answers not remembered, deny never widened, reconfigure survival, confirm tri-state and timeout. |
+| `tests/test_agent_parallel.py` | Concurrent reads, `max_parallel_tools` cap, write/`ask` serialisation, submission-order results, cancellation fillers for undispatched calls. |
 | `tests/test_confirmation_overlay.py` | HUD banner: the ALWAYS ALLOW button exists only for session-approvable calls and emits without a normal answer. |
 
 They do not need a model. The `test_agent_*` files are pure-Python and need
@@ -561,8 +583,10 @@ These are known and deliberate, not surprises:
 * **No streaming.** The loop waits for a complete assistant message. Token
   streaming would need a provider-side event protocol and a partial-tool-call
   assembler.
-* **No subagents / parallelism.** Tool calls within a turn run in order. A
-  coordinator layer can be built on the event stream without touching the loop.
+* **Parallelism is read-only and whole-turn.** A turn with a single write,
+  `exec`, native call, or approval prompt runs entirely sequentially; there is
+  no per-call scheduler, and no subagent layer yet. A coordinator can be built
+  on the event stream without touching the loop.
 * **`run_command` is `shell=True`.** The policy is the only barrier; there is
   no OS sandbox. Treat `--yolo` as "run me in a container".
 * **The voice path is not session-persisted.** Gemini's live session owns its

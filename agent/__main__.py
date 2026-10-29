@@ -218,6 +218,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         session=session,
         max_turns=args.max_turns,
         repeat_limit=args.repeat_limit,
+        max_parallel_tools=args.max_parallel_tools,
         retry_attempts=args.retries,
         budget=budget,
         on_event=printer,
@@ -275,6 +276,7 @@ def _cmd_resume(args: argparse.Namespace) -> int:
         session=session,
         max_turns=args.max_turns,
         repeat_limit=args.repeat_limit,
+        max_parallel_tools=args.max_parallel_tools,
         retry_attempts=args.retries,
         budget=ContextBudget(max_chars=args.max_context_chars),
         on_event=printer,
@@ -350,6 +352,12 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model", help="Model id for the chosen provider")
     parser.add_argument("--max-turns", type=int, default=40, help="Hard stop for the loop (default 40)")
     parser.add_argument("--repeat-limit", type=int, default=3, help="Skip identical calls after N (default 3)")
+    parser.add_argument(
+        "--max-parallel-tools",
+        type=int,
+        default=4,
+        help="Run up to N read-only calls at once (default 4; 1 disables)",
+    )
     parser.add_argument("--retries", type=int, default=3, help="Attempts per model call on transient errors (default 3)")
     parser.add_argument("--max-context-chars", type=int, default=120_000, help="Compaction threshold")
     parser.add_argument("--timeout", type=float, default=120.0, help="Per-command tool timeout in seconds")

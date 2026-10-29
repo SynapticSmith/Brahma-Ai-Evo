@@ -28,6 +28,8 @@ database migration is required; the new tables are additive.
 | Transient-failure retries with backoff | Done |
 | Instruction discovery (workspace + parents) | Done |
 | Session "always allow" approvals | Done |
+| Parallel read-only tool calls | Done |
+| Cancellation-safe transcript | Done |
 | Python floor + CI matrix | Done |
 | Docs | This file + `AGENTIC-HARNESS.md` |
 | Commit | `agent: add the agentic harness` + hardening commit |
@@ -256,6 +258,33 @@ way to make a rule permanent, and a new process should not inherit a button
 press from last week. `requires_approval=True` tools are deliberately excluded,
 so irreversible actions keep asking.
 
+### D20 — Parallel dispatch is whole-turn and read-only
+
+Model turns often contain several `read_file`/`glob_files`/`grep_files` calls,
+and running them one after another wastes wall-clock time. The loop now runs
+such a turn on a small `ThreadPoolExecutor`, but the decision is deliberately
+all-or-nothing: **every** call must be a policy-`allow`ed, non-repeated `read`
+spec. A single write, `exec`, native tool, or approval prompt serialises the
+whole turn. Per-call scheduling would interleave side effects and stack
+approval banners; this keeps the semantics obvious. `max_parallel_tools`
+(default 4, CLI `--max-parallel-tools`, `1` disables) caps the pool. Results
+are read back with `future.result()` in submission order, never as they
+complete, because the transcript requires one `tool` message per `tool_call` in
+model order.
+
+### D21 — A cancelled turn still answers every call
+
+Cancellation is checked between calls, so a turn can be interrupted after the
+assistant message and several `tool_call` events have already been emitted.
+Dropping the remaining calls would leave `tool_calls` without matching `tool`
+messages, and every OpenAI-compatible endpoint rejects that on the next request
+— including a CLI `resume` of the saved session. Undispatched calls therefore
+receive `CANCELLED_TOOL_OUTPUT` as their result and the run stops with
+`cancelled`. The same pairing guarantee now applies to parallel reads whose
+siblings finish after a Stop press. `AgentLoop` also defaults its cancel event
+to `runtime.cancel_event`, so a host that forgets `cancel=` still gets
+cancellation.
+
 ---
 
 ## 4. Verification
@@ -265,8 +294,8 @@ and the default `python` are 3.14 and lack `ruff`/`pytest`.
 
 ```
 py -3.11 -m ruff check .                 # All checks passed!
-py -3.11 -m pytest tests -q              # 447 passed  (QT_QPA_PLATFORM=offscreen)
-py -3.11 -m pytest tests -q -k agent     # 114 passed
+py -3.11 -m pytest tests -q              # 455 passed  (QT_QPA_PLATFORM=offscreen)
+py -3.11 -m pytest tests -q -k agent     # 122 passed
 py -3.11 -c "import main; ..."           # 66 declarations, all six tools present
 py -3.11 -m agent tools                  # lists the six primitives
 py -3.11 -m agent permissions show       # reports built-in defaults
@@ -280,7 +309,7 @@ Notes:
   `len(TOOL_DECLARATIONS) == 66` and that
   `{read_file, write_file, edit_file, glob_files, grep_files, run_command}` are
   all present.
-* The 114 harness tests run without a display or a model:
+* The 122 harness tests run without a display or a model:
   `py -3.11 -m pytest tests -q -k agent`.
 * `python -m agent run --provider stub --json` is the cheapest end-to-end
   smoke test (used by `test_agent_cli`).
@@ -292,6 +321,9 @@ Notes:
 * Instruction discovery and the approval tri-state are covered by
   `tests/test_agent_prompts.py` (7) and `tests/test_agent_approval.py` (10);
   `tests/test_confirmation_overlay.py` (2) checks the HUD button itself.
+* Parallel dispatch and protocol-safe cancellation are covered by
+  `tests/test_agent_parallel.py` (8): overlap, the cap, write/`ask`
+  serialisation, submission order, and filler results for undispatched calls.
 
 ---
 
@@ -303,9 +335,10 @@ Ordered by value, with the honest reason each was left out.
    perceived latency and for editing large files without a long pause. Requires
    a partial-tool-call assembler and a provider-side event contract; the loop's
    `Completer` signature would become a generator.
-2. **Subagents / parallel tool calls.** Calls within a turn are sequential. The
-   event stream is already the right substrate for a coordinator; the loop
-   itself does not need to change.
+2. **Subagents / a tool scheduler.** Read-only calls within a turn now run in
+   parallel, but the decision is whole-turn: one write or approval prompt
+   serialises everything. A per-call scheduler and a subagent layer can be built
+   on the event stream.
 3. **Subdirectory instruction files.** The upward walk now covers parents, but
    an `AGENTS.md` inside `packages/foo/` is still not read. Needs the set of
    paths the model is actually touching (plus a cache), not a recursive scan.

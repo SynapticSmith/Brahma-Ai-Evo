@@ -55,6 +55,14 @@ scope.
 - To make an approval permanent, edit the policy file; do not persist a clicked
   button.
 
+## Parallel tool calls
+
+- A turn runs concurrently only when every call is a policy-allowed,
+  non-repeated `read` spec. One write, `exec`, native call or approval prompt
+  serialises the whole turn (`AgentLoop._can_run_parallel`).
+- Results are appended in submission order. A cancelled turn still writes one
+  `tool` message per `tool_call` (`CANCELLED_TOOL_OUTPUT`). Keep both rules.
+
 ## Layout
 
 | Path | Contents |

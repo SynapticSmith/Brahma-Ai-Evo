@@ -46,6 +46,11 @@ STOP_CANCELLED = "cancelled"
 STOP_ERROR = "error"
 STOP_PERMISSION = "permission_denied"
 
+#: Written as the tool result for calls that were never dispatched because the
+#: user cancelled. Every `tool_call` must get exactly one `tool` message or the
+#: next request (and any resume) is rejected by OpenAI-compatible endpoints.
+CANCELLED_TOOL_OUTPUT = "Not run: the run was cancelled before this call."
+
 
 @dataclass
 class AgentResult:
@@ -156,6 +161,7 @@ class AgentLoop:
         session: Optional[AgentSession] = None,
         max_turns: int = 40,
         repeat_limit: int = 3,
+        max_parallel_tools: int = 4,
         retry_attempts: int = 3,
         retry_base_delay: float = 0.8,
         retry_max_delay: float = 8.0,
@@ -172,11 +178,16 @@ class AgentLoop:
         self._session = session
         self.max_turns = max(1, int(max_turns))
         self.repeat_limit = max(1, int(repeat_limit))
+        #: 1 disables parallel dispatch. Only read-only calls are ever run
+        #: concurrently; see ``_can_run_parallel``.
+        self.max_parallel_tools = max(1, int(max_parallel_tools))
         self.retry_attempts = max(1, int(retry_attempts))
         self.retry_base_delay = max(0.0, float(retry_base_delay))
         self.retry_max_delay = max(0.0, float(retry_max_delay))
         self._on_event = on_event
-        self._cancel = cancel
+        # Default to the runtime's event so ``runtime.cancel()`` always reaches
+        # the loop, even when a caller forgets to pass the event explicitly.
+        self._cancel = cancel if cancel is not None else self._runtime.cancel_event
         self._summarizer = summarizer
         self._events: List[Dict[str, Any]] = []
         self._repeat_counts: Dict[str, int] = {}
@@ -285,6 +296,49 @@ class AgentLoop:
             on_retry=on_retry,
         )
 
+    def _can_run_parallel(self, parsed: List[Dict[str, Any]]) -> bool:
+        """True when every call is an allowed, non-repeated read.
+
+        Conservative on purpose: a write or an approval prompt anywhere in the
+        turn serialises the whole turn, because concurrent side effects (and
+        stacked banners) are worse than a little latency.
+        """
+        if self.max_parallel_tools <= 1 or len(parsed) < 2:
+            return False
+        for item in parsed:
+            if item["attempts"] > self.repeat_limit:
+                return False
+            spec = get_spec(item["name"])
+            if spec is None or spec.tool_class != "read":
+                return False
+            _, decision = self._runtime.decide(item["name"], item["args"])
+            if not decision.allowed:
+                return False
+        return True
+
+    def _run_one(self, item: Dict[str, Any]) -> str:
+        """Dispatch one prepared call. Never raises: the loop owns the boundary."""
+        item["ran"] = True
+        try:
+            return self._runtime.execute(
+                item["name"],
+                item["args"],
+                native_dispatch=self._native_dispatch,
+                call_id=item["call"]["id"],
+            )
+        except Exception as exc:  # noqa: BLE001 - a worker must not kill the turn
+            return f"Tool '{item['name']}' failed: {type(exc).__name__}: {exc}"
+
+    def _execute_parallel(self, parsed: List[Dict[str, Any]]) -> List[str]:
+        from concurrent.futures import ThreadPoolExecutor
+
+        workers = max(1, min(self.max_parallel_tools, len(parsed)))
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="brahma-tool") as pool:
+            futures = [pool.submit(self._run_one, item) for item in parsed]
+            # Read results in submission order: the transcript requires one
+            # `tool` message per call, in the order the model emitted them.
+            return [future.result() for future in futures]
+
     def _persist(self, message: Dict[str, Any]) -> None:
         if self._session is not None:
             try:
@@ -369,10 +423,13 @@ class AgentLoop:
 
                 skipped = 0
                 denied = 0
+                cancelled = 0
+
+                # Parse every call before dispatching any: the transcript needs
+                # one `tool_call` event per call in model order, and the
+                # parallel/sequential decision has to see the whole turn.
+                parsed: List[Dict[str, Any]] = []
                 for call in calls:
-                    if self._cancelled():
-                        stop_reason = STOP_CANCELLED
-                        break
                     name = call["function"]["name"]
                     raw_args = call["function"]["arguments"]
                     try:
@@ -385,23 +442,52 @@ class AgentLoop:
                     signature = f"{name}:{_canonical_args(args)}"
                     self._repeat_counts[signature] = self._repeat_counts.get(signature, 0) + 1
                     attempts = self._repeat_counts[signature]
-
+                    parsed.append(
+                        {
+                            "call": call,
+                            "name": name,
+                            "args": args,
+                            "attempts": attempts,
+                            "output": None,
+                            "ran": False,
+                        }
+                    )
                     self._emit("tool_call", name=name, call_id=call["id"], arguments=args, repeat=attempts)
 
-                    if attempts > self.repeat_limit:
-                        output = (
-                            f"Identical call skipped: '{name}' with these arguments has already "
-                            f"run {attempts - 1} times. Change the arguments or the approach, "
-                            "or explain to the user why you are blocked."
-                        )
-                        skipped += 1
+                dispatchable = [item for item in parsed if item["attempts"] <= self.repeat_limit]
+                if (
+                    not self._cancelled()
+                    and len(dispatchable) == len(parsed)
+                    and self._can_run_parallel(parsed)
+                ):
+                    for item, output in zip(parsed, self._execute_parallel(parsed)):
+                        item["output"] = output
+                else:
+                    for item in parsed:
+                        if item["attempts"] > self.repeat_limit:
+                            item["output"] = (
+                                f"Identical call skipped: '{item['name']}' with these arguments has already "
+                                f"run {item['attempts'] - 1} times. Change the arguments or the approach, "
+                                "or explain to the user why you are blocked."
+                            )
+                            continue
+                        if self._cancelled():
+                            break
+                        item["output"] = self._run_one(item)
+
+                # One `tool` message per `tool_call`, in submission order. A
+                # cancelled or never-dispatched call still gets a result:
+                # resume and the next request require the pairing.
+                for item in parsed:
+                    if item["output"] is None:
+                        output = CANCELLED_TOOL_OUTPUT
+                        cancelled += 1
                     else:
-                        output = self._runtime.execute(
-                            name,
-                            args,
-                            native_dispatch=self._native_dispatch,
-                            call_id=call["id"],
-                        )
+                        output = item["output"]
+
+                    if item["attempts"] > self.repeat_limit:
+                        skipped += 1
+                    elif item["ran"]:
                         self._tool_calls_made += 1
                         if self._looks_denied(output):
                             denied += 1
@@ -409,22 +495,23 @@ class AgentLoop:
                     output = truncate_tool_output(output, ctx.budget.max_tool_output_chars)
                     tool_message = {
                         "role": "tool",
-                        "tool_call_id": call["id"],
-                        "name": name,
+                        "tool_call_id": item["call"]["id"],
+                        "name": item["name"],
                         "content": output,
                     }
                     ctx.append(tool_message)
                     self._persist(tool_message)
                     self._emit(
                         "tool_result",
-                        name=name,
-                        call_id=call["id"],
-                        ok=not self._looks_failed(output),
+                        name=item["name"],
+                        call_id=item["call"]["id"],
+                        ok=not self._looks_failed(output) and item["output"] is not None,
                         chars=len(output),
                         preview=output[:400],
                     )
 
-                if stop_reason == STOP_CANCELLED:
+                if cancelled or self._cancelled():
+                    stop_reason = STOP_CANCELLED
                     break
                 if calls and skipped == len(calls):
                     stop_reason = STOP_REPEAT
