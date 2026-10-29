@@ -2187,6 +2187,22 @@ TOOL_DECLARATIONS = [
     },
 ]
 
+#: Hard ceiling on one agentic run on the text paths. The live voice path is
+#: bounded by the provider's own session; this is the belt-and-braces stop for
+#: a local model that will not stop calling tools.
+AGENT_MAX_TURNS = 24
+
+# The harness describes its tools once in ``agent/spec.py``; append their
+# Gemini declarations so the live function-calling surface advertises them
+# too. Importing ``agent.code_tools`` is what performs registration.
+try:
+    from agent import code_tools as _agent_code_tools  # noqa: F401
+    from agent.spec import gemini_declarations as _agent_gemini_declarations
+
+    TOOL_DECLARATIONS.extend(_agent_gemini_declarations())
+except Exception as _agent_tools_exc:  # pragma: no cover - import-time guard
+    print(f"[BRAHMA EVO] ⚠️ Agent harness tools unavailable: {_agent_tools_exc}")
+
 
 def _pcm_block(indata):
     """Convert one sounddevice block to (int16 PCM bytes, mean level).
@@ -3550,7 +3566,8 @@ class BrahmaLive:
             messages, model=local_model_target, tools=local_tools, focus_core=True
         )
         return self._finish_tool_turn(
-            res, messages, source="local", model_label=local_model_target
+            res, messages, source="local", model_label=local_model_target,
+            tools=local_tools,
         )
 
     def _agentic_seed_messages(self, request_text: str, *, advertise_discovery: bool = True) -> list:
@@ -3627,87 +3644,113 @@ class BrahmaLive:
         ]
 
     def _finish_tool_turn(self, res, messages: list, *, source: str,
-                          model_label: str) -> str:
-        """Finish one OpenAI-protocol tool turn and return the spoken text.
+                          model_label: str, tools: list | None = None) -> str:
+        """Continue an OpenAI-protocol turn until the model stops calling tools.
 
-        Shared by the local and custom endpoints: append the assistant
-        message once, run every call, then take ONE follow-up. Raises
-        LocalBrainError for the local ladder (the caller must see real
+        This used to run every tool call once and take exactly ONE follow-up,
+        so the model could never react to a second observation: call a tool,
+        see the result, answer. The loop in ``agent.loop`` keeps going —
+        observe, act, observe — under a hard turn budget, repeat detection and
+        context compaction. ``res`` is the first response the caller already
+        paid for, so the loop is seeded with it rather than re-requesting.
+
+        ``tools`` is the surface the first call advertised. Reusing it matters:
+        the default would be only the six harness primitives, which silently
+        removes the native actions and the ``search_tools`` / ``call_tool``
+        meta-tools from every follow-up — and the resident prompt tells the
+        model to reach the catalogue through them. The harness primitives are
+        merged in so an unpinned one (glob/grep/write_file) stays callable even
+        when the resolver did not rank it for this request.
+
+        Raises LocalBrainError for the local ladder (the caller must see real
         transport failures); the custom path owns its own call wrapper and
         passes ``source="custom"``.
         """
-        msg = (res.get("choices") or [{}])[0].get("message", {}) or {}
-        tool_calls = msg.get("tool_calls")
-        if not tool_calls:
-            return (msg.get("content") or "").strip()
+        from agent.context import ConversationContext
+        from agent.loop import AgentLoop
+        from agent.runtime import current as current_agent_runtime
+        from agent.spec import all_specs
 
-        # OpenAI tool protocol: the assistant message is appended exactly
-        # once, followed by one tool result per call, then ONE follow-up.
-        # (The old code re-appended the assistant message per call and ran a
-        # follow-up inside the loop - invalid protocol and N round-trips.)
-        messages.append(msg)
-        summaries = []
-        for tc in tool_calls:
-            call_id = tc.get("id", "call_local")
-            fn_info = tc.get("function", {}) or {}
-            fn_name = fn_info.get("name")
-            fn_args_raw = fn_info.get("arguments", {})
-            if isinstance(fn_args_raw, str):
-                try:
-                    fn_args = json.loads(fn_args_raw)
-                except Exception:
-                    fn_args = {}
-            else:
-                fn_args = fn_args_raw or {}
-
-            if not fn_name:
-                summaries.append("a tool call arrived without a function name")
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": call_id,
-                    "name": "unknown",
-                    "content": "error: tool call is missing its function name",
-                })
-                continue
-
-            print(f"[BRAHMA EVO] \U0001f512 {source.title()} brain executing tool: {fn_name}({fn_args})")
-            self.ui.update_task_workspace(
-                status=f"Executing {fn_name}",
-                output=f"Running action: {fn_name} on local machine...",
-                percent=75,
-            )
-            tool_result = self._execute_tool_sync(fn_name, fn_args, call_id)
-            messages.append({
-                "role": "tool",
-                "tool_call_id": call_id,
-                "name": fn_name,
-                "content": str(tool_result),
-            })
-            summaries.append(str(tool_result or "").strip())
-
+        surface: list = []
         try:
-            if source == "local":
-                followup_res = local_brain.chat_complete(
-                    messages, model=model_label, temperature=0.3
-                )
-                followup_reply = (
-                    followup_res["choices"][0].get("message", {}).get("content") or ""
-                ).strip()
-            else:
-                # Verbatim follow-up: `messages` already holds the system
-                # prompt, the assistant tool-call turn and the tool results.
-                followup_msg = openrouter_client.chat_as_completion(
-                    "custom", "", full_messages=messages, tools=[],
-                )
-                followup_reply = (followup_msg.get("content") or "").strip()
-            if followup_reply:
-                return followup_reply
-        except Exception as e_fu:
-            print(f"[BRAHMA EVO] \u26a0\ufe0f {source.title()} brain follow-up failed: {e_fu}")
+            # Idempotent: accepts Gemini declarations, OpenAI tools, or both.
+            surface = local_brain.format_tools_for_local(list(tools or []))
+        except Exception:
+            surface = []
+        known = {
+            entry["function"]["name"]
+            for entry in surface
+            if isinstance(entry, dict) and isinstance(entry.get("function"), dict)
+        }
+        for spec in all_specs():
+            if spec.name not in known:
+                surface.append(spec.openai())
 
-        # The tools ran; report what they actually did rather than nothing.
-        detail = " / ".join(s for s in summaries if s)
-        return detail or f"{model_label} returned no usable response."
+        if source == "local":
+            def _complete(msgs, tools):
+                return local_brain.chat_complete(
+                    msgs, model=model_label, tools=tools, focus_core=True
+                )
+        else:
+            def _complete(msgs, tools):
+                # Verbatim follow-up: `msgs` already carries the system
+                # prompt, the assistant tool-call turn and the tool results.
+                return openrouter_client.chat_as_completion(
+                    "custom", "", full_messages=msgs, tools=tools,
+                )
+
+        seeded = list(messages or [])
+        system = None
+        if seeded and seeded[0].get("role") == "system":
+            system = seeded[0].get("content")
+            seeded = seeded[1:]
+        context = ConversationContext(system=system)
+        for message in seeded:
+            context.append(message)
+
+        loop = AgentLoop(
+            _complete,
+            tools=surface,
+            native_dispatch=self._execute_tool_sync,
+            runtime=current_agent_runtime(),
+            context=context,
+            max_turns=AGENT_MAX_TURNS,
+            on_event=self._agent_event,
+        )
+        try:
+            result = loop.run(first_response=res)
+        except Exception as exc:
+            print(f"[BRAHMA EVO] \u26a0\ufe0f Agent loop failed: {exc}")
+            return f"The agent loop stopped unexpectedly: {exc}"
+
+        if result.text:
+            return result.text
+        if result.stop_reason != "completed":
+            return (f"I stopped after {result.turns} step(s) "
+                    f"({result.stop_reason.replace('_', ' ')}).")
+        return f"{model_label} returned no usable response."
+
+    def _agent_event(self, event: dict) -> None:
+        """Mirror loop telemetry into the console and the task workspace."""
+        try:
+            kind = event.get("type")
+            if kind == "tool_call":
+                print(f"[BRAHMA EVO] \U0001f6e0 {event.get('name')} {event.get('arguments')}")
+            elif kind == "compaction":
+                print(f"[BRAHMA EVO] \U0001f5dc context compacted "
+                      f"({event.get('dropped')} message(s))")
+            elif kind == "permission":
+                print(f"[BRAHMA EVO] \U0001f510 {event.get('decision')}: "
+                      f"{event.get('name')} ({event.get('rule')})")
+            elif kind == "stop":
+                print(f"[BRAHMA EVO] \U0001f3c1 agent stopped: {event.get('reason')} "
+                      f"after {event.get('turns')} turn(s)")
+            if kind in ("tool_start", "stop"):
+                status = event.get("name") if kind == "tool_start" else f"Agent {event.get('reason')}"
+                self.ui.update_task_workspace(status=str(status or "Agent"), percent=90)
+        except Exception:
+            pass
+
 
     def _custom_brain_turn(self, request_text: str, label: str = "Custom provider") -> str:
         """One agentic turn against the user's custom OpenAI-compatible endpoint.
@@ -3748,7 +3791,7 @@ class BrahmaLive:
             )
         return self._finish_tool_turn(
             {"choices": [{"message": msg}]}, messages,
-            source="custom", model_label=label,
+            source="custom", model_label=label, tools=tools,
         )
 
     @property
@@ -4132,6 +4175,43 @@ def main():
         _startup_log(f"tool index unavailable: {exc}")
 
     ui = BrahmaUI(str(BASE_DIR / "assets" / "Brahma_Lite_Logo.png"), show_immediately=True)
+
+    # Bind the agent harness to this process. Two things have to be set here or
+    # the defaults are wrong for the GUI:
+    #
+    #   * workspace -- the folder the user pointed developer mode at, not the
+    #     process cwd (a shortcut launch starts in the install directory, so a
+    #     cwd default would silently let the agent write into the repo).
+    #   * approver  -- the HUD confirmation banner. Left unset, the runtime
+    #     computes headless=True and turns every "ask" into a deny, so the
+    #     agent would be unable to run tests or touch a protected file even
+    #     with the user sitting in front of it.
+    try:
+        from agent import runtime as _agent_runtime
+        from memory import config_manager as _agent_cfg
+
+        _agent_workspace = str(
+            (_agent_cfg.load_settings() or {}).get("developer_mode_workspace") or ""
+        ).strip()
+        if _agent_workspace and Path(_agent_workspace).expanduser().is_dir():
+            _agent_runtime.configure(
+                workspace=_agent_workspace,
+                approver=_agent_runtime.gui_approver,
+                headless=False,
+            )
+            _startup_log(f"agent harness ready: workspace={_agent_workspace}")
+        else:
+            _agent_runtime.configure(
+                approver=_agent_runtime.gui_approver,
+                headless=False,
+            )
+            _startup_log(
+                "agent harness ready: workspace="
+                f"{_agent_runtime.current().workspace} (developer_mode_workspace unset)"
+            )
+    except Exception as exc:
+        _startup_log(f"agent harness unavailable: {exc}")
+
     dashboard = None
     dashboard_enabled = DashboardServer is not None and not _is_port_in_use(8000)
     if DashboardServer is not None and not dashboard_enabled:

@@ -41,6 +41,9 @@ config/patch_backups/
 config/ppt_template_cache/
 
 # Credentials & Sensitive Configurations
+# agent_permissions.json is user data (machine-local policy). Only the example
+# template is tracked: config/agent_permissions.example.json.
+agent_permissions.json
 config/api_keys.json
 config/email_credentials.json
 config/ig_session.json

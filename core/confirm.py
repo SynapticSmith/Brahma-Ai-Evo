@@ -53,6 +53,11 @@ class _Pending:
     detail:  str
     run:     Callable[[], str]
     at:      float
+    #: Set only for the blocking variant (see ``ask_blocking``). ``resolve``
+    #: writes ``verdict`` and raises the event so the waiting worker thread
+    #: learns the answer without polling the UI.
+    waiter:  Optional[threading.Event] = None
+    verdict: Optional[bool] = None
 
 
 _pending: Optional[_Pending] = None
@@ -77,6 +82,75 @@ def _log(msg: str) -> None:
             _log_cb(msg)
         except Exception:
             pass
+
+
+def is_bound() -> bool:
+    """True once the UI has wired this gate. Lets headless code decide
+    whether an approval is even possible before asking for one."""
+    return _show_cb is not None
+
+
+def _on_qt_main_thread() -> bool:
+    """A blocking approval on the Qt thread would deadlock: the banner's
+    button handler runs on the same thread that is waiting for it."""
+    try:
+        from PyQt6.QtCore import QCoreApplication, QThread
+
+        app = QCoreApplication.instance()
+        return app is not None and QThread.currentThread() == app.thread()
+    except Exception:
+        return False
+
+
+def ask_blocking(key: str, detail: str, timeout: Optional[float] = None) -> bool:
+    """Show the gate and wait for the answer.
+
+    Used by the agent harness, where a tool call has to be resolved *now* and
+    returning a sentence to the model is not an option. Must be called from a
+    worker thread: on the Qt main thread it refuses (False) rather than
+    deadlocking the interface. Returns False when nothing is bound, on
+    timeout, and when the user cancels.
+    """
+    global _pending
+
+    if _show_cb is None or _on_qt_main_thread():
+        return False
+
+    pending = _Pending(
+        key=str(key),
+        title=f"Approve {key}?",
+        detail=str(detail),
+        run=lambda: "approved",
+        at=time.monotonic(),
+        waiter=threading.Event(),
+    )
+    with _lock:
+        _pending = pending
+
+    try:
+        _show_cb(pending.title, pending.detail)
+    except Exception as e:
+        with _lock:
+            if _pending is pending:
+                _pending = None
+        _log(f"ERR: Could not ask for approval — {e}")
+        return False
+
+    _log(f"SYS: Awaiting approval — {key}")
+    wait_for = TIMEOUT_SECONDS if timeout is None else max(1.0, float(timeout))
+    answered = pending.waiter.wait(wait_for)
+    if not answered:
+        with _lock:
+            if _pending is pending:
+                _pending = None
+        if _hide_cb:
+            try:
+                _hide_cb()
+            except Exception:
+                pass
+        _log(f"SYS: Approval timed out — {key}")
+        return False
+    return bool(pending.verdict)
 
 
 def request(key: str, title: str, detail: str, run: Callable[[], str]) -> str:
@@ -132,8 +206,20 @@ def resolve(accepted: bool) -> None:
     if p is None:
         return
 
-    if time.monotonic() - p.at > TIMEOUT_SECONDS:
+    expired = time.monotonic() - p.at > TIMEOUT_SECONDS
+    if expired:
         _log(f"SYS: Confirmation expired — {p.title}")
+        if p.waiter is not None:
+            p.verdict = False
+            p.waiter.set()
+        return
+
+    if p.waiter is not None:
+        # Blocking variant (agent harness): the caller is waiting for this
+        # bool and there is no callable to run.
+        p.verdict = bool(accepted)
+        p.waiter.set()
+        _log(f"SYS: {'Approved' if accepted else 'Denied'} — {p.title}")
         return
 
     if not accepted:

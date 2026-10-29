@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "default": "allow",
+  "classes": {
+    "read": "allow",
+    "write": "allow",
+    "exec": "ask",
+    "network": "allow",
+    "device": "allow",
+    "native": "allow"
+  },
+  "tools": {},
+  "paths": {
+    "outside_workspace": "ask",
+    "protected": "ask"
+  },
+  "protected_globs": [
+    ".git/config",
+    ".env",
+    ".env.*",
+    "*.pem",
+    "*.key",
+    "id_rsa*",
+    "*.pfx"
+  ],
+  "exec": {
+    "deny_patterns": [
+      "rm\\s+-[a-z]*r[a-z]*f[a-z]*\\s+/(?:\\s|$)",
+      "mkfs\\.",
+      "dd\\s+if=.*of=/dev/",
+      ":\\(\\)\\s*\\{\\s*:\\|:&\\s*\\};:",
+      "format\\s+[a-z]:",
+      "del\\s+/[fsq].*[a-z]:\\\\\\s*$",
+      "rd\\s+/s\\s+/q\\s+[a-z]:\\\\\\s*$",
+      "remove-item\\s+.*-recurse.*-force\\s+[a-z]:\\\\\\s*$",
+      "shutdown\\s+(?:/s|/r|-h|-r)",
+      "cipher\\s+/w\\s*[a-z]:",
+      "reg\\s+delete\\s+hklm"
+    ],
+    "allow_patterns": []
+  },
+  "headless": {
+    "exec": "deny",
+    "outside_workspace": "deny"
+  }
+}

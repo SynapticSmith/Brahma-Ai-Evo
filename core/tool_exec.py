@@ -116,6 +116,26 @@ class ToolExecutor:
         name = fc.name
         args = dict(fc.args or {})
 
+        # Harness tools (file/edit/glob/grep/shell) are registered in
+        # ``agent.spec`` and dispatched through the permission-aware runtime.
+        # They run in a worker thread: an approval can block for as long as
+        # the user takes to click, and this coroutine drives the live audio
+        # session.
+        try:
+            from agent import code_tools  # noqa: F401  (import registers specs)
+            from agent import runtime as agent_runtime
+            from agent.spec import is_registered
+
+            if is_registered(name):
+                call_id = getattr(fc, "id", None) or f"call_{name}"
+                text = await asyncio.to_thread(
+                    agent_runtime.execute, name, args, call_id=call_id
+                )
+                print(f"[BRAHMA EVO] 🧰 {name} -> {str(text)[:200].replace(chr(10), ' ')}")
+                return types.FunctionResponse(name=name, id=call_id, response={"result": text})
+        except Exception as exc:
+            print(f"[BRAHMA EVO] ⚠️ Harness tool '{name}' unavailable: {exc}")
+
         # Discovery meta-tools are handled here, before the HUD/speech noise:
         # they are plumbing the model uses to reach unadvertised capabilities,
         # and narrating "working on search tools" to the user is just wrong.

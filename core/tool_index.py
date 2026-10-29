@@ -100,6 +100,12 @@ DEFAULT_ADVERTISED_BUDGET = 24
 DEFAULT_PINNED_TOOLS = (
     "undo",
     "recall_memory",
+    # The irreducible agent trio: without these the model can talk about code
+    # but cannot read it, change it, or verify the change. glob/grep/write_file
+    # stay retrievable so the resident surface does not grow by six slots.
+    "read_file",
+    "edit_file",
+    "run_command",
 )
 
 #: The discovery primitives. Always advertised whenever the index is enabled —

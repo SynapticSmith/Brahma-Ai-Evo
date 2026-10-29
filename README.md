@@ -169,11 +169,25 @@ Brahma AI Evo/
 │   ├── skill_crucible.py       # Isolated test execution sandbox
 │   ├── dynamic_registry.py     # Runtime tool hot-reloader & dispatcher
 │   └── identity.py             # System prompt & behavioral core
+├── agent/                      # Agentic harness: loop, code tools, policy, sessions
+│   ├── loop.py                 # Bounded observe -> act -> observe loop
+│   ├── code_tools.py           # read/write/edit/glob/grep/run_command
+│   └── permissions.py          # Capability policy & approval gates
 ├── features/                   # Self-evolved & custom Python tools
 │   ├── circuit_schematic.py    # Modular circuit schematic feature
 │   └── spotify_mcp.py          # Modular Spotify feature
 ├── smart_home/                 # Smart device provider & discovery services
 └── brahma-connect-android/     # Companion Android mobile application
+```
+
+The agent harness is documented in [`docs/AGENTIC-HARNESS.md`](docs/AGENTIC-HARNESS.md)
+(architecture and reference) and [`docs/AGENTIC-HARNESS-STATUS.md`](docs/AGENTIC-HARNESS-STATUS.md)
+(build log and decisions). It also runs headless:
+
+```powershell
+python -m agent "fix the failing test" --cwd .
+python -m agent sessions
+python -m agent permissions init
 ```
 
 ---
