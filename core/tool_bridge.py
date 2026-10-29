@@ -383,7 +383,19 @@ def build_session_payload(intent: str = "") -> Dict[str, Any]:
         logger.error("[ToolBridge] Index resolution failed (%s); falling back to legacy payload.", exc)
         return _legacy_payload()
 
-    declarations = list(resolved["declarations"]) + _meta_declarations()
+    declarations = list(resolved["declarations"])
+    # Aggressively promote MCP tools that match common intents to avoid 1008
+    try:
+        intent_lower = (intent or "").lower()
+        if any(k in intent_lower for k in ["chrome", "browser", "synapse", "cdp", "open tab", "navigate"]):
+            for entry in index.entries():
+                name = entry.name or ""
+                if name.startswith("mcp_Synapse") or "cdp" in name.lower():
+                    if entry.declaration not in declarations:
+                        declarations.append(entry.declaration)
+    except Exception:
+        pass
+    declarations = declarations + _meta_declarations()
     if len(declarations) > GEMINI_MAX_TOOLS:  # belt and braces
         declarations = declarations[:GEMINI_MAX_TOOLS]
 
@@ -594,7 +606,7 @@ def _handle_search(args: Dict[str, Any]) -> str:
         required = schema.get("required") if isinstance(schema, dict) else None
         req = f" (required: {', '.join(required)})" if required else ""
         lines.append(
-            f"\n{rank}. tool_name: {entry.name}"
+            f"\n{rank}. ⚠️ DISCOVERED TOOL (NOT DIRECTLY CALLABLE) - tool_name: {entry.name}"
             f"\n   group: {entry.skill_id}"
             f"\n   does: {entry.short_description(300)}"
             f"\n   arguments: {argspec}{req}"
@@ -603,9 +615,10 @@ def _handle_search(args: Dict[str, Any]) -> str:
             lines.append(f"   manual: call get_skill_manual with skill_id='{entry.skill_id}'")
 
     lines.append(
-        "\n⚠️ CRITICAL: You CANNOT call this tool directly. It may not be declared as an available function. "
-        "You MUST use call_tool(tool_name=<exact name>, arguments={...}) with the exact name above. "
-        "Calling it directly will crash the session."
+        "\n🚨 ABSOLUTELY CRITICAL: THESE TOOLS ARE NOT IN YOUR DECLARED FUNCTION LIST. "
+        "YOU CANNOT CALL THEM DIRECTLY. IF YOU CALL THEM DIRECTLY, THE SESSION WILL CRASH IMMEDIATELY. "
+        "YOU MUST USE: call_tool(tool_name=\"<exact name from above>\", arguments={<args from schema>}) "
+        "FOR EVERY TOOL LISTED ABOVE. DO NOT CALL THEM BY THEIR NAMES DIRECTLY."
     )
     return "\n".join(lines)
 

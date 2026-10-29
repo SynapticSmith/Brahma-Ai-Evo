@@ -75,10 +75,24 @@ class ToolExecutor:
         self._host = host
         self._ig_gemini_reply = ig_gemini_reply
         self._tool_declarations = tool_declarations
+        self._bridge_depth = 0
+        self._recent_calls = []
 
     def execute_via_bridge(self, name: str, args: dict) -> str:
         """Run a tool on behalf of the tool bridge's call_tool meta-tool."""
-        return self.execute_sync(name, args, call_id="call_bridge_" + name)
+        self._bridge_depth += 1
+        try:
+            # Prevent infinite loops
+            key = (name, str(args)[:200])
+            self._recent_calls.append(key)
+            if len(self._recent_calls) > 50:
+                self._recent_calls = self._recent_calls[-20:]
+            # If same call repeated too many times, break
+            if self._recent_calls.count(key) > 3:
+                return f"Tool '{name}' skipped to prevent loop (repeated calls detected)."
+            return self.execute_sync(name, args, call_id="call_bridge_" + name)
+        finally:
+            self._bridge_depth -= 1
 
     def execute_sync(self, name: str, args: dict, call_id: str = "call_local") -> str:
         fc = _LocalFC(name, args, call_id)
@@ -119,33 +133,42 @@ class ToolExecutor:
         # Architectural proxy: if this is not a meta-tool and not a known built-in,
         # try to route it through call_tool (for gateways that allow direct calls to
         # discovered tools, or as a safety net). This keeps the system backend-agnostic.
+        # CRITICAL: Do NOT proxy if called via bridge path (call_bridge_*) to avoid loops
         try:
-            from core import tool_bridge as _tb
-            if not _tb.is_meta_tool(name):
-                # Check if it's a known tool in declarations or will be handled by the big if-elif
-                known = name in {tool.get("name") for tool in self._tool_declarations}
-                if not known:
-                    try:
-                        from core import tool_index as _ti
-                        if _ti.get_index().get(name) is not None:
-                            known = True
-                    except Exception:
+            call_id_check = getattr(fc, "id", "") or ""
+            if getattr(self, "_bridge_depth", 0) > 0 or call_id_check.startswith("call_bridge_"):
+                pass  # skip proxy to avoid re-entrancy loop
+            else:
+                from core import tool_bridge as _tb
+                if not _tb.is_meta_tool(name):
+                    # Don't proxy MCP tools - they need to go through normal path
+                    if str(name).startswith("mcp_") or ":" in str(name) or str(name).startswith("synapse"):
                         pass
-                if not known:
-                    try:
-                        from core.dynamic_registry import DynamicToolRegistry
-                        if DynamicToolRegistry.has_tool(name):
-                            known = True
-                    except Exception:
-                        pass
-                if not known:
-                    print(f"[BRAHMA EVO] 🔀 Routing unknown/deferred tool '{name}' via call_tool proxy")
-                    try:
-                        text = await _tb.execute_meta("call_tool", {"tool_name": name, "arguments": args})
-                        call_id = getattr(fc, "id", None) or f"call_{name}"
-                        return types.FunctionResponse(name=name, id=call_id, response={"result": text})
-                    except Exception as exc:
-                        print(f"[BRAHMA EVO] ⚠️ Proxy routing failed for '{name}': {exc}")
+                    else:
+                        # Check if it's a known tool in declarations or will be handled by the big if-elif
+                        known = name in {tool.get("name") for tool in self._tool_declarations}
+                        if not known:
+                            try:
+                                from core import tool_index as _ti
+                                if _ti.get_index().get(name) is not None:
+                                    known = True
+                            except Exception:
+                                pass
+                        if not known:
+                            try:
+                                from core.dynamic_registry import DynamicToolRegistry
+                                if DynamicToolRegistry.has_tool(name):
+                                    known = True
+                            except Exception:
+                                pass
+                        if not known:
+                            print(f"[BRAHMA EVO] 🔀 Routing unknown/deferred tool '{name}' via call_tool proxy")
+                            try:
+                                text = await _tb.execute_meta("call_tool", {"tool_name": name, "arguments": args})
+                                call_id = getattr(fc, "id", None) or f"call_{name}"
+                                return types.FunctionResponse(name=name, id=call_id, response={"result": text})
+                            except Exception as exc:
+                                print(f"[BRAHMA EVO] ⚠️ Proxy routing failed for '{name}': {exc}")
         except Exception:
             pass
 

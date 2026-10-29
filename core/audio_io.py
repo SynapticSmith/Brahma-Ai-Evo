@@ -260,18 +260,32 @@ class AudioIO:
                                 fn_responses.append(fr)
                             except Exception as exc:
                                 print(f"[BRAHMA EVO] ⚠️ Tool call error for {fc.name}: {exc}")
-                                # Try to route through call_tool as last resort
+                                # Only proxy for truly unknown tools, not for meta-tools
                                 try:
                                     from core import tool_bridge
-                                    if not tool_bridge.is_meta_tool(fc.name):
-                                        args = dict(getattr(fc, "args", {}) or {})
-                                        text = await tool_bridge.execute_meta("call_tool", {"tool_name": fc.name, "arguments": args})
+                                    if tool_bridge.is_meta_tool(fc.name):
                                         try:
                                             from google.genai import types
-                                            fn_responses.append(types.FunctionResponse(name=fc.name, id=getattr(fc, "id", None), response={"result": text}))
+                                            fn_responses.append(types.FunctionResponse(name=fc.name, id=getattr(fc, "id", None), response={"result": f"Tool execution failed: {exc}"}))
                                         except Exception:
-                                            fn_responses.append({"name": fc.name, "id": getattr(fc, "id", None), "response": {"result": text}})
+                                            fn_responses.append({"name": fc.name, "id": getattr(fc, "id", None), "response": {"result": f"Tool execution failed: {exc}"}})
                                         continue
+                                    # Don't aggressively proxy MCP tools to avoid loops
+                                    if str(fc.name).startswith("mcp_") or str(fc.name).startswith("synapse"):
+                                        try:
+                                            from google.genai import types
+                                            fn_responses.append(types.FunctionResponse(name=fc.name, id=getattr(fc, "id", None), response={"result": f"Tool execution failed: {exc}"}))
+                                        except Exception:
+                                            fn_responses.append({"name": fc.name, "id": getattr(fc, "id", None), "response": {"result": f"Tool execution failed: {exc}"}})
+                                        continue
+                                    args = dict(getattr(fc, "args", {}) or {})
+                                    text = await tool_bridge.execute_meta("call_tool", {"tool_name": fc.name, "arguments": args})
+                                    try:
+                                        from google.genai import types
+                                        fn_responses.append(types.FunctionResponse(name=fc.name, id=getattr(fc, "id", None), response={"result": text}))
+                                    except Exception:
+                                        fn_responses.append({"name": fc.name, "id": getattr(fc, "id", None), "response": {"result": text}})
+                                    continue
                                 except Exception:
                                     pass
                                 try:

@@ -303,8 +303,8 @@ Drawn from the `ONE-391-*` docs and review tracker:
 - Gemini Live caps tools on the wire at 128 with no mid-session swap; the tool
   index is the mitigation, not a removal of the limit. Deferred/discovered tools
   MUST be called via `call_tool` (never directly) to avoid `1008 Requested entity
-  was not found`; the system enforces this via stronger prompting and architectural
-  proxy routing.
+  was not found`; the system enforces this via stronger prompting and guarded
+  architectural proxy routing with loop prevention.
 - `osc_vmc` is the least-exercised avatar backend; its transport is only
   verified where an OSC/VMC source is present.
 - Avatar asset loading logs (rather than fails loudly) for skipped assets
