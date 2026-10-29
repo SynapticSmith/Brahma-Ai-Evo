@@ -33,6 +33,7 @@ from .retry import Cancelled, call_with_retry
 from .runtime import AgentRuntime, current as current_runtime
 from .session import AgentSession
 from .spec import ToolSpec, all_specs, get as get_spec, lowercase_schema
+from .usage import add_usage, extract_usage
 
 Completer = Callable[[List[Dict[str, Any]], List[Dict[str, Any]]], Dict[str, Any]]
 NativeDispatch = Callable[[str, Dict[str, Any]], str]
@@ -193,6 +194,10 @@ class AgentLoop:
         self._repeat_counts: Dict[str, int] = {}
         self._tool_calls_made = 0
         self._retries = 0
+        #: Sum of provider-reported counts. Empty until a response carries
+        #: usage; ``estimated_tokens`` stays as the local fallback.
+        self._tokens: Dict[str, int] = {}
+        self._usage_reports = 0
 
         if context is not None:
             self._context = context
@@ -396,6 +401,10 @@ class AgentLoop:
                     response = self._request(ctx.as_payload(), self._openai_schemas())
 
                 message = normalise_assistant_message(response, turn)
+                reported = extract_usage(response)
+                if reported:
+                    add_usage(self._tokens, reported)
+                    self._usage_reports += 1
                 ctx.append(message)
                 self._persist(message)
 
@@ -411,6 +420,7 @@ class AgentLoop:
                         }
                         for call in calls
                     ],
+                    **({"usage": reported} if reported else {}),
                 )
 
                 # Interactive models often narrate first and call tools on the
@@ -561,6 +571,13 @@ class AgentLoop:
                 "retries": self._retries,
                 "context_chars": ctx.chars,
                 "estimated_tokens": ctx.estimated_tokens,
+                # Provider-reported counts, summed. Zero when no response ever
+                # carried usage; `tokens_reported` distinguishes that from a
+                # provider that really charged nothing.
+                "prompt_tokens": self._tokens.get("prompt_tokens", 0),
+                "completion_tokens": self._tokens.get("completion_tokens", 0),
+                "total_tokens": self._tokens.get("total_tokens", 0),
+                "tokens_reported": self._usage_reports > 0,
                 "elapsed_s": None,
             },
         )

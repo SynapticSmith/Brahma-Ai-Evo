@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional
@@ -112,7 +113,25 @@ class AgentRuntime:
     #: Keys the human said "always allow" to in this process. Never persisted:
     #: a new session asks again. See ``_approval_key``.
     session_allow: set = field(default_factory=set, repr=False)
+    #: How often ``execute`` may stat the policy file. Reading a policy per
+    #: call would be a syscall on every tool; reading it never means a running
+    #: agent keeps the rules it started with. 1 s is invisible to a person and
+    #: cheap next to a tool call.
+    policy_check_interval: float = 1.0
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    _policy_mtime_ns: Optional[int] = field(default=None, repr=False)
+    _policy_checked_at: float = field(default=0.0, repr=False)
+
+    def __post_init__(self) -> None:
+        # Record the mtime of the file this policy came from, so the first
+        # edit after construction is detected instead of being absorbed as a
+        # baseline.
+        source = getattr(self.policy, "source", None)
+        if source is not None:
+            try:
+                self._policy_mtime_ns = Path(source).stat().st_mtime_ns
+            except OSError:
+                pass
 
     def cancel(self) -> None:
         """Ask the running loop (if any) to stop after the current call."""
@@ -121,6 +140,66 @@ class AgentRuntime:
     def reset_cancel(self) -> None:
         """Clear a previous cancellation before starting a new turn."""
         self.cancel_event.clear()
+
+    def reload_policy(self, *, force: bool = False) -> Optional[PermissionPolicy]:
+        """Adopt an edited policy file without restarting Brahma.
+
+        The alternative — restart the app to change one rule — is exactly the
+        friction that makes people edit `deny` into `allow` in the wrong file
+        or stop using the policy at all. Throttled by
+        ``policy_check_interval`` and skipped when the policy came from
+        built-in defaults (``source is None``).
+
+        A malformed edit is not fatal: the last good policy stays in force and
+        a ``policy_reload`` event with ``ok=False`` is emitted, so a typo can
+        never silently widen or disable the rules. The bad mtime is recorded so
+        the same broken file is not re-parsed on every call; the next edit
+        retries.
+        """
+        source = getattr(self.policy, "source", None)
+        if source is None:
+            return None
+
+        now = time.monotonic()
+        with self._lock:
+            if not force and (now - self._policy_checked_at) < self.policy_check_interval:
+                return None
+            self._policy_checked_at = now
+
+        try:
+            mtime_ns = Path(source).stat().st_mtime_ns
+        except OSError:
+            return None
+
+        with self._lock:
+            if not force and mtime_ns == self._policy_mtime_ns:
+                return None
+            self._policy_mtime_ns = mtime_ns
+
+        try:
+            reloaded = PermissionPolicy.load(source)
+        except (OSError, ValueError) as exc:  # PolicyError is a ValueError
+            self._emit(
+                "policy_reload",
+                {"ok": False, "source": str(source), "error": str(exc)},
+            )
+            return None
+
+        if reloaded.source is None or Path(reloaded.source) != Path(source):
+            # The file vanished between stat and read and `load` fell back to
+            # another candidate. Keep the policy this runtime already trusts.
+            self._emit(
+                "policy_reload",
+                {"ok": False, "source": str(source), "error": "policy file disappeared"},
+            )
+            return None
+
+        self.policy = reloaded
+        self._emit(
+            "policy_reload",
+            {"ok": True, "source": str(reloaded.source)},
+        )
+        return reloaded
 
     def _approval_key(
         self,
@@ -212,6 +291,8 @@ class AgentRuntime:
     ) -> str:
         """Run one tool call under policy, returning model-readable text."""
         args = dict(args or {})
+        # Cheap, throttled check: a policy edit lands without a restart.
+        self.reload_policy()
         spec, decision = self.decide(name, args)
         key = self._approval_key(name, args, spec, decision.rule)
 

@@ -31,6 +31,8 @@ database migration is required; the new tables are additive.
 | Granular approval detail (rule, command/cwd, diff) | Done |
 | Parallel read-only tool calls | Done |
 | Cancellation-safe transcript | Done |
+| Provider-reported token usage | Done |
+| Policy hot-reload (fail-safe) | Done |
 | Python floor + CI matrix | Done |
 | Docs | This file + `AGENTIC-HARNESS.md` |
 | Commit | `agent: add the agentic harness` + hardening commit |
@@ -277,6 +279,35 @@ Approving one outside file no longer blesses every outside file for the
 session. A class-level ask stays tool-wide, because that is what the policy is
 actually asking about.
 
+### D23 — Token usage comes from the provider, not from arithmetic
+
+`usage["estimated_tokens"]` is a local estimate; treating it as a bill would be
+inventing a number. `agent/usage.py` reads what the provider actually returned:
+OpenAI `usage`, Gemini `usage_metadata`, and SDK objects with attributes. The
+result is `{}` when nothing was reported, so "unknown" and "zero" stay distinct
+— `tokens_reported` in `AgentResult.usage` says which one you have. A missing
+total is summed only when both halves were present; a partial count is returned
+without the total rather than completed by guesswork. Each `assistant` event
+carries that turn's counts, and the loop sums them across turns. The CLI footer
+prints the total only when it is real; `--json` already exposes the whole dict.
+
+### D24 — Policy edits apply without a restart
+
+The runtime held a policy object loaded at startup, so changing one rule meant
+restarting Brahma. `AgentRuntime.reload_policy()` re-reads the file named by
+`policy.source` when its `st_mtime_ns` changed, throttled by
+`policy_check_interval` (default 1 s) and called at the top of `execute`.
+`force=True` bypasses both checks for an explicit "reload now" control or a
+test.
+
+The failure mode matters more than the feature: a malformed edit must not
+disarm the policy. The last good policy stays in force, a `policy_reload` event
+with `ok=False` and the parser error is emitted, and the bad mtime is recorded
+so the same broken file is not re-parsed on every tool call. A policy built
+from a dict with no `source` is never re-read. Session approvals survive the
+reload but are still consulted only after `evaluate()`, so a new `deny` is
+immediate and a remembered "always allow" cannot widen it.
+
 ### D20 — Parallel dispatch is whole-turn and read-only
 
 Model turns often contain several `read_file`/`glob_files`/`grep_files` calls,
@@ -346,6 +377,11 @@ Notes:
 * Approval detail and path-scoped approvals are covered by
   `tests/test_agent_approval_detail.py` (10); the banner's remember-label hint
   and diff box are checked in `tests/test_confirmation_overlay.py` (3).
+* Provider usage and policy hot-reload are covered by
+  `tests/test_agent_usage.py` (11) and `tests/test_agent_policy_reload.py` (8):
+  unknown vs zero, summed totals only from real halves, mid-session edits,
+  malformed edits keeping the last good rules, the throttle, and a deny that a
+  remembered approval cannot widen.
 
 ---
 
@@ -370,16 +406,10 @@ Ordered by value, with the honest reason each was left out.
    rule, and a diff, but there is no syntax highlighting or per-hunk folding,
    and the TTY prompt prints the same block. Naming the remembered scope is
    done; reviewing a 1 600-character diff on a HUD is the remaining friction.
-6. **Policy hot-reload.** The runtime holds a policy object; editing
-   `agent_permissions.json` requires a restart. A file-watch or a
-   `runtime.reload_policy()` is small.
-7. **Sandboxing.** `run_command` is `shell=True` with policy as the only
+6. **Sandboxing.** `run_command` is `shell=True` with policy as the only
    barrier. A Windows job-object / container option would let `--yolo` be safe
    in more places.
-8. **Cost accounting.** `usage` reports turns/calls/compactions/retries, not
-   tokens or money. Providers return usage in different shapes; normalising it
-   is a small per-adapter job.
-9. **Voice-path session persistence.** Gemini owns the live history, so voice
+7. **Voice-path session persistence.** Gemini owns the live history, so voice
    turns do not write `agent_*` rows. Unifying them would need a transcript
    bridge from the live session.
 

@@ -91,6 +91,7 @@ Three invariants make the rest of the design work:
 | `agent/code_tools.py` | `read_file`, `write_file`, `edit_file`, `glob_files`, `grep_files`, `run_command` | …you are changing a primitive's behaviour. |
 | `agent/runtime.py` | The single dispatch boundary; approval callbacks; process-wide `configure()` | …you are wiring the harness into a new host. |
 | `agent/approval_detail.py` | Banner text: rule, command/cwd, unified diffs, and the ALWAYS ALLOW label | …an approval banner is unhelpful or names the wrong thing. |
+| `agent/usage.py` | Provider-reported token counts, normalised and summed | …you need real cost numbers instead of the local estimate. |
 | `agent/loop.py` | Bounded agent loop, repeat detection, stop reasons, event stream | …the agent stops early or will not stop. |
 | `agent/context.py` | Character budget, protocol-safe compaction, output truncation | …context is overflowing or a resumed prompt is rejected. |
 | `agent/session.py` | Durable messages/events in SQLite; list/open/resume | …resume loses messages. |
@@ -127,9 +128,27 @@ AgentResult(
     messages,      # the exact OpenAI-shaped transcript
     events,        # ordered telemetry
     session_id,
-    usage,         # turns / tool_calls / compactions / retries / context_chars / estimated_tokens
+    usage,         # turns / tool_calls / compactions / retries / context_chars /
+                   # estimated_tokens / prompt_tokens / completion_tokens /
+                   # total_tokens / tokens_reported
 )
 ```
+
+`estimated_tokens` is a local estimate from the transcript size; it drives
+compaction and is available even when a provider reports nothing.
+`prompt_tokens` / `completion_tokens` / `total_tokens` are the **provider's own
+counts**, summed across turns by `agent/usage.py`. They stay `0` with
+`tokens_reported is False` when no response carried usage — "unknown" is never
+rendered as "zero spent". The CLI footer prints the total only when it is real.
+
+### Provider usage
+
+`extract_usage(response)` accepts the three shapes in use — OpenAI
+`{"usage": {...}}`, Gemini `{"usage_metadata": {...}}`, and SDK objects with
+attributes — and returns `{}` rather than guessing. A missing total is summed
+only when both halves were reported; a partial count is kept without inventing
+the rest. Each `assistant` event carries that turn's counts under `usage` when
+the provider supplied them.
 
 ### Stop reasons
 
@@ -276,6 +295,21 @@ a typo in a decision must fail loudly, not at the moment an agent tries to
 delete something. An `agent_permissions.json` in the repo is gitignored (it is
 machine-local user data); only `config/agent_permissions.example.json` is
 tracked.
+
+### Hot reload
+
+`AgentRuntime.execute` calls `reload_policy()` first, so editing the policy
+file lands without restarting Brahma. The check is throttled
+(`policy_check_interval`, default 1 s) and compares the file's `st_mtime_ns`;
+a policy built from a dict with no `source` is never re-read. `force=True`
+skips both the throttle and the mtime comparison (tests, or an explicit
+"reload now" control).
+
+A reload is **fail-safe**: if the new file is malformed, the last good policy
+stays in force and a `policy_reload` event with `ok=False` and the parser error
+is emitted. Session approvals are not cleared — they are still consulted only
+after `evaluate()`, so a reload that turns `ask` into `deny` takes effect
+immediately and cannot be widened by a remembered "always allow".
 
 ### Schema
 
@@ -513,13 +547,14 @@ Every event is a dict with `type` plus fields. The same objects go to
 | --- | --- | --- |
 | `session_start` | `session_id`, `cwd` | Once, if a session is attached. |
 | `turn_start` | `turn`, `chars` | Before each model call. |
-| `assistant` | `turn`, `text`, `tool_calls[{name, arguments}]` | After each model response. |
+| `assistant` | `turn`, `text`, `tool_calls[{name, arguments}]`, `usage?` | After each model response; `usage` is present only when the provider reported it. |
 | `tool_call` | `name`, `call_id`, `arguments`, `repeat` | Before dispatch; `repeat` is the occurrence count. |
 | `tool_start` / `tool_end` | `name`, `call_id`, `args` / `chars` | From the runtime, around the handler. |
 | `tool_result` | `name`, `call_id`, `ok`, `chars`, `preview` | After truncation. |
 | `permission` | `name`, `decision` (`ask\|allow\|always\|denied\|deny\|error`), `rule`, `reason` | Only when a call was gated or served from a session approval. |
 | `compaction` | `dropped`, `summary_chars`, `total_chars` | After folding. |
 | `retry` | `attempt`, `delay_s`, `error` | Before waiting to retry a transient model-call failure. |
+| `policy_reload` | `ok`, `source`, `error` (when `ok=False`) | When an edited policy file was adopted or rejected. |
 | `error` | `error` | Loop-level fatal. |
 | `stop` | `reason`, `turns`, `tool_calls` | Last event of every run. |
 
@@ -568,6 +603,8 @@ unchanged); only the loop around it is new.
 | `tests/test_agent_approval.py` | Session "always allow" keying (tool vs exact command), bool answers not remembered, deny never widened, reconfigure survival, confirm tri-state and timeout. |
 | `tests/test_agent_approval_detail.py` | Banner text: rule-first ordering, command/cwd, real diffs, create vs overwrite, bounded output, path-scoped session keys. |
 | `tests/test_agent_parallel.py` | Concurrent reads, `max_parallel_tools` cap, write/`ask` serialisation, submission-order results, cancellation fillers for undispatched calls. |
+| `tests/test_agent_usage.py` | OpenAI/Gemini/SDK usage shapes, unknown vs zero, summed totals only from real halves, accumulation, per-turn `assistant.usage`. |
+| `tests/test_agent_policy_reload.py` | An edit takes effect mid-session, malformed edits keep the last good policy, no-file policies never reload, throttle/`force`, event payload, deny not widened by a session approval. |
 | `tests/test_confirmation_overlay.py` | HUD banner: ALWAYS ALLOW only for session-approvable calls, remembers-what hint, diff box, irreversible header. |
 
 They do not need a model. The `test_agent_*` files are pure-Python and need

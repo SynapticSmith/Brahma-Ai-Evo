@@ -54,7 +54,9 @@ scope.
   exact command for `run_command`. They never override a policy `deny`, never
   apply to `requires_approval` specs, and never touch disk.
 - To make an approval permanent, edit the policy file; do not persist a clicked
-  button.
+  button. `AgentRuntime.execute` re-reads that file at most once a second
+  (`policy_check_interval`), so an edit needs no restart; a malformed edit keeps
+  the last good policy and emits `policy_reload` with `ok=False`.
 
 ## Parallel tool calls
 

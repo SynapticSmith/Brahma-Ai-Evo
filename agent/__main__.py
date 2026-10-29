@@ -67,6 +67,10 @@ def _render_event(event: Dict[str, Any]) -> Optional[str]:
             f"  ~~ retry {event.get('attempt')} in {event.get('delay_s')}s "
             f"({event.get('error')})"
         )
+    if kind == "policy_reload":
+        if event.get("ok"):
+            return f"  ~~ policy reloaded from {event.get('source')}"
+        return f"  !! policy reload failed, keeping the old rules: {event.get('error')}"
     if kind == "error":
         return f"  !! {event.get('error')}"
     if kind == "stop":
@@ -82,7 +86,9 @@ def _make_printer(as_json: bool):
             return
         line = _render_event(event)
         if line is not None:
-            stream = sys.stderr if event.get("type") in ("permission", "compaction", "error") else sys.stdout
+            stream = sys.stderr if event.get("type") in (
+                "permission", "compaction", "policy_reload", "error"
+            ) else sys.stdout
             stream.write(line + "\n")
             stream.flush()
 
@@ -237,9 +243,15 @@ def _cmd_run(args: argparse.Namespace) -> int:
     else:
         if result.text:
             sys.stdout.write("\n" + result.text + "\n")
+        usage = result.usage or {}
+        tokens = (
+            f" · {usage.get('total_tokens', 0)} tokens"
+            if usage.get("tokens_reported")
+            else ""
+        )
         sys.stderr.write(
             f"\n[{result.stop_reason} · {result.turns} turn(s) · "
-            f"{result.usage.get('tool_calls', 0)} tool call(s)"
+            f"{usage.get('tool_calls', 0)} tool call(s){tokens}"
             + (f" · session {result.session_id}" if result.session_id else "")
             + "]\n"
         )
