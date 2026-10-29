@@ -26,6 +26,8 @@ database migration is required; the new tables are additive.
 | GUI integration (text + voice) | Done |
 | Cancellation (Ctrl-C / `Ctrl+Shift+X`) | Done |
 | Transient-failure retries with backoff | Done |
+| Instruction discovery (workspace + parents) | Done |
+| Session "always allow" approvals | Done |
 | Python floor + CI matrix | Done |
 | Docs | This file + `AGENTIC-HARNESS.md` |
 | Commit | `agent: add the agentic harness` + hardening commit |
@@ -67,8 +69,8 @@ Modified:
 
 New tests: `tests/test_agent_permissions.py`, `test_agent_code_tools.py`,
 `test_agent_context.py`, `test_agent_session.py`, `test_agent_loop.py`,
-`test_agent_cli.py`, `test_agent_retry.py` — all pure-Python (no display, no
-model).
+`test_agent_cli.py`, `test_agent_retry.py`, `test_agent_prompts.py`,
+`test_agent_approval.py` — all pure-Python (no display, no model).
 
 ---
 
@@ -229,6 +231,31 @@ those answers and a dead local server should fail in milliseconds. Backoff is
 0.8 s doubling to 8 s plus up to 25 % jitter; the wait uses `Event.wait()` so a
 cancel interrupts it rather than sleeping through it.
 
+### D18 — Instruction discovery walks up, never down (yet)
+
+A workspace is often a package inside a monorepo, so reading only
+`<workspace>/AGENTS.md` silently discards the rules the outer repo already
+wrote. `load_project_instructions` now walks up to three parent directories
+(overridable with `BRAHMA_AGENT_INSTRUCTION_PARENTS`), emits root-most first so
+the nearest file is read last and wins, and skips the drive/filesystem root.
+Truncation keeps the **tail** for the same reason. A blind recursive scan for
+subdirectory files was rejected: without knowing which paths the model will
+touch it would pull in unrelated packages and burn the context budget. That is
+still a gap, and it needs per-turn path awareness rather than a bigger glob.
+
+### D19 — "Always allow" is session-scoped and scoped to the thing approved
+
+Approval fatigue is real: a loop that asks before every `pytest` run is one
+nobody leaves unattended. The HUD now offers ALWAYS ALLOW, and the runtime
+remembers the answer in memory. The key is the tool name for file/native tools
+(the policy already constrains paths) and the exact command string for
+`run_command` — approving a test command must not approve a delete. A policy
+`deny` is never widened because the remembered set is consulted only when the
+decision was `ask`. Nothing persists to disk: `agent_permissions.json` is the
+way to make a rule permanent, and a new process should not inherit a button
+press from last week. `requires_approval=True` tools are deliberately excluded,
+so irreversible actions keep asking.
+
 ---
 
 ## 4. Verification
@@ -238,8 +265,8 @@ and the default `python` are 3.14 and lack `ruff`/`pytest`.
 
 ```
 py -3.11 -m ruff check .                 # All checks passed!
-py -3.11 -m pytest tests -q              # 427 passed  (QT_QPA_PLATFORM=offscreen)
-py -3.11 -m pytest tests -q -k agent     # 96 passed
+py -3.11 -m pytest tests -q              # 447 passed  (QT_QPA_PLATFORM=offscreen)
+py -3.11 -m pytest tests -q -k agent     # 114 passed
 py -3.11 -c "import main; ..."           # 66 declarations, all six tools present
 py -3.11 -m agent tools                  # lists the six primitives
 py -3.11 -m agent permissions show       # reports built-in defaults
@@ -253,7 +280,7 @@ Notes:
   `len(TOOL_DECLARATIONS) == 66` and that
   `{read_file, write_file, edit_file, glob_files, grep_files, run_command}` are
   all present.
-* The 96 harness tests run without a display or a model:
+* The 114 harness tests run without a display or a model:
   `py -3.11 -m pytest tests -q -k agent`.
 * `python -m agent run --provider stub --json` is the cheapest end-to-end
   smoke test (used by `test_agent_cli`).
@@ -262,6 +289,9 @@ Notes:
   3.11/3.12/3.13 so the floor and forward compatibility stay honest.
 * Cancellation and retries were verified by `tests/test_agent_retry.py`
   (16 tests) plus the loop's existing cancellation tests.
+* Instruction discovery and the approval tri-state are covered by
+  `tests/test_agent_prompts.py` (7) and `tests/test_agent_approval.py` (10);
+  `tests/test_confirmation_overlay.py` (2) checks the HUD button itself.
 
 ---
 
@@ -276,14 +306,15 @@ Ordered by value, with the honest reason each was left out.
 2. **Subagents / parallel tool calls.** Calls within a turn are sequential. The
    event stream is already the right substrate for a coordinator; the loop
    itself does not need to change.
-3. **Instruction-file discovery.** `AGENTS.md` is read from the workspace root.
-   Real repos put them in subdirectories. Needs an upward walk plus a
-   most-specific-wins rule, and a cache so grep does not re-read them.
+3. **Subdirectory instruction files.** The upward walk now covers parents, but
+   an `AGENTS.md` inside `packages/foo/` is still not read. Needs the set of
+   paths the model is actually touching (plus a cache), not a recursive scan.
 4. **Session replay in the GUI.** The CLI can `resume`; the HUD cannot. A
    session picker would map `agent_sessions` into the existing conversation UI.
 5. **Granular approval UI.** The banner shows the tool name and a JSON blob.
    For `run_command` it should show the command, the cwd and the matched rule;
-   for `edit_file`, a diff.
+   for `edit_file`, a diff. "Always allow" now exists but says "ALWAYS ALLOW"
+   without naming what will be remembered.
 6. **Policy hot-reload.** The runtime holds a policy object; editing
    `agent_permissions.json` requires a restart. A file-watch or a
    `runtime.reload_policy()` is small.

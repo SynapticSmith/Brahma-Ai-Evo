@@ -321,6 +321,27 @@ Finally, `requires_approval=True` on a spec escalates `allow` → `ask` (and
   denial for the `permission_denied` stop.
 * `deny` is final. The model receives *"hard policy denial; do not retry"*.
 
+### Session approvals ("always allow")
+
+A human may answer an `ask` with **always allow** instead of a one-off yes. The
+runtime remembers the approval in memory for the rest of the process:
+
+* a file/native tool is remembered **by tool name** — the policy already scopes
+  which paths it may touch;
+* `run_command` is remembered by the **exact command string**, so approving
+  `pytest -q` does not approve `del /s`;
+* a `requires_approval=True` spec is never remembered: irreversible actions ask
+  every time.
+
+A remembered approval only replaces the *human step*. It is consulted after
+`evaluate()`, and only when the decision was `ask`, so a policy `deny` (a
+protected file, a catastrophic command) can never be widened by pressing a
+button. Nothing is written to disk: a new process asks again. To make an
+approval permanent, edit the policy file instead.
+
+The HUD shows the third button only for session-approvable calls
+(`confirm.pending_allows_always()`); the CLI's TTY prompt accepts `a`.
+
 ### "Headless" means "no human can be asked"
 
 `AgentRuntime.decide` computes:
@@ -337,12 +358,12 @@ so the three hosts differ only in what they inject:
 | CLI on a TTY | `False` | `_tty_approver` (stdin) | interactive; `exec` asks |
 | CLI `--json` / CI | `True` | `None` | `exec` denied |
 
-The GUI approver calls `core.confirm.ask_blocking`, which **refuses when called
-on the Qt main thread** — the banner's button handler would run on the thread
-that is waiting for it. It therefore must be reached from a worker thread
-(the `asyncio.to_thread` branch in `core/tool_exec.py`, or the text path's
-worker). `ask_blocking` also returns `False` if no UI is bound, on timeout, and
-on cancel.
+The GUI approver calls `core.confirm.ask_blocking_choice`, which **refuses when
+called on the Qt main thread** — the banner's button handler would run on the
+thread that is waiting for it. It therefore must be reached from a worker
+thread (the `asyncio.to_thread` branch in `core/tool_exec.py`, or the text
+path's worker). It returns `"deny"` if no UI is bound, on timeout, and on
+cancel; `ask_blocking` remains as a bool wrapper.
 
 ---
 
@@ -450,7 +471,7 @@ Every event is a dict with `type` plus fields. The same objects go to
 | `tool_call` | `name`, `call_id`, `arguments`, `repeat` | Before dispatch; `repeat` is the occurrence count. |
 | `tool_start` / `tool_end` | `name`, `call_id`, `args` / `chars` | From the runtime, around the handler. |
 | `tool_result` | `name`, `call_id`, `ok`, `chars`, `preview` | After truncation. |
-| `permission` | `name`, `decision` (`ask\|denied\|deny\|error`), `rule`, `reason` | Only when a call was gated. |
+| `permission` | `name`, `decision` (`ask\|allow\|always\|denied\|deny\|error`), `rule`, `reason` | Only when a call was gated or served from a session approval. |
 | `compaction` | `dropped`, `summary_chars`, `total_chars` | After folding. |
 | `retry` | `attempt`, `delay_s`, `error` | Before waiting to retry a transient model-call failure. |
 | `error` | `error` | Loop-level fatal. |
@@ -470,8 +491,14 @@ workspace, do not repeat a failing call, finish with a plain summary) plus the
 workspace path and a one-line permission note.
 
 Project instructions are appended **last** so they win: `AGENTS.md`,
-`BRAHMA.md`, `.brahma/AGENTS.md` in the workspace root, truncated at 8 000
-characters. The harness never edits these files on its own.
+`BRAHMA.md` and `.brahma/AGENTS.md` are read from the workspace **and up to
+three parent directories** (root-most first), so a package inside a monorepo
+inherits the monorepo's rules while its own file remains the last word. The
+drive/filesystem root is never included, and
+`BRAHMA_AGENT_INSTRUCTION_PARENTS=0` disables the walk. The combined text is
+capped at 8 000 characters; the **tail** is kept when it overflows, because the
+nearest instructions are the ones that matter. The harness never edits these
+files on its own.
 
 The CLI builds the prompt with
 `build_system_prompt(workspace, permission_note=policy_note())`. The GUI text
@@ -491,9 +518,13 @@ unchanged); only the loop around it is new.
 | `tests/test_agent_session.py` | Round-trip incl. `tool_calls`, listing order, rewrite after compaction, status/summary, events, missing DB. |
 | `tests/test_agent_cli.py` | Stub run, stdin prompt, missing prompt, bare-word run, tools/permissions/sessions, NDJSON shape, exit codes. |
 | `tests/test_agent_retry.py` | Transient vs permanent classification, backoff shape, retry budget, cancellation during backoff, loop `retry` events and `usage["retries"]`, runtime flags, CLI Ctrl-C handler. |
+| `tests/test_agent_prompts.py` | Instruction-file priority, bounded upward walk and its env override, root exclusion, tail-preserving truncation, prompt ordering. |
+| `tests/test_agent_approval.py` | Session "always allow" keying (tool vs exact command), bool answers not remembered, deny never widened, reconfigure survival, confirm tri-state and timeout. |
+| `tests/test_confirmation_overlay.py` | HUD banner: the ALWAYS ALLOW button exists only for session-approvable calls and emits without a normal answer. |
 
-They are pure-Python and do not need a display or a model. Run them with the
-CI interpreter:
+They do not need a model. The `test_agent_*` files are pure-Python and need
+neither a display nor PyQt; only `test_confirmation_overlay.py` constructs a Qt
+widget (offscreen). Run them with the CI interpreter:
 
 ```
 py -3.11 -m pytest tests -q -k agent
@@ -522,8 +553,11 @@ These are known and deliberate, not surprises:
   the Qt main thread by design. The text path already runs in a worker; the
   voice path uses `asyncio.to_thread`. A new caller must do the same or the
   approval silently becomes a denial.
-* **`AGENTS.md` is read from the workspace root only.** There is no upward
-  directory walk and no per-subdirectory instruction file yet.
+* **`AGENTS.md` is still workspace-and-parents only.** The upward walk is
+  bounded (three levels, `BRAHMA_AGENT_INSTRUCTION_PARENTS` to change it), but
+  an `AGENTS.md` in a *subdirectory* of the workspace is not loaded yet. Doing
+  that correctly needs the set of paths the model is touching, not a blind
+  recursive scan.
 * **No streaming.** The loop waits for a complete assistant message. Token
   streaming would need a provider-side event protocol and a partial-tool-call
   assembler.

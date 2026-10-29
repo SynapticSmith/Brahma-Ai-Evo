@@ -21,7 +21,9 @@ THE DESIGN HERE
       2. This module hands the UI a banner with CONFIRM / CANCEL and returns
          IMMEDIATELY with a sentence for the model to say out loud.
       3. If — and only if — the user presses CONFIRM, the UI calls `resolve()`,
-         which runs the stored callable off the Qt thread.
+         which runs the stored callable off the Qt thread. ALWAYS ALLOW uses
+         the same gate and additionally remembers the answer for the session
+         (agent approvals only; see `pending_allows_always`).
 
     Nothing blocks. The model keeps talking while the banner is up, so this
     costs no latency at all; in fact it is cheaper than the old gate, which
@@ -58,6 +60,11 @@ class _Pending:
     #: learns the answer without polling the UI.
     waiter:  Optional[threading.Event] = None
     verdict: Optional[bool] = None
+    #: True for the agent harness's blocking approval: the UI may offer
+    #: "always allow" for this call. The irreversible-action flow never does.
+    allow_always: bool = False
+    #: Set when the user picked "always allow" (only alongside ``verdict``).
+    always: bool = False
 
 
 _pending: Optional[_Pending] = None
@@ -102,19 +109,21 @@ def _on_qt_main_thread() -> bool:
         return False
 
 
-def ask_blocking(key: str, detail: str, timeout: Optional[float] = None) -> bool:
-    """Show the gate and wait for the answer.
+def ask_blocking_choice(
+    key: str,
+    detail: str,
+    timeout: Optional[float] = None,
+) -> str:
+    """Like :func:`ask_blocking`, but reports *how* the human answered.
 
-    Used by the agent harness, where a tool call has to be resolved *now* and
-    returning a sentence to the model is not an option. Must be called from a
-    worker thread: on the Qt main thread it refuses (False) rather than
-    deadlocking the interface. Returns False when nothing is bound, on
-    timeout, and when the user cancels.
+    Returns ``"allow"``, ``"always"`` (allow this exact call for the rest of
+    the session) or ``"deny"``. The agent runtime uses the distinction to stop
+    re-asking for a command the user has already blessed.
     """
     global _pending
 
     if _show_cb is None or _on_qt_main_thread():
-        return False
+        return "deny"
 
     pending = _Pending(
         key=str(key),
@@ -123,6 +132,7 @@ def ask_blocking(key: str, detail: str, timeout: Optional[float] = None) -> bool
         run=lambda: "approved",
         at=time.monotonic(),
         waiter=threading.Event(),
+        allow_always=True,
     )
     with _lock:
         _pending = pending
@@ -134,7 +144,7 @@ def ask_blocking(key: str, detail: str, timeout: Optional[float] = None) -> bool
             if _pending is pending:
                 _pending = None
         _log(f"ERR: Could not ask for approval — {e}")
-        return False
+        return "deny"
 
     _log(f"SYS: Awaiting approval — {key}")
     wait_for = TIMEOUT_SECONDS if timeout is None else max(1.0, float(timeout))
@@ -149,8 +159,22 @@ def ask_blocking(key: str, detail: str, timeout: Optional[float] = None) -> bool
             except Exception:
                 pass
         _log(f"SYS: Approval timed out — {key}")
-        return False
-    return bool(pending.verdict)
+        return "deny"
+    if not pending.verdict:
+        return "deny"
+    return "always" if pending.always else "allow"
+
+
+def ask_blocking(key: str, detail: str, timeout: Optional[float] = None) -> bool:
+    """Show the gate and wait for the answer.
+
+    Used by the agent harness, where a tool call has to be resolved *now* and
+    returning a sentence to the model is not an option. Must be called from a
+    worker thread: on the Qt main thread it refuses (False) rather than
+    deadlocking the interface. Returns False when nothing is bound, on
+    timeout, and when the user cancels.
+    """
+    return ask_blocking_choice(key, detail, timeout) in ("allow", "always")
 
 
 def request(key: str, title: str, detail: str, run: Callable[[], str]) -> str:
@@ -186,8 +210,8 @@ def request(key: str, title: str, detail: str, run: Callable[[], str]) -> str:
     )
 
 
-def resolve(accepted: bool) -> None:
-    """Called by the UI when the user presses CONFIRM or CANCEL.
+def resolve(accepted: bool, *, always: bool = False) -> None:
+    """Called by the UI when the user presses CONFIRM, ALWAYS or CANCEL.
 
     Runs the stored callable on a worker thread — this is invoked from the Qt
     thread, and shutting the machine down from inside a button handler would
@@ -218,6 +242,7 @@ def resolve(accepted: bool) -> None:
         # Blocking variant (agent harness): the caller is waiting for this
         # bool and there is no callable to run.
         p.verdict = bool(accepted)
+        p.always = bool(accepted and always and p.allow_always)
         p.waiter.set()
         _log(f"SYS: {'Approved' if accepted else 'Denied'} — {p.title}")
         return
@@ -245,3 +270,9 @@ def pending_title() -> str:
         if time.monotonic() - _pending.at > TIMEOUT_SECONDS:
             return ""
         return _pending.title
+
+
+def pending_allows_always() -> bool:
+    """True when the banner on screen belongs to a session-approvable call."""
+    with _lock:
+        return bool(_pending is not None and _pending.allow_always)

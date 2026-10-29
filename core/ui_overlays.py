@@ -629,10 +629,11 @@ class DailyBriefingOverlay(QWidget):
 class ConfirmationOverlay(QWidget):
     """Physical confirmation gate for irreversible actions (shutdown, restart, wifi toggles)."""
     answered = pyqtSignal(bool)
+    always   = pyqtSignal()
     closed   = pyqtSignal()
     _OW = 440
 
-    def __init__(self, title: str, detail: str, parent=None):
+    def __init__(self, title: str, detail: str, parent=None, *, allow_always: bool = False):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(f"""
@@ -695,6 +696,28 @@ class ConfirmationOverlay(QWidget):
         yes.clicked.connect(self._on_confirm)
         row.addWidget(yes)
 
+        if allow_always:
+            keep = QPushButton("ALWAYS ALLOW")
+            keep.setFixedHeight(36)
+            keep.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+            keep.setCursor(Qt.CursorShape.PointingHandCursor)
+            keep.setToolTip("Approve this tool (or this exact command) for the rest of the session")
+            keep.setStyleSheet(f"""
+                QPushButton {{
+                    background: rgba(0, 229, 255, 0.06);
+                    color: {C.TEXT_MED};
+                    border: 1px solid {C.ACC};
+                    border-radius: 6px;
+                    padding: 0 12px;
+                }}
+                QPushButton:hover {{
+                    background: rgba(0, 229, 255, 0.20);
+                    color: {C.WHITE};
+                }}
+            """)
+            keep.clicked.connect(self._on_always)
+            row.addWidget(keep)
+
         no = QPushButton("CANCEL")
         no.setFixedHeight(36)
         no.setFont(QFont("Segoe UI", 9))
@@ -737,6 +760,13 @@ class ConfirmationOverlay(QWidget):
             self._timer.stop()
         self.hide()
         self.answered.emit(True)
+        self.closed.emit()
+
+    def _on_always(self):
+        if hasattr(self, "_timer") and self._timer.isActive():
+            self._timer.stop()
+        self.hide()
+        self.always.emit()
         self.closed.emit()
 
     def _on_cancel(self):

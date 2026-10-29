@@ -136,8 +136,18 @@ class _OverlayCardsMixin:
                     pass
                 self._confirm_overlay = None
 
-            overlay = ConfirmationOverlay(title, detail, parent=self)
+            allow_always = False
+            try:
+                from core import confirm as confirm_gate
+
+                allow_always = confirm_gate.pending_allows_always()
+            except Exception:
+                pass
+            overlay = ConfirmationOverlay(
+                title, detail, parent=self, allow_always=allow_always
+            )
             overlay.answered.connect(self._on_confirm_answered)
+            overlay.always.connect(self._on_confirm_always)
             overlay.closed.connect(lambda: setattr(self, "_confirm_overlay", None))
             self._confirm_overlay = overlay
             self._position_confirm_overlay()

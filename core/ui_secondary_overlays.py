@@ -97,6 +97,15 @@ class _SecondaryOverlaysMixin:
             pass
         self._apply_confirm_overlay("hide", "", "")
 
+    def _on_confirm_always(self):
+        """User pressed ALWAYS ALLOW: approve and remember for this session."""
+        try:
+            from core import confirm as confirm_gate
+            confirm_gate.resolve(True, always=True)
+        except Exception:
+            pass
+        self._apply_confirm_overlay("hide", "", "")
+
     def _position_confirm_overlay(self):
         if not getattr(self, "_confirm_overlay", None):
             return

@@ -93,15 +93,17 @@ def _make_printer(as_json: bool):
 # Runtime assembly
 # --------------------------------------------------------------------------- #
 
-def _tty_approver(name: str, args: Dict[str, Any], detail: str) -> bool:
+def _tty_approver(name: str, args: Dict[str, Any], detail: str) -> Any:
     if not sys.stdin.isatty():
         return False
-    sys.stderr.write(f"\n[approval] {detail}\nAllow '{name}'? [y/N] ")
+    sys.stderr.write(f"\n[approval] {detail}\nAllow '{name}'? [y/N/a=always] ")
     sys.stderr.flush()
     try:
         answer = input().strip().lower()
     except EOFError:
         return False
+    if answer in ("a", "always"):
+        return "always"
     return answer in ("y", "yes")
 
 

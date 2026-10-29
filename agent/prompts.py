@@ -8,14 +8,26 @@ verified, read before writing, never invent tool output.
 Project instructions (``AGENTS.md`` / ``BRAHMA.md``) are appended last and are
 the only per-workspace input. That ordering is intentional: project rules
 should win over generic advice.
+
+Instruction files are also read from the workspace's parent directories (a
+repo nested inside a monorepo should inherit the monorepo's rules). The walk is
+bounded — see ``DEFAULT_MAX_INSTRUCTION_PARENTS`` — and can be switched off with
+``BRAHMA_AGENT_INSTRUCTION_PARENTS=0``. Parent files are emitted first, so the
+nearest (workspace) file is the last thing the model reads and therefore wins.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
-#: Instruction files looked for in the workspace root, in priority order.
+#: Instruction files looked for in each directory, in priority order.
 PROJECT_FILES = ("AGENTS.md", "BRAHMA.md", ".brahma/AGENTS.md")
+
+#: How many directories above the workspace to inspect. Three covers the usual
+#: ``monorepo/packages/tool`` layout without wandering into the filesystem root
+#: (and the user's home directory) by accident.
+DEFAULT_MAX_INSTRUCTION_PARENTS = 3
 
 #: A project instruction file bigger than this is almost certainly a brain
 #: dump; truncate rather than blow the window on the first turn.
@@ -48,25 +60,89 @@ You have file read/write/edit, glob, grep and shell tools. Use grep and glob to
 find things; do not read a directory one file at a time."""
 
 
-def load_project_instructions(workspace: Optional[Path]) -> str:
-    """Concatenate the workspace's instruction files, if any exist."""
+def _max_parents() -> int:
+    """Parent levels to read, honouring the operator override."""
+    raw = os.getenv("BRAHMA_AGENT_INSTRUCTION_PARENTS", "").strip()
+    if not raw:
+        return DEFAULT_MAX_INSTRUCTION_PARENTS
+    try:
+        return max(0, min(10, int(raw)))
+    except ValueError:
+        return DEFAULT_MAX_INSTRUCTION_PARENTS
+
+
+def instruction_dirs(
+    workspace: Path,
+    *,
+    max_parents: Optional[int] = None,
+) -> List[Path]:
+    """Workspace plus up to ``max_parents`` ancestors, root-most first.
+
+    The drive/filesystem root is never included: ``AGENTS.md`` directly at
+    ``C:\\`` is not project context. The order matters — callers emit in this
+    order so the most specific file is written last.
+    """
+    try:
+        current = Path(workspace).expanduser().resolve()
+    except OSError:
+        current = Path(workspace).expanduser()
+    levels = _max_parents() if max_parents is None else max(0, int(max_parents))
+
+    dirs = [current]
+    parent = current.parent
+    for _ in range(levels):
+        if parent == parent.parent or parent in dirs:
+            break
+        dirs.append(parent)
+        parent = parent.parent
+    dirs.reverse()
+    return dirs
+
+
+def load_project_instructions(
+    workspace: Optional[Path],
+    *,
+    max_parents: Optional[int] = None,
+) -> str:
+    """Concatenate instruction files from the workspace and its ancestors."""
     if workspace is None:
         return ""
+    try:
+        workspace_root = Path(workspace).expanduser().resolve()
+    except OSError:
+        workspace_root = Path(workspace).expanduser()
+    seen = set()
     chunks = []
-    for name in PROJECT_FILES:
-        path = workspace / name
-        try:
-            if path.is_file():
+    for directory in instruction_dirs(workspace_root, max_parents=max_parents):
+        for name in PROJECT_FILES:
+            path = directory / name
+            try:
+                if not path.is_file():
+                    continue
+                key = str(path.resolve())
+                if key in seen:
+                    continue
+                seen.add(key)
                 text = path.read_text(encoding="utf-8", errors="replace").strip()
-                if text:
-                    chunks.append(f"# Project instructions ({name})\n{text}")
-        except OSError:
-            continue
+                if not text:
+                    continue
+                try:
+                    label = str(path.relative_to(workspace_root)).replace("\\", "/")
+                except ValueError:
+                    label = str(path)
+                chunks.append(f"# Project instructions ({label})\n{text}")
+            except (OSError, ValueError):
+                continue
     if not chunks:
         return ""
     joined = "\n\n".join(chunks)
     if len(joined) > MAX_PROJECT_CHARS:
-        joined = joined[:MAX_PROJECT_CHARS] + "\n... [project instructions truncated]"
+        # Keep the tail: the most specific (nearest) instructions are last, and
+        # dropping them is exactly the wrong trade.
+        joined = (
+            "... [earlier project instructions truncated]\n"
+            + joined[-MAX_PROJECT_CHARS:]
+        )
     return joined
 
 

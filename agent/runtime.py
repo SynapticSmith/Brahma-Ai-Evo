@@ -8,8 +8,9 @@ hole. One path, one decision point.
 
 Approval is a callback so the same runtime works in three places:
 
-* GUI      -> ``core.confirm.ask_blocking`` (HUD banner, blocks a worker thread)
-* CLI/TTY  -> a prompt on stdin
+* GUI      -> ``core.confirm.ask_blocking_choice`` (HUD banner; can return
+  "always", which the runtime remembers for this process)
+* CLI/TTY  -> a prompt on stdin (``a`` means "always" for this session)
 * CI/headless -> ``None``, which turns ``ask`` into ``deny``
 
 Nothing here consults the model.
@@ -27,8 +28,12 @@ from . import code_tools  # noqa: F401  (import registers the six tools)
 from .permissions import DENY, PermissionPolicy, PolicyResult
 from .spec import ToolContext, ToolSpec, execute as execute_spec, get as get_spec
 
-Approver = Callable[[str, Dict[str, Any], str], bool]
+Approver = Callable[[str, Dict[str, Any], str], Any]
 EventSink = Callable[[Dict[str, Any]], None]
+
+#: Answers an approver may return. A plain ``bool`` still works (older hosts),
+#: but the HUD returns the string form so "always allow" survives.
+_APPROVE_VALUES = {"allow", "approved", "yes", "true", "always", "always_allow"}
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -54,13 +59,17 @@ def default_workspace() -> Path:
     return Path.cwd().resolve()
 
 
-def gui_approver(name: str, args: Dict[str, Any], detail: str) -> bool:
-    """Route an approval to the HUD, if this process has one bound."""
+def gui_approver(name: str, args: Dict[str, Any], detail: str) -> Any:
+    """Route an approval to the HUD, if this process has one bound.
+
+    Returns ``"allow"``, ``"always"`` or ``"deny"`` so the runtime can remember
+    a session approval; falls back to ``False`` when no HUD is bound.
+    """
     try:
         from core import confirm
 
         if confirm.is_bound():
-            return confirm.ask_blocking(name, detail)
+            return confirm.ask_blocking_choice(name, detail)
     except Exception:
         pass
     return False
@@ -92,6 +101,9 @@ class AgentRuntime:
     #: calls; killing a thread outright would leave a half-written file and a
     #: half-run command behind.
     cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
+    #: Keys the human said "always allow" to in this process. Never persisted:
+    #: a new session asks again. See ``_approval_key``.
+    session_allow: set = field(default_factory=set, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def cancel(self) -> None:
@@ -101,6 +113,28 @@ class AgentRuntime:
     def reset_cancel(self) -> None:
         """Clear a previous cancellation before starting a new turn."""
         self.cancel_event.clear()
+
+    def _approval_key(self, name: str, args: Mapping[str, Any], spec: Optional[ToolSpec]) -> str:
+        """What "always allow" covers.
+
+        A file tool is broad (the policy already scopes paths); a shell command
+        is exact, because approving ``pytest -q`` must not approve ``del``.
+        """
+        tool_class = spec.tool_class if spec else "native"
+        if tool_class == "exec":
+            command = str(args.get("command") or args.get("cmd") or "").strip()
+            return f"{name}:{command}"
+        return name
+
+    def allow_for_session(self, name: str, args: Optional[Mapping[str, Any]] = None) -> None:
+        """Remember an approval for the rest of this process."""
+        spec = get_spec(name)
+        with self._lock:
+            self.session_allow.add(self._approval_key(name, dict(args or {}), spec))
+
+    def clear_session_approvals(self) -> None:
+        with self._lock:
+            self.session_allow.clear()
 
     def context(self) -> ToolContext:
         return ToolContext(
@@ -152,24 +186,53 @@ class AgentRuntime:
         """Run one tool call under policy, returning model-readable text."""
         args = dict(args or {})
         spec, decision = self.decide(name, args)
+        key = self._approval_key(name, args, spec)
 
         if decision.needs_approval:
-            detail = f"{decision.reason}\n\n{name}({json.dumps(args, ensure_ascii=False, default=str)[:600]})"
-            self._emit("permission", {"name": name, "decision": "ask", "rule": decision.rule, "reason": decision.reason})
-            approved = False
-            if self.approver is not None:
-                try:
-                    approved = bool(self.approver(name, args, detail))
-                except Exception as exc:
-                    self._emit("permission", {"name": name, "decision": "error", "error": str(exc)})
-                    approved = False
-            if not approved:
-                self._emit("permission", {"name": name, "decision": "denied"})
-                return (
-                    f"Not run: '{name}' needs approval and it was not given "
-                    f"({decision.rule}). Tell the user what this would do and why "
-                    "it is needed; do not retry it in this turn."
+            # A session approval only replaces the *human*, never a policy
+            # decision: `requires_approval` tools (irreversible actions) ask
+            # every time by construction.
+            remembered = False
+            if decision.rule != "tool.requires_approval":
+                with self._lock:
+                    remembered = key in self.session_allow
+            if remembered:
+                self._emit(
+                    "permission",
+                    {"name": name, "decision": "allow", "rule": "session.allow",
+                     "reason": "approved earlier in this session."},
                 )
+            else:
+                detail = f"{decision.reason}\n\n{name}({json.dumps(args, ensure_ascii=False, default=str)[:600]})"
+                self._emit("permission", {"name": name, "decision": "ask", "rule": decision.rule, "reason": decision.reason})
+                approved = False
+                always = False
+                if self.approver is not None:
+                    try:
+                        answer = self.approver(name, args, detail)
+                    except Exception as exc:
+                        self._emit("permission", {"name": name, "decision": "error", "error": str(exc)})
+                        answer = False
+                    if isinstance(answer, str):
+                        marker = answer.strip().lower()
+                        approved = marker in _APPROVE_VALUES
+                        always = marker in ("always", "always_allow")
+                    else:
+                        approved = bool(answer)
+                    if approved and always:
+                        with self._lock:
+                            self.session_allow.add(key)
+                        self._emit(
+                            "permission",
+                            {"name": name, "decision": "always", "rule": decision.rule},
+                        )
+                if not approved:
+                    self._emit("permission", {"name": name, "decision": "denied"})
+                    return (
+                        f"Not run: '{name}' needs approval and it was not given "
+                        f"({decision.rule}). Tell the user what this would do and why "
+                        "it is needed; do not retry it in this turn."
+                    )
 
         if decision.decision == DENY:
             self._emit("permission", {"name": name, "decision": "deny", "rule": decision.rule, "reason": decision.reason})
@@ -222,8 +285,9 @@ def configure(
             event_sink=event_sink if event_sink is not None else current.event_sink,
             # Carry the flag across a re-configure: a loop started before the
             # call holds a reference to this event, and a Stop press must still
-            # reach it.
+            # reach it. Session approvals survive too, for the same reason.
             cancel_event=current.cancel_event,
+            session_allow=current.session_allow,
         )
         return _current
 
