@@ -88,7 +88,19 @@ class AgentRuntime:
     timeout: float = 120.0
     max_output_chars: int = 20_000
     event_sink: Optional[EventSink] = None
+    #: Set by the GUI shortcut / CLI Ctrl-C. A loop reads it between turns and
+    #: calls; killing a thread outright would leave a half-written file and a
+    #: half-run command behind.
+    cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def cancel(self) -> None:
+        """Ask the running loop (if any) to stop after the current call."""
+        self.cancel_event.set()
+
+    def reset_cancel(self) -> None:
+        """Clear a previous cancellation before starting a new turn."""
+        self.cancel_event.clear()
 
     def context(self) -> ToolContext:
         return ToolContext(
@@ -208,8 +220,22 @@ def configure(
             timeout=current.timeout if timeout is None else float(timeout),
             max_output_chars=current.max_output_chars if max_output_chars is None else int(max_output_chars),
             event_sink=event_sink if event_sink is not None else current.event_sink,
+            # Carry the flag across a re-configure: a loop started before the
+            # call holds a reference to this event, and a Stop press must still
+            # reach it.
+            cancel_event=current.cancel_event,
         )
         return _current
+
+
+def cancel() -> None:
+    """Ask the current runtime's loop to stop (GUI shortcut, CLI handler)."""
+    _current.cancel()
+
+
+def reset_cancel() -> None:
+    """Clear a stale cancellation before a new user turn."""
+    _current.reset_cancel()
 
 
 def current() -> AgentRuntime:

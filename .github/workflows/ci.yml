@@ -58,3 +58,33 @@ jobs:
           QT_QPA_PLATFORM: offscreen
           NO_COLOR: "1"
         run: python -m pytest tests -q
+
+  harness-pythons:
+    name: Harness on Python ${{ matrix.python-version }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 is the floor (the pinned runtime stack has no older wheels);
+        # 3.12/3.13 prove the stdlib-only harness does not rely on 3.11
+        # implementation details. The CLI is stdlib, so no requirements.txt.
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install pytest
+        run: python -m pip install --upgrade pip pytest
+      - name: Harness suite
+        env:
+          NO_COLOR: "1"
+        # bash so the glob expands: only the harness tests are collected. A bare
+        # `pytest tests -k agent` would still import every other test module at
+        # collection time, and those need PyQt6/actions, which this job does not
+        # install. The glob keeps the job honest as new agent tests are added.
+        shell: bash
+        run: python -m pytest tests/test_agent_*.py -q
+      - name: CLI smoke run
+        run: python -m agent run "say hello" --provider stub --json --no-session

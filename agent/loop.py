@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
 from .context import ContextBudget, ConversationContext, truncate_tool_output
+from .retry import Cancelled, call_with_retry
 from .runtime import AgentRuntime, current as current_runtime
 from .session import AgentSession
 from .spec import ToolSpec, all_specs, get as get_spec, lowercase_schema
@@ -155,6 +156,9 @@ class AgentLoop:
         session: Optional[AgentSession] = None,
         max_turns: int = 40,
         repeat_limit: int = 3,
+        retry_attempts: int = 3,
+        retry_base_delay: float = 0.8,
+        retry_max_delay: float = 8.0,
         budget: Optional[ContextBudget] = None,
         on_event: Optional[EventSink] = None,
         cancel: Optional[threading.Event] = None,
@@ -168,12 +172,16 @@ class AgentLoop:
         self._session = session
         self.max_turns = max(1, int(max_turns))
         self.repeat_limit = max(1, int(repeat_limit))
+        self.retry_attempts = max(1, int(retry_attempts))
+        self.retry_base_delay = max(0.0, float(retry_base_delay))
+        self.retry_max_delay = max(0.0, float(retry_max_delay))
         self._on_event = on_event
         self._cancel = cancel
         self._summarizer = summarizer
         self._events: List[Dict[str, Any]] = []
         self._repeat_counts: Dict[str, int] = {}
         self._tool_calls_made = 0
+        self._retries = 0
 
         if context is not None:
             self._context = context
@@ -247,6 +255,36 @@ class AgentLoop:
     def _cancelled(self) -> bool:
         return self._cancel is not None and self._cancel.is_set()
 
+    def _request(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+    ) -> Any:
+        """One model call, retried while the failure looks transient.
+
+        Classification lives in :mod:`agent.retry`; this method only turns a
+        retry into an event so the user can see the run is stalling on the
+        provider rather than thinking.
+        """
+
+        def on_retry(attempt: int, delay: float, exc: BaseException) -> None:
+            self._retries += 1
+            self._emit(
+                "retry",
+                attempt=attempt,
+                delay_s=round(delay, 2),
+                error=f"{type(exc).__name__}: {exc}"[:300],
+            )
+
+        return call_with_retry(
+            lambda: self._complete(messages, tools),
+            attempts=self.retry_attempts,
+            base_delay=self.retry_base_delay,
+            max_delay=self.retry_max_delay,
+            cancel=self._cancel,
+            on_retry=on_retry,
+        )
+
     def _persist(self, message: Dict[str, Any]) -> None:
         if self._session is not None:
             try:
@@ -301,7 +339,7 @@ class AgentLoop:
                 if first_response is not None:
                     response, first_response = first_response, None
                 else:
-                    response = self._complete(ctx.as_payload(), self._openai_schemas())
+                    response = self._request(ctx.as_payload(), self._openai_schemas())
 
                 message = normalise_assistant_message(response, turn)
                 ctx.append(message)
@@ -399,6 +437,10 @@ class AgentLoop:
                     break
             else:
                 stop_reason = STOP_MAX_TURNS
+        except Cancelled:
+            # Ctrl-C / the HUD shortcut landed while waiting to retry. That is
+            # a user decision, not an error: no traceback, no error text.
+            stop_reason = STOP_CANCELLED
         except Exception as exc:  # noqa: BLE001 - the loop owns the boundary
             stop_reason = STOP_ERROR
             self._emit("error", error=f"{type(exc).__name__}: {exc}")
@@ -429,6 +471,7 @@ class AgentLoop:
                 "turns": turn,
                 "tool_calls": self._tool_calls_made,
                 "compactions": ctx.compactions,
+                "retries": self._retries,
                 "context_chars": ctx.chars,
                 "estimated_tokens": ctx.estimated_tokens,
                 "elapsed_s": None,

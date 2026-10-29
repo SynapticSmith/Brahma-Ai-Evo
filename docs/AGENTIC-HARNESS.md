@@ -95,6 +95,7 @@ Three invariants make the rest of the design work:
 | `agent/session.py` | Durable messages/events in SQLite; list/open/resume | …resume loses messages. |
 | `agent/prompts.py` | Resident system prompt + `AGENTS.md` / `BRAHMA.md` loader | …the model behaves against project conventions. |
 | `agent/providers.py` | Loop-compatible completers for local/custom/OpenRouter/stub; summariser | …tool calling fails on one provider only. |
+| `agent/retry.py` | Transient-error classifier, exponential backoff with jitter, cancellation-aware wait | …a run stalled on a 503 or retried something it should not. |
 | `agent/__main__.py` | `python -m agent` CLI | …you need a scriptable surface. |
 
 `agent/__init__.py` is deliberately almost empty so `python -m agent` does not
@@ -108,6 +109,8 @@ import PyQt, the tool index, or a provider client. Import submodules directly.
 | `core/tool_exec.py` | Harness branch at the top of `ToolExecutor.execute`: registered tools go to the runtime in a worker thread, then fall through to the legacy path. |
 | `core/confirm.py` | `is_bound()`, `ask_blocking()`, `_on_qt_main_thread()`, and waiter/verdict plumbing on `_Pending`. |
 | `core/tool_index.py` | `read_file`, `edit_file`, `run_command` added to `DEFAULT_PINNED_TOOLS`. |
+| `ui.py` | `Ctrl+Shift+X` → `MainWindow._cancel_agent()` → `agent.runtime.cancel()`. |
+| `setup.py` | Refuses to run below Python 3.11 with a readable message. |
 
 ---
 
@@ -123,7 +126,7 @@ AgentResult(
     messages,      # the exact OpenAI-shaped transcript
     events,        # ordered telemetry
     session_id,
-    usage,         # turns / tool_calls / compactions / context_chars / estimated_tokens
+    usage,         # turns / tool_calls / compactions / retries / context_chars / estimated_tokens
 )
 ```
 
@@ -146,8 +149,21 @@ AgentResult(
   (sorted keys). After `repeat_limit` (default 3) the call is short-circuited
   with a "change your approach" message; a turn made entirely of skipped calls
   ends the run with `repeat_loop`. Prompt rules alone do not stop this.
-* **Cancellation.** Checked before each turn and each call. Wire a
-  `threading.Event` from a Stop button / Ctrl-C handler.
+* **Cancellation.** Checked before each turn, each call, and during a retry
+  backoff. The flag is a `threading.Event` on `AgentRuntime`
+  (`runtime.cancel()` / `reset_cancel()`); the loop never kills a thread, so an
+  in-flight file write or command finishes instead of being torn in half.
+  Sources: Ctrl-C in the CLI (first press cancels, second aborts with exit
+  `130`), `Ctrl+Shift+X` in the GUI, or `agent.runtime.cancel()` from any host.
+  A new turn calls `reset_cancel()` so a stale Stop press cannot kill it.
+* **Provider retries.** `AgentLoop` routes every model call through
+  `agent/retry.py`, so both the CLI and the GUI get it. Transient statuses
+  (`408`, `425`, `429`, `500`, `502`, `503`, `504`), timeouts, resets, and
+  "overloaded"/"rate limit" messages are retried; `401`/`403`/`404`/`422`, a
+  malformed request, and `connection refused` are not — retrying cannot change
+  those answers and a dead local port should fail fast. Defaults: 3 attempts,
+  0.8 s base delay doubling to an 8 s cap plus up to 25 % jitter. Each retry
+  emits a `retry` event and increments `usage["retries"]`.
 * **Compaction.** When `context.chars > budget.max_chars`, the oldest messages
   are folded into one summary. The cut walks forward past `tool` messages so an
   `assistant` `tool_calls` block is never orphaned — that would be an HTTP 400
@@ -355,6 +371,7 @@ Common flags (all of `run` and `resume`):
 | `--model` | provider default | |
 | `--max-turns` | 40 | Loop hard stop. |
 | `--repeat-limit` | 3 | Identical-call threshold. |
+| `--retries` | 3 | Attempts per model call on a transient failure. |
 | `--max-context-chars` | 120000 | Compaction threshold. |
 | `--timeout` | 120 | Per-command tool timeout. |
 | `--json` | off | NDJSON events on **stdout**, one object per line, then `{"type": "result", ...}`. Implies headless. |
@@ -367,8 +384,9 @@ Common flags (all of `run` and `resume`):
 | `--title` | prompt[:60] | Session title. |
 
 Exit codes: `0` completed, `1` any non-`completed` stop (turn cap, repeat,
-permission denial, error), `2` no provider reachable, `3` usage error. `stub`
-exists so the CLI and loop can be tested without a model.
+permission denial, error), `2` no provider reachable, `3` usage error, `130`
+interrupted (second Ctrl-C, or Ctrl-C while already cancelling). `stub` exists
+so the CLI and loop can be tested without a model.
 
 ### Seeding a policy (nothing is required)
 
@@ -434,6 +452,7 @@ Every event is a dict with `type` plus fields. The same objects go to
 | `tool_result` | `name`, `call_id`, `ok`, `chars`, `preview` | After truncation. |
 | `permission` | `name`, `decision` (`ask\|denied\|deny\|error`), `rule`, `reason` | Only when a call was gated. |
 | `compaction` | `dropped`, `summary_chars`, `total_chars` | After folding. |
+| `retry` | `attempt`, `delay_s`, `error` | Before waiting to retry a transient model-call failure. |
 | `error` | `error` | Loop-level fatal. |
 | `stop` | `reason`, `turns`, `tool_calls` | Last event of every run. |
 
@@ -471,6 +490,7 @@ unchanged); only the loop around it is new.
 | `tests/test_agent_loop.py` | Multi-turn continuation, protocol integrity, repeat stop, turn cap, denial stop, approval, cancellation, completer failure, `first_response`, in-loop compaction, event order, session parity, provider shapes. |
 | `tests/test_agent_session.py` | Round-trip incl. `tool_calls`, listing order, rewrite after compaction, status/summary, events, missing DB. |
 | `tests/test_agent_cli.py` | Stub run, stdin prompt, missing prompt, bare-word run, tools/permissions/sessions, NDJSON shape, exit codes. |
+| `tests/test_agent_retry.py` | Transient vs permanent classification, backoff shape, retry budget, cancellation during backoff, loop `retry` events and `usage["retries"]`, runtime flags, CLI Ctrl-C handler. |
 
 They are pure-Python and do not need a display or a model. Run them with the
 CI interpreter:
@@ -478,6 +498,15 @@ CI interpreter:
 ```
 py -3.11 -m pytest tests -q -k agent
 ```
+
+### Python support
+
+The floor is **3.11**: `numpy 2.4` (and therefore the pinned runtime stack)
+ships no older wheels. The harness itself is stdlib-only and is exercised on
+3.11, 3.12 and 3.13 by the `harness-pythons` CI job, which installs pytest and
+nothing else — a deliberate canary that no GUI, provider SDK, or Windows COM
+module has leaked into `agent/`. `setup.py` refuses to start below 3.11 instead
+of letting pip dissolve into "no matching distribution" noise.
 
 ---
 

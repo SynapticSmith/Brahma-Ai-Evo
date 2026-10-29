@@ -24,13 +24,27 @@ py -3.11 -m ruff check .
 $env:QT_QPA_PLATFORM="offscreen"; py -3.11 -m pytest tests -q
 ```
 
-The full suite takes about 70 seconds and needs the offscreen Qt platform.
+The full suite takes about 95 seconds and needs the offscreen Qt platform.
 For agent work, the fast subset is:
 
 ```powershell
 py -3.11 -m pytest tests -q -k agent
 py -3.11 -m agent run "say hello" --provider stub --json --no-session
 ```
+
+The harness is stdlib-only and must stay that way: CI collects only
+`tests/test_agent_*.py` on 3.11, 3.12 and 3.13 with just pytest installed. Do
+not import PyQt, a provider SDK, or a Windows COM module from `agent/` at module
+scope.
+
+## Cancelling a run
+
+- CLI: Ctrl-C requests a stop after the current call; a second Ctrl-C aborts
+  (exit `130`).
+- GUI: `Ctrl+Shift+X` sets `agent.runtime.cancel()`.
+- Code: pass `cancel=runtime.cancel_event` to `AgentLoop`; a new turn calls
+  `reset_cancel()`. Never kill the worker thread — writes and child processes
+  must finish.
 
 ## Layout
 

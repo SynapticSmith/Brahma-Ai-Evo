@@ -3708,14 +3708,17 @@ class BrahmaLive:
         for message in seeded:
             context.append(message)
 
+        runtime = current_agent_runtime()
+        runtime.reset_cancel()  # a previous Stop must not kill this new turn
         loop = AgentLoop(
             _complete,
             tools=surface,
             native_dispatch=self._execute_tool_sync,
-            runtime=current_agent_runtime(),
+            runtime=runtime,
             context=context,
             max_turns=AGENT_MAX_TURNS,
             on_event=self._agent_event,
+            cancel=runtime.cancel_event,
         )
         try:
             result = loop.run(first_response=res)
@@ -3742,6 +3745,9 @@ class BrahmaLive:
             elif kind == "permission":
                 print(f"[BRAHMA EVO] \U0001f510 {event.get('decision')}: "
                       f"{event.get('name')} ({event.get('rule')})")
+            elif kind == "retry":
+                print(f"[BRAHMA EVO] \u21bb provider retry {event.get('attempt')} "
+                      f"in {event.get('delay_s')}s: {event.get('error')}")
             elif kind == "stop":
                 print(f"[BRAHMA EVO] \U0001f3c1 agent stopped: {event.get('reason')} "
                       f"after {event.get('turns')} turn(s)")

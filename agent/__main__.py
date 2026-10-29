@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -33,6 +34,7 @@ EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_PROVIDER = 2
 EXIT_USAGE = 3
+EXIT_INTERRUPTED = 130
 
 
 # --------------------------------------------------------------------------- #
@@ -60,6 +62,11 @@ def _render_event(event: Dict[str, Any]) -> Optional[str]:
         return f"  !! permission {event.get('decision')}: {event.get('name')} ({event.get('rule')})"
     if kind == "compaction":
         return f"  ~~ compacted {event.get('dropped')} message(s), {event.get('summary_chars')} char summary"
+    if kind == "retry":
+        return (
+            f"  ~~ retry {event.get('attempt')} in {event.get('delay_s')}s "
+            f"({event.get('error')})"
+        )
     if kind == "error":
         return f"  !! {event.get('error')}"
     if kind == "stop":
@@ -140,6 +147,33 @@ def _configure_runtime(args: argparse.Namespace, workspace: Path) -> AgentRuntim
 # Commands
 # --------------------------------------------------------------------------- #
 
+def _install_cancel(runtime: AgentRuntime):
+    """Make Ctrl-C a request to stop, not an unwind through a tool call.
+
+    First press sets the runtime's cancel event: the loop stops between calls,
+    so an in-flight file write or command finishes instead of being torn in
+    half. Second press raises ``KeyboardInterrupt`` so a wedged provider call
+    can still be abandoned. Returns a callable that restores the old handler.
+    """
+    try:
+        previous = signal.getsignal(signal.SIGINT)
+
+        def handler(signum, frame):  # noqa: ANN001 - signal protocol
+            if runtime.cancel_event.is_set():
+                raise KeyboardInterrupt
+            runtime.cancel()
+            sys.stderr.write(
+                "\n[cancelling after the current call; Ctrl-C again to abort]\n"
+            )
+            sys.stderr.flush()
+
+        signal.signal(signal.SIGINT, handler)
+    except (AttributeError, OSError, ValueError):
+        # Not the main thread, or a platform without SIGINT: no handler.
+        return lambda: None
+    return lambda: signal.signal(signal.SIGINT, previous)
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     workspace = Path(args.cwd or os.getcwd()).expanduser().resolve()
     if not workspace.is_dir():
@@ -182,11 +216,18 @@ def _cmd_run(args: argparse.Namespace) -> int:
         session=session,
         max_turns=args.max_turns,
         repeat_limit=args.repeat_limit,
+        retry_attempts=args.retries,
         budget=budget,
         on_event=printer,
         summarizer=summarizer,
+        cancel=runtime.cancel_event,
     )
-    result = loop.run(prompt)
+    runtime.reset_cancel()
+    restore = _install_cancel(runtime)
+    try:
+        result = loop.run(prompt)
+    finally:
+        restore()
 
     if args.json:
         sys.stdout.write(json.dumps({"type": "result", **result.to_dict()}, ensure_ascii=False) + "\n")
@@ -232,11 +273,18 @@ def _cmd_resume(args: argparse.Namespace) -> int:
         session=session,
         max_turns=args.max_turns,
         repeat_limit=args.repeat_limit,
+        retry_attempts=args.retries,
         budget=ContextBudget(max_chars=args.max_context_chars),
         on_event=printer,
         summarizer=build_summarizer(completer) if args.summarize else None,
+        cancel=runtime.cancel_event,
     )
-    result = loop.run(prompt)
+    runtime.reset_cancel()
+    restore = _install_cancel(runtime)
+    try:
+        result = loop.run(prompt)
+    finally:
+        restore()
     if args.json:
         sys.stdout.write(json.dumps({"type": "result", **result.to_dict()}, ensure_ascii=False) + "\n")
     else:
@@ -300,6 +348,7 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model", help="Model id for the chosen provider")
     parser.add_argument("--max-turns", type=int, default=40, help="Hard stop for the loop (default 40)")
     parser.add_argument("--repeat-limit", type=int, default=3, help="Skip identical calls after N (default 3)")
+    parser.add_argument("--retries", type=int, default=3, help="Attempts per model call on transient errors (default 3)")
     parser.add_argument("--max-context-chars", type=int, default=120_000, help="Compaction threshold")
     parser.add_argument("--timeout", type=float, default=120.0, help="Per-command tool timeout in seconds")
     parser.add_argument("--json", action="store_true", help="Emit NDJSON events on stdout")
@@ -362,16 +411,20 @@ def main(argv: Optional[List[str]] = None) -> int:
         parser.print_help()
         return EXIT_USAGE
 
-    if args.command == "run":
-        return _cmd_run(args)
-    if args.command == "resume":
-        return _cmd_resume(args)
-    if args.command == "sessions":
-        return _cmd_sessions(args)
-    if args.command == "tools":
-        return _cmd_tools(args)
-    if args.command == "permissions":
-        return _cmd_permissions(args)
+    try:
+        if args.command == "run":
+            return _cmd_run(args)
+        if args.command == "resume":
+            return _cmd_resume(args)
+        if args.command == "sessions":
+            return _cmd_sessions(args)
+        if args.command == "tools":
+            return _cmd_tools(args)
+        if args.command == "permissions":
+            return _cmd_permissions(args)
+    except KeyboardInterrupt:
+        sys.stderr.write("\n[interrupted]\n")
+        return EXIT_INTERRUPTED
     parser.print_help()
     return EXIT_USAGE
 

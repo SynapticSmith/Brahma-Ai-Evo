@@ -581,6 +581,24 @@ class MainWindow(_ApplyStateMixin, _RuntimeMixin, _WiringMixin, _PanelsMixin, _S
         sc_left.activated.connect(self._toggle_left_sidebar)
         sc_right = QShortcut(QKeySequence("Ctrl+]"), self)
         sc_right.activated.connect(self._toggle_right_sidebar)
+        sc_stop = QShortcut(QKeySequence("Ctrl+Shift+X"), self)
+        sc_stop.activated.connect(self._cancel_agent)
+
+
+    def _cancel_agent(self):
+        """Ctrl+Shift+X: ask the running agent loop to stop.
+
+        The loop stops between tool calls, so a file write or a test run that is
+        already in flight finishes instead of being torn in half. A new user
+        turn clears the flag (``BrahmaLive._finish_tool_turn``).
+        """
+        try:
+            from agent import runtime as agent_runtime
+
+            agent_runtime.cancel()
+            self._log_sig.emit("SYS: agent stop requested (Ctrl+Shift+X)")
+        except Exception:
+            pass
 
 
     def resizeEvent(self, event):

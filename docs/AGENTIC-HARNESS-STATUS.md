@@ -24,8 +24,11 @@ database migration is required; the new tables are additive.
 | Durable sessions + resume | Done |
 | Headless CLI + NDJSON events | Done |
 | GUI integration (text + voice) | Done |
+| Cancellation (Ctrl-C / `Ctrl+Shift+X`) | Done |
+| Transient-failure retries with backoff | Done |
+| Python floor + CI matrix | Done |
 | Docs | This file + `AGENTIC-HARNESS.md` |
-| Commit | `agent: add the agentic harness` |
+| Commit | `agent: add the agentic harness` + hardening commit |
 
 ---
 
@@ -44,6 +47,7 @@ agent/context.py        ContextBudget, ConversationContext, compaction
 agent/session.py        AgentSession (agent_* tables), SessionRecord
 agent/prompts.py        resident prompt + AGENTS.md/BRAHMA.md loader
 agent/providers.py      local/custom/openrouter/stub completers + summariser
+agent/retry.py          transient classifier + cancellation-aware backoff
 agent/__main__.py       `python -m agent` CLI
 ```
 
@@ -56,11 +60,15 @@ Modified:
 | `core/confirm.py` | `is_bound()`, `_on_qt_main_thread()`, `ask_blocking()`; `_Pending` gained `waiter`/`verdict`; `resolve()` now completes the waiter (timeout ⇒ `False`). |
 | `core/tool_index.py` | Pinned `read_file`, `edit_file`, `run_command` alongside `undo`/`recall_memory`. |
 | `config/agent_permissions.example.json` | Generated from the built-in defaults as an editable reference. |
+| `ui.py` | `Ctrl+Shift+X` → `MainWindow._cancel_agent()` → `agent.runtime.cancel()`. |
+| `setup.py` | Refuses to run below Python 3.11 with a readable message. |
+| `.github/workflows/ci.yml` | `harness-pythons` job: harness suite on 3.11/3.12/3.13 with only pytest installed. |
 | `.gitignore` | `agent_permissions.json` ignored — it is machine-local user data. |
 
 New tests: `tests/test_agent_permissions.py`, `test_agent_code_tools.py`,
 `test_agent_context.py`, `test_agent_session.py`, `test_agent_loop.py`,
-`test_agent_cli.py` — 80 tests, all pure-Python (no display, no model).
+`test_agent_cli.py`, `test_agent_retry.py` — all pure-Python (no display, no
+model).
 
 ---
 
@@ -193,6 +201,34 @@ location 3 and keeps the checkout clean. `agent_permissions.json` and
 `config/agent_permissions.json` are gitignored; only the example template is
 tracked.
 
+### D16 — Cancellation is a flag, never a killed thread
+
+The loop runs in worker threads (GUI text path, the voice path via
+`asyncio.to_thread`, the CLI's main thread). Killing one mid-write would leave a
+truncated file or an orphaned child process, so stopping is cooperative: a
+`threading.Event` on `AgentRuntime`, checked before each turn, each call, and
+inside a retry wait. `runtime.cancel()` is idempotent and carried across
+`configure()` so a Stop pressed after a re-configure still reaches a running
+loop; `reset_cancel()` runs at the start of every new turn so a stale press
+cannot kill it. Sources are the CLI's SIGINT handler (first press requests,
+second raises `KeyboardInterrupt` → exit `130`) and `Ctrl+Shift+X` in the HUD.
+A cancelled run reports `stop_reason="cancelled"` — no traceback, no "error"
+text, because the user asked for it.
+
+### D17 — Retries live in the loop, not in each provider adapter
+
+Model calls fail transiently (429s, proxy 502s, dropped sockets) and a coding
+loop makes many calls per task, so a single blip must not abort the run.
+`agent/retry.py` classifies and backs off; `AgentLoop._request` is the only
+caller. Putting it there rather than in `agent/providers.py` means the GUI path
+and the CLI path get identical behaviour, and the retry is visible as an event
+instead of hidden inside a transport wrapper. The classifier is deliberately
+conservative: `401`/`403`/`404`/`422`, malformed requests, and
+`connection refused` are not retried, because another attempt cannot change
+those answers and a dead local server should fail in milliseconds. Backoff is
+0.8 s doubling to 8 s plus up to 25 % jitter; the wait uses `Event.wait()` so a
+cancel interrupts it rather than sleeping through it.
+
 ---
 
 ## 4. Verification
@@ -202,7 +238,8 @@ and the default `python` are 3.14 and lack `ruff`/`pytest`.
 
 ```
 py -3.11 -m ruff check .                 # All checks passed!
-py -3.11 -m pytest tests -q              # 411 passed  (QT_QPA_PLATFORM=offscreen)
+py -3.11 -m pytest tests -q              # 427 passed  (QT_QPA_PLATFORM=offscreen)
+py -3.11 -m pytest tests -q -k agent     # 96 passed
 py -3.11 -c "import main; ..."           # 66 declarations, all six tools present
 py -3.11 -m agent tools                  # lists the six primitives
 py -3.11 -m agent permissions show       # reports built-in defaults
@@ -216,10 +253,15 @@ Notes:
   `len(TOOL_DECLARATIONS) == 66` and that
   `{read_file, write_file, edit_file, glob_files, grep_files, run_command}` are
   all present.
-* The 80 new tests run without a display or a model:
+* The 96 harness tests run without a display or a model:
   `py -3.11 -m pytest tests -q -k agent`.
 * `python -m agent run --provider stub --json` is the cheapest end-to-end
   smoke test (used by `test_agent_cli`).
+* The stdlib-only harness was also run on **3.12.7** and **3.14.7** (same
+  commands, same result) before the CI matrix was added; the matrix pins
+  3.11/3.12/3.13 so the floor and forward compatibility stay honest.
+* Cancellation and retries were verified by `tests/test_agent_retry.py`
+  (16 tests) plus the loop's existing cancellation tests.
 
 ---
 
@@ -248,9 +290,9 @@ Ordered by value, with the honest reason each was left out.
 7. **Sandboxing.** `run_command` is `shell=True` with policy as the only
    barrier. A Windows job-object / container option would let `--yolo` be safe
    in more places.
-8. **Cost accounting.** `usage` reports turns/calls/compactions, not tokens or
-   money. Providers return usage in different shapes; normalising it is a small
-   per-adapter job.
+8. **Cost accounting.** `usage` reports turns/calls/compactions/retries, not
+   tokens or money. Providers return usage in different shapes; normalising it
+   is a small per-adapter job.
 9. **Voice-path session persistence.** Gemini owns the live history, so voice
    turns do not write `agent_*` rows. Unifying them would need a transcript
    bridge from the live session.
