@@ -90,6 +90,7 @@ Three invariants make the rest of the design work:
 | `agent/permissions.py` | Policy document, defaults, `evaluate()`, path scoping, headless rules | …a call was allowed/denied and you need to know why. |
 | `agent/code_tools.py` | `read_file`, `write_file`, `edit_file`, `glob_files`, `grep_files`, `run_command` | …you are changing a primitive's behaviour. |
 | `agent/runtime.py` | The single dispatch boundary; approval callbacks; process-wide `configure()` | …you are wiring the harness into a new host. |
+| `agent/approval_detail.py` | Banner text: rule, command/cwd, unified diffs, and the ALWAYS ALLOW label | …an approval banner is unhelpful or names the wrong thing. |
 | `agent/loop.py` | Bounded agent loop, repeat detection, stop reasons, event stream | …the agent stops early or will not stop. |
 | `agent/context.py` | Character budget, protocol-safe compaction, output truncation | …context is overflowing or a resumed prompt is rejected. |
 | `agent/session.py` | Durable messages/events in SQLite; list/open/resume | …resume loses messages. |
@@ -346,10 +347,14 @@ Finally, `requires_approval=True` on a spec escalates `allow` → `ask` (and
 A human may answer an `ask` with **always allow** instead of a one-off yes. The
 runtime remembers the approval in memory for the rest of the process:
 
-* a file/native tool is remembered **by tool name** — the policy already scopes
-  which paths it may touch;
 * `run_command` is remembered by the **exact command string**, so approving
   `pytest -q` does not approve `del /s`;
+* a **path-based** ask (`paths.outside_workspace`, `paths.protected`) is
+  remembered by the **resolved path**, so approving one outside file does not
+  bless every outside file for the session;
+* any other file/native ask is remembered **by tool name** — the policy is
+  asking about the tool itself (`classes.read = ask`), so a narrower key would
+  just re-ask for every file;
 * a `requires_approval=True` spec is never remembered: irreversible actions ask
   every time.
 
@@ -360,7 +365,27 @@ button. Nothing is written to disk: a new process asks again. To make an
 approval permanent, edit the policy file instead.
 
 The HUD shows the third button only for session-approvable calls
-(`confirm.pending_allows_always()`); the CLI's TTY prompt accepts `a`.
+(`confirm.pending_allows_always()`) and prints what the button would remember
+(`confirm.pending_remember_label()`); the CLI's TTY prompt accepts `a`.
+
+### What the banner shows
+
+`agent/approval_detail.py` builds the text handed to the approver. It is still
+a `str` (a subclass), so every existing approver keeps working, but it also
+carries a `title` and a `remember` label:
+
+* `run_command` → the matched rule and reason, the **exact command**, the
+  resolved **cwd**, and any timeout;
+* `edit_file` / `write_file` → the resolved path and a real **unified diff**
+  against the file on disk (create vs overwrite is stated explicitly), capped
+  at 1 600 characters;
+* `read_file` / `glob_files` / `grep_files` → the resolved path plus the
+  pattern or line range;
+* anything else → the rule and bounded JSON arguments.
+
+The rule and its reason come first so a person can see *why* they are being
+asked before reading *what* will run. A multi-line detail is rendered in a
+read-only scroll box, not a label that grows the banner off screen.
 
 ### "Headless" means "no human can be asked"
 
@@ -541,8 +566,9 @@ unchanged); only the loop around it is new.
 | `tests/test_agent_retry.py` | Transient vs permanent classification, backoff shape, retry budget, cancellation during backoff, loop `retry` events and `usage["retries"]`, runtime flags, CLI Ctrl-C handler. |
 | `tests/test_agent_prompts.py` | Instruction-file priority, bounded upward walk and its env override, root exclusion, tail-preserving truncation, prompt ordering. |
 | `tests/test_agent_approval.py` | Session "always allow" keying (tool vs exact command), bool answers not remembered, deny never widened, reconfigure survival, confirm tri-state and timeout. |
+| `tests/test_agent_approval_detail.py` | Banner text: rule-first ordering, command/cwd, real diffs, create vs overwrite, bounded output, path-scoped session keys. |
 | `tests/test_agent_parallel.py` | Concurrent reads, `max_parallel_tools` cap, write/`ask` serialisation, submission-order results, cancellation fillers for undispatched calls. |
-| `tests/test_confirmation_overlay.py` | HUD banner: the ALWAYS ALLOW button exists only for session-approvable calls and emits without a normal answer. |
+| `tests/test_confirmation_overlay.py` | HUD banner: ALWAYS ALLOW only for session-approvable calls, remembers-what hint, diff box, irreversible header. |
 
 They do not need a model. The `test_agent_*` files are pure-Python and need
 neither a display nor PyQt; only `test_confirmation_overlay.py` constructs a Qt

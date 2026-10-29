@@ -49,7 +49,8 @@ scope.
 ## Approvals
 
 - The HUD's ALWAYS ALLOW button and the CLI's `a` answer remember an approval
-  in-process only (`AgentRuntime.session_allow`): tool name for file tools,
+  in-process only (`AgentRuntime.session_allow`): tool name for a class-level
+  ask, resolved path for a `paths.outside_workspace`/`paths.protected` ask, and
   exact command for `run_command`. They never override a policy `deny`, never
   apply to `requires_approval` specs, and never touch disk.
 - To make an approval permanent, edit the policy file; do not persist a clicked

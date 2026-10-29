@@ -65,6 +65,9 @@ class _Pending:
     allow_always: bool = False
     #: Set when the user picked "always allow" (only alongside ``verdict``).
     always: bool = False
+    #: What "always allow" would remember, in the user's words. Shown under the
+    #: banner so the button is not a blank cheque.
+    remember: str = ""
 
 
 _pending: Optional[_Pending] = None
@@ -113,12 +116,17 @@ def ask_blocking_choice(
     key: str,
     detail: str,
     timeout: Optional[float] = None,
+    *,
+    heading: str = "",
+    remember: str = "",
 ) -> str:
     """Like :func:`ask_blocking`, but reports *how* the human answered.
 
     Returns ``"allow"``, ``"always"`` (allow this exact call for the rest of
     the session) or ``"deny"``. The agent runtime uses the distinction to stop
-    re-asking for a command the user has already blessed.
+    re-asking for a command the user has already blessed. ``heading`` replaces
+    the generic "Approve <tool>?" title; ``remember`` tells the banner what the
+    ALWAYS ALLOW button would actually remember.
     """
     global _pending
 
@@ -127,12 +135,13 @@ def ask_blocking_choice(
 
     pending = _Pending(
         key=str(key),
-        title=f"Approve {key}?",
+        title=str(heading).strip() or f"Approve {key}?",
         detail=str(detail),
         run=lambda: "approved",
         at=time.monotonic(),
         waiter=threading.Event(),
         allow_always=True,
+        remember=str(remember),
     )
     with _lock:
         _pending = pending
@@ -276,3 +285,9 @@ def pending_allows_always() -> bool:
     """True when the banner on screen belongs to a session-approvable call."""
     with _lock:
         return bool(_pending is not None and _pending.allow_always)
+
+
+def pending_remember_label() -> str:
+    """What the ALWAYS ALLOW button on screen would remember ('' if none)."""
+    with _lock:
+        return str(_pending.remember) if _pending is not None else ""

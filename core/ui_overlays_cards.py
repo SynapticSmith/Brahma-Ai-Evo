@@ -137,14 +137,20 @@ class _OverlayCardsMixin:
                 self._confirm_overlay = None
 
             allow_always = False
+            remember_label = ""
             try:
                 from core import confirm as confirm_gate
 
                 allow_always = confirm_gate.pending_allows_always()
+                remember_label = confirm_gate.pending_remember_label()
             except Exception:
                 pass
             overlay = ConfirmationOverlay(
-                title, detail, parent=self, allow_always=allow_always
+                title,
+                detail,
+                parent=self,
+                allow_always=allow_always,
+                remember_label=remember_label,
             )
             overlay.answered.connect(self._on_confirm_answered)
             overlay.always.connect(self._on_confirm_always)

@@ -226,6 +226,33 @@ def test_expired_approval_is_denied():
         _restore(saved)
 
 
+def test_heading_and_remember_label_reach_the_gate():
+    gate = _Gate()
+    saved = _bind(gate)
+    try:
+        result = []
+        worker = threading.Thread(
+            target=lambda: result.append(
+                confirm.ask_blocking_choice(
+                    "run_command",
+                    "rule: classes.exec\n\ncommand: pytest -q",
+                    heading="Run this command?",
+                    remember="this exact command (pytest -q)",
+                )
+            ),
+            daemon=True,
+        )
+        worker.start()
+        assert gate.shown.wait(timeout=5)
+        assert gate.title == "Run this command?"
+        assert confirm.pending_remember_label() == "this exact command (pytest -q)"
+        confirm.resolve(True)
+        worker.join(timeout=5)
+        assert result == ["allow"]
+    finally:
+        _restore(saved)
+
+
 # -- CLI TTY ---------------------------------------------------------------- #
 
 

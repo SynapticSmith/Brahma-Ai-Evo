@@ -7,7 +7,7 @@ import time
 
 from PyQt6.QtCore import (QTimer, Qt, pyqtSignal)
 from PyQt6.QtGui import (QColor, QFont, QPixmap)
-from PyQt6.QtWidgets import (QFrame, QGraphicsDropShadowEffect, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QFrame, QGraphicsDropShadowEffect, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget)
 from core.ui_theme import (C)
 
 class RemoteKeyOverlay(QWidget):
@@ -633,7 +633,15 @@ class ConfirmationOverlay(QWidget):
     closed   = pyqtSignal()
     _OW = 440
 
-    def __init__(self, title: str, detail: str, parent=None, *, allow_always: bool = False):
+    def __init__(
+        self,
+        title: str,
+        detail: str,
+        parent=None,
+        *,
+        allow_always: bool = False,
+        remember_label: str = "",
+    ):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(f"""
@@ -649,7 +657,10 @@ class ConfirmationOverlay(QWidget):
         lay.setContentsMargins(24, 20, 24, 20)
         lay.setSpacing(10)
 
-        hdr = QLabel("⚠  PHYSICAL CONFIRMATION REQUIRED")
+        hdr = QLabel(
+            "⚠  AGENT APPROVAL REQUIRED" if allow_always
+            else "⚠  PHYSICAL CONFIRMATION REQUIRED"
+        )
         hdr.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
         hdr.setStyleSheet(f"color: {C.ACC}; background: transparent; letter-spacing: 0.5px;")
         lay.addWidget(hdr)
@@ -661,11 +672,37 @@ class ConfirmationOverlay(QWidget):
         lay.addWidget(ttl)
 
         if detail:
-            dtl = QLabel(detail)
-            dtl.setWordWrap(True)
-            dtl.setFont(QFont("Segoe UI", 9))
-            dtl.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
-            lay.addWidget(dtl)
+            if "\n" in detail or len(detail) > 160:
+                # A command plus a rule, or a diff, is not a one-line subtitle.
+                # A read-only text box keeps the banner a sane height and
+                # scrolls instead of pushing the buttons off screen.
+                box = QPlainTextEdit(detail)
+                box.setReadOnly(True)
+                box.setFixedHeight(150)
+                box.setFont(QFont("Consolas", 9))
+                box.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+                box.setStyleSheet(
+                    f"QPlainTextEdit {{ color: {C.TEXT_MED};"
+                    f" background: rgba(0, 0, 0, 0.35);"
+                    f" border: 1px solid {C.BORDER}; border-radius: 6px;"
+                    " padding: 6px; }"
+                )
+                lay.addWidget(box)
+            else:
+                dtl = QLabel(detail)
+                dtl.setWordWrap(True)
+                dtl.setFont(QFont("Segoe UI", 9))
+                dtl.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
+                lay.addWidget(dtl)
+
+        if allow_always and remember_label:
+            hint = QLabel(
+                f"ALWAYS ALLOW remembers {remember_label} until Brahma exits."
+            )
+            hint.setWordWrap(True)
+            hint.setFont(QFont("Segoe UI", 8))
+            hint.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
+            lay.addWidget(hint)
 
         self._remaining_secs = 90
         self._countdown_lbl = QLabel(f"Confirmation auto-cancels in {self._remaining_secs}s")

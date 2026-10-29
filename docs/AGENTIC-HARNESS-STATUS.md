@@ -28,6 +28,7 @@ database migration is required; the new tables are additive.
 | Transient-failure retries with backoff | Done |
 | Instruction discovery (workspace + parents) | Done |
 | Session "always allow" approvals | Done |
+| Granular approval detail (rule, command/cwd, diff) | Done |
 | Parallel read-only tool calls | Done |
 | Cancellation-safe transcript | Done |
 | Python floor + CI matrix | Done |
@@ -258,6 +259,24 @@ way to make a rule permanent, and a new process should not inherit a button
 press from last week. `requires_approval=True` tools are deliberately excluded,
 so irreversible actions keep asking.
 
+### D22 — The approval banner says what will actually happen
+
+"Approve run_command?" with a JSON blob is not informed consent: the command and
+its working directory were the two things hidden. `agent/approval_detail.py`
+now builds the detail as a rule line (why), then the concrete subject:
+command + cwd for `run_command`, a real unified diff for `edit_file` and for
+`write_file` overwrites, paths and patterns for the read tools, bounded JSON
+only as a fallback. Diffs are capped at 1 600 characters and rendered in a
+scroll box so the banner cannot grow past the window.
+
+The detail is a `str` subclass carrying `title` and `remember`, so the approver
+protocol did not change and every existing approver still works. The same work
+fixed a real widening in D19: "always allow" for a `paths.outside_workspace` or
+`paths.protected` ask is now keyed by the **resolved path**, not the tool name.
+Approving one outside file no longer blesses every outside file for the
+session. A class-level ask stays tool-wide, because that is what the policy is
+actually asking about.
+
 ### D20 — Parallel dispatch is whole-turn and read-only
 
 Model turns often contain several `read_file`/`glob_files`/`grep_files` calls,
@@ -294,8 +313,8 @@ and the default `python` are 3.14 and lack `ruff`/`pytest`.
 
 ```
 py -3.11 -m ruff check .                 # All checks passed!
-py -3.11 -m pytest tests -q              # 455 passed  (QT_QPA_PLATFORM=offscreen)
-py -3.11 -m pytest tests -q -k agent     # 122 passed
+py -3.11 -m pytest tests -q              # 467 passed  (QT_QPA_PLATFORM=offscreen)
+py -3.11 -m pytest tests -q -k agent     # 133 passed
 py -3.11 -c "import main; ..."           # 66 declarations, all six tools present
 py -3.11 -m agent tools                  # lists the six primitives
 py -3.11 -m agent permissions show       # reports built-in defaults
@@ -309,7 +328,7 @@ Notes:
   `len(TOOL_DECLARATIONS) == 66` and that
   `{read_file, write_file, edit_file, glob_files, grep_files, run_command}` are
   all present.
-* The 122 harness tests run without a display or a model:
+* The 133 harness tests run without a display or a model:
   `py -3.11 -m pytest tests -q -k agent`.
 * `python -m agent run --provider stub --json` is the cheapest end-to-end
   smoke test (used by `test_agent_cli`).
@@ -324,6 +343,9 @@ Notes:
 * Parallel dispatch and protocol-safe cancellation are covered by
   `tests/test_agent_parallel.py` (8): overlap, the cap, write/`ask`
   serialisation, submission order, and filler results for undispatched calls.
+* Approval detail and path-scoped approvals are covered by
+  `tests/test_agent_approval_detail.py` (10); the banner's remember-label hint
+  and diff box are checked in `tests/test_confirmation_overlay.py` (3).
 
 ---
 
@@ -344,10 +366,10 @@ Ordered by value, with the honest reason each was left out.
    paths the model is actually touching (plus a cache), not a recursive scan.
 4. **Session replay in the GUI.** The CLI can `resume`; the HUD cannot. A
    session picker would map `agent_sessions` into the existing conversation UI.
-5. **Granular approval UI.** The banner shows the tool name and a JSON blob.
-   For `run_command` it should show the command, the cwd and the matched rule;
-   for `edit_file`, a diff. "Always allow" now exists but says "ALWAYS ALLOW"
-   without naming what will be remembered.
+5. **Approval UX is still plain text.** The banner now shows the command, cwd,
+   rule, and a diff, but there is no syntax highlighting or per-hunk folding,
+   and the TTY prompt prints the same block. Naming the remembered scope is
+   done; reviewing a 1 600-character diff on a HUD is the remaining friction.
 6. **Policy hot-reload.** The runtime holds a policy object; editing
    `agent_permissions.json` requires a restart. A file-watch or a
    `runtime.reload_policy()` is small.

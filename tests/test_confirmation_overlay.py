@@ -11,6 +11,8 @@ import pytest
 
 PyQt6 = pytest.importorskip("PyQt6.QtWidgets")
 QApplication = PyQt6.QApplication
+QLabel = PyQt6.QLabel
+QPlainTextEdit = PyQt6.QPlainTextEdit
 QPushButton = PyQt6.QPushButton
 
 from core.ui_overlays import ConfirmationOverlay  # noqa: E402
@@ -58,3 +60,29 @@ def test_always_button_emits_its_own_signal_once():
     assert always == [True]
     assert closed == [True]
     overlay.deleteLater()
+
+
+def test_banner_names_what_always_allow_will_remember():
+    _app()
+    overlay = ConfirmationOverlay(
+        "Run this command?",
+        "rule: classes.exec — shell commands need approval.\n\ncommand: pytest -q",
+        allow_always=True,
+        remember_label="this exact command (pytest -q)",
+    )
+
+    texts = [label.text() for label in overlay.findChildren(QLabel)]
+    assert any("AGENT APPROVAL REQUIRED" in text for text in texts)
+    assert any(
+        "remembers this exact command (pytest -q)" in text for text in texts
+    )
+    # A multi-line detail goes into a scrollable box, not a wall of wrapped text.
+    boxes = overlay.findChildren(QPlainTextEdit)
+    assert boxes and "command: pytest -q" in boxes[0].toPlainText()
+    overlay.deleteLater()
+
+    plain = ConfirmationOverlay("Shut down?", "detail")
+    plain_texts = [label.text() for label in plain.findChildren(QLabel)]
+    assert any("PHYSICAL CONFIRMATION REQUIRED" in text for text in plain_texts)
+    assert not any("ALWAYS ALLOW remembers" in text for text in plain_texts)
+    plain.deleteLater()

@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional
 
 from . import code_tools  # noqa: F401  (import registers the six tools)
+from .approval_detail import describe_call, path_scoped_approval_key
 from .permissions import DENY, PermissionPolicy, PolicyResult
 from .spec import ToolContext, ToolSpec, execute as execute_spec, get as get_spec
 
@@ -63,13 +64,20 @@ def gui_approver(name: str, args: Dict[str, Any], detail: str) -> Any:
     """Route an approval to the HUD, if this process has one bound.
 
     Returns ``"allow"``, ``"always"`` or ``"deny"`` so the runtime can remember
-    a session approval; falls back to ``False`` when no HUD is bound.
+    a session approval; falls back to ``False`` when no HUD is bound. The
+    detail object built by :mod:`agent.approval_detail` also carries the banner
+    heading and what ALWAYS ALLOW would remember; plain strings still work.
     """
     try:
         from core import confirm
 
         if confirm.is_bound():
-            return confirm.ask_blocking_choice(name, detail)
+            return confirm.ask_blocking_choice(
+                name,
+                detail,
+                heading=getattr(detail, "title", ""),
+                remember=getattr(detail, "remember", ""),
+            )
     except Exception:
         pass
     return False
@@ -114,23 +122,42 @@ class AgentRuntime:
         """Clear a previous cancellation before starting a new turn."""
         self.cancel_event.clear()
 
-    def _approval_key(self, name: str, args: Mapping[str, Any], spec: Optional[ToolSpec]) -> str:
+    def _approval_key(
+        self,
+        name: str,
+        args: Mapping[str, Any],
+        spec: Optional[ToolSpec],
+        rule: str = "",
+    ) -> str:
         """What "always allow" covers.
 
-        A file tool is broad (the policy already scopes paths); a shell command
-        is exact, because approving ``pytest -q`` must not approve ``del``.
+        A shell command is keyed by the exact command, because approving
+        ``pytest -q`` must not approve ``del``. A path-based exception
+        (``paths.outside_workspace`` / ``paths.protected``) is keyed by the
+        resolved path, because approving one outside file must not bless every
+        outside file for the rest of the session. A class-level ask is keyed by
+        the tool name: the policy is asking about the tool itself.
         """
         tool_class = spec.tool_class if spec else "native"
         if tool_class == "exec":
             command = str(args.get("command") or args.get("cmd") or "").strip()
             return f"{name}:{command}"
+        scoped = path_scoped_approval_key(name, args, rule, self.workspace)
+        if scoped:
+            return f"{name}:{scoped}"
         return name
 
-    def allow_for_session(self, name: str, args: Optional[Mapping[str, Any]] = None) -> None:
+    def allow_for_session(
+        self,
+        name: str,
+        args: Optional[Mapping[str, Any]] = None,
+        *,
+        rule: str = "",
+    ) -> None:
         """Remember an approval for the rest of this process."""
         spec = get_spec(name)
         with self._lock:
-            self.session_allow.add(self._approval_key(name, dict(args or {}), spec))
+            self.session_allow.add(self._approval_key(name, dict(args or {}), spec, rule))
 
     def clear_session_approvals(self) -> None:
         with self._lock:
@@ -186,7 +213,7 @@ class AgentRuntime:
         """Run one tool call under policy, returning model-readable text."""
         args = dict(args or {})
         spec, decision = self.decide(name, args)
-        key = self._approval_key(name, args, spec)
+        key = self._approval_key(name, args, spec, decision.rule)
 
         if decision.needs_approval:
             # A session approval only replaces the *human*, never a policy
@@ -203,7 +230,7 @@ class AgentRuntime:
                      "reason": "approved earlier in this session."},
                 )
             else:
-                detail = f"{decision.reason}\n\n{name}({json.dumps(args, ensure_ascii=False, default=str)[:600]})"
+                detail = describe_call(name, args, spec, decision, self.workspace)
                 self._emit("permission", {"name": name, "decision": "ask", "rule": decision.rule, "reason": decision.reason})
                 approved = False
                 always = False

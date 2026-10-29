@@ -202,7 +202,7 @@ def test_runtime_runs_when_approved(tmp_path: Path):
     result = runtime.execute("write_file", {"path": "x.txt", "content": "hello"})
     assert "Created x.txt" in result
     assert (tmp_path / "x.txt").read_text(encoding="utf-8") == "hello"
-    assert seen and "write_file" in seen[0][1]
+    assert seen and "x.txt" in seen[0][1] and "classes.write" in seen[0][1]
 
 
 def test_runtime_reports_unknown_tools(tmp_path: Path):
