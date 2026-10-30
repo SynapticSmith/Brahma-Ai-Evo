@@ -2194,12 +2194,25 @@ AGENT_MAX_TURNS = 24
 
 # The harness describes its tools once in ``agent/spec.py``; append their
 # Gemini declarations so the live function-calling surface advertises them
-# too. Importing ``agent.code_tools`` is what performs registration.
+# too. Importing ``agent.code_tools`` / ``agent.subagent`` is what performs
+# registration. The voice socket has no text completer for a child loop, so
+# `run_subagent` is deliberately left off the live surface; the text and CLI
+# loops advertise it.
 try:
     from agent import code_tools as _agent_code_tools  # noqa: F401
+    from agent import subagent as _agent_subagent  # noqa: F401
+    from agent.spec import all_specs as _agent_specs
     from agent.spec import gemini_declarations as _agent_gemini_declarations
 
-    TOOL_DECLARATIONS.extend(_agent_gemini_declarations())
+    TOOL_DECLARATIONS.extend(
+        _agent_gemini_declarations(
+            [
+                spec.name
+                for spec in _agent_specs()
+                if spec.name != _agent_subagent.SUBAGENT_TOOL
+            ]
+        )
+    )
 except Exception as _agent_tools_exc:  # pragma: no cover - import-time guard
     print(f"[BRAHMA EVO] ⚠️ Agent harness tools unavailable: {_agent_tools_exc}")
 
@@ -3959,6 +3972,19 @@ class BrahmaLive:
                 print(f"[BRAHMA EVO] \U0001f4dc policy {state}")
             elif kind == "stream_fallback":
                 print(f"[BRAHMA EVO] streaming unavailable: {event.get('reason')}")
+            elif kind == "subagent_start":
+                print(f"[BRAHMA EVO] \U0001f9ed subagent {event.get('subagent')} "
+                      f"started ({', '.join(event.get('tools') or [])}): "
+                      f"{event.get('task')}")
+            elif kind == "subagent_end":
+                print(f"[BRAHMA EVO] \U0001f9ed subagent {event.get('subagent')} "
+                      f"{event.get('stop_reason')} after "
+                      f"{event.get('turns')} turn(s)")
+            elif kind == "subagent_event":
+                inner = event.get("event") or {}
+                if inner.get("type") == "tool_call":
+                    print(f"[BRAHMA EVO] \U0001f9ed {event.get('subagent')} "
+                          f"tool {inner.get('name')} {inner.get('arguments')}")
             elif kind == "stop":
                 print(f"[BRAHMA EVO] \U0001f3c1 agent stopped: {event.get('reason')} "
                       f"after {event.get('turns')} turn(s)")

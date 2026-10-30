@@ -93,6 +93,20 @@ they govern; `agent/prompts.py` owns discovery and its budgets.
 - Results are appended in submission order. A cancelled turn still writes one
   `tool` message per `tool_call` (`CANCELLED_TOOL_OUTPUT`). Keep both rules.
 
+## Subagents
+
+- `run_subagent` is a `native` fence handled in `agent/subagent.py`. The child
+  loop is built by `AgentLoop._run_subagent`; the runner reaches the handler
+  through `ToolContext.extra["subagent_runner"]` injected by `_run_one`. Never
+  add a second path that constructs a child.
+- A child shares the parent's runtime (policy, approvals, workspace, cancel
+  event) and completer, gets a filtered tool surface that never contains
+  `run_subagent`, a fresh context, no session row, and a turn budget clamped to
+  12. Its transcript is discarded; only the report crosses back, so a child
+  exception becomes tool text and must not abort the parent.
+- The voice surface deliberately omits `run_subagent`: the Gemini live session
+  has no text completer to build a child loop. Text and CLI advertise it.
+
 ## Layout
 
 | Path | Contents |
@@ -100,7 +114,7 @@ they govern; `agent/prompts.py` owns discovery and its budgets.
 | `main.py` | App entry, `BrahmaLive`, `TOOL_DECLARATIONS`, provider routing. |
 | `core/` | Seams: `tool_exec.py` (dispatch), `tool_index.py` (advertised surface), `confirm.py` (approval banner), `undo.py`, `user_paths.py`. |
 | `actions/` | One module per capability. |
-| `agent/` | The agentic harness: loop, code tools, permissions, context, sessions. Docs in `docs/AGENTIC-HARNESS.md`. |
+| `agent/` | The agentic harness: loop, code tools, subagents, permissions, context, sessions. Docs in `docs/AGENTIC-HARNESS.md`. |
 | `tests/` | Pytest suite; no display or model required for the portable tests. |
 | `docs/` | Design records and build logs. |
 

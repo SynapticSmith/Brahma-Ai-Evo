@@ -33,12 +33,20 @@ from .context import ContextBudget, ConversationContext, truncate_tool_output
 from .prompts import (
     MAX_SUBDIR_INSTRUCTION_CHARS,
     PATH_ARG_KEYS,
+    build_system_prompt,
     load_directory_instructions,
 )
 from .retry import Cancelled, call_with_retry, is_transient
-from .runtime import AgentRuntime, current as current_runtime
+from .runtime import AgentRuntime, current as current_runtime, policy_note
 from .session import AgentSession
 from .spec import ToolSpec, all_specs, get as get_spec, lowercase_schema
+from .subagent import (
+    DEFAULT_SUBAGENT_TURNS,
+    SUBAGENT_SYSTEM,
+    clamp_turns,
+    select_tools,
+    tool_names,
+)
 from .usage import add_usage, extract_usage
 
 Completer = Callable[[List[Dict[str, Any]], List[Dict[str, Any]]], Dict[str, Any]]
@@ -212,6 +220,7 @@ class AgentLoop:
         summarizer: Optional[Summarizer] = None,
         context: Optional[ConversationContext] = None,
         stream: bool = False,
+        allow_subagents: bool = True,
     ):
         self._complete = complete
         self._tools: List[Any] = list(tools) if tools is not None else list(all_specs())
@@ -248,6 +257,10 @@ class AgentLoop:
         self._repeat_counts: Dict[str, int] = {}
         self._tool_calls_made = 0
         self._retries = 0
+        #: A child loop is constructed with this false, so even a surface that
+        #: somehow still advertises `run_subagent` cannot recurse.
+        self._allow_subagents = bool(allow_subagents)
+        self._subagent_runs = 0
         #: Sum of provider-reported counts. Empty until a response carries
         #: usage; ``estimated_tokens`` stays as the local fallback.
         self._tokens: Dict[str, int] = {}
@@ -475,15 +488,120 @@ class AgentLoop:
     def _run_one(self, item: Dict[str, Any]) -> str:
         """Dispatch one prepared call. Never raises: the loop owns the boundary."""
         item["ran"] = True
+        extra = (
+            {"subagent_runner": self._run_subagent}
+            if self._allow_subagents
+            else None
+        )
         try:
             return self._runtime.execute(
                 item["name"],
                 item["args"],
                 native_dispatch=self._native_dispatch,
                 call_id=item["call"]["id"],
+                extra=extra,
             )
         except Exception as exc:  # noqa: BLE001 - a worker must not kill the turn
             return f"Tool '{item['name']}' failed: {type(exc).__name__}: {exc}"
+
+    def _run_subagent(self, args: Dict[str, Any]) -> str:
+        """Run one bounded child loop and return its report as tool text.
+
+        The child shares this loop's completer, runtime (policy, approver,
+        workspace, cancel event) and retry settings, but gets a fresh
+        conversation, a filtered tool surface, its own turn budget and no
+        session row. Its events are relayed under ``subagent_event`` so a host
+        can still show what it is doing without mixing its turns into the
+        parent transcript.
+        """
+        task = str(args.get("task") or "").strip()
+        if not task:
+            return "Not run: run_subagent needs a non-empty 'task'."
+        requested = args.get("tools")
+        if isinstance(requested, str):
+            requested = [requested]
+        if not isinstance(requested, (list, tuple)):
+            requested = None
+        chosen = select_tools(self._tools, requested)
+        if not chosen:
+            return (
+                "Not run: none of the requested tools are available to this "
+                "agent. Omit 'tools' for the read-only set, or request names "
+                "from this agent's own tool surface."
+            )
+
+        turns = clamp_turns(args.get("max_turns"), DEFAULT_SUBAGENT_TURNS)
+        context_text = str(args.get("context") or "").strip()
+        prompt = task if not context_text else f"{task}\n\nContext:\n{context_text}"
+        names = tool_names(chosen)
+
+        self._subagent_runs += 1
+        label = f"subagent-{self._subagent_runs}"
+        self._emit(
+            "subagent_start",
+            subagent=label,
+            task=task,
+            tools=names,
+            max_turns=turns,
+        )
+
+        child = AgentLoop(
+            self._complete,
+            tools=chosen,
+            native_dispatch=self._native_dispatch,
+            runtime=self._runtime,
+            system=build_system_prompt(
+                self._runtime.workspace,
+                permission_note=policy_note(self._runtime),
+                extra=SUBAGENT_SYSTEM,
+            ),
+            session=None,
+            max_turns=turns,
+            repeat_limit=self.repeat_limit,
+            max_parallel_tools=self.max_parallel_tools,
+            retry_attempts=self.retry_attempts,
+            retry_base_delay=self.retry_base_delay,
+            retry_max_delay=self.retry_max_delay,
+            on_event=lambda event: self._emit(
+                "subagent_event", subagent=label, event=event
+            ),
+            cancel=self._cancel,
+            summarizer=self._summarizer,
+            stream=False,
+            allow_subagents=False,
+        )
+
+        try:
+            result = child.run(prompt)
+        except Exception as exc:  # noqa: BLE001 - a child must not kill the parent
+            self._emit(
+                "subagent_end",
+                subagent=label,
+                stop_reason=STOP_ERROR,
+                turns=0,
+                chars=0,
+            )
+            return f"Subagent failed: {type(exc).__name__}: {exc}"
+
+        self._emit(
+            "subagent_end",
+            subagent=label,
+            stop_reason=result.stop_reason,
+            turns=result.turns,
+            chars=len(result.text),
+        )
+
+        head = (
+            f"Subagent {label} {result.stop_reason} after {result.turns} "
+            f"turn(s); tools: {', '.join(names)}."
+        )
+        body = result.text.strip()
+        if result.stop_reason != STOP_COMPLETED:
+            body += (
+                "\n\n[The subagent did not finish. Treat this report as "
+                "partial and verify the work before relying on it.]"
+            )
+        return head + (("\n\n" + body) if body else "")
 
     def _run_group(self, group: List[Tuple[Dict[str, Any], Tuple[str, Path]]]) -> None:
         """Run one fence-free group, starting each call as its blockers finish.

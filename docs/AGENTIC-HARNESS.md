@@ -43,7 +43,7 @@ filesystem/shell primitives, context management, sessions, permissions, CLI.
    _finish_tool_turn      └───────┬─────────────────────┬───────────┘
                                   │                     │
                      agent/spec.py registry      native_dispatch
-                     (six code tools)            (pre-existing actions)
+                     (7 tool specs)               (pre-existing actions)
                                   │                     │
                                   ▼                     ▼
                         agent/code_tools.py      actions/*.py
@@ -89,6 +89,7 @@ Three invariants make the rest of the design work:
 | `agent/spec.py` | `ToolSpec`, `ToolContext`, registry, schema conversion, output capping, exception-to-string at the tool boundary | …you are adding a tool. |
 | `agent/permissions.py` | Policy document, defaults, `evaluate()`, path scoping, headless rules | …a call was allowed/denied and you need to know why. |
 | `agent/code_tools.py` | `read_file`, `write_file`, `edit_file`, `glob_files`, `grep_files`, `run_command` | …you are changing a primitive's behaviour. |
+| `agent/subagent.py` | `run_subagent` contract: schema, turn clamp, child tool selection, handler that refuses without a loop; the child loop itself lives in `AgentLoop._run_subagent` | …delegation is too broad, recursive, or returns a useless report. |
 | `agent/runtime.py` | The single dispatch boundary; approval callbacks; process-wide `configure()` | …you are wiring the harness into a new host. |
 | `agent/approval_detail.py` | Banner text: rule, command/cwd, unified diffs, and the ALWAYS ALLOW label | …an approval banner is unhelpful or names the wrong thing. |
 | `agent/usage.py` | Provider-reported token counts, normalised and summed | …you need real cost numbers instead of the local estimate. |
@@ -109,7 +110,7 @@ import PyQt, the tool index, or a provider client. Import submodules directly.
 
 | File | Change |
 | --- | --- |
-| `main.py` | `TOOL_DECLARATIONS.extend(_agent_gemini_declarations())`; `AGENT_MAX_TURNS = 24`; `_finish_tool_turn` now runs the loop; `_agent_event` mirrors telemetry; `_ensure_agent_session` and `/sessions`, `/resume`, `/new` bind the GUI text path to durable sessions; `main()` configures the runtime (workspace + HUD approver). |
+| `main.py` | `TOOL_DECLARATIONS.extend(_agent_gemini_declarations(...))` (all specs except `run_subagent` on the voice socket); `AGENT_MAX_TURNS = 24`; `_finish_tool_turn` now runs the loop; `_agent_event` mirrors telemetry (including relayed subagent events); `_ensure_agent_session` and `/sessions`, `/resume`, `/new` bind the GUI text path to durable sessions; `main()` configures the runtime (workspace + HUD approver). |
 | `core/tool_exec.py` | Harness branch at the top of `ToolExecutor.execute`: registered tools go to the runtime in a worker thread, then fall through to the legacy path. |
 | `core/confirm.py` | `is_bound()`, `ask_blocking()`, `_on_qt_main_thread()`, and waiter/verdict plumbing on `_Pending`. |
 | `core/tool_index.py` | `read_file`, `edit_file`, `run_command` added to `DEFAULT_PINNED_TOOLS`. |
@@ -234,6 +235,37 @@ the GUI's sink re-emits through a Qt signal). On cancellation no new call is
 submitted, running calls are drained, and unscheduled calls get
 `CANCELLED_TOOL_OUTPUT` so the request stays protocol-valid.
 
+### Subagents
+
+`run_subagent` is a `native` tool: it is a dispatch fence, and its handler is
+only a hand-off. `AgentLoop._run_one` injects a `subagent_runner` callable into
+`ToolContext.extra`; `agent/subagent.py` validates the request and calls back
+into `AgentLoop._run_subagent`, which constructs the child loop. A host without
+a loop — a direct `runtime.execute`, the Gemini live path — has no completer to
+give the child, so the handler refuses instead of half-running.
+
+The child is an `AgentLoop` with:
+
+* **the same enforcement path** — the parent's `AgentRuntime`, so policy,
+  approvals, workspace, undo and the cancel event are not re-implemented;
+* **a fresh context** — the parent transcript is not copied. The child gets the
+  shared system prompt plus `SUBAGENT_SYSTEM` and one user message containing
+  the task and an optional briefing;
+* **a filtered surface** — `select_tools` intersects the requested names with
+  the parent's own tools, dedupes, and always removes `run_subagent`, so
+  delegation cannot recurse. With no request the default is the parent's
+  `read`-class tools, which cannot mutate the workspace;
+* **its own budget** — `max_turns` defaults to 8 and is clamped to 12; it does
+  not inherit the parent's limit. The child also gets no session row.
+
+Only the child's final report crosses back, as the text of the parent's one
+tool result. A non-`completed` stop appends a "partial, verify this" note. A
+child exception is caught and reported; it cannot abort the parent. The child's
+events are relayed as `subagent_event` inside `subagent_start` /
+`subagent_end`, so a host can show progress without mixing the child's turns
+into the parent transcript. The voice socket does not advertise the tool: its
+Gemini session owns the only transport and cannot build a text child loop.
+
 ### Streaming output
 
 Streaming is **opt-in and additive**. The loop contract stays one assistant
@@ -347,7 +379,7 @@ ToolSpec(
   when it enters the transcript (`context.truncate_tool_output`, which keeps
   the tail — test runners put the verdict there).
 
-### The six primitives
+### The primitives
 
 | Tool | Class | Behaviour worth knowing |
 | --- | --- | --- |
@@ -357,6 +389,7 @@ ToolSpec(
 | `glob_files` | read | Newest first; skips `node_modules`, `.venv`, `.git`, build dirs, caches. |
 | `grep_files` | read | Python regex; `path:line: text`; glob filter; caps files and matches. |
 | `run_command` | exec | `shell=True` in the workspace; exit code + stdout + stderr; timeout (default 120 s, max 1800 s); output capped. |
+| `run_subagent` | native | Bounded child loop with a filtered read-default surface; returns a report; never recursive; refuses outside a loop. |
 
 Edits and writes register with **`core/undo.py`**, so the existing `undo` tool
 reverses agent changes too. That is the recovery path, which is why writes are
@@ -701,6 +734,9 @@ Every event is a dict with `type` plus fields. The same objects go to
 | `stream_fallback` | `reason` | Once per run, when streaming was requested but the provider has no transport, or the stream was rejected before producing output. |
 | `policy_reload` | `ok`, `source`, `error` (when `ok=False`) | When an edited policy file was adopted or rejected. |
 | `instructions` | `loaded[labels]`, `chars`, `truncated` | When a turn touched a directory whose instruction file was not in the prompt yet. |
+| `subagent_start` | `subagent`, `task`, `tools[names]`, `max_turns` | Before a child loop is built. |
+| `subagent_event` | `subagent`, `event` | A child loop event, relayed verbatim (`tool_call`, `permission`, …). |
+| `subagent_end` | `subagent`, `stop_reason`, `turns`, `chars` | After the child stops; `chars` is the report length. |
 | `error` | `error` | Loop-level fatal. |
 | `stop` | `reason`, `turns`, `tool_calls` | Last event of every run. |
 
@@ -786,6 +822,7 @@ unchanged); only the loop around it is new.
 | `tests/test_agent_policy_reload.py` | An edit takes effect mid-session, malformed edits keep the last good policy, no-file policies never reload, throttle/`force`, event payload, deny not widened by a session approval. |
 | `tests/test_agent_streaming.py` | Delta assembly (text, fragmented tool calls, usage tails, error chunks), SSE parsing and HTTP error bodies, endpoint normalisation, stub streaming, loop delta/`reset`/`stream_fallback` events, rejection fallback vs retry, and the CLI printer's no-duplicate rule. |
 | `tests/test_agent_providers.py` | Custom/OpenRouter adapters build against the shipped `llm_client.client` name; custom streaming payload, URL normalisation, auth headers and per-call settings reload. |
+| `tests/test_agent_subagent.py` | Child completion and report-only return, read-only default surface, no recursion, requested-tool intersection, fresh child context, shared policy/denial, exception-to-report, turn clamp, handler refusal without a loop, relayed events, empty-task and unknown-tool refusals. |
 | `tests/test_confirmation_overlay.py` | HUD banner: ALWAYS ALLOW only for session-approvable calls, remembers-what hint, diff box, diff summary and CHANGES ONLY fold/restore, irreversible header. |
 
 They do not need a model. The `test_agent_*` files are pure-Python and need
@@ -847,9 +884,13 @@ These are known and deliberate, not surprises:
   edits files can never overlap anything. A read/write pair whose paths are
   nested serialises even when one is a file and the other a directory, and
   paths are compared as resolved strings — a junction or symlink that aliases a
-  tree is not followed. There is no staleness check beyond model order, and
-  subagents are not implemented yet; a coordinator can be built on the event
-  stream without touching the loop.
+  tree is not followed. There is no staleness check beyond model order.
+* **Subagents share the parent's model and are sequential.** A child loop reuses
+  the parent's completer, so it cannot choose a different model or provider, and
+  `run_subagent` is a `native` fence: one child runs at a time and the parent
+  waits. A child cannot delegate again, has no session row, and its transcript
+  is discarded — only its final report crosses back. The report is therefore
+  lossy by design; ask for specific findings rather than "investigate".
 * **`run_command` is `shell=True`.** The policy is the only barrier; there is
   no OS sandbox. Treat `--yolo` as "run me in a container".
 * **Voice turns are archived, not replayed.** Gemini's live session owns its

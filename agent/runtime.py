@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional
 
 from . import code_tools  # noqa: F401  (import registers the six tools)
+from . import subagent  # noqa: F401  (import registers run_subagent)
 from .approval_detail import describe_call, path_scoped_approval_key
 from .permissions import DENY, PermissionPolicy, PolicyResult
 from .spec import ToolContext, ToolSpec, execute as execute_spec, get as get_spec
@@ -242,12 +243,20 @@ class AgentRuntime:
         with self._lock:
             self.session_allow.clear()
 
-    def context(self) -> ToolContext:
+    def context(self, extra: Optional[Mapping[str, Any]] = None) -> ToolContext:
+        """Build the handler context, optionally carrying host services.
+
+        ``extra`` is how the loop hands a meta-tool the callable it needs (the
+        subagent runner) without letting a handler reach for a global. The
+        workspace/timeout/policy always come from this runtime, so a service
+        cannot smuggle in a second enforcement path.
+        """
         return ToolContext(
             workspace=self.workspace,
             timeout=self.timeout,
             max_output_chars=self.max_output_chars,
             policy=self.policy,
+            extra=dict(extra or {}),
         )
 
     # -- policy ------------------------------------------------------------
@@ -288,6 +297,7 @@ class AgentRuntime:
         *,
         native_dispatch: Optional[Callable[[str, Dict[str, Any]], str]] = None,
         call_id: str = "call_agent",
+        extra: Optional[Mapping[str, Any]] = None,
     ) -> str:
         """Run one tool call under policy, returning model-readable text."""
         args = dict(args or {})
@@ -348,7 +358,7 @@ class AgentRuntime:
 
         self._emit("tool_start", {"name": name, "call_id": call_id, "args": args})
         if spec is not None:
-            output = execute_spec(spec, args, self.context())
+            output = execute_spec(spec, args, self.context(extra))
         elif native_dispatch is not None:
             try:
                 output = native_dispatch(name, args)
@@ -420,13 +430,20 @@ def execute(
     *,
     native_dispatch: Optional[Callable[[str, Dict[str, Any]], str]] = None,
     call_id: str = "call_agent",
+    extra: Optional[Mapping[str, Any]] = None,
 ) -> str:
-    return _current.execute(name, args, native_dispatch=native_dispatch, call_id=call_id)
+    return _current.execute(
+        name,
+        args,
+        native_dispatch=native_dispatch,
+        call_id=call_id,
+        extra=extra,
+    )
 
 
-def policy_note() -> str:
+def policy_note(runtime: Optional[AgentRuntime] = None) -> str:
     """One line for the system prompt describing what needs approval."""
-    runtime = _current
+    runtime = runtime or _current
     classes = runtime.policy.data.get("classes") or {}
     headless = runtime.policy.data.get("headless") or {}
     bits = [f"{name}={value}" for name, value in sorted(classes.items())]

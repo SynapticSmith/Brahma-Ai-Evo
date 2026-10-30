@@ -30,6 +30,7 @@ database migration is required; the new tables are additive.
 | Session "always allow" approvals | Done |
 | Granular approval detail (rule, command/cwd, diff) | Done |
 | Path-dependency parallel tool calls | Done |
+| Bounded subagent delegation (`run_subagent`) | Done |
 | Cancellation-safe transcript | Done |
 | Provider-reported token usage | Done |
 | Policy hot-reload (fail-safe) | Done |
@@ -54,6 +55,7 @@ agent/__init__.py       intentionally empty (fast `python -m agent`)
 agent/spec.py           ToolSpec, ToolContext, registry, schema conversion
 agent/permissions.py    policy document, evaluate(), defaults, template
 agent/code_tools.py     read/write/edit/glob/grep/run_command
+agent/subagent.py       run_subagent contract: schema, budget clamp, child surface
 agent/runtime.py        AgentRuntime, configure(), gui_approver, policy_note
 agent/loop.py           AgentLoop, AgentResult, stop reasons, event stream
 agent/context.py        ContextBudget, ConversationContext, compaction
@@ -70,7 +72,7 @@ Modified:
 
 | File | Change |
 | --- | --- |
-| `main.py` | Appends harness declarations to `TOOL_DECLARATIONS`; `AGENT_MAX_TURNS = 24`; `_finish_tool_turn` now seeds `AgentLoop(first_response=res)` with the turn-one tool surface; new `_agent_event`; `_ensure_agent_session` persists GUI text turns, `_record_voice_turn` archives completed Live turns, and `/sessions`, `/resume`, `/new` bind or drop the session; `main()` configures the runtime with the developer-mode workspace and the HUD approver. |
+| `main.py` | Appends harness declarations to `TOOL_DECLARATIONS` (all except `run_subagent` on the voice socket, which has no text completer for a child loop); `AGENT_MAX_TURNS = 24`; `_finish_tool_turn` now seeds `AgentLoop(first_response=res)` with the turn-one tool surface; new `_agent_event` (including relayed subagent events); `_ensure_agent_session` persists GUI text turns, `_record_voice_turn` archives completed Live turns, and `/sessions`, `/resume`, `/new` bind or drop the session; `main()` configures the runtime with the developer-mode workspace and the HUD approver. |
 | `core/tool_exec.py` | Harness branch at the top of `ToolExecutor.execute`, dispatched via `asyncio.to_thread`. Falls through to the legacy path otherwise. |
 | `core/confirm.py` | `is_bound()`, `_on_qt_main_thread()`, `ask_blocking()`; `_Pending` gained `waiter`/`verdict`; `resolve()` now completes the waiter (timeout ⇒ `False`). |
 | `core/tool_index.py` | Pinned `read_file`, `edit_file`, `run_command` alongside `undo`/`recall_memory`. |
@@ -84,6 +86,7 @@ Modified:
 | `core/ui_overlays.py` | `DetailHighlighter` (green/red/cyan diff lines) and the diff summary plus CHANGES ONLY toggle in `ConfirmationOverlay`. |
 | `agent/providers.py` | Fixed the custom/OpenRouter adapters importing the non-existent `ai_client` from `llm_client`; added shared `custom_stream` used by the CLI and the GUI custom path. |
 | `agent/loop.py` | A stream rejected before its first delta gets one plain request and a `stream_fallback`; transient errors still retry, and failures after output still stop. |
+| `agent/loop.py` | `_run_subagent` builds the bounded child loop and relays its events; `_run_one` injects the runner through `ToolContext.extra`; `allow_subagents=False` makes recursion impossible in the child. |
 | `main.py` | The GUI custom path streams through `custom_stream`; streaming is enabled for `source in ("local", "custom")`. |
 | `.github/workflows/ci.yml` | `harness-pythons` job: harness suite on 3.11/3.12/3.13 with only pytest installed. |
 | `.gitignore` | `agent_permissions.json` ignored — it is machine-local user data. |
@@ -94,7 +97,8 @@ New tests: `tests/test_agent_permissions.py`, `test_agent_code_tools.py`,
 `test_agent_approval.py`, `test_agent_parallel.py`, `test_agent_usage.py`,
 `test_agent_policy_reload.py`, `test_agent_instructions.py`,
 `test_agent_streaming.py`, `test_agent_session_bridge.py`,
-`test_agent_diff_preview.py`, `test_agent_providers.py` — all pure-Python
+`test_agent_diff_preview.py`, `test_agent_providers.py`,
+`test_agent_subagent.py` — all pure-Python
 (no display, no model). HUD-only behaviour lives in
 `tests/test_confirmation_overlay.py`.
 
@@ -551,6 +555,33 @@ has; it does not follow junctions or symlinks, and it treats a nested pair as a
 conflict even when the read is a file and the write a sibling directory. That
 errs toward serialising rather than racing.
 
+### D33 — Delegation is one bounded child, never a second enforcement path
+
+A single loop is right for most work, but some tasks deserve their own context:
+"find every caller of this function" should not fill the parent's window with
+search output. The tempting design — a coordinator that spawns agents with
+their own runtimes — would create a second place where permissions can drift and
+a recursion path that is hard to bound.
+
+`run_subagent` is therefore one tool call, classified `native`, whose handler
+only validates the request and hands it to `AgentLoop._run_subagent`. The child
+is a normal `AgentLoop` sharing the parent's `AgentRuntime`, completer, retry
+settings and cancel event, so there is still exactly one enforcement point. It
+gets a fresh context, no session row, its own turn budget (default 8, clamped to
+12), and a tool surface produced by intersecting the request with the parent's
+own tools. The default surface is the parent's `read`-class tools; a model cannot
+grant a child a tool the parent does not have, and `run_subagent` is always
+removed. `allow_subagents=False` on the child is the second guard against
+recursion.
+
+Only the report crosses back. A child exception is caught and returned as tool
+text, and a non-`completed` stop appends a "partial — verify" note. The
+transcript is working memory, not history, which is why a child needs no session
+row and why its events are relayed under `subagent_start` / `subagent_event` /
+`subagent_end` instead of being spliced into the parent's turns. The voice
+socket does not advertise the tool: Gemini's live session owns its transport and
+cannot build a text child loop.
+
 ### D20 — Parallel dispatch is whole-turn and read-only (superseded by D30, then D32)
 
 Model turns often contain several `read_file`/`glob_files`/`grep_files` calls,
@@ -587,10 +618,10 @@ and the default `python` are 3.14 and lack `ruff`/`pytest`.
 
 ```
 py -3.11 -m ruff check .                 # All checks passed!
-py -3.11 -m pytest tests -q              # 569 passed  (QT_QPA_PLATFORM=offscreen)
-py -3.11 -m pytest tests -q -k agent     # 232 passed
-py -3.11 -c "import main; ..."           # 66 declarations, all six tools present
-py -3.11 -m agent tools                  # lists the six primitives
+py -3.11 -m pytest tests -q              # 582 passed  (QT_QPA_PLATFORM=offscreen)
+py -3.11 -m pytest tests -q -k agent     # 245 passed
+py -3.11 -c "import main; ..."           # 66 voice declarations; six code tools, no run_subagent
+py -3.11 -m agent tools                  # lists the seven tool specs
 py -3.11 -m agent permissions show       # reports built-in defaults
 ```
 
@@ -601,8 +632,9 @@ Notes:
   pre-existing and harmless. The import was used to assert
   `len(TOOL_DECLARATIONS) == 66` and that
   `{read_file, write_file, edit_file, glob_files, grep_files, run_command}` are
-  all present.
-* The 232 harness tests run without a display or a model:
+  all present, while `run_subagent` is intentionally absent from the voice
+  surface (the text and CLI loops advertise it via `all_specs()`).
+* The 245 harness tests run without a display or a model:
   `py -3.11 -m pytest tests -q -k agent`.
 * `python -m agent run --provider stub --json` is the cheapest end-to-end
   smoke test (used by `test_agent_cli`).
@@ -652,6 +684,13 @@ Notes:
   real-diff detection vs a `--- before ---` heading, add/remove/hunk counts,
   context retention and `… N unchanged` markers, zero-context folding, and the
   summary string. Still pure Python, still no Qt in the harness CI job.
+* Subagents are covered by `tests/test_agent_subagent.py` (13): report-only
+  return, the read-only default surface, no recursion, requested-tool
+  intersection, fresh child context and briefing, the shared policy turning a
+  write into a report, exception-to-report, the turn clamp, the handler's
+  refusal without a loop, relayed child events, and empty/unknown-request
+  refusals. A refused subagent call is the turn's only call, so it ends at
+  `permission_denied` exactly like any other all-refused turn; no child starts.
 
 ---
 
@@ -659,24 +698,26 @@ Notes:
 
 Ordered by value, with the honest reason each was left out.
 
-1. **Subagents.** Tool dispatch now has a per-call dependency scheduler, but
-   there is no subagent layer: a coordinator would need its own session,
-   budget and event namespace, and can be built on the event stream without
-   touching the loop.
-2. **Streaming is not universal.** The local, custom, OpenRouter and stub
+1. **Sandboxing.** `run_command` is `shell=True` with policy as the only
+   barrier. A Windows job-object / container option would let `--yolo` be safe
+   in more places.
+2. **The TTY prompt has no colour.** The HUD highlights diffs and folds
+   context, but `python -m agent` prints the same detail as plain text. That is
+   fine for piping and logs; adding ANSI colour would need a TTY check so a
+   redirected run stays parseable.
+3. **Subagents are sequential and share the parent's model.** `run_subagent` is
+   a native fence, so one child runs at a time and the parent waits; there is no
+   model/provider choice, no parallel fan-out, no resumable child session, and
+   its transcript is discarded (only the report survives). That is the price of
+   one enforcement path and a bounded run; a coordinator that needs more should
+   be built on the event stream rather than by spawning second runtimes.
+4. **Streaming is not universal.** The local, custom, OpenRouter and stub
    transports stream in both the CLI and the GUI text path; only the voice path
    does not, because Gemini's live socket owns its delivery. A custom server
    that rejects `stream: true` falls back to one plain request (see D29). The
    assembler follows the protocol (argument fragments are concatenated), so a
    non-compliant server that repeats a full arguments blob would produce
    invalid JSON.
-3. **Sandboxing.** `run_command` is `shell=True` with policy as the only
-   barrier. A Windows job-object / container option would let `--yolo` be safe
-   in more places.
-4. **The TTY prompt has no colour.** The HUD highlights diffs and folds
-   context, but `python -m agent` prints the same detail as plain text. That is
-   fine for piping and logs; adding ANSI colour would need a TTY check so a
-   redirected run stays parseable.
 
 ---
 
