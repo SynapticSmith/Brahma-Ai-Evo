@@ -86,6 +86,10 @@ DEFAULT_POLICY: Dict[str, Any] = {
         "exec": ASK,
         "network": ALLOW,
         "device": ALLOW,
+        # A configured MCP server is an explicit installation, like a plugin,
+        # so its tools run without a prompt. Set this to "ask" (and give the
+        # agent an approver) when the server is not trusted.
+        "mcp": ALLOW,
         "native": ALLOW,
     },
     "tools": {},

@@ -24,9 +24,10 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 
 #: Capability classes the permission policy reasons about. ``read`` and
 #: ``write`` are filesystem, ``exec`` spawns processes, ``network`` leaves the
-#: machine, ``device`` touches hardware/OS state, ``native`` is the catch-all
-#: for the pre-existing action tools that predate this classification.
-TOOL_CLASSES: Tuple[str, ...] = ("read", "write", "exec", "network", "device", "native")
+#: machine, ``device`` touches hardware/OS state, ``mcp`` is a tool contributed
+#: by a configured MCP server, and ``native`` is the catch-all for the
+#: pre-existing action tools that predate this classification.
+TOOL_CLASSES: Tuple[str, ...] = ("read", "write", "exec", "network", "device", "mcp", "native")
 
 #: Arguments that carry a filesystem path. The policy resolves these against
 #: the workspace before deciding, so a tool cannot launder an escape through a
@@ -243,6 +244,16 @@ def tool(
 
 def get(name: str) -> Optional[ToolSpec]:
     return _REGISTRY.get(name)
+
+
+def unregister(name: str) -> Optional[ToolSpec]:
+    """Remove a dynamically contributed tool, returning it if it existed.
+
+    Static tools are never removed at runtime. This exists for MCP sessions and
+    for tests: a closed session must not leave the model looking at a tool
+    whose server is gone.
+    """
+    return _REGISTRY.pop(name, None)
 
 
 def is_registered(name: str) -> bool:

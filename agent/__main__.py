@@ -6,6 +6,7 @@ Everything the GUI can do with an agent, without starting a GUI:
     python -m agent resume <session-id> "and run the suite"
     python -m agent sessions
     python -m agent tools
+    python -m agent mcp list
     python -m agent permissions init
 
 ``--json`` emits one JSON object per line (NDJSON) on stdout: every loop event
@@ -24,11 +25,13 @@ from typing import Any, Dict, List, Optional
 
 from .context import ContextBudget
 from .loop import AgentLoop
+from .mcp import MCPConfigError, MCPSession, discover_config, load_config
 from .permissions import PermissionPolicy, write_template
 from .prompts import build_system_prompt
 from .providers import ProviderUnavailable, build_completer, build_summarizer
 from .runtime import AgentRuntime, configure, policy_note
 from .session import AgentSession, SessionNotFound
+from .spec import TOOL_CLASSES
 from .term import approval_prompt, colour_enabled
 
 EXIT_OK = 0
@@ -72,6 +75,10 @@ def _render_event(event: Dict[str, Any]) -> Optional[str]:
         if event.get("ok"):
             return f"  ~~ policy reloaded from {event.get('source')}"
         return f"  !! policy reload failed, keeping the old rules: {event.get('error')}"
+    if kind == "mcp":
+        if event.get("ok"):
+            return f"  ~~ mcp {event.get('name')}: {event.get('tools')} tool(s)"
+        return f"  !! mcp {event.get('name')}: {event.get('error')}"
     if kind == "instructions":
         labels = ", ".join(event.get("loaded") or [])
         suffix = " (truncated)" if event.get("truncated") else ""
@@ -131,7 +138,7 @@ def _make_printer(as_json: bool):
         line = _render_event(event)
         if line is not None:
             stream = sys.stderr if event.get("type") in (
-                "permission", "compaction", "policy_reload", "error", "stream_fallback"
+                "permission", "compaction", "policy_reload", "error", "stream_fallback", "mcp"
             ) else sys.stdout
             stream.write(line + "\n")
             stream.flush()
@@ -166,7 +173,7 @@ def _build_policy(args: argparse.Namespace) -> PermissionPolicy:
     classes = dict(policy.data.get("classes") or {})
 
     if args.yolo:
-        for name in ("read", "write", "exec", "network", "device", "native"):
+        for name in TOOL_CLASSES:
             classes[name] = "allow"
         policy.data["classes"] = classes
         policy.data["paths"] = {"outside_workspace": "allow", "protected": "allow"}
@@ -197,6 +204,33 @@ def _configure_runtime(args: argparse.Namespace, workspace: Path) -> AgentRuntim
         reset_approver=headless,
         timeout=args.timeout,
     )
+
+
+def _start_mcp(
+    args: argparse.Namespace, workspace: Path, emit: Any
+) -> tuple[Optional[MCPSession], bool]:
+    """Start the configured MCP servers, if any.
+
+    Returns ``(session, ok)``: ``ok=False`` means the config exists but is
+    unusable, and the caller must stop rather than run with a silently reduced
+    tool surface. "No config" is not an error.
+    """
+    if getattr(args, "no_mcp", False):
+        return None, True
+    explicit = getattr(args, "mcp_config", None)
+    path = Path(explicit).expanduser() if explicit else discover_config(workspace)
+    if path is None:
+        return None, True
+    try:
+        configs = load_config(path)
+    except MCPConfigError as exc:
+        emit({"type": "error", "error": str(exc)})
+        return None, False
+    if not configs:
+        return None, True
+    session = MCPSession()
+    session.start(configs, on_event=emit)
+    return session, True
 
 
 # --------------------------------------------------------------------------- #
@@ -252,40 +286,48 @@ def _cmd_run(args: argparse.Namespace) -> int:
         sys.stderr.write(f"error: {exc}\n")
         return EXIT_PROVIDER
 
-    budget = ContextBudget(max_chars=args.max_context_chars)
-    summarizer = build_summarizer(completer) if args.summarize else None
+    mcp_session, mcp_ok = _start_mcp(args, workspace, printer)
+    if not mcp_ok:
+        return EXIT_USAGE
 
-    session = None
-    if not args.no_session:
-        session = AgentSession.create(
-            workspace,
-            title=args.title or prompt[:60],
-            model=args.model or "",
-        )
-
-    system = build_system_prompt(workspace, permission_note=policy_note())
-    loop = AgentLoop(
-        completer,
-        native_dispatch=None,
-        runtime=runtime,
-        system=system,
-        session=session,
-        max_turns=args.max_turns,
-        repeat_limit=args.repeat_limit,
-        max_parallel_tools=args.max_parallel_tools,
-        retry_attempts=args.retries,
-        budget=budget,
-        on_event=printer,
-        summarizer=summarizer,
-        cancel=runtime.cancel_event,
-        stream=args.stream,
-    )
-    runtime.reset_cancel()
-    restore = _install_cancel(runtime)
     try:
-        result = loop.run(prompt)
+        budget = ContextBudget(max_chars=args.max_context_chars)
+        summarizer = build_summarizer(completer) if args.summarize else None
+
+        session = None
+        if not args.no_session:
+            session = AgentSession.create(
+                workspace,
+                title=args.title or prompt[:60],
+                model=args.model or "",
+            )
+
+        system = build_system_prompt(workspace, permission_note=policy_note())
+        loop = AgentLoop(
+            completer,
+            native_dispatch=None,
+            runtime=runtime,
+            system=system,
+            session=session,
+            max_turns=args.max_turns,
+            repeat_limit=args.repeat_limit,
+            max_parallel_tools=args.max_parallel_tools,
+            retry_attempts=args.retries,
+            budget=budget,
+            on_event=printer,
+            summarizer=summarizer,
+            cancel=runtime.cancel_event,
+            stream=args.stream,
+        )
+        runtime.reset_cancel()
+        restore = _install_cancel(runtime)
+        try:
+            result = loop.run(prompt)
+        finally:
+            restore()
     finally:
-        restore()
+        if mcp_session is not None:
+            mcp_session.close()
 
     if args.json:
         sys.stdout.write(json.dumps({"type": "result", **result.to_dict()}, ensure_ascii=False) + "\n")
@@ -329,28 +371,36 @@ def _cmd_resume(args: argparse.Namespace) -> int:
         sys.stderr.write(f"error: {exc}\n")
         return EXIT_PROVIDER
 
-    system = build_system_prompt(workspace, permission_note=policy_note())
-    loop = AgentLoop(
-        completer,
-        runtime=runtime,
-        system=system,
-        session=session,
-        max_turns=args.max_turns,
-        repeat_limit=args.repeat_limit,
-        max_parallel_tools=args.max_parallel_tools,
-        retry_attempts=args.retries,
-        budget=ContextBudget(max_chars=args.max_context_chars),
-        on_event=printer,
-        summarizer=build_summarizer(completer) if args.summarize else None,
-        cancel=runtime.cancel_event,
-        stream=args.stream,
-    )
-    runtime.reset_cancel()
-    restore = _install_cancel(runtime)
+    mcp_session, mcp_ok = _start_mcp(args, workspace, printer)
+    if not mcp_ok:
+        return EXIT_USAGE
+
     try:
-        result = loop.run(prompt)
+        system = build_system_prompt(workspace, permission_note=policy_note())
+        loop = AgentLoop(
+            completer,
+            runtime=runtime,
+            system=system,
+            session=session,
+            max_turns=args.max_turns,
+            repeat_limit=args.repeat_limit,
+            max_parallel_tools=args.max_parallel_tools,
+            retry_attempts=args.retries,
+            budget=ContextBudget(max_chars=args.max_context_chars),
+            on_event=printer,
+            summarizer=build_summarizer(completer) if args.summarize else None,
+            cancel=runtime.cancel_event,
+            stream=args.stream,
+        )
+        runtime.reset_cancel()
+        restore = _install_cancel(runtime)
+        try:
+            result = loop.run(prompt)
+        finally:
+            restore()
     finally:
-        restore()
+        if mcp_session is not None:
+            mcp_session.close()
     if args.json:
         sys.stdout.write(json.dumps({"type": "result", **result.to_dict()}, ensure_ascii=False) + "\n")
     else:
@@ -385,6 +435,61 @@ def _cmd_tools(args: argparse.Namespace) -> int:
     for spec in specs:
         sys.stdout.write(f"{spec.name:<14} [{spec.tool_class}] {spec.description.splitlines()[0][:100]}\n")
     return EXIT_OK
+
+
+def _cmd_mcp(args: argparse.Namespace) -> int:
+    workspace = Path(args.cwd or os.getcwd()).expanduser().resolve()
+    explicit = Path(args.config).expanduser() if args.config else None
+    path = explicit or discover_config(workspace)
+    if path is None:
+        if args.json:
+            sys.stdout.write(json.dumps({"config": None, "servers": [], "tools": []}, indent=2) + "\n")
+        else:
+            sys.stdout.write(
+                "No MCP config found. Set BRAHMA_MCP_CONFIG, create "
+                f"{workspace / '.brahma' / 'mcp.json'}, or pass --config.\n"
+            )
+        return EXIT_OK
+    try:
+        configs = load_config(path)
+    except MCPConfigError as exc:
+        sys.stderr.write(f"error: {exc}\n")
+        return EXIT_USAGE
+
+    session = MCPSession()
+    try:
+        statuses = session.start(configs)
+        tools = session.tools
+    finally:
+        session.close()
+
+    if args.json:
+        sys.stdout.write(
+            json.dumps(
+                {
+                    "config": str(path),
+                    "servers": [status.to_dict() for status in statuses],
+                    "tools": tools,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n"
+        )
+        return EXIT_OK if all(status.ok for status in statuses) else EXIT_ERROR
+    if not statuses:
+        sys.stdout.write(f"{path}: no enabled servers\n")
+        return EXIT_OK
+    for status in statuses:
+        if status.ok:
+            sys.stdout.write(
+                f"{status.name:<20} ok    {status.tools:>3} tool(s)  {status.command}\n"
+            )
+        else:
+            sys.stderr.write(f"{status.name:<20} FAIL  {status.error}\n")
+    for name in tools:
+        sys.stdout.write(f"  {name}\n")
+    return EXIT_OK if all(status.ok for status in statuses) else EXIT_ERROR
 
 
 def _cmd_permissions(args: argparse.Namespace) -> int:
@@ -434,6 +539,11 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--allow", action="append", metavar="CLASS", help="Allow a tool class, repeatable/comma-separated")
     parser.add_argument("--deny", action="append", metavar="CLASS", help="Deny a tool class")
     parser.add_argument("--permissions", help="Path to agent_permissions.json")
+    parser.add_argument(
+        "--mcp-config",
+        help="MCP server config JSON (default: BRAHMA_MCP_CONFIG, .brahma/mcp.json, .mcp.json)",
+    )
+    parser.add_argument("--no-mcp", action="store_true", help="Do not start configured MCP servers")
     parser.add_argument("--no-session", action="store_true", help="Do not persist this run")
     parser.add_argument("--summarize", action="store_true", help="Use the model for compaction summaries")
     parser.add_argument("--title", help="Session title")
@@ -462,6 +572,12 @@ def build_parser() -> argparse.ArgumentParser:
     tools = sub.add_parser("tools", help="List registered harness tools")
     tools.add_argument("--json", action="store_true")
 
+    mcp = sub.add_parser("mcp", help="List configured MCP servers and their tools")
+    mcp.add_argument("action", nargs="?", choices=("list",), default="list")
+    mcp.add_argument("--config", help="MCP config file (default: discovery)")
+    mcp.add_argument("--cwd", help="Workspace root used for discovery")
+    mcp.add_argument("--json", action="store_true")
+
     perms = sub.add_parser("permissions", help="Show or create the policy")
     perms.add_argument("action", nargs="?", choices=("show", "init"), default="show")
     perms.add_argument("--path", help="Policy file to read/write")
@@ -479,7 +595,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
 
     # `python -m agent "do the thing"` -> treat the first bare word as a run.
-    known = {"run", "resume", "sessions", "tools", "permissions", "-h", "--help"}
+    known = {"run", "resume", "sessions", "tools", "mcp", "permissions", "-h", "--help"}
     if argv and argv[0] not in known:
         argv = ["run"] + argv
 
@@ -497,6 +613,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             return _cmd_sessions(args)
         if args.command == "tools":
             return _cmd_tools(args)
+        if args.command == "mcp":
+            return _cmd_mcp(args)
         if args.command == "permissions":
             return _cmd_permissions(args)
     except KeyboardInterrupt:

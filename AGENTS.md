@@ -85,6 +85,20 @@ they govern; `agent/prompts.py` owns discovery and its budgets.
   configuration, not a verified sandbox, and POSIX cannot enforce
   `max_processes` — report unapplied limits instead of pretending.
 
+## MCP servers
+
+- `agent/mcp.py` is the only MCP client in the harness. It is stdlib only and
+  speaks newline-delimited JSON-RPC over stdio (`initialize`, `tools/list`,
+  `tools/call`) because `agent/` must import with only pytest installed. Do not
+  reuse `core/mcp_manager.py` (SDK + asyncio) or spawn a server from a tool.
+- Config is trusted input: servers are arbitrary programs the user named. Add a
+  field only with validation in `parse_servers`; `env` merges over the inherited
+  environment and a relative `cwd` resolves against the config file.
+- Every tool registers as an ordinary `ToolSpec` (`tool_class="mcp"`, name
+  `mcp_<server>_<tool>` sanitised to `[A-Za-z0-9_]`), so calls go through
+  `AgentRuntime.execute` like any other tool. `MCPSession.close()` must
+  unregister the specs before killing the process.
+
 ## Sessions
 
 - The CLI (`run`/`resume`/`sessions`) and the GUI text path share

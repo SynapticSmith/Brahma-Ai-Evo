@@ -48,7 +48,7 @@ filesystem/shell primitives, context management, sessions, permissions, CLI.
                                   ▼                     ▼
                         agent/code_tools.py      actions/*.py
 
-   headless:  python -m agent run|resume|sessions|tools|permissions
+   headless:  python -m agent run|resume|sessions|tools|mcp|permissions
               └── agent/__main__.py → agent/loop.py → same runtime
 ```
 
@@ -96,6 +96,7 @@ Three invariants make the rest of the design work:
 | `agent/streaming.py` | Delta assembler (text + fragmented tool calls) and an SSE transport over `urllib` | …streamed text or a tool call is garbled. |
 | `agent/process.py` | `run_captured`: shell command with closed stdin and whole-tree termination on timeout (Windows job object / POSIX session group) | …a timed-out command left children running or blocked on a prompt. |
 | `agent/sandbox.py` | `exec.sandbox`: credential scrubbing, trusted command prefix, resource limits | …a command printed the model's key, or a deployment needs to delegate to a real sandbox. |
+| `agent/mcp.py` | Minimal stdlib MCP client: config validation/discovery, stdio JSON-RPC, `tools/list`/`tools/call`, namespaced `ToolSpec`s, session shutdown | …a configured MCP server does not appear, answers wrongly, or leaks a process. |
 | `agent/term.py` | TTY-only ANSI view of an approval detail: diff colours, `NO_COLOR`/`TERM=dumb`/`FORCE_COLOR`, Windows VT enablement | …the CLI prompt is unreadable, or escapes leak into a redirected log. |
 | `agent/loop.py` | Bounded agent loop, repeat detection, stop reasons, event stream | …the agent stops early or will not stop. |
 | `agent/context.py` | Character budget, protocol-safe compaction, output truncation | …context is overflowing or a resumed prompt is rejected. |
@@ -393,6 +394,7 @@ ToolSpec(
 | `grep_files` | read | Python regex; `path:line: text`; glob filter; caps files and matches. |
 | `run_command` | exec | Shell in the workspace; **stdin is closed**; exit code + stdout + stderr; timeout (default 120 s, max 1800 s) terminates the **whole process tree**; output capped; `exec.sandbox` controls credential scrubbing, an optional sandbox prefix and resource limits. |
 | `run_subagent` | native | Bounded child loop with a filtered read-default surface; returns a report; never recursive; refuses outside a loop. |
+| `mcp_<server>_<tool>` | mcp | One spec per tool discovered from a configured MCP server; the handler is the server's `tools/call`; output is text, resources or a binary summary. Names are sanitised to the function-name grammar. |
 
 Edits and writes register with **`core/undo.py`**, so the existing `undo` tool
 reverses agent changes too. That is the recovery path, which is why writes are
@@ -424,6 +426,71 @@ gate for whether a command may run.
 The separate `exec.sandbox` policy adds the isolation the harness *can* enforce
 without an OS container: a trusted command prefix, credential scrubbing, and
 resource limits. See [§6](#execsandbox).
+
+### MCP servers
+
+An MCP server contributes tools to the same registry as the built-in six. The
+client in `agent/mcp.py` speaks the wire protocol directly (newline-delimited
+JSON-RPC 2.0 over stdio) because the `agent/` package must stay importable with
+only pytest installed; it implements `initialize`, `tools/list` and
+`tools/call`, and deliberately nothing else.
+
+Config follows the ecosystem shape:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+      "timeout": 60
+    },
+    "project-tools": {
+      "command": "python",
+      "args": ["tools/mcp_server.py"],
+      "cwd": "..",
+      "env": {"LOG_LEVEL": "info"},
+      "timeout": 120,
+      "enabled": true
+    }
+  }
+}
+```
+
+`config/mcp_servers.example.json` is a tracked starting point; copy it to
+`<workspace>/.brahma/mcp.json`. Discovery order is `BRAHMA_MCP_CONFIG`, then
+`.brahma/mcp.json`, then `.mcp.json`; `--mcp-config PATH` overrides all three and
+`--no-mcp` disables the feature for one run. A relative `cwd` resolves against
+the config file, not the process. `env` is merged over the inherited
+environment, so a token already exported in the shell reaches the server
+without being written to disk; `enabled: false` parks an entry.
+
+Each discovered tool becomes `mcp_<server>_<tool>`, with every character
+outside `[A-Za-z0-9_]` collapsed to `_` (OpenAI and `ToolSpec` reject dots and
+dashes). Long names are truncated with a short digest, and a collision gets a
+numeric suffix. The prefix makes provenance visible and makes a per-tool policy
+override obvious: `"tools": {"mcp_github_create_issue": "ask"}`.
+
+The class is `mcp`, default `allow`, because adding a server to the config is an
+explicit installation in the same sense as installing a plugin. Set
+`"classes": {"mcp": "deny"}` to switch the whole surface off, or `"ask"` to
+require an approval for every call. Everything else is unchanged: calls go
+through `AgentRuntime.execute`, so path arguments still get workspace/protected
+checks, approvals still work, and output is capped at 20 000 characters.
+
+Text parts are joined in order; a text resource is inlined; an image or audio
+part becomes `[image image/png, N base64 chars]` rather than dumping bytes into
+the transcript; `structuredContent` is appended as JSON; and `isError` prefixes
+the text with `error:` so a failed call cannot look like an empty success.
+A call that times out reports the server's stderr tail, and a server that dies
+fails the pending call instead of hanging the loop. `python -m agent mcp list`
+starts the configured servers, prints their tool counts, and shuts them down —
+the diagnostic to run before blaming the model.
+
+Two honest limits: tools only (resources, prompts and sampling are not
+implemented), and sessions are per run — there is no automatic restart or
+`tools/list_changed` refresh, so a crashed server stays failed until the next
+run. The GUI text path does not start MCP servers yet; only the CLI does.
 
 ---
 
@@ -470,6 +537,7 @@ immediately and cannot be widened by a remembered "always allow".
     "exec": "ask",
     "network": "allow",
     "device": "allow",
+    "mcp": "allow",
     "native": "allow"
   },
   "tools": {
@@ -653,6 +721,7 @@ python -m agent run "fix the failing test" --cwd . --provider auto
 python -m agent resume <session-id> "now run the suite"
 python -m agent sessions --limit 10
 python -m agent tools --json
+python -m agent mcp list [--config PATH] [--cwd DIR] [--json]
 python -m agent permissions show | init [--path ...] [--force]
 ```
 
@@ -681,6 +750,8 @@ Common flags (all of `run` and `resume`):
 | `--yolo` | off | Allow every class and path rule. Sandbox only. |
 | `--allow` / `--deny` | — | Override classes, repeatable/comma-separated. |
 | `--permissions` | discovery | Policy file path. |
+| `--mcp-config` | discovery | MCP server config; overrides `BRAHMA_MCP_CONFIG`/`.brahma/mcp.json`/`.mcp.json`. |
+| `--no-mcp` | off | Do not start configured MCP servers for this run. |
 | `--no-session` | off | Do not persist. |
 | `--summarize` | off | Use the model for compaction summaries. |
 | `--title` | prompt[:60] | Session title. |

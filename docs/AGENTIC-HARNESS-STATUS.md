@@ -33,6 +33,7 @@ database migration is required; the new tables are additive.
 | Bounded subagent delegation (`run_subagent`) | Done |
 | Whole-tree command termination on timeout | Done |
 | Policy `exec.sandbox`: credential scrubbing, trusted prefix, resource limits | Done |
+| MCP servers over stdio (tools only) + `mcp list` diagnostic | Done |
 | TTY colour for the approval diff (opt-out, pipe-safe) | Done |
 | Cancellation-safe transcript | Done |
 | Provider-reported token usage | Done |
@@ -61,6 +62,7 @@ agent/code_tools.py     read/write/edit/glob/grep/run_command
 agent/subagent.py       run_subagent contract: schema, budget clamp, child surface
 agent/process.py        run_captured: closed stdin + whole-tree termination on timeout
 agent/sandbox.py        exec.sandbox: secret scrub, trusted prefix, job-object limits
+agent/mcp.py            stdlib MCP client: config, stdio JSON-RPC, tools/list+call, naming
 agent/term.py           ANSI view of an approval detail; TTY/NO_COLOR/FORCE_COLOR policy
 agent/runtime.py        AgentRuntime, configure(), gui_approver, policy_note
 agent/loop.py           AgentLoop, AgentResult, stop reasons, event stream
@@ -105,7 +107,7 @@ New tests: `tests/test_agent_permissions.py`, `test_agent_code_tools.py`,
 `test_agent_streaming.py`, `test_agent_session_bridge.py`,
 `test_agent_diff_preview.py`, `test_agent_providers.py`,
 `test_agent_subagent.py`, `test_agent_process.py`, `test_agent_sandbox.py`,
-`test_agent_term.py` — all pure-Python
+`test_agent_mcp.py`, `test_agent_term.py` — all pure-Python
 (no display, no model). HUD-only behaviour lives in
 `tests/test_confirmation_overlay.py`.
 
@@ -670,6 +672,52 @@ the tool output instead of being silently dropped. The sandbox section merges
 one level deeper than the rest of the policy, so setting one limit keeps
 `env_scrub`; a malformed value fails at load like every other policy error.
 
+### D37 — MCP is a tool source behind the same boundary, not a second runtime
+
+The app already talks to MCP servers for voice through `core/mcp_manager.py`
+and the official SDK. Reusing it in the harness was not possible: `agent/` has
+to stay importable on an interpreter with only pytest installed, and the SDK's
+asyncio client would tie a synchronous loop to an event loop the loop does not
+own. So `agent/mcp.py` speaks the wire protocol directly — newline-delimited
+JSON-RPC 2.0 over stdio — and implements exactly `initialize`,
+`notifications/initialized`, `tools/list` (with cursor pagination) and
+`tools/call`. Resources, prompts, sampling and roots are omitted rather than
+faked, because a half-supported capability produces tools that fail on first
+use.
+
+The important property is that an MCP tool is not a special case at execution
+time. Discovery registers an ordinary `ToolSpec` with `tool_class="mcp"`, so
+every call still walks `AgentRuntime.execute`: policy, path scoping, approvals,
+output cap and exception-to-text behave exactly as they do for `read_file`. A
+policy can allow, ask or deny the whole class, or override one tool by its
+namespaced name. The class default is `allow` because adding a server to the
+config is an explicit installation, like installing a plugin; `deny` or `ask`
+is the switch for an untrusted one.
+
+Names are `mcp_<server>_<tool>` with everything outside `[A-Za-z0-9_]`
+collapsed to `_`, because both OpenAI and `ToolSpec` reject dots and dashes.
+The prefix keeps provenance visible to the model and makes the per-tool
+override obvious. Long names get a digest suffix and a collision gets a
+numeric one, so two servers cannot silently shadow each other.
+
+The config is trusted input in the same sense as `AGENTS.md`: a server is an
+arbitrary program the user named. `env` merges over the inherited environment
+(so a shell-exported token needs no disk copy) and a relative `cwd` resolves
+against the config file, the only location its author can reason about.
+Discovery is `BRAHMA_MCP_CONFIG`, then `.brahma/mcp.json`, then `.mcp.json`,
+with `--mcp-config` overriding and `--no-mcp` disabling. A missing or malformed
+explicit config stops the run (`EXIT_USAGE`) instead of quietly reducing the
+tool surface — the failure mode where an agent looks broken because half its
+tools vanished is worse than a clear error.
+
+Lifecycle is per run. `close()` unregisters the specs before killing the
+process, so a dead server's tools cannot haunt a long-lived process or a later
+test. Each server gets the same job-object/POSIX tree kill as `run_command`; a
+crash fails the pending call with the server's stderr tail rather than hanging.
+Two honest limits: tools only, and no auto-restart or `tools/list_changed`
+refresh, so a crashed server stays failed until the next run. The GUI text path
+does not start servers yet; only the CLI does, and that is the next batch.
+
 ### D20 — Parallel dispatch is whole-turn and read-only (superseded by D30, then D32)
 
 Model turns often contain several `read_file`/`glob_files`/`grep_files` calls,
@@ -706,8 +754,8 @@ and the default `python` are 3.14 and lack `ruff`/`pytest`.
 
 ```
 py -3.11 -m ruff check .                 # All checks passed!
-py -3.11 -m pytest tests -q              # 635 passed, 1 skipped  (QT_QPA_PLATFORM=offscreen)
-py -3.11 -m pytest tests -q -k agent     # 298 passed, 1 skipped
+py -3.11 -m pytest tests -q              # 678 passed, 1 skipped  (QT_QPA_PLATFORM=offscreen)
+py -3.11 -m pytest tests -q -k agent     # 341 passed, 1 skipped
 py -3.11 -c "import main; ..."           # 66 voice declarations; six code tools, no run_subagent
 py -3.11 -m agent tools                  # lists the seven tool specs
 py -3.11 -m agent permissions show       # reports built-in defaults
@@ -722,7 +770,7 @@ Notes:
   `{read_file, write_file, edit_file, glob_files, grep_files, run_command}` are
   all present, while `run_subagent` is intentionally absent from the voice
   surface (the text and CLI loops advertise it via `all_specs()`).
-* The 298 harness tests run without a display or a model:
+* The 341 harness tests run without a display or a model:
   `py -3.11 -m pytest tests -q -k agent`. The one skip is the POSIX-only
   `prepare_stream` test, which a Windows run cannot execute.
 * `python -m agent run --provider stub --json` is the cheapest end-to-end
@@ -797,6 +845,13 @@ Notes:
   for changes, plain lines untouched, TTY/`NO_COLOR` (including an empty
   value)/`TERM=dumb`/`FORCE_COLOR` policy, the plain prompt being byte-identical
   to the historical text, and the coloured prompt stripping back to it exactly.
+* MCP is covered by `tests/test_agent_mcp.py` (43), all against a real fake
+  stdio server: config defaults/validation/discovery and relative `cwd`, name
+  sanitising/truncation/collision, listing and calling through a `ToolSpec`,
+  text/binary/resource/structured/error rendering, per-request timeout, a crash
+  failing the pending call with the stderr tail, per-server start failure,
+  allow/deny/per-tool policy through the runtime, spec unregistration on close,
+  and `mcp list` JSON, no-config and broken-config behaviour.
 
 ---
 
@@ -824,6 +879,13 @@ Ordered by value, with the honest reason each was left out.
    assembler follows the protocol (argument fragments are concatenated), so a
    non-compliant server that repeats a full arguments blob would produce
    invalid JSON.
+4. **MCP is tools-only and CLI-only.** The client implements `initialize`,
+   `tools/list` and `tools/call`; resources, prompts and sampling are left out
+   because a half-supported capability produces tools that fail on first use.
+   Sessions live for one run — no restart, no `tools/list_changed` refresh — so
+   a crashed server stays failed until the next run. The GUI text path does not
+   start MCP servers yet; wiring it needs a Qt-thread-safe start/stop around the
+   turn, not a second client.
 
 ---
 
@@ -856,6 +918,11 @@ Gotchas that cost time the first time:
   `agent/sandbox.py` only. Do not add a second scrub or prefix path in the tool;
   the default `env_scrub=True` is why a command may no longer see
   `OPENAI_API_KEY` — that is intended, and `env_keep` is the exception.
+* MCP lives in `agent/mcp.py` only. Do not reuse `core/mcp_manager.py` (SDK +
+  asyncio) and do not spawn a server anywhere else: spec registration and
+  `close()` unregistering are what keep the catalogue honest. The config is
+  trusted input, so a new field needs validation in `parse_servers`, not a
+  silent default.
 * If `import main` fails after editing `TOOL_DECLARATIONS`, check that the
   harness import block landed *after* the closing `]` and that
   `_pcm_block` still follows it.

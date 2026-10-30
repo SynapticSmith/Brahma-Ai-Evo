@@ -1,0 +1,511 @@
+"""MCP client: config validation, discovery, naming, calls and lifecycle.
+
+Each test runs a tiny fake server (a Python script) over a real pipe, so the
+JSON-RPC framing, reader thread, timeouts and shutdown are exercised rather
+than mocked. The harness CI installs only pytest, which is exactly why the
+client is stdlib-only; no ``mcp`` SDK is imported anywhere here.
+"""
+from __future__ import annotations
+
+import json
+import sys
+import time
+from pathlib import Path
+
+import pytest
+
+from agent.mcp import (
+    MCPConfigError,
+    MCPError,
+    MCPServerConfig,
+    MCPSession,
+    MCPTimeout,
+    discover_config,
+    format_tool_result,
+    load_config,
+    parse_servers,
+    tool_spec_name,
+)
+from agent.permissions import PermissionPolicy
+from agent.runtime import AgentRuntime
+from agent.spec import all_specs, get as get_spec
+
+FAKE_SERVER = r'''
+import json
+import os
+import sys
+import time
+
+TOOLS = [
+    {
+        "name": "echo",
+        "description": "Echo the arguments back as JSON.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+            "required": ["text"],
+        },
+    },
+    {"name": "fail", "description": "Always fails.", "inputSchema": {"type": "object"}},
+    {"name": "slow", "description": "Never answers in time.", "inputSchema": {"type": "object"}},
+    {"name": "binary", "description": "Image plus caption.", "inputSchema": {"type": "object"}},
+    {"name": "resource", "description": "A text resource.", "inputSchema": {"type": "object"}},
+    {"name": "structured", "description": "Structured content.", "inputSchema": {"type": "object"}},
+    {"name": "crash", "description": "Exit the server.", "inputSchema": {"type": "object"}},
+]
+
+
+def send(payload):
+    sys.stdout.write(json.dumps(payload) + "\n")
+    sys.stdout.flush()
+
+
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        message = json.loads(line)
+    except ValueError:
+        continue
+    method = message.get("method")
+    request_id = message.get("id")
+    if request_id is None:
+        continue
+    if method == "initialize":
+        result = {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {"tools": {}},
+            "serverInfo": {"name": "fake", "version": "1.0"},
+        }
+    elif method == "tools/list":
+        result = {"tools": TOOLS}
+    elif method == "tools/call":
+        params = message.get("params") or {}
+        name = params.get("name")
+        arguments = params.get("arguments") or {}
+        if name == "echo":
+            result = {"content": [{"type": "text", "text": json.dumps(arguments, sort_keys=True)}]}
+        elif name == "fail":
+            result = {"content": [{"type": "text", "text": "boom"}], "isError": True}
+        elif name == "slow":
+            time.sleep(10)
+            result = {"content": [{"type": "text", "text": "late"}]}
+        elif name == "binary":
+            result = {
+                "content": [
+                    {"type": "image", "mimeType": "image/png", "data": "QUJD"},
+                    {"type": "text", "text": "caption"},
+                ]
+            }
+        elif name == "resource":
+            result = {
+                "content": [
+                    {
+                        "type": "resource",
+                        "resource": {
+                            "uri": "file:///x.txt",
+                            "mimeType": "text/plain",
+                            "text": "resource-body",
+                        },
+                    }
+                ]
+            }
+        elif name == "structured":
+            result = {
+                "content": [{"type": "text", "text": "ok"}],
+                "structuredContent": {"count": 2},
+            }
+        elif name == "crash":
+            sys.stderr.write("fake server crashing\n")
+            sys.stderr.flush()
+            os._exit(3)
+        else:
+            result = {"content": [{"type": "text", "text": "unknown tool"}], "isError": True}
+    else:
+        send({"jsonrpc": "2.0", "id": request_id, "error": {"code": -32601, "message": "no"}})
+        continue
+    send({"jsonrpc": "2.0", "id": request_id, "result": result})
+'''
+
+
+def _script(tmp_path: Path) -> Path:
+    path = tmp_path / "fake_mcp.py"
+    path.write_text(FAKE_SERVER, encoding="utf-8")
+    return path
+
+
+def _config(
+    tmp_path: Path,
+    *,
+    name: str = "demo",
+    timeout: float = 10.0,
+    entry: dict | None = None,
+) -> Path:
+    script = _script(tmp_path)
+    server = entry or {
+        "command": sys.executable,
+        "args": [str(script)],
+        "timeout": timeout,
+    }
+    path = tmp_path / "mcp.json"
+    path.write_text(json.dumps({"mcpServers": {name: server}}), encoding="utf-8")
+    return path
+
+
+def _session(tmp_path: Path, **kwargs) -> MCPSession:
+    session = MCPSession()
+    session.start(load_config(_config(tmp_path, **kwargs)))
+    return session
+
+
+# --------------------------------------------------------------------------- #
+# Config
+# --------------------------------------------------------------------------- #
+
+def test_a_minimal_server_gets_documented_defaults():
+    configs = parse_servers({"mcpServers": {"demo": {"command": "npx"}}})
+
+    assert len(configs) == 1
+    config = configs[0]
+    assert isinstance(config, MCPServerConfig)
+    assert config.argv() == ["npx"]
+    assert config.timeout == 60.0
+    assert config.env == {}
+
+
+def test_a_disabled_server_is_skipped():
+    configs = parse_servers(
+        {"mcpServers": {"off": {"command": "npx", "enabled": False}, "on": {"command": "node"}}}
+    )
+
+    assert [config.name for config in configs] == ["on"]
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        {},
+        {"mcpServers": []},
+        {"mcpServers": {"x": "npx"}},
+        {"mcpServers": {"x": {}}},
+        {"mcpServers": {"x": {"command": ""}}},
+        {"mcpServers": {"x": {"command": "npx", "args": "foo"}}},
+        {"mcpServers": {"x": {"command": "npx", "args": [1]}}},
+        {"mcpServers": {"x": {"command": "npx", "env": {"A": 1}}}},
+        {"mcpServers": {"x": {"command": "npx", "env": {"": "a"}}}},
+        {"mcpServers": {"x": {"command": "npx", "timeout": 0}}},
+        {"mcpServers": {"x": {"command": "npx", "timeout": "60"}}},
+        {"mcpServers": {"x": {"command": "npx", "enabled": "yes"}}},
+        {"mcpServers": {"": {"command": "npx"}}},
+    ],
+)
+def test_malformed_config_is_rejected_with_a_path(document):
+    with pytest.raises(MCPConfigError):
+        parse_servers(document, source="demo.json")
+
+
+def test_load_config_resolves_a_relative_cwd_next_to_the_file(tmp_path: Path):
+    path = tmp_path / "nested" / "mcp.json"
+    path.parent.mkdir()
+    path.write_text(
+        json.dumps({"mcpServers": {"x": {"command": "npx", "cwd": "work"}}}),
+        encoding="utf-8",
+    )
+
+    configs = load_config(path)
+
+    assert configs[0].cwd == str((path.parent / "work").resolve())
+
+
+def test_a_missing_file_is_an_error_not_an_empty_list(tmp_path: Path):
+    with pytest.raises(MCPConfigError):
+        load_config(tmp_path / "absent.json")
+
+
+def test_discovery_prefers_the_explicit_env_over_the_workspace(tmp_path: Path, monkeypatch):
+    explicit = tmp_path / "explicit.json"
+    explicit.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("BRAHMA_MCP_CONFIG", str(explicit))
+
+    assert discover_config(tmp_path) == explicit
+
+
+def test_discovery_prefers_dot_brahma_over_dot_mcp(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("BRAHMA_MCP_CONFIG", raising=False)
+    brahma = tmp_path / ".brahma" / "mcp.json"
+    brahma.parent.mkdir()
+    brahma.write_text("{}", encoding="utf-8")
+    (tmp_path / ".mcp.json").write_text("{}", encoding="utf-8")
+
+    assert discover_config(tmp_path) == brahma
+
+
+def test_discovery_returns_none_when_nothing_is_configured(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("BRAHMA_MCP_CONFIG", raising=False)
+
+    assert discover_config(tmp_path) is None
+
+
+# --------------------------------------------------------------------------- #
+# Naming
+# --------------------------------------------------------------------------- #
+
+def test_tool_names_are_namespaced_and_sanitized():
+    assert tool_spec_name("demo", "read-file.v2") == "mcp_demo_read_file_v2"
+
+
+def test_tool_names_with_several_illegal_characters_collapse_to_one_underscore():
+    assert tool_spec_name("my server", "a  b::c") == "mcp_my_server_a_b_c"
+
+
+def test_long_names_are_truncated_with_a_stable_digest():
+    name = tool_spec_name("s" * 40, "t" * 60)
+
+    assert len(name) <= 64
+    assert name == tool_spec_name("s" * 40, "t" * 60)
+
+
+def test_a_collision_gets_a_numeric_suffix():
+    first = tool_spec_name("demo", "echo")
+    second = tool_spec_name("demo", "echo", taken={first})
+
+    assert second == first + "_2"
+    assert second != first
+
+
+# --------------------------------------------------------------------------- #
+# Protocol
+# --------------------------------------------------------------------------- #
+
+def test_a_session_lists_tools_and_calls_one(tmp_path: Path):
+    session = _session(tmp_path)
+    try:
+        names = session.tools
+        assert "mcp_demo_echo" in names
+        assert "mcp_demo_fail" in names
+        assert get_spec("mcp_demo_echo") is not None
+
+        result = session.call("mcp_demo_echo", {"text": "hello"})
+        assert json.loads(result) == {"text": "hello"}
+    finally:
+        session.close()
+
+    assert get_spec("mcp_demo_echo") is None
+    assert not [spec for spec in all_specs() if spec.name.startswith("mcp_demo_")]
+
+
+def test_the_spec_carries_the_description_and_schema(tmp_path: Path):
+    session = _session(tmp_path)
+    try:
+        spec = get_spec("mcp_demo_echo")
+        assert spec is not None
+        assert spec.tool_class == "mcp"
+        assert "Echo the arguments" in spec.description
+        assert spec.parameters["properties"]["text"]["type"] == "string"
+        assert spec.parameters["required"] == ["text"]
+    finally:
+        session.close()
+
+
+def test_an_error_result_is_prefixed(tmp_path: Path):
+    session = _session(tmp_path)
+    try:
+        assert session.call("mcp_demo_fail", {}) == "error: boom"
+    finally:
+        session.close()
+
+
+def test_binary_content_is_summarised_and_text_kept(tmp_path: Path):
+    session = _session(tmp_path)
+    try:
+        result = session.call("mcp_demo_binary", {})
+        assert "[image image/png, 4 base64 chars]" in result
+        assert "caption" in result
+    finally:
+        session.close()
+
+
+def test_a_text_resource_is_inlined(tmp_path: Path):
+    session = _session(tmp_path)
+    try:
+        assert session.call("mcp_demo_resource", {}) == "resource-body"
+    finally:
+        session.close()
+
+
+def test_structured_content_is_appended(tmp_path: Path):
+    session = _session(tmp_path)
+    try:
+        result = session.call("mcp_demo_structured", {})
+        assert "ok" in result
+        assert '"count": 2' in result
+    finally:
+        session.close()
+
+
+def test_a_slow_call_times_out_without_hanging_the_harness(tmp_path: Path):
+    session = _session(tmp_path, timeout=0.3)
+    try:
+        started = time.monotonic()
+        with pytest.raises(MCPTimeout):
+            session.call("mcp_demo_slow", {})
+        assert time.monotonic() - started < 5
+    finally:
+        session.close()
+
+
+def test_a_crashing_server_fails_the_call_and_reports_stderr(tmp_path: Path):
+    session = _session(tmp_path)
+    try:
+        with pytest.raises(MCPError) as caught:
+            session.call("mcp_demo_crash", {})
+        assert "exited" in str(caught.value).lower()
+        assert "fake server crashing" in str(caught.value)
+    finally:
+        session.close()
+
+
+def test_a_tool_call_after_close_is_refused(tmp_path: Path):
+    session = _session(tmp_path)
+    session.close()
+
+    with pytest.raises(MCPError):
+        session.call("mcp_demo_echo", {})
+
+
+def test_a_server_that_cannot_start_is_reported_per_server(tmp_path: Path):
+    config = MCPServerConfig(name="missing", command="definitely-not-a-real-command-xyz")
+    session = MCPSession()
+
+    statuses = session.start([config])
+    session.close()
+
+    assert len(statuses) == 1
+    assert statuses[0].ok is False
+    assert "could not start" in statuses[0].error
+
+
+def test_start_status_reports_the_tool_count(tmp_path: Path):
+    session = _session(tmp_path)
+    try:
+        assert session.statuses[0].ok is True
+        assert session.statuses[0].tools == 7
+        assert session.statuses[0].name == "demo"
+    finally:
+        session.close()
+
+
+# --------------------------------------------------------------------------- #
+# Policy and runtime integration
+# --------------------------------------------------------------------------- #
+
+def _runtime(tmp_path: Path, *, classes: dict | None = None) -> AgentRuntime:
+    return AgentRuntime(
+        workspace=tmp_path,
+        policy=PermissionPolicy.from_dict(
+            {"classes": classes or {"mcp": "allow", "read": "allow", "write": "allow"}}
+        ),
+        approver=None,
+        headless=True,
+    )
+
+
+def test_mcp_tools_run_through_the_single_runtime_boundary(tmp_path: Path):
+    session = _session(tmp_path)
+    try:
+        runtime = _runtime(tmp_path)
+        result = runtime.execute("mcp_demo_echo", {"text": "from-runtime"})
+        assert json.loads(result) == {"text": "from-runtime"}
+    finally:
+        session.close()
+
+
+def test_the_mcp_class_can_be_denied_by_policy(tmp_path: Path):
+    session = _session(tmp_path)
+    try:
+        runtime = _runtime(tmp_path, classes={"mcp": "deny"})
+        result = runtime.execute("mcp_demo_echo", {"text": "nope"})
+        assert result.lower().startswith("permission denied")
+    finally:
+        session.close()
+
+
+def test_one_tool_can_be_overridden_by_name(tmp_path: Path):
+    session = _session(tmp_path)
+    try:
+        runtime = AgentRuntime(
+            workspace=tmp_path,
+            policy=PermissionPolicy.from_dict(
+                {"classes": {"mcp": "allow"}, "tools": {"mcp_demo_echo": "deny"}}
+            ),
+            approver=None,
+            headless=True,
+        )
+        result = runtime.execute("mcp_demo_echo", {"text": "nope"})
+        assert result.lower().startswith("permission denied")
+    finally:
+        session.close()
+
+
+# --------------------------------------------------------------------------- #
+# Rendering helpers
+# --------------------------------------------------------------------------- #
+
+def test_unknown_content_shapes_are_json_rendered():
+    rendered = format_tool_result({"content": [{"type": "widget", "id": 7}]})
+
+    assert '"id": 7' in rendered
+
+
+def test_missing_content_is_not_silently_empty():
+    assert format_tool_result({"content": []}) == "(no content)"
+
+
+# --------------------------------------------------------------------------- #
+# CLI
+# --------------------------------------------------------------------------- #
+
+def test_the_cli_lists_servers_and_tools(tmp_path: Path, capsys):
+    from agent.__main__ import main
+
+    config = _config(tmp_path)
+    code = main(["mcp", "list", "--config", str(config), "--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert payload["servers"][0]["ok"] is True
+    assert payload["servers"][0]["tools"] == 7
+    assert "mcp_demo_echo" in payload["tools"]
+
+
+def test_the_cli_without_config_explains_how_to_configure(tmp_path: Path, monkeypatch, capsys):
+    from agent.__main__ import main
+
+    monkeypatch.delenv("BRAHMA_MCP_CONFIG", raising=False)
+    code = main(["mcp", "list", "--cwd", str(tmp_path)])
+
+    assert code == 0
+    assert "No MCP config found" in capsys.readouterr().out
+
+
+def test_a_broken_explicit_config_stops_a_run_instead_of_dropping_tools(tmp_path: Path, capsys):
+    from agent.__main__ import main
+
+    bad = tmp_path / "bad.json"
+    bad.write_text('{"mcpServers": {"x": {"command": ""}}}', encoding="utf-8")
+
+    code = main(
+        [
+            "run",
+            "hi",
+            "--provider",
+            "stub",
+            "--no-session",
+            "--mcp-config",
+            str(bad),
+        ]
+    )
+
+    assert code == 3
+    assert "command" in capsys.readouterr().err

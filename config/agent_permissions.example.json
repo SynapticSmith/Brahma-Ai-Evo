@@ -7,6 +7,7 @@
     "exec": "ask",
     "network": "allow",
     "device": "allow",
+    "mcp": "allow",
     "native": "allow"
   },
   "tools": {},

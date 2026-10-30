@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+      "timeout": 60
+    },
+    "project-tools": {
+      "command": "python",
+      "args": ["tools/mcp_server.py"],
+      "cwd": "..",
+      "enabled": false,
+      "env": {
+        "LOG_LEVEL": "info"
+      },
+      "timeout": 120
+    }
+  }
+}
