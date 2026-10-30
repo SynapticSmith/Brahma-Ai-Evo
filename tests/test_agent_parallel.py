@@ -1,11 +1,13 @@
-"""Segment-aware parallel dispatch, ordering, and protocol-safe cancellation.
+"""Path-dependency tool dispatch, ordering, and protocol-safe cancellation.
 
 The rules under test:
 
-* consecutive runs of policy-allowed, non-repeated `read` calls share a pool;
-* a write, `exec`, native call, denied call or approval prompt is a fence:
-  earlier calls finish first, later calls wait, so reads cannot observe a
-  half-written file;
+* policy-allowed reads and writes overlap when their paths are unrelated;
+* writes never overlap each other;
+* a read and a write of the same path keep model order, as does a write inside
+  a directory that a glob/grep call is scanning;
+* `exec`, a native call, a denied call, an approval prompt or a write with no
+  path is a fence: earlier calls finish first, later calls wait;
 * a repeated call is skipped without a worker;
 * results are appended in model order regardless of completion order;
 * a cancelled turn still writes one `tool` message per emitted `tool_call`.
@@ -69,11 +71,14 @@ class Script:
 
 
 class Tracker:
-    """Wraps ``runtime.execute`` to observe overlap and dispatch order.
+    """Wraps ``runtime.execute`` to observe overlap, spans and dispatch order.
 
     The delay makes overlap deterministic enough to assert: without it a file
     read can finish before the next worker starts, and the peak would be 1 even
-    when the executor really is parallel.
+    when the executor really is parallel. ``spans`` records each call id's
+    monotonic window so a test can assert the *absence* of overlap (a later
+    same-path write must start after the earlier read ends) without relying on
+    thread start order alone.
     """
 
     def __init__(self, runtime: AgentRuntime, delay: float = 0.12, on_call=None):
@@ -83,10 +88,14 @@ class Tracker:
         self.active = 0
         self.peak = 0
         self.started = []
+        self.spans = {}
+        self._origin = time.monotonic()
         self._lock = threading.Lock()
         original = runtime.execute
 
         def execute(name, args=None, **kwargs):
+            call_id = str(kwargs.get("call_id") or name)
+            start = time.monotonic() - self._origin
             with self._lock:
                 self.active += 1
                 self.peak = max(self.peak, self.active)
@@ -99,10 +108,20 @@ class Tracker:
                     self.on_call(name, args)
                 return result
             finally:
+                end = time.monotonic() - self._origin
                 with self._lock:
                     self.active -= 1
+                    self.spans[call_id] = (start, end)
 
         runtime.execute = execute  # type: ignore[method-assign]
+
+    def overlapped(self, first: str, second: str) -> bool:
+        first_start, first_end = self.spans[first]
+        second_start, second_end = self.spans[second]
+        return first_start < second_end and second_start < first_end
+
+    def started_after(self, later: str, earlier: str) -> bool:
+        return self.spans[later][0] >= self.spans[earlier][1]
 
 
 def _prepare(tmp_path: Path, *names: str) -> None:
@@ -146,50 +165,118 @@ def test_parallel_cap_of_one_serialises_the_turn(tmp_path: Path):
     assert _tool_ids(result) == ["c1", "c2", "c3"]
 
 
-def test_reads_before_and_after_a_write_overlap_in_their_own_segments(tmp_path: Path):
-    _prepare(tmp_path, "c1.txt", "c2.txt", "c4.txt", "c5.txt")
+def test_unrelated_reads_and_a_write_overlap(tmp_path: Path):
+    _prepare(tmp_path, "c1.txt", "c2.txt")
+    runtime = _runtime(tmp_path)
+    tracker = Tracker(runtime, delay=0.2)
+    script = Script([
+        _turn(
+            _read("c1"),
+            ("c3", "write_file", {"path": "out.txt", "content": "hi"}),
+            _read("c2"),
+        ),
+        {"role": "assistant", "content": "ok"},
+    ])
+
+    result = AgentLoop(script, runtime=runtime, max_turns=4).run("go")
+
+    # `out.txt` is unrelated to either read, so the write is not a barrier: a
+    # coding turn full of read/write pairs now overlaps instead of serialising.
+    assert tracker.overlapped("c1", "c3")
+    assert tracker.overlapped("c3", "c2")
+    assert tracker.peak >= 2
+    assert (tmp_path / "out.txt").read_text(encoding="utf-8") == "hi"
+    assert _tool_ids(result) == ["c1", "c3", "c2"]
+
+
+def test_writes_never_overlap_each_other(tmp_path: Path):
+    runtime = _runtime(tmp_path)
+    tracker = Tracker(runtime)
+    script = Script([
+        _turn(
+            ("c1", "write_file", {"path": "a.txt", "content": "1"}),
+            ("c2", "write_file", {"path": "b.txt", "content": "2"}),
+        ),
+        {"role": "assistant", "content": "ok"},
+    ])
+
+    result = AgentLoop(script, runtime=runtime, max_turns=4).run("go")
+
+    assert not tracker.overlapped("c1", "c2")
+    assert tracker.started_after("c2", "c1")
+    assert tracker.peak == 1
+    assert _tool_ids(result) == ["c1", "c2"]
+
+
+def test_a_write_waits_for_an_earlier_read_of_the_same_path(tmp_path: Path):
+    _prepare(tmp_path, "c1.txt")
     runtime = _runtime(tmp_path)
     tracker = Tracker(runtime)
     script = Script([
         _turn(
             _read("c1"),
-            _read("c2"),
-            ("c3", "write_file", {"path": "out.txt", "content": "hi"}),
-            _read("c4"),
-            _read("c5"),
+            ("c2", "write_file", {"path": "c1.txt", "content": "replaced"}),
         ),
         {"role": "assistant", "content": "ok"},
     ])
 
     result = AgentLoop(script, runtime=runtime, max_turns=4).run("go")
 
-    assert tracker.peak >= 2, "each read burst should overlap"
-    # The write is a fence: both reads before it finished, both after wait.
-    assert set(tracker.started[:2]) == {"read_file"}
-    assert tracker.started[2] == "write_file"
-    assert tracker.started[3:] == ["read_file", "read_file"]
-    assert (tmp_path / "out.txt").read_text(encoding="utf-8") == "hi"
-    assert _tool_ids(result) == ["c1", "c2", "c3", "c4", "c5"]
+    # The read must see the old bytes, not a half-written file.
+    assert not tracker.overlapped("c1", "c2")
+    assert tracker.started_after("c2", "c1")
+    contents = {
+        m["tool_call_id"]: m["content"]
+        for m in result.messages
+        if m.get("role") == "tool"
+    }
+    assert "content of c1.txt" in contents["c1"]
+    assert (tmp_path / "c1.txt").read_text(encoding="utf-8") == "replaced"
 
 
-def test_a_leading_write_runs_before_the_following_read_burst(tmp_path: Path):
-    _prepare(tmp_path, "c2.txt", "c3.txt")
+def test_a_read_waits_for_an_earlier_write_of_the_same_path(tmp_path: Path):
     runtime = _runtime(tmp_path)
     tracker = Tracker(runtime)
     script = Script([
         _turn(
-            ("c1", "write_file", {"path": "out.txt", "content": "hi"}),
-            _read("c2"),
-            _read("c3"),
+            ("c1", "write_file", {"path": "a.txt", "content": "fresh"}),
+            ("c2", "read_file", {"path": "a.txt"}),
         ),
         {"role": "assistant", "content": "ok"},
     ])
 
     result = AgentLoop(script, runtime=runtime, max_turns=4).run("go")
 
-    assert tracker.started[0] == "write_file"
-    assert tracker.peak >= 2
-    assert _tool_ids(result) == ["c1", "c2", "c3"]
+    assert not tracker.overlapped("c1", "c2")
+    assert tracker.started_after("c2", "c1")
+    contents = {
+        m["tool_call_id"]: m["content"]
+        for m in result.messages
+        if m.get("role") == "tool"
+    }
+    assert "fresh" in contents["c2"]
+
+
+def test_a_write_inside_a_scanned_directory_waits_for_the_scan(tmp_path: Path):
+    _prepare(tmp_path, "c1.txt")
+    runtime = _runtime(tmp_path)
+    tracker = Tracker(runtime)
+    script = Script([
+        _turn(
+            ("c1", "glob_files", {"pattern": "**/*.txt", "path": "."}),
+            ("c2", "write_file", {"path": "sub/new.txt", "content": "new"}),
+        ),
+        {"role": "assistant", "content": "ok"},
+    ])
+
+    result = AgentLoop(script, runtime=runtime, max_turns=4).run("go")
+
+    # A glob walks the tree: a concurrent write below that root would race the
+    # scan, so the write keeps model order even though the paths are not equal.
+    assert not tracker.overlapped("c1", "c2")
+    assert tracker.started_after("c2", "c1")
+    assert (tmp_path / "sub" / "new.txt").read_text(encoding="utf-8") == "new"
+    assert _tool_ids(result) == ["c1", "c2"]
 
 
 def test_a_read_that_needs_approval_serialises_the_turn(tmp_path: Path):

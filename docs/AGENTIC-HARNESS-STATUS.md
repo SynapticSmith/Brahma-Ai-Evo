@@ -29,7 +29,7 @@ database migration is required; the new tables are additive.
 | Instruction discovery (workspace + parents) | Done |
 | Session "always allow" approvals | Done |
 | Granular approval detail (rule, command/cwd, diff) | Done |
-| Parallel read tool calls (segment-aware) | Done |
+| Path-dependency parallel tool calls | Done |
 | Cancellation-safe transcript | Done |
 | Provider-reported token usage | Done |
 | Policy hot-reload (fail-safe) | Done |
@@ -472,7 +472,7 @@ failed at build time with an ImportError; the fake-module tests now mirror the
 shipped name so it cannot regress. The GUI custom path also stopped announcing
 `stream_fallback` — it streams through the same helper.
 
-### D30 — Parallelism is fenced per segment, not decided per turn
+### D30 — Parallelism is fenced per segment, not decided per turn (superseded by D32)
 
 D20's all-or-nothing rule was safe but wasteful. A real coding turn is usually
 `read, read, read, edit, read, read`: one write in the middle serialised every
@@ -494,10 +494,9 @@ banners cannot stack because an `ask` is never inside a pool. It also keeps
 the transcript invariant: results land on their items, and the caller still
 emits one `tool` message per call in model order.
 
-What is still missing is a *dependency graph*: reads after a write that do not
-touch the written file still wait. A per-call scheduler that understands the
-paths in each call could do better; short of that, segments capture most of the
-win without guessing.
+What remained was a *dependency graph*: reads after a write that did not touch
+the written file still waited. D32 replaces the segment with a per-call
+path-dependency scheduler.
 
 ### D31 — Voice turns are archived, not replayed into the live socket
 
@@ -520,7 +519,39 @@ into it would duplicate turns. The win is one transcript across modalities:
 `history()` seeds the next typed turn with what was said, `/sessions` lists the
 row, and `/resume` replays it in the HUD.
 
-### D20 — Parallel dispatch is whole-turn and read-only (superseded by D30)
+### D32 — Tool dispatch follows per-call path dependencies
+
+D30 improved on D20 but still treated a write as a turn-wide-ish barrier: any
+write serialised every read around it, even a read of an unrelated file. The
+common coding turn is `read, read, edit, read, read`, and the two trailing
+reads usually touch different files from the edit.
+
+The scheduler now derives an effect per call — `(kind, resolved path)` for a
+policy-`allow`ed, non-repeated `read` or `write` — and starts a call as soon as
+every *earlier* call it conflicts with has finished:
+
+* two reads never conflict, so unrelated reads overlap;
+* two writes always conflict (one writer keeps the undo stack coherent), so
+  they serialise even when their paths differ;
+* a read and a write conflict when their paths are equal or nested. Equal
+  paths keep model order (`read` sees the old bytes, `write` sees the earlier
+  read done); a write inside a directory that `glob_files`/`grep_files` is
+  scanning waits for the scan.
+
+`_run_group` submits ready calls from a bounded `ThreadPoolExecutor` and waits
+for `FIRST_COMPLETED`, re-evaluating blockers after each completion. Fences are
+unchanged: `exec`, native calls, approvals, denials, path-less writes and
+repeats have no schedulable effect, so everything before them finishes, they
+run alone in model order, and dispatch resumes. Cancellation stops new
+submissions, drains running calls, and leaves the rest for the caller's
+`CANCELLED_TOOL_OUTPUT` filler.
+
+The bound is deliberate. A path argument is the only evidence the scheduler
+has; it does not follow junctions or symlinks, and it treats a nested pair as a
+conflict even when the read is a file and the write a sibling directory. That
+errs toward serialising rather than racing.
+
+### D20 — Parallel dispatch is whole-turn and read-only (superseded by D30, then D32)
 
 Model turns often contain several `read_file`/`glob_files`/`grep_files` calls,
 and running them one after another wastes wall-clock time. The loop now runs
@@ -556,8 +587,8 @@ and the default `python` are 3.14 and lack `ruff`/`pytest`.
 
 ```
 py -3.11 -m ruff check .                 # All checks passed!
-py -3.11 -m pytest tests -q              # 566 passed  (QT_QPA_PLATFORM=offscreen)
-py -3.11 -m pytest tests -q -k agent     # 229 passed
+py -3.11 -m pytest tests -q              # 569 passed  (QT_QPA_PLATFORM=offscreen)
+py -3.11 -m pytest tests -q -k agent     # 232 passed
 py -3.11 -c "import main; ..."           # 66 declarations, all six tools present
 py -3.11 -m agent tools                  # lists the six primitives
 py -3.11 -m agent permissions show       # reports built-in defaults
@@ -571,7 +602,7 @@ Notes:
   `len(TOOL_DECLARATIONS) == 66` and that
   `{read_file, write_file, edit_file, glob_files, grep_files, run_command}` are
   all present.
-* The 229 harness tests run without a display or a model:
+* The 232 harness tests run without a display or a model:
   `py -3.11 -m pytest tests -q -k agent`.
 * `python -m agent run --provider stub --json` is the cheapest end-to-end
   smoke test (used by `test_agent_cli`).
@@ -582,11 +613,13 @@ Notes:
   (16 tests) plus the loop's existing cancellation tests.
 * Instruction discovery and the approval tri-state are covered by
   `tests/test_agent_prompts.py` (7) and `tests/test_agent_approval.py` (10).
-* Segment-aware dispatch (D30) and protocol-safe cancellation are covered by
-  `tests/test_agent_parallel.py` (11): read bursts overlap around a write, a
-  leading write finishes before the following burst, approval and deny calls
-  fence without serialising the turn, repeats are skipped without a worker,
-  the cap holds, results keep model order, and cancelled calls get fillers.
+* Path-dependency dispatch (D32) and protocol-safe cancellation are covered by
+  `tests/test_agent_parallel.py` (14): unrelated reads and a write overlap,
+  writes never overlap each other, a same-path read→write and write→read pair
+  keeps model order, a write below a globbed directory waits for the scan,
+  approval and deny calls fence without serialising the turn, repeats are
+  skipped without a worker, the cap holds, results keep model order, and
+  cancelled calls get fillers.
 * Approval detail and path-scoped approvals are covered by
   `tests/test_agent_approval_detail.py` (10); the banner's remember-label hint,
   diff box, summary and fold/restore toggle are checked in
@@ -626,11 +659,10 @@ Notes:
 
 Ordered by value, with the honest reason each was left out.
 
-1. **Subagents / a per-call dependency scheduler.** Read-only calls now overlap
-   within each segment, but a write at the start of a turn still fences every
-   read after it, even one that touches an unrelated file. There is no
-   dependency graph and no subagent layer yet; both can be built on the event
-   stream.
+1. **Subagents.** Tool dispatch now has a per-call dependency scheduler, but
+   there is no subagent layer: a coordinator would need its own session,
+   budget and event namespace, and can be built on the event stream without
+   touching the loop.
 2. **Streaming is not universal.** The local, custom, OpenRouter and stub
    transports stream in both the CLI and the GUI text path; only the voice path
    does not, because Gemini's live socket owns its delivery. A custom server

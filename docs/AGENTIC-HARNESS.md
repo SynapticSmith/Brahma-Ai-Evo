@@ -200,28 +200,39 @@ the provider supplied them.
   `Tool 'x' failed: …`; a raised completer becomes `stop_reason=error`. The
   loop owns the boundary.
 
-### Parallel read-only calls
+### Path-dependency tool dispatch
 
-Dispatch is decided **per segment**, not per turn. The calls are walked in
-model order and grouped into fences:
+Dispatch is decided **per call**, from the path it touches — not per turn or
+per segment. A policy-`allow`ed, non-repeated `read` or `write` call becomes an
+effect `(kind, resolved path)`; calls are walked in model order and the
+scheduler starts one as soon as every earlier call it conflicts with has
+finished:
 
-* a run of two or more calls that are policy-`allow`ed, non-repeated `read`
-  specs (`read_file`, `glob_files`, `grep_files`) shares the pool;
-* a write, `exec`, native tool, denied call or `ask` is a **barrier**: every
-  earlier call has finished before it starts, and every later call waits for
-  it. That keeps read-after-write correct and stops approval banners stacking;
-* a call past `repeat_limit` is skipped without a worker, and because it has
-  no side effect it does not split the burst around it.
+* two reads never conflict, so unrelated reads always overlap;
+* two writes always conflict, because the undo stack and every editor assume a
+  single writer, so writes serialise even when their paths differ;
+* a read and a write conflict when their paths are equal or nested. Equal paths
+  keep model order — a read sees the old bytes, a write sees the earlier read
+  finished — and a write inside a directory that `glob_files`/`grep_files` is
+  walking waits for the scan rather than racing it.
 
-So `[read, read, write, read, read]` overlaps both read bursts around the
-write instead of serialising the whole turn. `max_parallel_tools` (GUI default
-4; CLI `--max-parallel-tools`, `1` disables) caps each pool. Results are
-collected with `future.result()` in **submission order**, never
-`as_completed`, because the transcript must contain one `tool` message per
-`tool_call` in model order. `tool_start` / `tool_end` events may interleave
-between workers; `tool_call` and `tool_result` events stay ordered. An event
-sink must therefore tolerate being called from a worker thread (the CLI writes
-one line per event; the GUI's sink re-emits through a Qt signal).
+So `[read a, write b, read b]` overlaps the write with the unrelated read and
+then runs the second read after the write. A fence — `exec`, a native tool, a
+denied call, an `ask` that needs a banner, or a write with no resolvable path —
+has no effect to schedule: everything before it finishes, it runs alone, then
+dispatch resumes. A call past `repeat_limit` is skipped without a worker and,
+having no side effect, does not split the group around it.
+
+`max_parallel_tools` (GUI default 4; CLI `--max-parallel-tools`, `1` disables)
+caps the pool. A call's blockers are the *earlier* calls whose effects conflict
+with it; results always land on their own items and the transcript still emits
+one `tool` message per `tool_call` in model order, even though completion order
+varies. `tool_start` / `tool_end` events may interleave between workers;
+`tool_call` and `tool_result` events stay ordered. An event sink must therefore
+tolerate being called from a worker thread (the CLI writes one line per event;
+the GUI's sink re-emits through a Qt signal). On cancellation no new call is
+submitted, running calls are drained, and unscheduled calls get
+`CANCELLED_TOOL_OUTPUT` so the request stays protocol-valid.
 
 ### Streaming output
 
@@ -556,7 +567,7 @@ Common flags (all of `run` and `resume`):
 | `--stream` | off | Render text as it arrives; falls back to one request when the provider has no streaming transport. |
 | `--max-turns` | 40 | Loop hard stop. |
 | `--repeat-limit` | 3 | Identical-call threshold. |
-| `--max-parallel-tools` | 4 | Concurrent read-only calls; `1` disables parallelism. |
+| `--max-parallel-tools` | 4 | Concurrent tool calls when paths do not conflict; `1` disables parallelism. |
 | `--retries` | 3 | Attempts per model call on a transient failure. |
 | `--max-context-chars` | 120000 | Compaction threshold. |
 | `--timeout` | 120 | Per-command tool timeout. |
@@ -770,7 +781,7 @@ unchanged); only the loop around it is new.
 | `tests/test_agent_approval.py` | Session "always allow" keying (tool vs exact command), bool answers not remembered, deny never widened, reconfigure survival, confirm tri-state and timeout. |
 | `tests/test_agent_approval_detail.py` | Banner text: rule-first ordering, command/cwd, real diffs, create vs overwrite, bounded output, path-scoped session keys. |
 | `tests/test_agent_diff_preview.py` | Diff detection in a detail, add/remove/hunk counts, context folding and its `… N unchanged` markers, no false diff for a `--- before ---` heading. |
-| `tests/test_agent_parallel.py` | Segment overlap around writes, `max_parallel_tools` cap, approval/deny fences, repeat skipping, submission-order results, cancellation fillers for undispatched calls. |
+| `tests/test_agent_parallel.py` | Path-dependency scheduling: unrelated read/write overlap, write/write serialisation, same-path read→write and write→read ordering, glob vs write-inside-the-scan, `max_parallel_tools` cap, approval/deny fences, repeat skipping, submission-order results, cancellation fillers for undispatched calls. |
 | `tests/test_agent_usage.py` | OpenAI/Gemini/SDK usage shapes, unknown vs zero, summed totals only from real halves, accumulation, per-turn `assistant.usage`. |
 | `tests/test_agent_policy_reload.py` | An edit takes effect mid-session, malformed edits keep the last good policy, no-file policies never reload, throttle/`force`, event payload, deny not widened by a session approval. |
 | `tests/test_agent_streaming.py` | Delta assembly (text, fragmented tool calls, usage tails, error chunks), SSE parsing and HTTP error bodies, endpoint normalisation, stub streaming, loop delta/`reset`/`stream_fallback` events, rejection fallback vs retry, and the CLI printer's no-duplicate rule. |
@@ -830,11 +841,15 @@ These are known and deliberate, not surprises:
   *concatenates* argument fragments, so a non-compliant server that repeats the
   whole `arguments` blob on every chunk would produce invalid JSON. (A repeated
   full tool *name* is tolerated.)
-* **Parallelism is read-only and segment-scoped.** A write, `exec`, native
-  call or approval prompt fences off the calls around it, so a turn with many
-  intervening writes still gains less than a fully independent scheduler
-  would. There is no per-call dependency graph and no subagent layer yet; a
-  coordinator can be built on the event stream without touching the loop.
+* **Path analysis is conservative, not a sandbox.** A call is schedulable only
+  when its path is a plain argument the policy already allows: `exec`, native
+  tools, approvals and path-less writes are fences, so a shell command that
+  edits files can never overlap anything. A read/write pair whose paths are
+  nested serialises even when one is a file and the other a directory, and
+  paths are compared as resolved strings — a junction or symlink that aliases a
+  tree is not followed. There is no staleness check beyond model order, and
+  subagents are not implemented yet; a coordinator can be built on the event
+  stream without touching the loop.
 * **`run_command` is `shell=True`.** The policy is the only barrier; there is
   no OS sandbox. Treat `--yolo` as "run me in a container".
 * **Voice turns are archived, not replayed.** Gemini's live session owns its

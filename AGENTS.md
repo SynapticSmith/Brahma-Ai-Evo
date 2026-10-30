@@ -83,10 +83,13 @@ they govern; `agent/prompts.py` owns discovery and its budgets.
 
 ## Parallel tool calls
 
-- Dispatch is decided per **segment**, not per turn. Consecutive
-  policy-allowed, non-repeated `read` calls share the pool; a write, `exec`,
-  native call or approval prompt is a barrier (earlier calls finish first,
-  later calls wait). A repeated call is skipped without a worker.
+- Dispatch is decided per **call**, not per turn or segment. A policy-allowed,
+  non-repeated read or write becomes a `(kind, path)` effect: unrelated
+  reads/writes overlap, writes never overlap each other, and a read/write pair
+  whose paths are equal or nested keeps model order. `exec`, a native call, an
+  approval prompt, a denied call, a write with no path, and a repeated call are
+  fences (earlier calls finish, the fence runs alone, then dispatch resumes).
+  A repeated call is skipped without a worker.
 - Results are appended in submission order. A cancelled turn still writes one
   `tool` message per `tool_call` (`CANCELLED_TOOL_OUTPUT`). Keep both rules.
 

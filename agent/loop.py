@@ -26,7 +26,8 @@ import json
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Set
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
 from .context import ContextBudget, ConversationContext, truncate_tool_output
 from .prompts import (
@@ -80,6 +81,40 @@ class AgentResult:
             "session_id": self.session_id,
             "usage": self.usage,
         }
+
+
+def _nested(first: Path, second: Path) -> bool:
+    """True when one path is the other or sits inside it."""
+    try:
+        first.relative_to(second)
+        return True
+    except ValueError:
+        pass
+    try:
+        second.relative_to(first)
+        return True
+    except ValueError:
+        return False
+
+
+def _effects_conflict(
+    first: Tuple[str, Path], second: Tuple[str, Path]
+) -> bool:
+    """Whether two ``(kind, path)`` effects must keep model order.
+
+    Reads never conflict with each other. Writes always conflict with each
+    other, because the undo stack and every editor assume one writer. A read
+    and a write conflict when the paths are equal or nested: a write inside a
+    directory that `glob_files`/`grep_files` is walking would otherwise race
+    the scan.
+    """
+    first_kind, first_path = first
+    second_kind, second_path = second
+    if first_kind == "read" and second_kind == "read":
+        return False
+    if first_kind == "write" and second_kind == "write":
+        return True
+    return _nested(first_path, second_path)
 
 
 def _canonical_args(raw: Any) -> str:
@@ -185,8 +220,9 @@ class AgentLoop:
         self._session = session
         self.max_turns = max(1, int(max_turns))
         self.repeat_limit = max(1, int(repeat_limit))
-        #: 1 disables parallel dispatch. Only read-only calls are ever run
-        #: concurrently; see ``_can_run_parallel``.
+        #: 1 disables parallel dispatch. Reads and writes may overlap only when
+        #: the scheduler can prove they touch different paths; see
+        #: ``_effects_conflict``.
         self.max_parallel_tools = max(1, int(max_parallel_tools))
         self.retry_attempts = max(1, int(retry_attempts))
         self.retry_base_delay = max(0.0, float(retry_base_delay))
@@ -397,25 +433,37 @@ class AgentLoop:
                 reason="this provider has no streaming transport; using a single request",
             )
 
-    def _parallel_safe(self, item: Dict[str, Any]) -> bool:
-        """True when this call may share a pool with its neighbours.
+    def _call_effect(
+        self, item: Dict[str, Any]
+    ) -> Optional[Tuple[str, Path]]:
+        """The ``(kind, path)`` a call touches, or ``None`` when it is a fence.
 
-        A read is safe only if it is not a repeat and the policy would allow it
-        without asking. Anything else — a write, `exec`, a native call, a
-        denied call, an approval prompt — is a **fence** in
-        ``_dispatch_calls``: everything before it has finished and everything
-        after it waits, so a read can never observe a half-written file and
-        banners never stack.
+        Only ``read`` and ``write`` calls the policy would allow without asking
+        are schedulable. A write with no resolvable path, `exec`, a native call,
+        a denied call, an approval prompt and a repeated call are all fences
+        (a repeat is skipped by the caller): they run alone in model order and
+        everything after them waits, so a banner never stacks and a command
+        never interleaves with a file change.
+
+        A blank read path resolves to the workspace, which is exactly what
+        `glob_files`/`grep_files` mean by "scan here".
         """
         if self.max_parallel_tools <= 1:
-            return False
+            return None
         if item["attempts"] > self.repeat_limit:
-            return False
+            return None
         spec = get_spec(item["name"])
-        if spec is None or spec.tool_class != "read":
-            return False
+        if spec is None or spec.tool_class not in ("read", "write"):
+            return None
         _, decision = self._runtime.decide(item["name"], item["args"])
-        return bool(decision.allowed)
+        if not decision.allowed:
+            return None
+        raw = item["args"].get("path")
+        if spec.tool_class == "write" and (
+            not isinstance(raw, str) or not raw.strip()
+        ):
+            return None
+        return (spec.tool_class, self._runtime.context().resolve_path(raw))
 
     def _repeat_output(self, item: Dict[str, Any]) -> str:
         return (
@@ -437,68 +485,84 @@ class AgentLoop:
         except Exception as exc:  # noqa: BLE001 - a worker must not kill the turn
             return f"Tool '{item['name']}' failed: {type(exc).__name__}: {exc}"
 
-    def _execute_parallel(self, parsed: List[Dict[str, Any]]) -> List[str]:
-        from concurrent.futures import ThreadPoolExecutor
+    def _run_group(self, group: List[Tuple[Dict[str, Any], Tuple[str, Path]]]) -> None:
+        """Run one fence-free group, starting each call as its blockers finish.
 
-        workers = max(1, min(self.max_parallel_tools, len(parsed)))
-        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="brahma-tool") as pool:
-            futures = [pool.submit(self._run_one, item) for item in parsed]
-            # Read results in submission order: the transcript requires one
-            # `tool` message per call, in the order the model emitted them.
-            return [future.result() for future in futures]
+        ``group`` is a list of ``(item, effect)`` pairs. A call may start once
+        every *earlier* call it conflicts with has completed, so a read of a
+        file waits for an earlier write to it and a write waits for an earlier
+        read of the same file, while unrelated calls overlap. Model order is
+        preserved on conflict; results always land on their own item, so the
+        transcript stays in submission order.
+
+        Cancellation stops new submissions but drains everything already
+        running. Unscheduled items keep ``output=None`` and the caller writes
+        the cancelled filler, exactly as before.
+        """
+        from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+
+        workers = max(1, min(self.max_parallel_tools, len(group)))
+        done: Set[int] = set()
+        running: Dict[Any, int] = {}
+        pending = list(range(len(group)))
+        with ThreadPoolExecutor(
+            max_workers=workers, thread_name_prefix="brahma-tool"
+        ) as pool:
+            while pending or running:
+                if not self._cancelled():
+                    still_pending: List[int] = []
+                    for index in pending:
+                        blocked = any(
+                            other not in done
+                            and _effects_conflict(group[other][1], group[index][1])
+                            for other in range(index)
+                        )
+                        if blocked:
+                            still_pending.append(index)
+                        else:
+                            running[pool.submit(self._run_one, group[index][0])] = index
+                    pending = still_pending
+                if not running:
+                    break
+                finished, _ = wait(list(running), return_when=FIRST_COMPLETED)
+                for future in finished:
+                    index = running.pop(future)
+                    group[index][0]["output"] = future.result()
+                    done.add(index)
 
     def _dispatch_calls(self, parsed: List[Dict[str, Any]]) -> None:
-        """Run each consecutive burst of safe reads concurrently.
+        """Run calls in model order, overlapping the ones that can overlap.
 
-        The whole turn used to be the unit of the decision: one write anywhere
-        serialised three unrelated reads before it. A coding turn is usually
-        reads with one write in the middle, so the decision belongs to the
-        segment between fences:
-
-        * a repeated call is skipped in place and never dispatched — and, being
-          side-effect free, it does not split a burst of reads around it;
-        * a fence (write/exec/native/ask/deny) runs alone, and its completion
-          is a barrier for everything after it;
-        * a run of two or more safe reads shares the pool, capped by
-          ``max_parallel_tools``.
+        The unit is a call, not a segment. A read and a write may run together
+        when their paths are provably unrelated; writes never overlap each
+        other; a read and a write of the same path (or a write inside a scanned
+        directory) keep model order so a read cannot observe a half-written
+        file. `exec`, native calls, approvals, denials, writes with no path and
+        repeats are fences: everything before them finishes, then they run
+        alone, then the scheduler resumes.
 
         Outputs land on their own items, so the caller's transcript loop still
         emits one `tool` message per call in model order.
         """
-        index = 0
-        while index < len(parsed):
-            item = parsed[index]
+        group: List[Tuple[Dict[str, Any], Tuple[str, Path]]] = []
+        for item in parsed:
             if item["attempts"] > self.repeat_limit:
                 item["output"] = self._repeat_output(item)
-                index += 1
                 continue
+            effect = self._call_effect(item)
+            if effect is not None:
+                group.append((item, effect))
+                continue
+            if group:
+                self._run_group(group)
+                group = []
+                if self._cancelled():
+                    return
             if self._cancelled():
                 return
-            if not self._parallel_safe(item):
-                item["output"] = self._run_one(item)
-                index += 1
-                continue
-
-            # Collect the burst, skipping repeats in place: a skipped call has
-            # no side effect, so it must not split two reads that could
-            # otherwise overlap.
-            segment: List[Dict[str, Any]] = []
-            while index < len(parsed):
-                member = parsed[index]
-                if member["attempts"] > self.repeat_limit:
-                    member["output"] = self._repeat_output(member)
-                    index += 1
-                    continue
-                if not self._parallel_safe(member):
-                    break
-                segment.append(member)
-                index += 1
-
-            if len(segment) == 1:
-                segment[0]["output"] = self._run_one(segment[0])
-            else:
-                for member, output in zip(segment, self._execute_parallel(segment)):
-                    member["output"] = output
+            item["output"] = self._run_one(item)
+        if group:
+            self._run_group(group)
 
     def _persist(self, message: Dict[str, Any]) -> None:
         if self._session is not None:
@@ -662,9 +726,10 @@ class AgentLoop:
                     )
                     self._emit("tool_call", name=name, call_id=call["id"], arguments=args, repeat=attempts)
 
-                # Dispatch in fences: read bursts overlap, writes and approval
-                # prompts are barriers, repeats are skipped. Outputs land on
-                # their items, so the transcript below stays in model order.
+                # Dispatch by path dependency: unrelated reads/writes overlap,
+                # same-path pairs keep model order, fences run alone and
+                # repeats are skipped. Outputs land on their items, so the
+                # transcript below stays in model order.
                 self._dispatch_calls(parsed)
 
                 # One `tool` message per `tool_call`, in submission order. A
