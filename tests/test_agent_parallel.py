@@ -1,9 +1,12 @@
-"""Parallel read-only dispatch, ordering, and protocol-safe cancellation.
+"""Segment-aware parallel dispatch, ordering, and protocol-safe cancellation.
 
 The rules under test:
 
-* only a turn made *entirely* of policy-allowed, non-repeated `read` calls is
-  dispatched concurrently;
+* consecutive runs of policy-allowed, non-repeated `read` calls share a pool;
+* a write, `exec`, native call, denied call or approval prompt is a fence:
+  earlier calls finish first, later calls wait, so reads cannot observe a
+  half-written file;
+* a repeated call is skipped without a worker;
 * results are appended in model order regardless of completion order;
 * a cancelled turn still writes one `tool` message per emitted `tool_call`.
 """
@@ -143,22 +146,50 @@ def test_parallel_cap_of_one_serialises_the_turn(tmp_path: Path):
     assert _tool_ids(result) == ["c1", "c2", "c3"]
 
 
-def test_a_write_anywhere_in_the_turn_serialises_everything(tmp_path: Path):
+def test_reads_before_and_after_a_write_overlap_in_their_own_segments(tmp_path: Path):
+    _prepare(tmp_path, "c1.txt", "c2.txt", "c4.txt", "c5.txt")
     runtime = _runtime(tmp_path)
     tracker = Tracker(runtime)
     script = Script([
         _turn(
-            ("c1", "read_file", {"path": "missing.txt"}),
-            ("c2", "write_file", {"path": "out.txt", "content": "hi"}),
+            _read("c1"),
+            _read("c2"),
+            ("c3", "write_file", {"path": "out.txt", "content": "hi"}),
+            _read("c4"),
+            _read("c5"),
         ),
         {"role": "assistant", "content": "ok"},
     ])
 
     result = AgentLoop(script, runtime=runtime, max_turns=4).run("go")
 
-    assert tracker.peak == 1
+    assert tracker.peak >= 2, "each read burst should overlap"
+    # The write is a fence: both reads before it finished, both after wait.
+    assert set(tracker.started[:2]) == {"read_file"}
+    assert tracker.started[2] == "write_file"
+    assert tracker.started[3:] == ["read_file", "read_file"]
     assert (tmp_path / "out.txt").read_text(encoding="utf-8") == "hi"
-    assert _tool_ids(result) == ["c1", "c2"]
+    assert _tool_ids(result) == ["c1", "c2", "c3", "c4", "c5"]
+
+
+def test_a_leading_write_runs_before_the_following_read_burst(tmp_path: Path):
+    _prepare(tmp_path, "c2.txt", "c3.txt")
+    runtime = _runtime(tmp_path)
+    tracker = Tracker(runtime)
+    script = Script([
+        _turn(
+            ("c1", "write_file", {"path": "out.txt", "content": "hi"}),
+            _read("c2"),
+            _read("c3"),
+        ),
+        {"role": "assistant", "content": "ok"},
+    ])
+
+    result = AgentLoop(script, runtime=runtime, max_turns=4).run("go")
+
+    assert tracker.started[0] == "write_file"
+    assert tracker.peak >= 2
+    assert _tool_ids(result) == ["c1", "c2", "c3"]
 
 
 def test_a_read_that_needs_approval_serialises_the_turn(tmp_path: Path):
@@ -185,6 +216,84 @@ def test_a_read_that_needs_approval_serialises_the_turn(tmp_path: Path):
 
     assert tracker.peak == 1
     assert answers == ["read_file", "read_file"]
+
+
+def test_an_approval_prompt_is_a_fence_but_later_reads_still_overlap(tmp_path: Path):
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "a.txt").write_text("a", encoding="utf-8")
+    (work / "b.txt").write_text("b", encoding="utf-8")
+    (tmp_path / "outside.txt").write_text("outside", encoding="utf-8")
+
+    answers = []
+
+    def approver(name, args, detail):
+        answers.append((name, dict(args)))
+        return True
+
+    runtime = AgentRuntime(
+        workspace=work,
+        policy=PermissionPolicy.from_dict(
+            {
+                "classes": {"read": "allow", "write": "allow"},
+                "paths": {"outside_workspace": "ask", "protected": "allow"},
+            }
+        ),
+        approver=approver,
+        headless=False,
+    )
+    tracker = Tracker(runtime)
+    script = Script([
+        _turn(
+            ("c1", "read_file", {"path": "a.txt"}),
+            ("c2", "read_file", {"path": "../outside.txt"}),
+            ("c3", "read_file", {"path": "b.txt"}),
+            ("c4", "read_file", {"path": "a.txt"}),
+        ),
+        {"role": "assistant", "content": "ok"},
+    ])
+
+    result = AgentLoop(script, runtime=runtime, max_turns=4).run("go")
+
+    # Exactly the outside read asked; it is a barrier, not a turn-wide veto.
+    assert len(answers) == 1
+    assert answers[0][1]["path"].endswith("outside.txt")
+    assert tracker.peak >= 2
+    assert _tool_ids(result) == ["c1", "c2", "c3", "c4"]
+    contents = {
+        m["tool_call_id"]: m["content"]
+        for m in result.messages
+        if m.get("role") == "tool"
+    }
+    assert "outside" in contents["c2"]
+
+
+def test_a_repeated_call_is_skipped_without_a_worker(tmp_path: Path):
+    _prepare(tmp_path, "c1.txt", "c2.txt")
+    runtime = _runtime(tmp_path)
+    tracker = Tracker(runtime)
+    script = Script([
+        _turn(
+            ("c1", "read_file", {"path": "c1.txt"}),
+            ("c1-repeat", "read_file", {"path": "c1.txt"}),
+            ("c2", "read_file", {"path": "c2.txt"}),
+        ),
+        {"role": "assistant", "content": "ok"},
+    ])
+
+    result = AgentLoop(script, runtime=runtime, max_turns=4, repeat_limit=1).run("go")
+
+    assert tracker.started == ["read_file", "read_file"]
+    # A skipped call has no side effect, so it must not split the burst.
+    assert tracker.peak >= 2
+    contents = {
+        m["tool_call_id"]: m["content"]
+        for m in result.messages
+        if m.get("role") == "tool"
+    }
+    assert contents["c1-repeat"].startswith("Identical call skipped")
+    assert "content of c2.txt" in contents["c2"]
+    assert _tool_ids(result) == ["c1", "c1-repeat", "c2"]
 
 
 def test_results_keep_model_order_even_when_completion_order_differs(tmp_path: Path):

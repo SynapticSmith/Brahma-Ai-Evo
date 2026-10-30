@@ -80,9 +80,10 @@ they govern; `agent/prompts.py` owns discovery and its budgets.
 
 ## Parallel tool calls
 
-- A turn runs concurrently only when every call is a policy-allowed,
-  non-repeated `read` spec. One write, `exec`, native call or approval prompt
-  serialises the whole turn (`AgentLoop._can_run_parallel`).
+- Dispatch is decided per **segment**, not per turn. Consecutive
+  policy-allowed, non-repeated `read` calls share the pool; a write, `exec`,
+  native call or approval prompt is a barrier (earlier calls finish first,
+  later calls wait). A repeated call is skipped without a worker.
 - Results are appended in submission order. A cancelled turn still writes one
   `tool` message per `tool_call` (`CANCELLED_TOOL_OUTPUT`). Keep both rules.
 

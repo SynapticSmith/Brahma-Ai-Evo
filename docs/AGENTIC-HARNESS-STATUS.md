@@ -29,7 +29,7 @@ database migration is required; the new tables are additive.
 | Instruction discovery (workspace + parents) | Done |
 | Session "always allow" approvals | Done |
 | Granular approval detail (rule, command/cwd, diff) | Done |
-| Parallel read-only tool calls | Done |
+| Parallel read tool calls (segment-aware) | Done |
 | Cancellation-safe transcript | Done |
 | Provider-reported token usage | Done |
 | Policy hot-reload (fail-safe) | Done |
@@ -471,7 +471,34 @@ failed at build time with an ImportError; the fake-module tests now mirror the
 shipped name so it cannot regress. The GUI custom path also stopped announcing
 `stream_fallback` — it streams through the same helper.
 
-### D20 — Parallel dispatch is whole-turn and read-only
+### D30 — Parallelism is fenced per segment, not decided per turn
+
+D20's all-or-nothing rule was safe but wasteful. A real coding turn is usually
+`read, read, read, edit, read, read`: one write in the middle serialised every
+read around it, which is exactly when the latency hurts.
+
+The unit of decision is now the **segment between fences**. Walking the calls
+in model order:
+
+* a run of policy-allowed, non-repeated `read` calls shares the pool;
+* a write, `exec`, native call, denied call or `ask` runs alone and is a
+  barrier — everything before it has completed, everything after it starts
+  only when it is done;
+* a call past `repeat_limit` is skipped without a worker, and because it has
+  no side effect it does not split the burst around it.
+
+That preserves the two properties D20 was protecting. Read-after-write stays
+correct because a later read cannot start until the write returned, and
+banners cannot stack because an `ask` is never inside a pool. It also keeps
+the transcript invariant: results land on their items, and the caller still
+emits one `tool` message per call in model order.
+
+What is still missing is a *dependency graph*: reads after a write that do not
+touch the written file still wait. A per-call scheduler that understands the
+paths in each call could do better; short of that, segments capture most of the
+win without guessing.
+
+### D20 — Parallel dispatch is whole-turn and read-only (superseded by D30)
 
 Model turns often contain several `read_file`/`glob_files`/`grep_files` calls,
 and running them one after another wastes wall-clock time. The loop now runs
@@ -507,8 +534,8 @@ and the default `python` are 3.14 and lack `ruff`/`pytest`.
 
 ```
 py -3.11 -m ruff check .                 # All checks passed!
-py -3.11 -m pytest tests -q              # 559 passed  (QT_QPA_PLATFORM=offscreen)
-py -3.11 -m pytest tests -q -k agent     # 222 passed
+py -3.11 -m pytest tests -q              # 562 passed  (QT_QPA_PLATFORM=offscreen)
+py -3.11 -m pytest tests -q -k agent     # 225 passed
 py -3.11 -c "import main; ..."           # 66 declarations, all six tools present
 py -3.11 -m agent tools                  # lists the six primitives
 py -3.11 -m agent permissions show       # reports built-in defaults
@@ -522,7 +549,7 @@ Notes:
   `len(TOOL_DECLARATIONS) == 66` and that
   `{read_file, write_file, edit_file, glob_files, grep_files, run_command}` are
   all present.
-* The 222 harness tests run without a display or a model:
+* The 225 harness tests run without a display or a model:
   `py -3.11 -m pytest tests -q -k agent`.
 * `python -m agent run --provider stub --json` is the cheapest end-to-end
   smoke test (used by `test_agent_cli`).
@@ -533,9 +560,11 @@ Notes:
   (16 tests) plus the loop's existing cancellation tests.
 * Instruction discovery and the approval tri-state are covered by
   `tests/test_agent_prompts.py` (7) and `tests/test_agent_approval.py` (10).
-* Parallel dispatch and protocol-safe cancellation are covered by
-  `tests/test_agent_parallel.py` (8): overlap, the cap, write/`ask`
-  serialisation, submission order, and filler results for undispatched calls.
+* Segment-aware dispatch (D30) and protocol-safe cancellation are covered by
+  `tests/test_agent_parallel.py` (11): read bursts overlap around a write, a
+  leading write finishes before the following burst, approval and deny calls
+  fence without serialising the turn, repeats are skipped without a worker,
+  the cap holds, results keep model order, and cancelled calls get fillers.
 * Approval detail and path-scoped approvals are covered by
   `tests/test_agent_approval_detail.py` (10); the banner's remember-label hint,
   diff box, summary and fold/restore toggle are checked in
@@ -573,10 +602,11 @@ Notes:
 
 Ordered by value, with the honest reason each was left out.
 
-1. **Subagents / a tool scheduler.** Read-only calls within a turn now run in
-   parallel, but the decision is whole-turn: one write or approval prompt
-   serialises everything. A per-call scheduler and a subagent layer can be built
-   on the event stream.
+1. **Subagents / a per-call dependency scheduler.** Read-only calls now overlap
+   within each segment, but a write at the start of a turn still fences every
+   read after it, even one that touches an unrelated file. There is no
+   dependency graph and no subagent layer yet; both can be built on the event
+   stream.
 2. **Streaming is not universal.** The local, custom, OpenRouter and stub
    transports stream in both the CLI and the GUI text path; only the voice path
    does not, because Gemini's live socket owns its delivery. A custom server

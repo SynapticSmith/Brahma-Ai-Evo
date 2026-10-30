@@ -397,25 +397,32 @@ class AgentLoop:
                 reason="this provider has no streaming transport; using a single request",
             )
 
-    def _can_run_parallel(self, parsed: List[Dict[str, Any]]) -> bool:
-        """True when every call is an allowed, non-repeated read.
+    def _parallel_safe(self, item: Dict[str, Any]) -> bool:
+        """True when this call may share a pool with its neighbours.
 
-        Conservative on purpose: a write or an approval prompt anywhere in the
-        turn serialises the whole turn, because concurrent side effects (and
-        stacked banners) are worse than a little latency.
+        A read is safe only if it is not a repeat and the policy would allow it
+        without asking. Anything else — a write, `exec`, a native call, a
+        denied call, an approval prompt — is a **fence** in
+        ``_dispatch_calls``: everything before it has finished and everything
+        after it waits, so a read can never observe a half-written file and
+        banners never stack.
         """
-        if self.max_parallel_tools <= 1 or len(parsed) < 2:
+        if self.max_parallel_tools <= 1:
             return False
-        for item in parsed:
-            if item["attempts"] > self.repeat_limit:
-                return False
-            spec = get_spec(item["name"])
-            if spec is None or spec.tool_class != "read":
-                return False
-            _, decision = self._runtime.decide(item["name"], item["args"])
-            if not decision.allowed:
-                return False
-        return True
+        if item["attempts"] > self.repeat_limit:
+            return False
+        spec = get_spec(item["name"])
+        if spec is None or spec.tool_class != "read":
+            return False
+        _, decision = self._runtime.decide(item["name"], item["args"])
+        return bool(decision.allowed)
+
+    def _repeat_output(self, item: Dict[str, Any]) -> str:
+        return (
+            f"Identical call skipped: '{item['name']}' with these arguments has already "
+            f"run {item['attempts'] - 1} times. Change the arguments or the approach, "
+            "or explain to the user why you are blocked."
+        )
 
     def _run_one(self, item: Dict[str, Any]) -> str:
         """Dispatch one prepared call. Never raises: the loop owns the boundary."""
@@ -439,6 +446,59 @@ class AgentLoop:
             # Read results in submission order: the transcript requires one
             # `tool` message per call, in the order the model emitted them.
             return [future.result() for future in futures]
+
+    def _dispatch_calls(self, parsed: List[Dict[str, Any]]) -> None:
+        """Run each consecutive burst of safe reads concurrently.
+
+        The whole turn used to be the unit of the decision: one write anywhere
+        serialised three unrelated reads before it. A coding turn is usually
+        reads with one write in the middle, so the decision belongs to the
+        segment between fences:
+
+        * a repeated call is skipped in place and never dispatched — and, being
+          side-effect free, it does not split a burst of reads around it;
+        * a fence (write/exec/native/ask/deny) runs alone, and its completion
+          is a barrier for everything after it;
+        * a run of two or more safe reads shares the pool, capped by
+          ``max_parallel_tools``.
+
+        Outputs land on their own items, so the caller's transcript loop still
+        emits one `tool` message per call in model order.
+        """
+        index = 0
+        while index < len(parsed):
+            item = parsed[index]
+            if item["attempts"] > self.repeat_limit:
+                item["output"] = self._repeat_output(item)
+                index += 1
+                continue
+            if self._cancelled():
+                return
+            if not self._parallel_safe(item):
+                item["output"] = self._run_one(item)
+                index += 1
+                continue
+
+            # Collect the burst, skipping repeats in place: a skipped call has
+            # no side effect, so it must not split two reads that could
+            # otherwise overlap.
+            segment: List[Dict[str, Any]] = []
+            while index < len(parsed):
+                member = parsed[index]
+                if member["attempts"] > self.repeat_limit:
+                    member["output"] = self._repeat_output(member)
+                    index += 1
+                    continue
+                if not self._parallel_safe(member):
+                    break
+                segment.append(member)
+                index += 1
+
+            if len(segment) == 1:
+                segment[0]["output"] = self._run_one(segment[0])
+            else:
+                for member, output in zip(segment, self._execute_parallel(segment)):
+                    member["output"] = output
 
     def _persist(self, message: Dict[str, Any]) -> None:
         if self._session is not None:
@@ -602,26 +662,10 @@ class AgentLoop:
                     )
                     self._emit("tool_call", name=name, call_id=call["id"], arguments=args, repeat=attempts)
 
-                dispatchable = [item for item in parsed if item["attempts"] <= self.repeat_limit]
-                if (
-                    not self._cancelled()
-                    and len(dispatchable) == len(parsed)
-                    and self._can_run_parallel(parsed)
-                ):
-                    for item, output in zip(parsed, self._execute_parallel(parsed)):
-                        item["output"] = output
-                else:
-                    for item in parsed:
-                        if item["attempts"] > self.repeat_limit:
-                            item["output"] = (
-                                f"Identical call skipped: '{item['name']}' with these arguments has already "
-                                f"run {item['attempts'] - 1} times. Change the arguments or the approach, "
-                                "or explain to the user why you are blocked."
-                            )
-                            continue
-                        if self._cancelled():
-                            break
-                        item["output"] = self._run_one(item)
+                # Dispatch in fences: read bursts overlap, writes and approval
+                # prompts are barriers, repeats are skipped. Outputs land on
+                # their items, so the transcript below stays in model order.
+                self._dispatch_calls(parsed)
 
                 # One `tool` message per `tool_call`, in submission order. A
                 # cancelled or never-dispatched call still gets a result:
