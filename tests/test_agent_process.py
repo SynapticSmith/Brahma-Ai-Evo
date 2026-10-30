@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from agent.process import ProcessResult, _windows_job, run_captured
+from agent.sandbox import SandboxConfig
 
 
 def _cmd(code: str) -> str:
@@ -106,3 +107,121 @@ def test_a_live_process_is_assigned_to_a_job():
             job.close()
         process.kill()
         process.wait(timeout=10)
+
+
+def _wrapper(tmp_path: Path) -> Path:
+    """A sandbox stand-in: prints its one command argument, then runs it."""
+    wrapper = tmp_path / "wrapper.py"
+    wrapper.write_text(
+        "import subprocess, sys\n"
+        "print('wrapped=' + sys.argv[1], flush=True)\n"
+        "raise SystemExit(subprocess.run(sys.argv[1], shell=True).returncode)\n",
+        encoding="utf-8",
+    )
+    return wrapper
+
+
+def test_a_prefix_runs_the_command_as_one_argument(tmp_path: Path):
+    wrapper = _wrapper(tmp_path)
+
+    result = run_captured(
+        _cmd("print(123)"),
+        cwd=tmp_path,
+        timeout=20,
+        sandbox=SandboxConfig(prefix=(sys.executable, str(wrapper)), env_scrub=False),
+    )
+
+    assert result.sandboxed
+    assert "wrapped=" in result.stdout
+    assert "123" in result.stdout
+    assert result.returncode == 0
+
+
+def test_a_prefix_can_read_the_workspace_and_keep_cwd(tmp_path: Path):
+    wrapper = tmp_path / "cwd.py"
+    wrapper.write_text(
+        "import os, subprocess, sys\n"
+        "assert os.getcwd() == sys.argv[2]\n"
+        "print('cwd-ok', flush=True)\n"
+        "raise SystemExit(subprocess.run(sys.argv[1], shell=True).returncode)\n",
+        encoding="utf-8",
+    )
+
+    result = run_captured(
+        _cmd("print(7)"),
+        cwd=tmp_path,
+        timeout=20,
+        sandbox=SandboxConfig(
+            prefix=(sys.executable, str(wrapper), "{command}", str(tmp_path)),
+            env_scrub=False,
+        ),
+    )
+
+    assert "cwd-ok" in result.stdout
+    assert "7" in result.stdout
+
+
+def test_run_captured_withholds_secret_environment(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("BRAHMA_TEST_API_KEY", "very-secret")
+
+    result = run_captured(
+        _cmd(
+            "import os; print('value=' + "
+            "os.environ.get('BRAHMA_TEST_API_KEY', 'missing'))"
+        ),
+        cwd=tmp_path,
+        timeout=20,
+        sandbox=SandboxConfig(),
+    )
+
+    assert "value=missing" in result.stdout
+    assert result.env_scrubbed >= 1
+
+
+def test_env_keep_passes_a_named_secret_through(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("BRAHMA_TEST_API_KEY", "very-secret")
+
+    result = run_captured(
+        _cmd(
+            "import os; print('value=' + "
+            "os.environ.get('BRAHMA_TEST_API_KEY', 'missing'))"
+        ),
+        cwd=tmp_path,
+        timeout=20,
+        sandbox=SandboxConfig(env_keep=("BRAHMA_TEST_API_KEY",)),
+    )
+
+    assert "value=very-secret" in result.stdout
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows job objects")
+def test_resource_limits_are_accepted(tmp_path: Path):
+    result = run_captured(
+        _cmd("print('ok')"),
+        cwd=tmp_path,
+        timeout=20,
+        sandbox=SandboxConfig(
+            env_scrub=False,
+            max_memory_mb=128,
+            max_processes=8,
+            max_cpu_seconds=10,
+        ),
+    )
+
+    assert result.returncode == 0
+    assert "ok" in result.stdout
+    assert result.limits_note == ""
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows job objects")
+def test_a_memory_limit_stops_a_large_allocation(tmp_path: Path):
+    result = run_captured(
+        _cmd("x = bytearray(512 * 1024 * 1024); print('allocated')"),
+        cwd=tmp_path,
+        timeout=30,
+        sandbox=SandboxConfig(env_scrub=False, max_memory_mb=64),
+    )
+
+    assert "allocated" not in result.stdout
+    assert result.returncode != 0
+

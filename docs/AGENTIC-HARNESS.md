@@ -95,6 +95,7 @@ Three invariants make the rest of the design work:
 | `agent/usage.py` | Provider-reported token counts, normalised and summed | …you need real cost numbers instead of the local estimate. |
 | `agent/streaming.py` | Delta assembler (text + fragmented tool calls) and an SSE transport over `urllib` | …streamed text or a tool call is garbled. |
 | `agent/process.py` | `run_captured`: shell command with closed stdin and whole-tree termination on timeout (Windows job object / POSIX session group) | …a timed-out command left children running or blocked on a prompt. |
+| `agent/sandbox.py` | `exec.sandbox`: credential scrubbing, trusted command prefix, resource limits | …a command printed the model's key, or a deployment needs to delegate to a real sandbox. |
 | `agent/term.py` | TTY-only ANSI view of an approval detail: diff colours, `NO_COLOR`/`TERM=dumb`/`FORCE_COLOR`, Windows VT enablement | …the CLI prompt is unreadable, or escapes leak into a redirected log. |
 | `agent/loop.py` | Bounded agent loop, repeat detection, stop reasons, event stream | …the agent stops early or will not stop. |
 | `agent/context.py` | Character budget, protocol-safe compaction, output truncation | …context is overflowing or a resumed prompt is rejected. |
@@ -390,7 +391,7 @@ ToolSpec(
 | `edit_file` | write | Exact-string replace; **requires uniqueness** unless `replace_all=true`; explains whitespace-only mismatches; pushes undo. |
 | `glob_files` | read | Newest first; skips `node_modules`, `.venv`, `.git`, build dirs, caches. |
 | `grep_files` | read | Python regex; `path:line: text`; glob filter; caps files and matches. |
-| `run_command` | exec | `shell=True` in the workspace; **stdin is closed**; exit code + stdout + stderr; timeout (default 120 s, max 1800 s) terminates the **whole process tree**; output capped. |
+| `run_command` | exec | Shell in the workspace; **stdin is closed**; exit code + stdout + stderr; timeout (default 120 s, max 1800 s) terminates the **whole process tree**; output capped; `exec.sandbox` controls credential scrubbing, an optional sandbox prefix and resource limits. |
 | `run_subagent` | native | Bounded child loop with a filtered read-default surface; returns a report; never recursive; refuses outside a loop. |
 
 Edits and writes register with **`core/undo.py`**, so the existing `undo` tool
@@ -419,6 +420,10 @@ inherits stdout keeps the call waiting on the pipe until the deadline, at which
 point it is part of the tree and is killed.) Containment bounds lifetime, not
 filesystem or network access; it is not a sandbox, and the policy remains the
 gate for whether a command may run.
+
+The separate `exec.sandbox` policy adds the isolation the harness *can* enforce
+without an OS container: a trusted command prefix, credential scrubbing, and
+resource limits. See [§6](#execsandbox).
 
 ---
 
@@ -478,7 +483,15 @@ immediately and cannot be widened by a remembered "always allow".
   "protected_globs": [".git/config", ".env", ".env.*", "*.pem", "*.key", "id_rsa*", "*.pfx"],
   "exec": {
     "deny_patterns": ["rm\\s+-[a-z]*r[a-z]*f[a-z]*\\s+/(?:\\s|$)", "..."],
-    "allow_patterns": []
+    "allow_patterns": [],
+    "sandbox": {
+      "prefix": [],
+      "env_scrub": true,
+      "env_keep": [],
+      "max_memory_mb": 0,
+      "max_processes": 0,
+      "max_cpu_seconds": 0
+    }
   },
   "headless": {
     "exec": "deny",
@@ -489,7 +502,41 @@ immediately and cannot be widened by a remembered "always allow".
 
 `tools.<name>` accepts either a bare decision string or
 `{"decision": ..., "reason": ...}`. Partial documents merge over the defaults —
-you only write what you want to change.
+you only write what you want to change. The nested `exec.sandbox` section merges
+over its own defaults, so setting one limit does not disable scrubbing.
+
+### `exec.sandbox`
+
+Three independent controls, all applied only to `run_command`:
+
+* **`env_scrub`** (default `true`) withholds environment variables whose
+  underscore-delimited name contains `KEY`, `TOKEN`, `SECRET`, `PASSWORD`,
+  `PASSWD`, `PASS`, `CREDENTIAL(S)`, `DATABASE_URL`, `MYSQL_PWD` or
+  `PGPASSWORD`. Boundaries matter: `TOKENIZERS_PARALLELISM` and `KEYBOARD` are
+  kept. `env_keep` lists exact names to pass through (case-insensitive), for a
+  command that genuinely needs `GH_TOKEN`. When anything is withheld, the tool
+  appends a `[sandbox]` note to stderr so a missing-token failure is
+  diagnosable. This is not access control — a command can still read a `.env`
+  file if the policy allows the call — it stops the model's own keys from
+  leaking by default.
+* **`prefix`** is a trusted argv prepended to the command. The command is
+  passed as **one argument and no shell is used**, so a prefix should end in
+  `sh -c` / `cmd /c` (or use a `{command}` item). `{cwd}` is substituted inside
+  any item, for a container mount. Example:
+  `["docker", "run", "--rm", "-v", "{cwd}:/work", "-w", "/work", "python:3.11", "sh", "-c"]`.
+  The harness cannot verify what the prefix does; it is exactly as strong as
+  the program you name.
+* **`max_memory_mb`**, **`max_processes`** and **`max_cpu_seconds`** (0 =
+  unlimited) are applied with a Windows job object. `max_processes` counts the
+  shell itself, so `1` allows no child. POSIX applies address space and CPU with
+  `resource.prlimit` when available; process count is Windows-only. A limit
+  that cannot be applied is reported in the tool output rather than silently
+  ignored.
+
+There is deliberately **no built-in filesystem or network sandbox**. Windows
+has no portable stdlib primitive for one, and an AppContainer path silently
+fails against a normal Python install. Configuring `prefix` is the supported
+way to get real confinement.
 
 ### Resolution order (first match wins)
 
@@ -846,7 +893,8 @@ unchanged); only the loop around it is new.
 | --- | --- |
 | `tests/test_agent_permissions.py` | Defaults, headless escalation, path escapes, protected files, denylist, per-tool overrides, malformed policy, template immutability. |
 | `tests/test_agent_code_tools.py` | All six primitives against `tmp_path`, including ambiguity, whitespace hints, binary refusal, timeouts with partial output, and runtime gating (revoke/approve/unknown/native delegation). |
-| `tests/test_agent_process.py` | `run_captured`: output/exit code, stderr, timeout with partial output, closed stdin, a grandchild that does not survive a timeout, and (Windows) the job object actually being assigned. |
+| `tests/test_agent_process.py` | `run_captured`: output/exit code, stderr, timeout with partial output, closed stdin, a grandchild that does not survive a timeout, (Windows) the job object actually being assigned, prefix execution as one argument, secret-environment withholding and `env_keep`, and a memory limit stopping a large allocation. |
+| `tests/test_agent_sandbox.py` | `exec.sandbox` validation and defaults: secret-name boundaries, `env_keep` case handling, prefix/`{command}`/`{cwd}` shaping, malformed limits, partial policy merge, fail-at-load, and `describe()` exposing the section. |
 | `tests/test_agent_term.py` | Approval colour: diff/rule/label line rules, plain lines untouched, `NO_COLOR` / `TERM=dumb` / `FORCE_COLOR` / non-TTY policy, the plain prompt being byte-identical to the historical text, and the coloured prompt stripping back to it. |
 | `tests/test_agent_context.py` | Token estimate, tail-preserving truncation, safe-boundary compaction, no orphaned tool results, summariser fallback. |
 | `tests/test_agent_loop.py` | Multi-turn continuation, protocol integrity, repeat stop, turn cap, denial stop, approval, cancellation, completer failure, `first_response`, in-loop compaction, event order, session parity, provider shapes. |
@@ -933,11 +981,13 @@ These are known and deliberate, not surprises:
   waits. A child cannot delegate again, has no session row, and its transcript
   is discarded — only its final report crosses back. The report is therefore
   lossy by design; ask for specific findings rather than "investigate".
-* **`run_command` is `shell=True`.** Timeouts now terminate the whole process
-  tree (a Windows job object, or a POSIX session group) and `stdin` is closed,
-  but there is still no filesystem or network sandbox: the policy is the only
-  barrier on what a command may read, write or reach. Treat `--yolo` as "run me
-  in a container".
+* **`run_command` is `shell=True` by default.** Timeouts terminate the whole
+  process tree, `stdin` is closed, credential-shaped variables are withheld and
+  `exec.sandbox` can add resource limits or a trusted prefix, but there is still
+  no built-in filesystem or network sandbox: the policy is the only barrier on
+  what a command may read, write or reach unless `prefix` delegates to one.
+  Treat `--yolo` as "run me in a container", and configure a prefix if that
+  matters.
 * **Voice turns are archived, not replayed.** Gemini's live session owns its
   own history; a completed turn is written to `agent_*` as a cleaned
   user/assistant pair, so it is listed and replayed by the HUD. Resuming a

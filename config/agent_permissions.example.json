@@ -37,7 +37,15 @@
       "cipher\\s+/w\\s*[a-z]:",
       "reg\\s+delete\\s+hklm"
     ],
-    "allow_patterns": []
+    "allow_patterns": [],
+    "sandbox": {
+      "prefix": [],
+      "env_scrub": true,
+      "env_keep": [],
+      "max_memory_mb": 0,
+      "max_processes": 0,
+      "max_cpu_seconds": 0
+    }
   },
   "headless": {
     "exec": "deny",

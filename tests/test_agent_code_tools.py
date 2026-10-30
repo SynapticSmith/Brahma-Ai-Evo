@@ -221,6 +221,81 @@ def test_runtime_runs_when_approved(tmp_path: Path):
     assert seen and "x.txt" in seen[0][1] and "classes.write" in seen[0][1]
 
 
+# --------------------------------------------------------------------------- #
+# exec.sandbox: prefix, secret scrubbing and their reporting
+# --------------------------------------------------------------------------- #
+
+def _sandbox_wrapper(tmp_path: Path) -> Path:
+    wrapper = tmp_path / "sandbox_wrapper.py"
+    wrapper.write_text(
+        "import subprocess, sys\n"
+        "print('sandboxed=' + sys.argv[1], flush=True)\n"
+        "raise SystemExit(subprocess.run(sys.argv[1], shell=True).returncode)\n",
+        encoding="utf-8",
+    )
+    return wrapper
+
+
+def test_run_command_uses_a_policy_sandbox_prefix(tmp_path: Path):
+    wrapper = _sandbox_wrapper(tmp_path)
+    runtime = _runtime(
+        tmp_path,
+        headless={"exec": "allow"},
+        exec={
+            "sandbox": {
+                "prefix": [sys.executable, str(wrapper)],
+                "env_scrub": False,
+            }
+        },
+    )
+
+    result = runtime.execute(
+        "run_command", {"command": f'"{sys.executable}" -c "print(42)"'}
+    )
+
+    assert "sandboxed=" in result
+    assert "42" in result
+
+
+def test_run_command_withholds_credentials_and_says_so(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("DEMO_API_KEY", "do-not-leak")
+    script = tmp_path / "check_env.py"
+    script.write_text(
+        "import os\nprint(os.environ.get('DEMO_API_KEY', 'missing'))\n",
+        encoding="utf-8",
+    )
+    runtime = _runtime(tmp_path, headless={"exec": "allow"})
+
+    result = runtime.execute(
+        "run_command", {"command": f'"{sys.executable}" "{script}"'}
+    )
+
+    assert "missing" in result
+    assert "withheld " in result
+    assert "env_keep" in result
+
+
+def test_run_command_env_keep_passes_a_named_secret(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("DEMO_API_KEY", "explicitly-allowed")
+    script = tmp_path / "check_env.py"
+    script.write_text(
+        "import os\nprint(os.environ.get('DEMO_API_KEY', 'missing'))\n",
+        encoding="utf-8",
+    )
+    runtime = _runtime(
+        tmp_path,
+        headless={"exec": "allow"},
+        exec={"sandbox": {"env_keep": ["DEMO_API_KEY"]}},
+    )
+
+    result = runtime.execute(
+        "run_command", {"command": f'"{sys.executable}" "{script}"'}
+    )
+
+    assert "explicitly-allowed" in result
+    assert "DEMO_API_KEY" not in result
+
+
 def test_runtime_reports_unknown_tools(tmp_path: Path):
     runtime = _runtime(tmp_path)
     assert "Unknown tool" in runtime.execute("not_a_tool", {})

@@ -77,6 +77,13 @@ they govern; `agent/prompts.py` owns discovery and its budgets.
 - Containment bounds lifetime, not access: there is still no filesystem or
   network sandbox, so the permission policy remains the gate. Keep timeout
   clamping (1 s to 1800 s) at the tool.
+- Isolation is a single path: `agent/sandbox.py` reads `exec.sandbox` and
+  produces the env and argv `run_captured` uses. Do not add a second scrub,
+  prefix or limit path in a tool. `env_scrub` is policy-controlled and defaults
+  to true, so a command does not see `OPENAI_API_KEY` unless `env_keep` names
+  it; report a withheld count rather than failing silently. `prefix` is trusted
+  configuration, not a verified sandbox, and POSIX cannot enforce
+  `max_processes` — report unapplied limits instead of pretending.
 
 ## Sessions
 

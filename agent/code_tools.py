@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from .process import run_captured
+from .sandbox import sandbox_from_policy
 from .spec import ToolContext, register, ToolSpec
 
 #: Directories that are never worth walking. Kept in sync with the spirit of
@@ -403,8 +404,9 @@ def run_command(args: Dict[str, Any], context: ToolContext) -> str:
     if not cwd.exists() or not cwd.is_dir():
         return f"Working directory does not exist: {_relative(context, cwd)}"
     timeout = max(1.0, min(float(args.get("timeout") or 120), 1_800.0))
+    sandbox = sandbox_from_policy(context.policy)
     try:
-        completed = run_captured(command, cwd=cwd, timeout=timeout)
+        completed = run_captured(command, cwd=cwd, timeout=timeout, sandbox=sandbox)
     except OSError as exc:
         return f"Could not start command: {exc}"
 
@@ -417,6 +419,14 @@ def run_command(args: Dict[str, Any], context: ToolContext) -> str:
     cap = context.max_output_chars or 20_000
     stdout = completed.stdout or ""
     stderr = completed.stderr or ""
+    if completed.env_scrubbed:
+        note = (
+            f"[sandbox] withheld {completed.env_scrubbed} credential-shaped "
+            "environment variable(s); exec.sandbox.env_keep can pass one through."
+        )
+        stderr = f"{stderr.rstrip()}\n{note}" if stderr.strip() else note
+    if completed.limits_note:
+        stderr = f"{stderr.rstrip()}\n[sandbox] {completed.limits_note}"
     if len(stdout) > cap:
         stdout = stdout[: cap - 800] + f"\n... [stdout truncated at {cap} chars] ...\n" + stdout[-600:]
     if len(stderr) > cap:
@@ -499,7 +509,8 @@ SPECS: Tuple[ToolSpec, ...] = (
             "Run a shell command in the workspace and return exit code, stdout and stderr. "
             "Use this to run tests, linters, builds and git. The output is capped. "
             "stdin is closed, so a command cannot prompt; on timeout the whole process "
-            "tree is terminated."
+            "tree is terminated. Credential-shaped environment variables are withheld, "
+            "and policy may add a sandbox prefix and resource limits."
         ),
         parameters=RUN_SCHEMA,
         tool_class="exec",

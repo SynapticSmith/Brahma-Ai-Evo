@@ -35,6 +35,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
+from .sandbox import SandboxError, parse_sandbox
+
 ALLOW = "allow"
 ASK = "ask"
 DENY = "deny"
@@ -95,6 +97,16 @@ DEFAULT_POLICY: Dict[str, Any] = {
     "exec": {
         "deny_patterns": list(DEFAULT_EXEC_DENY_PATTERNS),
         "allow_patterns": [],
+        # Isolation is opt-in except for credential scrubbing: the model's own
+        # API keys should not be visible to a command it runs.
+        "sandbox": {
+            "prefix": [],
+            "env_scrub": True,
+            "env_keep": [],
+            "max_memory_mb": 0,
+            "max_processes": 0,
+            "max_cpu_seconds": 0,
+        },
     },
     "headless": {
         "exec": DENY,
@@ -173,6 +185,16 @@ class PermissionPolicy:
             for key, value in data.items():
                 if key in ("classes", "paths", "exec", "headless") and isinstance(value, dict):
                     merged[key].update(value)
+                    if key == "exec":
+                        # The sandbox section is nested one level deeper than
+                        # the other exec keys; a partial edit must keep the
+                        # defaults (notably env_scrub) rather than drop them.
+                        sandbox = merged[key].get("sandbox")
+                        if isinstance(sandbox, dict):
+                            merged[key]["sandbox"] = {
+                                **DEFAULT_POLICY["exec"]["sandbox"],
+                                **sandbox,
+                            }
                 elif key == "tools" and isinstance(value, dict):
                     merged["tools"].update({
                         name: _coerce_tool_rule(rule, name) for name, rule in value.items()
@@ -186,6 +208,13 @@ class PermissionPolicy:
         for section in ("classes", "paths", "headless"):
             for name, value in dict(merged.get(section) or {}).items():
                 merged[section][name] = _decision(value, f"{section}.{name}")
+        try:
+            exec_cfg = merged.get("exec")
+            if not isinstance(exec_cfg, dict):
+                raise PolicyError("exec must be an object")
+            merged["exec"]["sandbox"] = parse_sandbox(exec_cfg.get("sandbox")).describe()
+        except SandboxError as exc:
+            raise PolicyError(str(exc)) from exc
         return cls(data=merged, source=source)
 
     @classmethod
@@ -354,6 +383,7 @@ class PermissionPolicy:
             "classes": dict(self.data.get("classes") or {}),
             "headless": dict(self.data.get("headless") or {}),
             "paths": dict(self.data.get("paths") or {}),
+            "exec": dict(self.data.get("exec") or {}),
             "tools": dict(self.data.get("tools") or {}),
         }
 

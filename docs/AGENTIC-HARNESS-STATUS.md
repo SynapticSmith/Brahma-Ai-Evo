@@ -32,6 +32,7 @@ database migration is required; the new tables are additive.
 | Path-dependency parallel tool calls | Done |
 | Bounded subagent delegation (`run_subagent`) | Done |
 | Whole-tree command termination on timeout | Done |
+| Policy `exec.sandbox`: credential scrubbing, trusted prefix, resource limits | Done |
 | TTY colour for the approval diff (opt-out, pipe-safe) | Done |
 | Cancellation-safe transcript | Done |
 | Provider-reported token usage | Done |
@@ -59,6 +60,7 @@ agent/permissions.py    policy document, evaluate(), defaults, template
 agent/code_tools.py     read/write/edit/glob/grep/run_command
 agent/subagent.py       run_subagent contract: schema, budget clamp, child surface
 agent/process.py        run_captured: closed stdin + whole-tree termination on timeout
+agent/sandbox.py        exec.sandbox: secret scrub, trusted prefix, job-object limits
 agent/term.py           ANSI view of an approval detail; TTY/NO_COLOR/FORCE_COLOR policy
 agent/runtime.py        AgentRuntime, configure(), gui_approver, policy_note
 agent/loop.py           AgentLoop, AgentResult, stop reasons, event stream
@@ -102,7 +104,8 @@ New tests: `tests/test_agent_permissions.py`, `test_agent_code_tools.py`,
 `test_agent_policy_reload.py`, `test_agent_instructions.py`,
 `test_agent_streaming.py`, `test_agent_session_bridge.py`,
 `test_agent_diff_preview.py`, `test_agent_providers.py`,
-`test_agent_subagent.py`, `test_agent_process.py`, `test_agent_term.py` — all pure-Python
+`test_agent_subagent.py`, `test_agent_process.py`, `test_agent_sandbox.py`,
+`test_agent_term.py` — all pure-Python
 (no display, no model). HUD-only behaviour lives in
 `tests/test_confirmation_overlay.py`.
 
@@ -635,6 +638,38 @@ known argument labels (`command:`, `cwd:`) bold. The module is stdlib-only and
 imports nothing GUI-related, so `python -m agent` stays fast and headless.
 `--json` never prompts on a TTY-less stream, so NDJSON is unaffected by design.
 
+### D36 — Isolation is a policy hook, not a pretend sandbox
+
+The honest gap after D34 was access, not lifetime: a command could still read
+the model's API key out of the environment or consume the machine. Windows has
+no portable, stdlib filesystem/network sandbox. AppContainer needs ACLs on the
+Python install and workspace, silently fails against a normal user install, and
+a wrapper that only *looks* enforcing is worse than none.
+
+So `exec.sandbox` adds the controls this harness can actually enforce.
+`env_scrub` (default on) withholds variables whose underscore-delimited name is
+`KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, `PASS`, `CREDENTIAL(S)`,
+`DATABASE_URL`, `MYSQL_PWD` or `PGPASSWORD`; `TOKENIZERS_PARALLELISM` and
+`KEYBOARD` survive the boundaries, and `env_keep` names an exception. Withheld
+counts are reported, because a command failing for a missing token should say
+why rather than look like a bug. This is secret hygiene, not access control: a
+command can still read a `.env` file the policy allows.
+
+`prefix` is a trusted argv that receives the command as **one argument** with no
+shell, so the documented shape ends in `sh -c` or `cmd /c`; `{cwd}` is
+substituted for a container mount. The command is not re-parsed by `cmd.exe`,
+which is what makes a Windows prefix path with spaces work. The harness cannot
+verify what the prefix does, so it is exactly as strong as the program the
+deployment chose; this is the supported way to get real confinement.
+
+Resource limits use the job object D34 already creates: `max_memory_mb`,
+`max_processes` and `max_cpu_seconds`, zero meaning unlimited. POSIX applies
+address space and CPU through `resource.prlimit` when available and reports
+process count as Windows-only. Any limit that cannot be applied is surfaced in
+the tool output instead of being silently dropped. The sandbox section merges
+one level deeper than the rest of the policy, so setting one limit keeps
+`env_scrub`; a malformed value fails at load like every other policy error.
+
 ### D20 — Parallel dispatch is whole-turn and read-only (superseded by D30, then D32)
 
 Model turns often contain several `read_file`/`glob_files`/`grep_files` calls,
@@ -671,8 +706,8 @@ and the default `python` are 3.14 and lack `ruff`/`pytest`.
 
 ```
 py -3.11 -m ruff check .                 # All checks passed!
-py -3.11 -m pytest tests -q              # 600 passed, 1 skipped  (QT_QPA_PLATFORM=offscreen)
-py -3.11 -m pytest tests -q -k agent     # 263 passed, 1 skipped
+py -3.11 -m pytest tests -q              # 635 passed, 1 skipped  (QT_QPA_PLATFORM=offscreen)
+py -3.11 -m pytest tests -q -k agent     # 298 passed, 1 skipped
 py -3.11 -c "import main; ..."           # 66 voice declarations; six code tools, no run_subagent
 py -3.11 -m agent tools                  # lists the seven tool specs
 py -3.11 -m agent permissions show       # reports built-in defaults
@@ -687,7 +722,7 @@ Notes:
   `{read_file, write_file, edit_file, glob_files, grep_files, run_command}` are
   all present, while `run_subagent` is intentionally absent from the voice
   surface (the text and CLI loops advertise it via `all_specs()`).
-* The 263 harness tests run without a display or a model:
+* The 298 harness tests run without a display or a model:
   `py -3.11 -m pytest tests -q -k agent`. The one skip is the POSIX-only
   `prepare_stream` test, which a Windows run cannot execute.
 * `python -m agent run --provider stub --json` is the cheapest end-to-end
@@ -745,11 +780,18 @@ Notes:
   refusal without a loop, relayed child events, and empty/unknown-request
   refusals. A refused subagent call is the turn's only call, so it ends at
   `permission_denied` exactly like any other all-refused turn; no child starts.
-* Command containment is covered by `tests/test_agent_process.py` (6) plus one
+* Command containment is covered by `tests/test_agent_process.py` plus one
   test in `tests/test_agent_code_tools.py`: output and exit code, stderr,
   timeout with partial output, closed stdin, a grandchild that does not survive
   the timeout, and (Windows only) proof that the job object is actually
   assigned rather than silently falling back to `taskkill`.
+* `exec.sandbox` is covered by `tests/test_agent_sandbox.py` (18),
+  `tests/test_agent_process.py` (5 more) and three runtime tests in
+  `tests/test_agent_code_tools.py`: secret-name component boundaries, `env_keep`
+  case handling, withheld-count reporting, prefix execution as one argument with
+  no shell, `{command}`/`{cwd}` shaping, malformed values failing at policy load,
+  the nested merge keeping `env_scrub`, `describe()` exposing the section, and a
+  Windows memory limit stopping a large allocation.
 * Approval colour is covered by `tests/test_agent_term.py` (12, 11 run on
   Windows): diff/rule/label line rules, `+++`/`---` headers not being mistaken
   for changes, plain lines untouched, TTY/`NO_COLOR` (including an empty
@@ -762,10 +804,12 @@ Notes:
 
 Ordered by value, with the honest reason each was left out.
 
-1. **Filesystem/network sandboxing.** Timeouts now end the whole process tree,
-   but `run_command` is still `shell=True` with no filesystem or network
-   confinement; the policy is the only barrier on what a command can touch. A
-   Windows job-object/container option that also restricted access would let
+1. **No built-in filesystem/network confinement.** Timeouts end the whole
+   process tree, credential-shaped variables are withheld, `exec.sandbox` can
+   apply resource limits and delegate through a trusted `prefix`, but there is
+   still no filesystem or network sandbox: the policy is the only barrier on
+   what a command can touch unless the deployment configures a prefix that
+   provides one. A native Windows/container confinement layer would let
    `--yolo` be safe in more places.
 2. **Subagents are sequential and share the parent's model.** `run_subagent` is
    a native fence, so one child runs at a time and the parent waits; there is no
@@ -808,6 +852,10 @@ Gotchas that cost time the first time:
 * `ask_blocking` returns `False` on the Qt main thread. If an approval
   "mysteriously fails", check the thread first.
 * `run_command` timeouts are clamped to 1800 s; tests use 1 s.
+* Isolation for `run_command` is read from `exec.sandbox` by
+  `agent/sandbox.py` only. Do not add a second scrub or prefix path in the tool;
+  the default `env_scrub=True` is why a command may no longer see
+  `OPENAI_API_KEY` — that is intended, and `env_keep` is the exception.
 * If `import main` fails after editing `TOOL_DECLARATIONS`, check that the
   harness import block landed *after* the closing `]` and that
   `_pcm_block` still follows it.
