@@ -20,11 +20,14 @@ from agent.mcp import (
     MCPServerConfig,
     MCPSession,
     MCPTimeout,
+    WorkspaceMCP,
     discover_config,
     format_tool_result,
     load_config,
+    mcp_openai_tools,
     parse_servers,
     tool_spec_name,
+    with_mcp_tools,
 )
 from agent.permissions import PermissionPolicy
 from agent.runtime import AgentRuntime
@@ -509,3 +512,174 @@ def test_a_broken_explicit_config_stops_a_run_instead_of_dropping_tools(tmp_path
 
     assert code == 3
     assert "command" in capsys.readouterr().err
+
+
+# --------------------------------------------------------------------------- #
+# GUI workspace manager
+# --------------------------------------------------------------------------- #
+
+def _workspace_config(root: Path, name: str = "demo") -> Path:
+    """Write ``<root>/.brahma/mcp.json``, the GUI's discovery location."""
+    script = _script(root)
+    path = root / ".brahma" / "mcp.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    name: {"command": sys.executable, "args": [str(script)], "timeout": 10}
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_the_workspace_manager_starts_once_and_reuses_the_session(tmp_path: Path):
+    _workspace_config(tmp_path)
+    manager = WorkspaceMCP()
+    try:
+        assert manager.ensure(tmp_path) is True
+        assert manager.ensure(tmp_path) is True
+
+        assert manager.generation == 1
+        assert "mcp_demo_echo" in manager.tools
+        assert manager.statuses[0].ok is True
+    finally:
+        manager.close()
+
+
+def test_no_config_is_healthy_and_starts_nothing(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("BRAHMA_MCP_CONFIG", raising=False)
+    manager = WorkspaceMCP()
+    try:
+        assert manager.ensure(tmp_path) is True
+        assert manager.tools == []
+        assert manager.generation == 0
+        assert manager.ok is True
+    finally:
+        manager.close()
+
+
+def test_a_workspace_change_restarts_and_unregisters_old_tools(tmp_path: Path):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    _workspace_config(first, "alpha")
+    _workspace_config(second, "beta")
+    manager = WorkspaceMCP()
+    try:
+        assert manager.ensure(first) is True
+        assert get_spec("mcp_alpha_echo") is not None
+
+        assert manager.ensure(second) is True
+
+        assert get_spec("mcp_alpha_echo") is None
+        assert get_spec("mcp_beta_echo") is not None
+        assert manager.generation == 2
+    finally:
+        manager.close()
+
+
+def test_a_config_change_restarts_without_a_workspace_change(tmp_path: Path):
+    _workspace_config(tmp_path, "alpha")
+    manager = WorkspaceMCP()
+    try:
+        assert manager.ensure(tmp_path) is True
+        assert get_spec("mcp_alpha_echo") is not None
+
+        _workspace_config(tmp_path, "renamed")
+
+        assert manager.ensure(tmp_path) is True
+        assert get_spec("mcp_alpha_echo") is None
+        assert get_spec("mcp_renamed_echo") is not None
+        assert manager.generation == 2
+    finally:
+        manager.close()
+
+
+def test_a_broken_config_is_reported_once_and_recovers_when_fixed(tmp_path: Path):
+    path = tmp_path / ".brahma" / "mcp.json"
+    path.parent.mkdir()
+    path.write_text("{not json", encoding="utf-8")
+    events: list = []
+    manager = WorkspaceMCP()
+    try:
+        assert manager.ensure(tmp_path, on_event=events.append) is False
+        assert manager.ok is False
+        assert "invalid JSON" in manager.error
+        assert events and events[0]["type"] == "error"
+
+        # Same broken file, same fingerprint: no second event, still False.
+        assert manager.ensure(tmp_path, on_event=events.append) is False
+        assert len(events) == 1
+
+        _workspace_config(tmp_path, "demo")
+
+        assert manager.ensure(tmp_path, on_event=events.append) is True
+        assert manager.ok is True
+        assert "mcp_demo_echo" in manager.tools
+    finally:
+        manager.close()
+
+
+def test_closing_the_workspace_manager_unregisters_its_tools(tmp_path: Path):
+    _workspace_config(tmp_path)
+    manager = WorkspaceMCP()
+    assert manager.ensure(tmp_path) is True
+    assert get_spec("mcp_demo_echo") is not None
+
+    manager.close()
+    manager.close()  # idempotent: shutdown may run twice
+
+    assert get_spec("mcp_demo_echo") is None
+    assert mcp_openai_tools() == []
+
+
+def test_the_openai_tool_shape_matches_what_a_model_expects(tmp_path: Path):
+    _workspace_config(tmp_path)
+    manager = WorkspaceMCP()
+    try:
+        manager.ensure(tmp_path)
+        tools = mcp_openai_tools()
+
+        assert tools
+        assert all(tool["type"] == "function" for tool in tools)
+        assert all(tool["function"]["name"].startswith("mcp_demo_") for tool in tools)
+        assert all("parameters" in tool["function"] for tool in tools)
+    finally:
+        manager.close()
+
+
+def test_merging_appends_mcp_tools_without_duplicating_a_name(tmp_path: Path):
+    _workspace_config(tmp_path)
+    manager = WorkspaceMCP()
+    try:
+        manager.ensure(tmp_path)
+        existing = {
+            "type": "function",
+            "function": {"name": "mcp_demo_echo", "description": "host copy", "parameters": {}},
+        }
+        other = {"name": "read_file", "description": "gemini shape"}
+
+        merged = with_mcp_tools([existing, other])
+        names = [
+            (tool.get("function") or {}).get("name") or tool.get("name")
+            for tool in merged
+        ]
+
+        assert names.count("mcp_demo_echo") == 1
+        assert names[0] == "mcp_demo_echo"
+        assert "read_file" in names
+        assert "mcp_demo_fail" in names
+    finally:
+        manager.close()
+
+
+def test_merging_is_a_no_op_when_nothing_is_registered():
+    assert with_mcp_tools(None) == []
+    assert with_mcp_tools([{"name": "read_file"}]) == [{"name": "read_file"}]
+
+

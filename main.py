@@ -2192,6 +2192,22 @@ TOOL_DECLARATIONS = [
 #: a local model that will not stop calling tools.
 AGENT_MAX_TURNS = 24
 
+#: Lazily created GUI-side MCP manager. It lives here (not on ``BrahmaLive``)
+#: because the app's teardown path is in ``main()`` while the instance is built
+#: inside the nested runner.
+_HARNESS_MCP = None
+
+
+def _harness_mcp_manager():
+    """The process-wide GUI MCP manager, created on first use."""
+    global _HARNESS_MCP
+    if _HARNESS_MCP is None:
+        from agent.mcp import WorkspaceMCP
+
+        _HARNESS_MCP = WorkspaceMCP()
+    return _HARNESS_MCP
+
+
 # The harness describes its tools once in ``agent/spec.py``; append their
 # Gemini declarations so the live function-calling surface advertises them
 # too. Importing ``agent.code_tools`` / ``agent.subagent`` is what performs
@@ -3707,6 +3723,33 @@ class BrahmaLive:
         if written:
             print(f"[BRAHMA EVO] \U0001f5c2\ufe0f voice turn persisted ({written} message(s))")
 
+    def _with_agent_mcp(self, tools: list) -> list:
+        """MCP tools merged into a model-facing tool list, started on first use.
+
+        The GUI has no per-command boundary, so one manager lives for the app's
+        life. It is intentionally lazy: a user who never configures a server
+        pays nothing, and a workspace or config change is picked up on the next
+        turn instead of needing a restart.
+        """
+        try:
+            from agent.mcp import with_mcp_tools
+            from agent.runtime import current as current_agent_runtime
+        except Exception as exc:
+            print(f"[BRAHMA EVO] \u26a0\ufe0f MCP unavailable: {exc}")
+            return list(tools or [])
+
+        manager = _harness_mcp_manager()
+        try:
+            workspace = current_agent_runtime().workspace
+            if not manager.ensure(workspace, on_event=self._agent_event):
+                return list(tools or [])
+            return with_mcp_tools(tools)
+        except Exception as exc:
+            # A broken config or a failing server must not take down the turn;
+            # the built-in tools still work and the event stream records why.
+            print(f"[BRAHMA EVO] \u26a0\ufe0f MCP unavailable: {exc}")
+            return list(tools or [])
+
     def _local_brain_reply(self, request_text: str, local_model_target: str) -> str:
         """One full Local Brain turn: bounded tools, execution, one follow-up.
 
@@ -3720,6 +3763,7 @@ class BrahmaLive:
         local_tools, _skill_ctx = local_brain.resolve_tools(
             request_text, TOOL_DECLARATIONS
         )
+        local_tools = self._with_agent_mcp(local_tools)
         print(
             f"[BRAHMA EVO] \U0001f9f0 Local turn: prompt tier "
             f"'{_prompt_tier()}', {len(messages[0]['content'])} chars, "
@@ -3970,6 +4014,15 @@ class BrahmaLive:
             elif kind == "policy_reload":
                 state = "reloaded" if event.get("ok") else "reload failed (old rules kept)"
                 print(f"[BRAHMA EVO] \U0001f4dc policy {state}")
+            elif kind == "mcp":
+                if event.get("ok"):
+                    print(f"[BRAHMA EVO] \U0001f50c mcp {event.get('name')}: "
+                          f"{event.get('tools')} tool(s)")
+                else:
+                    print(f"[BRAHMA EVO] \u26a0\ufe0f mcp {event.get('name')}: "
+                          f"{event.get('error')}")
+            elif kind == "error":
+                print(f"[BRAHMA EVO] \u26a0\ufe0f {event.get('error')}")
             elif kind == "stream_fallback":
                 print(f"[BRAHMA EVO] streaming unavailable: {event.get('reason')}")
             elif kind == "subagent_start":
@@ -4015,6 +4068,7 @@ class BrahmaLive:
             tools, _skill_ctx = local_brain.resolve_tools(
                 request_text, TOOL_DECLARATIONS
             )
+            tools = self._with_agent_mcp(tools)
         try:
             # The seed is the complete conversation (system + user), so it is
             # sent verbatim: prepending `system` again and appending the prompt
@@ -4696,6 +4750,12 @@ def main():
             MCPServerManager.stop_all()
         except Exception as exc:
             _startup_log(f"custom MCP shutdown skipped: {exc}")
+        try:
+            harness_mcp = globals().get("_HARNESS_MCP")
+            if harness_mcp is not None:
+                harness_mcp.close()
+        except Exception as exc:
+            _startup_log(f"harness MCP shutdown skipped: {exc}")
 
 
 if __name__ == "__main__":

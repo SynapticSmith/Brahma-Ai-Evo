@@ -96,7 +96,7 @@ Three invariants make the rest of the design work:
 | `agent/streaming.py` | Delta assembler (text + fragmented tool calls) and an SSE transport over `urllib` | …streamed text or a tool call is garbled. |
 | `agent/process.py` | `run_captured`: shell command with closed stdin and whole-tree termination on timeout (Windows job object / POSIX session group) | …a timed-out command left children running or blocked on a prompt. |
 | `agent/sandbox.py` | `exec.sandbox`: credential scrubbing, trusted command prefix, resource limits | …a command printed the model's key, or a deployment needs to delegate to a real sandbox. |
-| `agent/mcp.py` | Minimal stdlib MCP client: config validation/discovery, stdio JSON-RPC, `tools/list`/`tools/call`, namespaced `ToolSpec`s, session shutdown | …a configured MCP server does not appear, answers wrongly, or leaks a process. |
+| `agent/mcp.py` | Minimal stdlib MCP client: config validation/discovery, stdio JSON-RPC, `tools/list`/`tools/call`, namespaced `ToolSpec`s, per-command sessions and a GUI workspace manager | …a configured MCP server does not appear, answers wrongly, or leaks a process. |
 | `agent/term.py` | TTY-only ANSI view of an approval detail: diff colours, `NO_COLOR`/`TERM=dumb`/`FORCE_COLOR`, Windows VT enablement | …the CLI prompt is unreadable, or escapes leak into a redirected log. |
 | `agent/loop.py` | Bounded agent loop, repeat detection, stop reasons, event stream | …the agent stops early or will not stop. |
 | `agent/context.py` | Character budget, protocol-safe compaction, output truncation | …context is overflowing or a resumed prompt is rejected. |
@@ -488,9 +488,15 @@ starts the configured servers, prints their tool counts, and shuts them down —
 the diagnostic to run before blaming the model.
 
 Two honest limits: tools only (resources, prompts and sampling are not
-implemented), and sessions are per run — there is no automatic restart or
-`tools/list_changed` refresh, so a crashed server stays failed until the next
-run. The GUI text path does not start MCP servers yet; only the CLI does.
+implemented), and no automatic restart or `tools/list_changed` refresh. A
+crashed server stays failed until the enclosing lifetime ends — one command for
+the CLI, a workspace/config change or app restart for the GUI. The CLI starts
+servers for the length of one command; the GUI text path uses a lazily started
+`WorkspaceMCP` that reuses the session across turns, restarts when the
+workspace or config file changes, and closes at app exit. It merges the MCP
+declarations into the *first* model call as well as the follow-ups — a model
+that never learns a tool exists will never call it. The live voice path keeps
+its own SDK-based manager (`core/mcp_manager.py`).
 
 ---
 

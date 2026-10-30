@@ -98,6 +98,10 @@ they govern; `agent/prompts.py` owns discovery and its budgets.
   `mcp_<server>_<tool>` sanitised to `[A-Za-z0-9_]`), so calls go through
   `AgentRuntime.execute` like any other tool. `MCPSession.close()` must
   unregister the specs before killing the process.
+- The GUI uses one `WorkspaceMCP` (`_harness_mcp_manager()` in `main.py`), not
+  a session per turn: it is keyed by workspace + config identity and closed in
+  `main()`'s `finally`. Merge its tools with `with_mcp_tools` so the first model
+  call advertises them; the loop's `all_specs()` merge only covers follow-ups.
 
 ## Sessions
 

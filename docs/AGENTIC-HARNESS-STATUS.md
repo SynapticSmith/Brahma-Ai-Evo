@@ -33,7 +33,7 @@ database migration is required; the new tables are additive.
 | Bounded subagent delegation (`run_subagent`) | Done |
 | Whole-tree command termination on timeout | Done |
 | Policy `exec.sandbox`: credential scrubbing, trusted prefix, resource limits | Done |
-| MCP servers over stdio (tools only) + `mcp list` diagnostic | Done |
+| MCP servers over stdio (tools only), CLI + GUI text path | Done |
 | TTY colour for the approval diff (opt-out, pipe-safe) | Done |
 | Cancellation-safe transcript | Done |
 | Provider-reported token usage | Done |
@@ -62,7 +62,7 @@ agent/code_tools.py     read/write/edit/glob/grep/run_command
 agent/subagent.py       run_subagent contract: schema, budget clamp, child surface
 agent/process.py        run_captured: closed stdin + whole-tree termination on timeout
 agent/sandbox.py        exec.sandbox: secret scrub, trusted prefix, job-object limits
-agent/mcp.py            stdlib MCP client: config, stdio JSON-RPC, tools/list+call, naming
+agent/mcp.py            stdlib MCP client: config, JSON-RPC, tools, workspace manager
 agent/term.py           ANSI view of an approval detail; TTY/NO_COLOR/FORCE_COLOR policy
 agent/runtime.py        AgentRuntime, configure(), gui_approver, policy_note
 agent/loop.py           AgentLoop, AgentResult, stop reasons, event stream
@@ -96,6 +96,7 @@ Modified:
 | `agent/loop.py` | A stream rejected before its first delta gets one plain request and a `stream_fallback`; transient errors still retry, and failures after output still stop. |
 | `agent/loop.py` | `_run_subagent` builds the bounded child loop and relays its events; `_run_one` injects the runner through `ToolContext.extra`; `allow_subagents=False` makes recursion impossible in the child. |
 | `main.py` | The GUI custom path streams through `custom_stream`; streaming is enabled for `source in ("local", "custom")`. |
+| `main.py` | `_with_agent_mcp` merges lazily started harness MCP tools into the local/custom first call; `main()`'s `finally` closes the manager beside the voice MCP manager. |
 | `.github/workflows/ci.yml` | `harness-pythons` job: harness suite on 3.11/3.12/3.13 with only pytest installed. |
 | `.gitignore` | `agent_permissions.json` ignored — it is machine-local user data. |
 
@@ -715,8 +716,36 @@ process, so a dead server's tools cannot haunt a long-lived process or a later
 test. Each server gets the same job-object/POSIX tree kill as `run_command`; a
 crash fails the pending call with the server's stderr tail rather than hanging.
 Two honest limits: tools only, and no auto-restart or `tools/list_changed`
-refresh, so a crashed server stays failed until the next run. The GUI text path
-does not start servers yet; only the CLI does, and that is the next batch.
+refresh, so a crashed server stays failed until the next run. D38 later added
+the GUI text path; the CLI was the only consumer in this batch.
+
+### D38 — The GUI keeps one MCP session, keyed by workspace and config identity
+
+A CLI command has an obvious lifetime; a GUI turn does not. Starting servers in
+`_finish_tool_turn` would pay npx/node startup on every message and, worse,
+would be too late for the first model call: the loop merges `all_specs()` into
+follow-up turns, but a model that never sees a tool in the initial declaration
+array never asks for it. So the GUI starts a process-wide `WorkspaceMCP` before
+`resolve_tools` builds the first surface and merges the MCP declarations into
+that list (`with_mcp_tools`, deduplicated by name because the host's tool bridge
+may already expose an MCP tool).
+
+Reuse is keyed by `(resolved workspace, config path, mtime_ns, size)`. A second
+turn with the same key is a stat and a return; changing the workspace in
+Settings or editing the config restarts the session and unregisters the old
+specs. That matters because the registry is process-global: leaving a dead
+server's tools advertised is the failure mode D37's `close()` exists to avoid.
+There is deliberately no timer or file watcher; the next turn is the refresh
+point, which keeps the manager stdlib-only and thread-safe without a background
+loop.
+
+The manager lives at module scope in `main.py`, not on `BrahmaLive`: the app is
+constructed inside the nested runner while teardown happens in `main()`'s
+`finally`. Shutdown closes the harness manager beside the voice MCP manager.
+A malformed config marks the manager unhealthy and emits one `error` event,
+then returns the built-in tool list; the same file is not re-reported on every
+turn because the fingerprint is unchanged. Fixing the file changes the
+fingerprint and the next turn recovers.
 
 ### D20 — Parallel dispatch is whole-turn and read-only (superseded by D30, then D32)
 
@@ -754,8 +783,8 @@ and the default `python` are 3.14 and lack `ruff`/`pytest`.
 
 ```
 py -3.11 -m ruff check .                 # All checks passed!
-py -3.11 -m pytest tests -q              # 678 passed, 1 skipped  (QT_QPA_PLATFORM=offscreen)
-py -3.11 -m pytest tests -q -k agent     # 341 passed, 1 skipped
+py -3.11 -m pytest tests -q              # 690 passed, 1 skipped  (QT_QPA_PLATFORM=offscreen)
+py -3.11 -m pytest tests -q -k agent     # 350 passed, 1 skipped
 py -3.11 -c "import main; ..."           # 66 voice declarations; six code tools, no run_subagent
 py -3.11 -m agent tools                  # lists the seven tool specs
 py -3.11 -m agent permissions show       # reports built-in defaults
@@ -770,7 +799,7 @@ Notes:
   `{read_file, write_file, edit_file, glob_files, grep_files, run_command}` are
   all present, while `run_subagent` is intentionally absent from the voice
   surface (the text and CLI loops advertise it via `all_specs()`).
-* The 341 harness tests run without a display or a model:
+* The 350 harness tests run without a display or a model:
   `py -3.11 -m pytest tests -q -k agent`. The one skip is the POSIX-only
   `prepare_stream` test, which a Windows run cannot execute.
 * `python -m agent run --provider stub --json` is the cheapest end-to-end
@@ -845,13 +874,20 @@ Notes:
   for changes, plain lines untouched, TTY/`NO_COLOR` (including an empty
   value)/`TERM=dumb`/`FORCE_COLOR` policy, the plain prompt being byte-identical
   to the historical text, and the coloured prompt stripping back to it exactly.
-* MCP is covered by `tests/test_agent_mcp.py` (43), all against a real fake
+* MCP is covered by `tests/test_agent_mcp.py` (52), all against a real fake
   stdio server: config defaults/validation/discovery and relative `cwd`, name
   sanitising/truncation/collision, listing and calling through a `ToolSpec`,
   text/binary/resource/structured/error rendering, per-request timeout, a crash
   failing the pending call with the stderr tail, per-server start failure,
   allow/deny/per-tool policy through the runtime, spec unregistration on close,
-  and `mcp list` JSON, no-config and broken-config behaviour.
+  `mcp list` JSON, no-config and broken-config behaviour, workspace-manager
+  reuse/restart/close across workspace and config changes, and duplicate-free
+  merging into the model's first tool surface.
+* The GUI-only MCP wiring is covered by `tests/test_gui_mcp_wiring.py` (3):
+  the first-surface merge, a broken config degrading to the built-in tools with
+  one error event, and the process-wide manager identity. It imports `main`,
+  so it is deliberately not named `test_agent_*` and stays out of the
+  stdlib-only harness CI job.
 
 ---
 
@@ -882,10 +918,11 @@ Ordered by value, with the honest reason each was left out.
 4. **MCP is tools-only and CLI-only.** The client implements `initialize`,
    `tools/list` and `tools/call`; resources, prompts and sampling are left out
    because a half-supported capability produces tools that fail on first use.
-   Sessions live for one run — no restart, no `tools/list_changed` refresh — so
-   a crashed server stays failed until the next run. The GUI text path does not
-   start MCP servers yet; wiring it needs a Qt-thread-safe start/stop around the
-   turn, not a second client.
+   Sessions do not auto-restart and `tools/list_changed` is not handled: a CLI
+   server lives for one command, the GUI manager for the app's life, but a
+   crashed server stays failed until that lifetime ends. The GUI text path keeps
+   a `WorkspaceMCP` and restarts it on a workspace or config change; the live
+   voice path still uses its own SDK-based manager.
 
 ---
 

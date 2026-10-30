@@ -838,6 +838,161 @@ def registered_mcp_tools() -> List[str]:
     return [spec.name for spec in all_specs() if spec.tool_class == "mcp"]
 
 
+def mcp_openai_tools() -> List[Dict[str, Any]]:
+    """The registered MCP tools in OpenAI tool shape.
+
+    The GUI text path has to merge these into the *first* model call: the loop
+    merges ``all_specs()`` for follow-ups, but a model that never learns a tool
+    exists will never call it.
+    """
+    return [spec.openai() for spec in all_specs() if spec.tool_class == "mcp"]
+
+
+def with_mcp_tools(tools: Optional[Sequence[Mapping[str, Any]]]) -> List[Dict[str, Any]]:
+    """Append registered MCP tools, skipping names the surface already has.
+
+    The host's tool bridge may already expose an MCP tool (the app's own manager
+    predates this client). Duplicate function names are rejected by providers,
+    so the merge is by name rather than a blind concatenation.
+    """
+    merged: List[Dict[str, Any]] = [dict(tool) for tool in (tools or [])]
+    seen = set()
+    for tool in merged:
+        function = tool.get("function")
+        name = function.get("name") if isinstance(function, Mapping) else tool.get("name")
+        if isinstance(name, str) and name:
+            seen.add(name)
+    for tool in mcp_openai_tools():
+        name = tool["function"]["name"]
+        if name not in seen:
+            merged.append(tool)
+            seen.add(name)
+    return merged
+
+
+class WorkspaceMCP:
+    """A lazily started MCP session bound to one workspace and config file.
+
+    The CLI starts a session for the length of one command. A GUI process has
+    no such boundary: turns arrive repeatedly, the workspace can change in
+    Settings, and every turn must not pay the server's startup cost again.
+    This manager starts on first use, reuses the session while the config file
+    is unchanged, and tears it down and restarts when either the workspace or
+    the config's identity changes.
+
+    It is thread-safe because the text turn runs on a worker thread while
+    application shutdown closes the manager from the main thread. A malformed
+    config returns ``False`` rather than raising: one bad file must not take
+    down the reply ladder, and the fingerprint means the same broken file is
+    reported once instead of on every turn.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+        self._session: Optional[MCPSession] = None
+        self._workspace: Optional[str] = None
+        self._fingerprint: Optional[Tuple[str, int, int]] = None
+        self._ok = True
+        self._error = ""
+        self._generation = 0
+
+    @property
+    def generation(self) -> int:
+        """How many times a config was loaded and servers started."""
+        with self._lock:
+            return self._generation
+
+    @property
+    def ok(self) -> bool:
+        with self._lock:
+            return self._ok
+
+    @property
+    def error(self) -> str:
+        with self._lock:
+            return self._error
+
+    @property
+    def statuses(self) -> List[MCPServerStatus]:
+        with self._lock:
+            return list(self._session.statuses) if self._session is not None else []
+
+    @property
+    def tools(self) -> List[str]:
+        with self._lock:
+            return self._session.tools if self._session is not None else []
+
+    def ensure(
+        self,
+        workspace: str | Path,
+        *,
+        config_path: Optional[str | Path] = None,
+        on_event: Optional[Any] = None,
+    ) -> bool:
+        """Start or reuse the session. Returns False only for an unusable config."""
+        root = str(Path(workspace).expanduser().resolve())
+        explicit = str(Path(config_path).expanduser()) if config_path else None
+        with self._lock:
+            path = Path(explicit).resolve() if explicit else discover_config(root)
+            fingerprint: Optional[Tuple[str, int, int]] = None
+            if path is not None:
+                try:
+                    stat = path.stat()
+                    fingerprint = (str(path), stat.st_mtime_ns, stat.st_size)
+                except OSError:
+                    # A named-but-missing file is load_config's error to report,
+                    # not a silent "no servers".
+                    fingerprint = (str(path), -1, -1)
+
+            if self._workspace == root and self._fingerprint == fingerprint:
+                return self._ok
+
+            self._close_locked()
+            self._workspace = root
+            self._fingerprint = fingerprint
+            self._ok = True
+            self._error = ""
+
+            if path is None:
+                return True
+
+            try:
+                configs = load_config(path)
+            except MCPConfigError as exc:
+                self._ok = False
+                self._error = str(exc)
+                _emit_event(on_event, {"type": "error", "error": str(exc)})
+                return False
+
+            self._session = MCPSession()
+            self._session.start(configs, on_event=on_event)
+            self._generation += 1
+            return True
+
+    def close(self) -> None:
+        with self._lock:
+            self._close_locked()
+            self._workspace = None
+            self._fingerprint = None
+            self._ok = True
+            self._error = ""
+
+    def _close_locked(self) -> None:
+        session = self._session
+        self._session = None
+        if session is not None:
+            session.close()
+
+
+def _emit_event(sink: Optional[Any], event: Mapping[str, Any]) -> None:
+    if sink is None:
+        return
+    try:
+        sink(dict(event))
+    except Exception:  # noqa: BLE001 - telemetry must never break a turn
+        pass
+
+
 __all__ = [
     "MAX_TOOL_PAGES",
     "MCPConfigError",
@@ -848,12 +1003,15 @@ __all__ = [
     "MCPTimeout",
     "PROTOCOL_VERSION",
     "StdioServer",
+    "WorkspaceMCP",
     "discover_config",
     "format_tool_result",
     "load_config",
+    "mcp_openai_tools",
     "parse_servers",
     "registered_mcp_tools",
     "session_from_config",
     "start_session",
     "tool_spec_name",
+    "with_mcp_tools",
 ]
