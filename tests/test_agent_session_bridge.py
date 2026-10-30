@@ -130,6 +130,61 @@ def test_resumed_history_seeds_the_next_turn_without_duplicating_it(tmp_path: Pa
     assert context.as_payload()[0] == {"role": "system", "content": "fresh rules"}
 
 
+def test_voice_turn_messages_collapse_whitespace_and_skip_empty_sides():
+    assert bridge.voice_turn_messages("  set\n a\t timer ", "") == [
+        {"role": "user", "content": "set a timer"}
+    ]
+    assert bridge.voice_turn_messages("", "  Timer\n set.  ") == [
+        {"role": "assistant", "content": "Timer set."}
+    ]
+    assert bridge.voice_turn_messages("", "   ") == []
+
+
+def test_record_voice_turn_appends_a_pair_and_counts_user_turns(tmp_path: Path):
+    db = _db(tmp_path)
+    session = AgentSession.create(
+        tmp_path, title="voice chat", model=bridge.VOICE_MODEL, db_path=db
+    )
+
+    assert bridge.record_voice_turn(session, "set a timer", "Timer set.") == 2
+    # A tool-only turn may have no spoken answer; the user side still lands.
+    assert bridge.record_voice_turn(session, "thanks", "") == 1
+
+    assert session.messages() == [
+        {"role": "user", "content": "set a timer"},
+        {"role": "assistant", "content": "Timer set."},
+        {"role": "user", "content": "thanks"},
+    ]
+    record = AgentSession.recent(db_path=db)[0]
+    assert record.turn_count == 2
+    assert record.model == bridge.VOICE_MODEL
+    assert record.status == "active"
+
+
+def test_a_voice_turn_replays_and_seeds_the_next_text_turn(tmp_path: Path):
+    session = AgentSession.create(tmp_path, db_path=_db(tmp_path))
+    bridge.record_voice_turn(session, "what is on my screen", "A code editor.")
+
+    assert bridge.transcript(session.messages()) == [
+        {"role": "user", "text": "what is on my screen"},
+        {"role": "assistant", "text": "A code editor."},
+    ]
+    # Switching from speech to typing carries the spoken turn into the seed.
+    assert bridge.history(session) == [
+        {"role": "user", "content": "what is on my screen"},
+        {"role": "assistant", "content": "A code editor."},
+    ]
+
+
+def test_record_voice_turn_never_breaks_audio(tmp_path: Path):
+    class Broken:
+        def append_message(self, message):  # pragma: no cover - raises first
+            raise RuntimeError("database is locked")
+
+    assert bridge.record_voice_turn(None, "hi", "hello") == 0
+    assert bridge.record_voice_turn(Broken(), "hi", "hello") == 0
+
+
 def test_picker_and_summary_labels_stay_one_line(tmp_path: Path):
     db = _db(tmp_path)
     session = AgentSession.create(

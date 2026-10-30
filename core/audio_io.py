@@ -243,6 +243,18 @@ class AudioIO:
                                     self._host.ui.write_log(f"Brahma Evo: {full_out}")
                             out_buf = []
 
+                            # Archive the completed turn in the shared agent
+                            # session so a voice conversation survives a HUD
+                            # restart and can be replayed/resumed as text. The
+                            # live socket keeps its own history; this write is
+                            # additive and must never interrupt audio.
+                            recorder = getattr(self._host, "_record_voice_turn", None)
+                            if callable(recorder) and (full_in or full_out):
+                                try:
+                                    recorder(full_in, full_out)
+                                except Exception:
+                                    pass
+
                             if full_in and len(full_in) > 5:
                                 threading.Thread(
                                     target=self._update_memory_async,

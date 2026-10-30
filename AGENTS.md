@@ -71,6 +71,9 @@ they govern; `agent/prompts.py` owns discovery and its budgets.
   `agent/session.py`. The GUI creates a row on its first agentic turn against
   the runtime workspace and seeds later turns as
   `[fresh system, stored history, new user]` via `agent/session_bridge.py`.
+  A completed Gemini Live turn is archived into that same row as a cleaned
+  user/assistant pair (`record_voice_turn`), so voice conversations are listed
+  and replayed too; the live socket itself is never re-seeded from disk.
 - HUD commands: `/sessions` lists recent rows, `/resume` opens a picker,
   `/resume <id>` binds a row (unique prefix accepted), `/new` starts fresh.
   The tray menu's **Resume Agent Session…** submits `/resume`.

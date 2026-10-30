@@ -3672,6 +3672,28 @@ class BrahmaLive:
             self._agent_session = None
         return self._agent_session
 
+    def _record_voice_turn(self, user_text: str, assistant_text: str) -> None:
+        """Persist one completed Gemini Live turn into the current session.
+
+        The voice path never created an ``agent_*`` row: close the HUD and the
+        conversation was gone, and a text ``/resume`` could not show what was
+        said. This binds the first spoken turn to the same durable session the
+        text path uses, so both modalities share one transcript. Gemini still
+        owns the live context; nothing here is replayed into the socket.
+        """
+        if not (user_text or assistant_text):
+            return
+        from agent import session_bridge as bridge
+
+        session = self._ensure_agent_session(
+            user_text or "Voice session", bridge.VOICE_MODEL
+        )
+        if session is None:
+            return
+        written = bridge.record_voice_turn(session, user_text, assistant_text)
+        if written:
+            print(f"[BRAHMA EVO] \U0001f5c2\ufe0f voice turn persisted ({written} message(s))")
+
     def _local_brain_reply(self, request_text: str, local_model_target: str) -> str:
         """One full Local Brain turn: bounded tools, execution, one follow-up.
 

@@ -96,7 +96,7 @@ Three invariants make the rest of the design work:
 | `agent/loop.py` | Bounded agent loop, repeat detection, stop reasons, event stream | …the agent stops early or will not stop. |
 | `agent/context.py` | Character budget, protocol-safe compaction, output truncation | …context is overflowing or a resumed prompt is rejected. |
 | `agent/session.py` | Durable messages/events in SQLite; list/open/resume | …resume loses messages. |
-| `agent/session_bridge.py` | Qt-free bridge between a stored session and the GUI's `[system, history, user]` seed | …the HUD restarts from a hard reset or a resumed turn duplicates history. |
+| `agent/session_bridge.py` | Qt-free bridge between a stored session and the GUI's `[system, history, user]` seed; `record_voice_turn` archives completed Live turns | …the HUD restarts from a hard reset, a resumed turn duplicates history, or a spoken turn is lost on exit. |
 | `agent/prompts.py` | Resident system prompt + `AGENTS.md` / `BRAHMA.md` loader, path-driven subdirectory discovery | …the model behaves against project conventions. |
 | `agent/providers.py` | Loop-compatible completers for local/custom/OpenRouter/stub; shared `custom_stream`; summariser | …tool calling fails on one provider only. |
 | `agent/retry.py` | Transient-error classifier, exponential backoff with jitter, cancellation-aware wait | …a run stalled on a 503 or retried something it should not. |
@@ -621,7 +621,7 @@ python -m agent resume <session-id> "continue"
 The CLI reopens the session, reuses its `cwd` when `--cwd` is absent, rebuilds
 the system prompt, and continues appending to the same transcript.
 
-### The GUI text path is a session too
+### The GUI paths are sessions too
 
 The HUD used to rebuild `[system, user]` on every turn and never created an
 `agent_*` row, so closing the window was a hard reset even though the tables
@@ -631,7 +631,17 @@ session created against the runtime workspace; later turns seed
 provider request of a resumed turn therefore sees the earlier conversation,
 not just the new sentence.
 
-Two invariants make that safe:
+A completed Gemini Live turn is archived into the same session. The voice path
+keeps Gemini's own loop — nothing is replayed into the live socket — but each
+`turn_complete` appends the cleaned input/output transcription as a normal
+user/assistant pair through `session_bridge.record_voice_turn()`. That gives
+voice conversations three things the socket cannot: a durable row `/sessions`
+lists, a transcript `/resume` can replay in the HUD, and continuity when the
+user switches from speaking to typing mid-conversation. A blank side (a
+tool-only turn with no spoken answer) is skipped rather than stored as an empty
+message, and a database failure returns `0` so audio is never interrupted.
+
+Two invariants make text resume safe:
 
 * **The system prompt is never persisted.** It names this run's workspace,
   endpoint and instruction files; a stale copy would be worse than rebuilding
@@ -827,10 +837,11 @@ These are known and deliberate, not surprises:
   coordinator can be built on the event stream without touching the loop.
 * **`run_command` is `shell=True`.** The policy is the only barrier; there is
   no OS sandbox. Treat `--yolo` as "run me in a container".
-* **The voice path is not session-persisted.** Gemini's live session owns its
-  own history; the text path and CLI write `agent_*` rows, but a voice turn
-  still does not. Resuming a GUI text session does not replay it into a live
-  Gemini socket.
+* **Voice turns are archived, not replayed.** Gemini's live session owns its
+  own history; a completed turn is written to `agent_*` as a cleaned
+  user/assistant pair, so it is listed and replayed by the HUD. Resuming a
+  session does not feed that transcript back into a live Gemini socket, and a
+  spoken turn that never reaches `turn_complete` (a dropped socket) is lost.
 * **Windows-first.** The code is portable Python but the denylist, paths and
   host integration are Windows-shaped, matching the rest of the app.
 

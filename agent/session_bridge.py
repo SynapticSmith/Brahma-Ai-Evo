@@ -27,6 +27,10 @@ from .session import AgentSession, SessionRecord
 #: agree on what "the same session" looks like in a list.
 TITLE_LIMIT = 60
 
+#: Model label for rows whose turns came from the Gemini Live voice path. It is
+#: a marker, not a provider id the harness can call.
+VOICE_MODEL = "gemini-live"
+
 
 def title_for(prompt: str, limit: int = TITLE_LIMIT) -> str:
     """A short, single-line session title derived from the first request."""
@@ -109,6 +113,55 @@ def messages_after(
             break
         prefix = index + 1
     return items[prefix:]
+
+
+def voice_turn_messages(
+    user_text: str, assistant_text: str
+) -> List[Dict[str, str]]:
+    """The user/assistant pair for one completed Live turn.
+
+    Transcription arrives in chunks and often carries newlines, so each side is
+    collapsed to single spaces. An empty side is skipped: a tool-only turn can
+    have no spoken answer, and a silent turn has no user text.
+    """
+    messages: List[Dict[str, str]] = []
+    for role, text in (("user", user_text), ("assistant", assistant_text)):
+        clean = " ".join(str(text or "").split())
+        if clean:
+            messages.append({"role": role, "content": clean})
+    return messages
+
+
+def record_voice_turn(
+    session: Optional[AgentSession], user_text: str, assistant_text: str
+) -> int:
+    """Append one completed Live turn to ``session``; return messages written.
+
+    Gemini owns the live conversation, so this is archival rather than context:
+    the next voice turn does not replay it. It still gives the HUD three things
+    the live socket cannot: a durable row that ``/sessions`` lists, a transcript
+    ``/resume`` can replay, and continuity when the user switches from speaking
+    to typing in the same conversation.
+
+    Persistence must never interrupt audio, so every failure returns ``0``.
+    ``turn_count`` follows the stored user messages, which stays meaningful
+    when a session mixes spoken and typed turns.
+    """
+    if session is None:
+        return 0
+    messages = voice_turn_messages(user_text, assistant_text)
+    if not messages:
+        return 0
+    try:
+        for message in messages:
+            session.append_message(message)
+        turns = sum(
+            1 for item in session.messages() if item.get("role") == "user"
+        )
+        session.set_status("active", turns=turns)
+    except Exception:
+        return 0
+    return len(messages)
 
 
 def transcript(messages: Iterable[Dict[str, Any]]) -> List[Dict[str, str]]:

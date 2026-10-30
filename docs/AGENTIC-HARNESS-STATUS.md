@@ -36,6 +36,7 @@ database migration is required; the new tables are additive.
 | Subdirectory instructions (path-driven) | Done |
 | Streaming output (text + tool calls) | Done |
 | GUI session persistence + replay | Done |
+| Voice-path session persistence | Done |
 | Diff highlighting + CHANGES ONLY folding in the banner | Done |
 | Custom-endpoint streaming in the GUI; rejected-stream fallback | Done |
 | Python floor + CI matrix | Done |
@@ -57,7 +58,7 @@ agent/runtime.py        AgentRuntime, configure(), gui_approver, policy_note
 agent/loop.py           AgentLoop, AgentResult, stop reasons, event stream
 agent/context.py        ContextBudget, ConversationContext, compaction
 agent/session.py        AgentSession (agent_* tables), SessionRecord
-agent/session_bridge.py Qt-free GUI↔session seed, transcript, picker labels
+agent/session_bridge.py Qt-free GUI↔session seed, voice-turn archive, transcript, picker labels
 agent/prompts.py        resident prompt + AGENTS.md/BRAHMA.md loader
 agent/providers.py      local/custom/openrouter/stub completers + summariser
 agent/streaming.py      delta assembler + SSE transport (stdlib urllib)
@@ -69,7 +70,7 @@ Modified:
 
 | File | Change |
 | --- | --- |
-| `main.py` | Appends harness declarations to `TOOL_DECLARATIONS`; `AGENT_MAX_TURNS = 24`; `_finish_tool_turn` now seeds `AgentLoop(first_response=res)` with the turn-one tool surface; new `_agent_event`; `_ensure_agent_session` persists GUI text turns and `/sessions`, `/resume`, `/new` bind or drop the session; `main()` configures the runtime with the developer-mode workspace and the HUD approver. |
+| `main.py` | Appends harness declarations to `TOOL_DECLARATIONS`; `AGENT_MAX_TURNS = 24`; `_finish_tool_turn` now seeds `AgentLoop(first_response=res)` with the turn-one tool surface; new `_agent_event`; `_ensure_agent_session` persists GUI text turns, `_record_voice_turn` archives completed Live turns, and `/sessions`, `/resume`, `/new` bind or drop the session; `main()` configures the runtime with the developer-mode workspace and the HUD approver. |
 | `core/tool_exec.py` | Harness branch at the top of `ToolExecutor.execute`, dispatched via `asyncio.to_thread`. Falls through to the legacy path otherwise. |
 | `core/confirm.py` | `is_bound()`, `_on_qt_main_thread()`, `ask_blocking()`; `_Pending` gained `waiter`/`verdict`; `resolve()` now completes the waiter (timeout ⇒ `False`). |
 | `core/tool_index.py` | Pinned `read_file`, `edit_file`, `run_command` alongside `undo`/`recall_memory`. |
@@ -498,6 +499,27 @@ touch the written file still wait. A per-call scheduler that understands the
 paths in each call could do better; short of that, segments capture most of the
 win without guessing.
 
+### D31 — Voice turns are archived, not replayed into the live socket
+
+Gemini owns the spoken conversation: the harness sees transcription chunks and
+tool calls, never the model's live context. Not persisting them meant a HUD
+restart lost everything that was said, and `/resume` could only ever show typed
+turns — even though the rows have exactly the shape a voice pair needs.
+
+On `turn_complete`, `AudioIO` hands the cleaned input/output transcriptions to
+`BrahmaLive._record_voice_turn`, which binds the first spoken turn to the
+current session (model label `gemini-live`) and appends the pair via
+`session_bridge.record_voice_turn`. The helper collapses whitespace, skips a
+blank side — a tool-only turn can have no spoken answer — and sets
+`turn_count` from the stored user messages. Every failure returns `0`: audio
+must never depend on SQLite.
+
+This is archival, not context transfer. Nothing from disk is fed back into the
+live socket; Gemini's session state is authoritative and replaying history
+into it would duplicate turns. The win is one transcript across modalities:
+`history()` seeds the next typed turn with what was said, `/sessions` lists the
+row, and `/resume` replays it in the HUD.
+
 ### D20 — Parallel dispatch is whole-turn and read-only (superseded by D30)
 
 Model turns often contain several `read_file`/`glob_files`/`grep_files` calls,
@@ -534,8 +556,8 @@ and the default `python` are 3.14 and lack `ruff`/`pytest`.
 
 ```
 py -3.11 -m ruff check .                 # All checks passed!
-py -3.11 -m pytest tests -q              # 562 passed  (QT_QPA_PLATFORM=offscreen)
-py -3.11 -m pytest tests -q -k agent     # 225 passed
+py -3.11 -m pytest tests -q              # 566 passed  (QT_QPA_PLATFORM=offscreen)
+py -3.11 -m pytest tests -q -k agent     # 229 passed
 py -3.11 -c "import main; ..."           # 66 declarations, all six tools present
 py -3.11 -m agent tools                  # lists the six primitives
 py -3.11 -m agent permissions show       # reports built-in defaults
@@ -549,7 +571,7 @@ Notes:
   `len(TOOL_DECLARATIONS) == 66` and that
   `{read_file, write_file, edit_file, glob_files, grep_files, run_command}` are
   all present.
-* The 225 harness tests run without a display or a model:
+* The 229 harness tests run without a display or a model:
   `py -3.11 -m pytest tests -q -k agent`.
 * `python -m agent run --provider stub --json` is the cheapest end-to-end
   smoke test (used by `test_agent_cli`).
@@ -588,9 +610,11 @@ Notes:
   `ai_client` import fails the fake), and the shared custom stream posts the
   right URL, headers and payload with per-call settings reload.
 * The GUI session bridge is covered by `tests/test_agent_session_bridge.py`
-  (8): system-row stripping, prefix-only appends on resume, transcript
-  filtering, one-line titles, and the picker/summary labels. It is pure Python
-  so the harness CI job still needs only pytest.
+  (12): system-row stripping, prefix-only appends on resume, transcript
+  filtering, one-line titles, picker/summary labels, and voice-turn archiving
+  (whitespace normalisation, blank-side skipping, turn counts, replay and the
+  seed a following typed turn sees, plus a broken store returning `0`). It is
+  pure Python so the harness CI job still needs only pytest.
 * Banner diff folding is covered by `tests/test_agent_diff_preview.py` (10):
   real-diff detection vs a `--- before ---` heading, add/remove/hunk counts,
   context retention and `… N unchanged` markers, zero-context folding, and the
@@ -617,11 +641,7 @@ Ordered by value, with the honest reason each was left out.
 3. **Sandboxing.** `run_command` is `shell=True` with policy as the only
    barrier. A Windows job-object / container option would let `--yolo` be safe
    in more places.
-4. **Voice-path session persistence.** Gemini owns the live history, so voice
-   turns do not write `agent_*` rows. Unifying them would need a transcript
-   bridge from the live session; a GUI text session cannot be replayed into a
-   live socket.
-5. **The TTY prompt has no colour.** The HUD highlights diffs and folds
+4. **The TTY prompt has no colour.** The HUD highlights diffs and folds
    context, but `python -m agent` prints the same detail as plain text. That is
    fine for piping and logs; adding ANSI colour would need a TTY check so a
    redirected run stays parseable.
