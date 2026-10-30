@@ -22,10 +22,10 @@ from __future__ import annotations
 
 import difflib
 import re
-import subprocess
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from .process import run_captured
 from .spec import ToolContext, register, ToolSpec
 
 #: Directories that are never worth walking. Kept in sync with the spirit of
@@ -389,7 +389,7 @@ RUN_SCHEMA: Dict[str, Any] = {
     "properties": {
         "command": {"type": "string", "description": "Shell command to run in the workspace."},
         "cwd": {"type": "string", "description": "Working directory; defaults to the workspace root."},
-        "timeout": {"type": "integer", "description": "Seconds before the command is killed (default 120)."},
+        "timeout": {"type": "integer", "description": "Seconds before the command and its child processes are killed (default 120)."},
     },
     "required": ["command"],
 }
@@ -404,21 +404,15 @@ def run_command(args: Dict[str, Any], context: ToolContext) -> str:
         return f"Working directory does not exist: {_relative(context, cwd)}"
     timeout = max(1.0, min(float(args.get("timeout") or 120), 1_800.0))
     try:
-        completed = subprocess.run(
-            command,
-            shell=True,
-            cwd=str(cwd),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired as exc:
-        partial = (exc.stdout or "") if isinstance(exc.stdout, str) else ""
-        return f"Command timed out after {timeout:.0f}s: {command}\n{partial[-2000:]}"
+        completed = run_captured(command, cwd=cwd, timeout=timeout)
     except OSError as exc:
         return f"Could not start command: {exc}"
+
+    if completed.timed_out:
+        # The process tree was terminated before the pipes were drained, so
+        # `stdout` is the part that made it out before the deadline.
+        partial = completed.stdout or ""
+        return f"Command timed out after {timeout:.0f}s: {command}\n{partial[-2000:]}"
 
     cap = context.max_output_chars or 20_000
     stdout = completed.stdout or ""
@@ -503,7 +497,9 @@ SPECS: Tuple[ToolSpec, ...] = (
         name="run_command",
         description=(
             "Run a shell command in the workspace and return exit code, stdout and stderr. "
-            "Use this to run tests, linters, builds and git. The output is capped."
+            "Use this to run tests, linters, builds and git. The output is capped. "
+            "stdin is closed, so a command cannot prompt; on timeout the whole process "
+            "tree is terminated."
         ),
         parameters=RUN_SCHEMA,
         tool_class="exec",

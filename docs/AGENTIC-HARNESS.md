@@ -94,6 +94,7 @@ Three invariants make the rest of the design work:
 | `agent/approval_detail.py` | Banner text: rule, command/cwd, unified diffs, and the ALWAYS ALLOW label | …an approval banner is unhelpful or names the wrong thing. |
 | `agent/usage.py` | Provider-reported token counts, normalised and summed | …you need real cost numbers instead of the local estimate. |
 | `agent/streaming.py` | Delta assembler (text + fragmented tool calls) and an SSE transport over `urllib` | …streamed text or a tool call is garbled. |
+| `agent/process.py` | `run_captured`: shell command with closed stdin and whole-tree termination on timeout (Windows job object / POSIX session group) | …a timed-out command left children running or blocked on a prompt. |
 | `agent/loop.py` | Bounded agent loop, repeat detection, stop reasons, event stream | …the agent stops early or will not stop. |
 | `agent/context.py` | Character budget, protocol-safe compaction, output truncation | …context is overflowing or a resumed prompt is rejected. |
 | `agent/session.py` | Durable messages/events in SQLite; list/open/resume | …resume loses messages. |
@@ -388,12 +389,35 @@ ToolSpec(
 | `edit_file` | write | Exact-string replace; **requires uniqueness** unless `replace_all=true`; explains whitespace-only mismatches; pushes undo. |
 | `glob_files` | read | Newest first; skips `node_modules`, `.venv`, `.git`, build dirs, caches. |
 | `grep_files` | read | Python regex; `path:line: text`; glob filter; caps files and matches. |
-| `run_command` | exec | `shell=True` in the workspace; exit code + stdout + stderr; timeout (default 120 s, max 1800 s); output capped. |
+| `run_command` | exec | `shell=True` in the workspace; **stdin is closed**; exit code + stdout + stderr; timeout (default 120 s, max 1800 s) terminates the **whole process tree**; output capped. |
 | `run_subagent` | native | Bounded child loop with a filtered read-default surface; returns a report; never recursive; refuses outside a loop. |
 
 Edits and writes register with **`core/undo.py`**, so the existing `undo` tool
 reverses agent changes too. That is the recovery path, which is why writes are
 not gated behind a confirmation by default.
+
+### Command containment
+
+`run_command` does not use `subprocess.run(timeout=...)`, because that kills
+only the shell. `agent/process.py` starts the command with `stdin=DEVNULL` — a
+password prompt must fail fast, not block until the deadline — and watches the
+tree:
+
+* **Windows**: the process is assigned to a fresh job object immediately after
+  it starts; `TerminateJobObject` ends the shell and every descendant. If the
+  assignment fails (old Windows, restricted token), `taskkill /F /T` is the
+  fallback.
+* **POSIX**: `start_new_session=True` makes the command a session leader, so a
+  timeout can `killpg` the whole group.
+
+The tree is terminated *before* the pipes are drained, so the returned text
+still contains whatever the command printed before the deadline. Normal
+completion does not kill survivors: a command that intentionally starts a
+background process still leaves it running, exactly as before. (A survivor that
+inherits stdout keeps the call waiting on the pipe until the deadline, at which
+point it is part of the tree and is killed.) Containment bounds lifetime, not
+filesystem or network access; it is not a sandbox, and the policy remains the
+gate for whether a command may run.
 
 ---
 
@@ -805,7 +829,8 @@ unchanged); only the loop around it is new.
 | File | Covers |
 | --- | --- |
 | `tests/test_agent_permissions.py` | Defaults, headless escalation, path escapes, protected files, denylist, per-tool overrides, malformed policy, template immutability. |
-| `tests/test_agent_code_tools.py` | All six primitives against `tmp_path`, including ambiguity, whitespace hints, binary refusal, timeouts, and runtime gating (revoke/approve/unknown/native delegation). |
+| `tests/test_agent_code_tools.py` | All six primitives against `tmp_path`, including ambiguity, whitespace hints, binary refusal, timeouts with partial output, and runtime gating (revoke/approve/unknown/native delegation). |
+| `tests/test_agent_process.py` | `run_captured`: output/exit code, stderr, timeout with partial output, closed stdin, a grandchild that does not survive a timeout, and (Windows) the job object actually being assigned. |
 | `tests/test_agent_context.py` | Token estimate, tail-preserving truncation, safe-boundary compaction, no orphaned tool results, summariser fallback. |
 | `tests/test_agent_loop.py` | Multi-turn continuation, protocol integrity, repeat stop, turn cap, denial stop, approval, cancellation, completer failure, `first_response`, in-loop compaction, event order, session parity, provider shapes. |
 | `tests/test_agent_session.py` | Round-trip incl. `tool_calls`, listing order, rewrite after compaction, status/summary, events, missing DB. |
@@ -891,8 +916,11 @@ These are known and deliberate, not surprises:
   waits. A child cannot delegate again, has no session row, and its transcript
   is discarded — only its final report crosses back. The report is therefore
   lossy by design; ask for specific findings rather than "investigate".
-* **`run_command` is `shell=True`.** The policy is the only barrier; there is
-  no OS sandbox. Treat `--yolo` as "run me in a container".
+* **`run_command` is `shell=True`.** Timeouts now terminate the whole process
+  tree (a Windows job object, or a POSIX session group) and `stdin` is closed,
+  but there is still no filesystem or network sandbox: the policy is the only
+  barrier on what a command may read, write or reach. Treat `--yolo` as "run me
+  in a container".
 * **Voice turns are archived, not replayed.** Gemini's live session owns its
   own history; a completed turn is written to `agent_*` as a cleaned
   user/assistant pair, so it is listed and replayed by the HUD. Resuming a

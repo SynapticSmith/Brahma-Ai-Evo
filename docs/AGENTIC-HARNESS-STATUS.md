@@ -31,6 +31,7 @@ database migration is required; the new tables are additive.
 | Granular approval detail (rule, command/cwd, diff) | Done |
 | Path-dependency parallel tool calls | Done |
 | Bounded subagent delegation (`run_subagent`) | Done |
+| Whole-tree command termination on timeout | Done |
 | Cancellation-safe transcript | Done |
 | Provider-reported token usage | Done |
 | Policy hot-reload (fail-safe) | Done |
@@ -56,6 +57,7 @@ agent/spec.py           ToolSpec, ToolContext, registry, schema conversion
 agent/permissions.py    policy document, evaluate(), defaults, template
 agent/code_tools.py     read/write/edit/glob/grep/run_command
 agent/subagent.py       run_subagent contract: schema, budget clamp, child surface
+agent/process.py        run_captured: closed stdin + whole-tree termination on timeout
 agent/runtime.py        AgentRuntime, configure(), gui_approver, policy_note
 agent/loop.py           AgentLoop, AgentResult, stop reasons, event stream
 agent/context.py        ContextBudget, ConversationContext, compaction
@@ -98,7 +100,7 @@ New tests: `tests/test_agent_permissions.py`, `test_agent_code_tools.py`,
 `test_agent_policy_reload.py`, `test_agent_instructions.py`,
 `test_agent_streaming.py`, `test_agent_session_bridge.py`,
 `test_agent_diff_preview.py`, `test_agent_providers.py`,
-`test_agent_subagent.py` — all pure-Python
+`test_agent_subagent.py`, `test_agent_process.py` — all pure-Python
 (no display, no model). HUD-only behaviour lives in
 `tests/test_confirmation_overlay.py`.
 
@@ -582,6 +584,31 @@ row and why its events are relayed under `subagent_start` / `subagent_event` /
 socket does not advertise the tool: Gemini's live session owns its transport and
 cannot build a text child loop.
 
+### D34 — A timed-out command loses its whole tree, and never waits on stdin
+
+`subprocess.run(..., timeout=...)` raises after killing the immediate child. For
+a coding agent that is the wrong unit: `pytest`, a build or a script starts
+children, and those children keep writing files, holding ports and keeping the
+capture pipes open. The next turn then races the previous call's orphans, and
+on Windows the read can block until the grandchild exits on its own.
+
+`agent/process.py` keeps `Popen` + `communicate(timeout=...)` but adds
+containment at the moment the process starts. On Windows it `OpenProcess`es the
+shell and assigns it to a fresh job object; `TerminateJobObject` on timeout ends
+every process in that job. On POSIX the command starts a new session, so
+`killpg` reaches the group. A failed job assignment falls back to
+`taskkill /F /T`, then `Popen.kill()`: containment is best-effort, never a reason
+to fail the call. The tree is terminated *before* the pipes are drained, so the
+timeout text still includes the output printed before the deadline.
+
+Two boundaries are deliberate. `stdin` is `DEVNULL`, because an agent call has
+no human to answer a password prompt; without it the command burns the full
+timeout and returns nothing. And normal completion does not kill survivors: a
+command that intentionally starts a background process still leaves it running,
+which preserves the pre-existing contract. This bounds lifetime, not filesystem
+or network access — it is containment, not a sandbox, and the policy is still
+the gate for whether a command may run at all.
+
 ### D20 — Parallel dispatch is whole-turn and read-only (superseded by D30, then D32)
 
 Model turns often contain several `read_file`/`glob_files`/`grep_files` calls,
@@ -618,8 +645,8 @@ and the default `python` are 3.14 and lack `ruff`/`pytest`.
 
 ```
 py -3.11 -m ruff check .                 # All checks passed!
-py -3.11 -m pytest tests -q              # 582 passed  (QT_QPA_PLATFORM=offscreen)
-py -3.11 -m pytest tests -q -k agent     # 245 passed
+py -3.11 -m pytest tests -q              # 589 passed  (QT_QPA_PLATFORM=offscreen)
+py -3.11 -m pytest tests -q -k agent     # 252 passed
 py -3.11 -c "import main; ..."           # 66 voice declarations; six code tools, no run_subagent
 py -3.11 -m agent tools                  # lists the seven tool specs
 py -3.11 -m agent permissions show       # reports built-in defaults
@@ -634,7 +661,7 @@ Notes:
   `{read_file, write_file, edit_file, glob_files, grep_files, run_command}` are
   all present, while `run_subagent` is intentionally absent from the voice
   surface (the text and CLI loops advertise it via `all_specs()`).
-* The 245 harness tests run without a display or a model:
+* The 252 harness tests run without a display or a model:
   `py -3.11 -m pytest tests -q -k agent`.
 * `python -m agent run --provider stub --json` is the cheapest end-to-end
   smoke test (used by `test_agent_cli`).
@@ -691,6 +718,11 @@ Notes:
   refusal without a loop, relayed child events, and empty/unknown-request
   refusals. A refused subagent call is the turn's only call, so it ends at
   `permission_denied` exactly like any other all-refused turn; no child starts.
+* Command containment is covered by `tests/test_agent_process.py` (6) plus one
+  test in `tests/test_agent_code_tools.py`: output and exit code, stderr,
+  timeout with partial output, closed stdin, a grandchild that does not survive
+  the timeout, and (Windows only) proof that the job object is actually
+  assigned rather than silently falling back to `taskkill`.
 
 ---
 
@@ -698,9 +730,11 @@ Notes:
 
 Ordered by value, with the honest reason each was left out.
 
-1. **Sandboxing.** `run_command` is `shell=True` with policy as the only
-   barrier. A Windows job-object / container option would let `--yolo` be safe
-   in more places.
+1. **Filesystem/network sandboxing.** Timeouts now end the whole process tree,
+   but `run_command` is still `shell=True` with no filesystem or network
+   confinement; the policy is the only barrier on what a command can touch. A
+   Windows job-object/container option that also restricted access would let
+   `--yolo` be safe in more places.
 2. **The TTY prompt has no colour.** The HUD highlights diffs and folds
    context, but `python -m agent` prints the same detail as plain text. That is
    fine for piping and logs; adding ANSI colour would need a TTY check so a

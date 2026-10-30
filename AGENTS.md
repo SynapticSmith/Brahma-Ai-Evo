@@ -65,6 +65,19 @@ they govern; `agent/prompts.py` owns discovery and its budgets.
   (`policy_check_interval`), so an edit needs no restart; a malformed edit keeps
   the last good policy and emits `policy_reload` with `ok=False`.
 
+## Commands
+
+- `run_command` goes through `agent.process.run_captured`. Do not add a second
+  `subprocess.run(shell=True, timeout=...)` call for a tool: that kills only the
+  shell and leaks grandchildren.
+- `run_captured` closes `stdin` (no prompt can block an agent call) and, on
+  timeout, terminates the whole tree — a Windows job object, or a POSIX session
+  group, with `taskkill /F /T` and `Popen.kill()` as fallbacks. Normal
+  completion does not kill background survivors.
+- Containment bounds lifetime, not access: there is still no filesystem or
+  network sandbox, so the permission policy remains the gate. Keep timeout
+  clamping (1 s to 1800 s) at the tool.
+
 ## Sessions
 
 - The CLI (`run`/`resume`/`sessions`) and the GUI text path share

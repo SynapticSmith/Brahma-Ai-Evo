@@ -160,6 +160,22 @@ def test_run_command_times_out(context: ToolContext):
     assert "timed out" in result
 
 
+def test_run_command_timeout_keeps_what_was_printed(context: ToolContext):
+    script = context.workspace / "slow.py"
+    script.write_text(
+        "import time\nprint('before', flush=True)\ntime.sleep(5)\n",
+        encoding="utf-8",
+    )
+
+    result = code_tools.run_command(
+        {"command": f'"{sys.executable}" "{script.name}"', "timeout": 1},
+        context,
+    )
+
+    assert "timed out" in result
+    assert "before" in result
+
+
 # --------------------------------------------------------------------------- #
 # Policy integration: handlers are safe, the runtime is the gate
 # --------------------------------------------------------------------------- #
