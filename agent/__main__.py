@@ -29,6 +29,7 @@ from .prompts import build_system_prompt
 from .providers import ProviderUnavailable, build_completer, build_summarizer
 from .runtime import AgentRuntime, configure, policy_note
 from .session import AgentSession, SessionNotFound
+from .term import approval_prompt, colour_enabled
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -149,7 +150,7 @@ def _make_printer(as_json: bool):
 def _tty_approver(name: str, args: Dict[str, Any], detail: str) -> Any:
     if not sys.stdin.isatty():
         return False
-    sys.stderr.write(f"\n[approval] {detail}\nAllow '{name}'? [y/N/a=always] ")
+    sys.stderr.write(approval_prompt(detail, name, colour=colour_enabled(sys.stderr)))
     sys.stderr.flush()
     try:
         answer = input().strip().lower()

@@ -95,6 +95,7 @@ Three invariants make the rest of the design work:
 | `agent/usage.py` | Provider-reported token counts, normalised and summed | …you need real cost numbers instead of the local estimate. |
 | `agent/streaming.py` | Delta assembler (text + fragmented tool calls) and an SSE transport over `urllib` | …streamed text or a tool call is garbled. |
 | `agent/process.py` | `run_captured`: shell command with closed stdin and whole-tree termination on timeout (Windows job object / POSIX session group) | …a timed-out command left children running or blocked on a prompt. |
+| `agent/term.py` | TTY-only ANSI view of an approval detail: diff colours, `NO_COLOR`/`TERM=dumb`/`FORCE_COLOR`, Windows VT enablement | …the CLI prompt is unreadable, or escapes leak into a redirected log. |
 | `agent/loop.py` | Bounded agent loop, repeat detection, stop reasons, event stream | …the agent stops early or will not stop. |
 | `agent/context.py` | Character budget, protocol-safe compaction, output truncation | …context is overflowing or a resumed prompt is rejected. |
 | `agent/session.py` | Durable messages/events in SQLite; list/open/resume | …resume loses messages. |
@@ -642,6 +643,21 @@ permission denial, error), `2` no provider reachable, `3` usage error, `130`
 interrupted (second Ctrl-C, or Ctrl-C while already cancelling). `stub` exists
 so the CLI and loop can be tested without a model.
 
+### Approval prompt colour
+
+On a TTY the prompt colours the diff in the detail: added lines green, removed
+lines red, hunk headers cyan, file headers dim, and `rule:` / argument labels
+bold. The question and `[approval]` marker are bold as well.
+
+Colour is **off** unless the destination is a TTY. `NO_COLOR` (any value),
+`TERM=dumb`, and a redirected stderr all keep the exact plain prompt, so logs
+and captured output do not gain escape sequences. `FORCE_COLOR=1` overrides the
+TTY check when piping into something that understands ANSI (`less -R`). On
+Windows, `agent/term.py` enables VT processing on the console handle first; a
+legacy console that rejects that mode gets plain text rather than literal
+escapes. The plain and coloured prompts carry the same words — only the
+wrapping differs.
+
 ### Seeding a policy (nothing is required)
 
 A clone runs on the built-in defaults: read/write allowed, `exec` asked (and
@@ -831,6 +847,7 @@ unchanged); only the loop around it is new.
 | `tests/test_agent_permissions.py` | Defaults, headless escalation, path escapes, protected files, denylist, per-tool overrides, malformed policy, template immutability. |
 | `tests/test_agent_code_tools.py` | All six primitives against `tmp_path`, including ambiguity, whitespace hints, binary refusal, timeouts with partial output, and runtime gating (revoke/approve/unknown/native delegation). |
 | `tests/test_agent_process.py` | `run_captured`: output/exit code, stderr, timeout with partial output, closed stdin, a grandchild that does not survive a timeout, and (Windows) the job object actually being assigned. |
+| `tests/test_agent_term.py` | Approval colour: diff/rule/label line rules, plain lines untouched, `NO_COLOR` / `TERM=dumb` / `FORCE_COLOR` / non-TTY policy, the plain prompt being byte-identical to the historical text, and the coloured prompt stripping back to it. |
 | `tests/test_agent_context.py` | Token estimate, tail-preserving truncation, safe-boundary compaction, no orphaned tool results, summariser fallback. |
 | `tests/test_agent_loop.py` | Multi-turn continuation, protocol integrity, repeat stop, turn cap, denial stop, approval, cancellation, completer failure, `first_response`, in-loop compaction, event order, session parity, provider shapes. |
 | `tests/test_agent_session.py` | Round-trip incl. `tool_calls`, listing order, rewrite after compaction, status/summary, events, missing DB. |

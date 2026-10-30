@@ -142,5 +142,9 @@ they govern; `agent/prompts.py` owns discovery and its budgets.
 4. Leave `agent/__init__.py` empty; `python -m agent` must not import PyQt.
 5. `agent_permissions.json` is user data. Do not commit it — only
    `config/agent_permissions.example.json` belongs in the repo.
-6. Prefer targeted edits over whole-file rewrites, and run the project's own
+6. CLI colour goes through `agent/term.py`; never write raw ANSI in
+   `agent/__main__.py`. The plain branch must stay byte-identical to the
+   historical prompt, and colour must be off for a non-TTY, `NO_COLOR` or
+   `TERM=dumb` (it is the reason redirected logs stay parseable).
+7. Prefer targeted edits over whole-file rewrites, and run the project's own
    checks rather than asserting that a change works.

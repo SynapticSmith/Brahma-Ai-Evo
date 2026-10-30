@@ -32,6 +32,7 @@ database migration is required; the new tables are additive.
 | Path-dependency parallel tool calls | Done |
 | Bounded subagent delegation (`run_subagent`) | Done |
 | Whole-tree command termination on timeout | Done |
+| TTY colour for the approval diff (opt-out, pipe-safe) | Done |
 | Cancellation-safe transcript | Done |
 | Provider-reported token usage | Done |
 | Policy hot-reload (fail-safe) | Done |
@@ -58,6 +59,7 @@ agent/permissions.py    policy document, evaluate(), defaults, template
 agent/code_tools.py     read/write/edit/glob/grep/run_command
 agent/subagent.py       run_subagent contract: schema, budget clamp, child surface
 agent/process.py        run_captured: closed stdin + whole-tree termination on timeout
+agent/term.py           ANSI view of an approval detail; TTY/NO_COLOR/FORCE_COLOR policy
 agent/runtime.py        AgentRuntime, configure(), gui_approver, policy_note
 agent/loop.py           AgentLoop, AgentResult, stop reasons, event stream
 agent/context.py        ContextBudget, ConversationContext, compaction
@@ -100,7 +102,7 @@ New tests: `tests/test_agent_permissions.py`, `test_agent_code_tools.py`,
 `test_agent_policy_reload.py`, `test_agent_instructions.py`,
 `test_agent_streaming.py`, `test_agent_session_bridge.py`,
 `test_agent_diff_preview.py`, `test_agent_providers.py`,
-`test_agent_subagent.py`, `test_agent_process.py` — all pure-Python
+`test_agent_subagent.py`, `test_agent_process.py`, `test_agent_term.py` — all pure-Python
 (no display, no model). HUD-only behaviour lives in
 `tests/test_confirmation_overlay.py`.
 
@@ -609,6 +611,30 @@ which preserves the pre-existing contract. This bounds lifetime, not filesystem
 or network access — it is containment, not a sandbox, and the policy is still
 the gate for whether a command may run at all.
 
+### D35 — The approval prompt is coloured only when a person is looking at it
+
+The HUD shows an approval diff with green additions and red removals, but the
+TTY prompt printed the same detail as flat text. Adding colour there is useful
+exactly once and harmful everywhere else: a redirected stderr feeds logs, CI
+capture and editor plugins, and escape sequences in those are noise.
+
+`agent/term.py` therefore splits policy from rendering. Colour requires *both*
+`supports_color` (a TTY, unless `FORCE_COLOR=1`; `NO_COLOR` and `TERM=dumb`
+always win) and `prepare_stream` (on Windows, `SetConsoleMode` must accept
+`ENABLE_VIRTUAL_TERMINAL_PROCESSING`, or the console gets plain text instead of
+literal escapes). The plain branch reproduces the historical prompt byte for
+byte — leading newline, `[approval]`, detail, question with no trailing newline
+— so a piped run cannot tell the feature exists. The coloured branch only wraps
+runs of text, never rewrites them, and a test strips the escapes to prove it
+equals the plain prompt.
+
+Rendering knows one ordering rule: `--- ` / `+++ ` file headers are dim
+metadata, checked before the single-character add/remove rules, so a header is
+never painted as a change. `@@` hunks are cyan, `rule:` lines bold-yellow, and
+known argument labels (`command:`, `cwd:`) bold. The module is stdlib-only and
+imports nothing GUI-related, so `python -m agent` stays fast and headless.
+`--json` never prompts on a TTY-less stream, so NDJSON is unaffected by design.
+
 ### D20 — Parallel dispatch is whole-turn and read-only (superseded by D30, then D32)
 
 Model turns often contain several `read_file`/`glob_files`/`grep_files` calls,
@@ -645,8 +671,8 @@ and the default `python` are 3.14 and lack `ruff`/`pytest`.
 
 ```
 py -3.11 -m ruff check .                 # All checks passed!
-py -3.11 -m pytest tests -q              # 589 passed  (QT_QPA_PLATFORM=offscreen)
-py -3.11 -m pytest tests -q -k agent     # 252 passed
+py -3.11 -m pytest tests -q              # 600 passed, 1 skipped  (QT_QPA_PLATFORM=offscreen)
+py -3.11 -m pytest tests -q -k agent     # 263 passed, 1 skipped
 py -3.11 -c "import main; ..."           # 66 voice declarations; six code tools, no run_subagent
 py -3.11 -m agent tools                  # lists the seven tool specs
 py -3.11 -m agent permissions show       # reports built-in defaults
@@ -661,8 +687,9 @@ Notes:
   `{read_file, write_file, edit_file, glob_files, grep_files, run_command}` are
   all present, while `run_subagent` is intentionally absent from the voice
   surface (the text and CLI loops advertise it via `all_specs()`).
-* The 252 harness tests run without a display or a model:
-  `py -3.11 -m pytest tests -q -k agent`.
+* The 263 harness tests run without a display or a model:
+  `py -3.11 -m pytest tests -q -k agent`. The one skip is the POSIX-only
+  `prepare_stream` test, which a Windows run cannot execute.
 * `python -m agent run --provider stub --json` is the cheapest end-to-end
   smoke test (used by `test_agent_cli`).
 * The stdlib-only harness was also run on **3.12.7** and **3.14.7** (same
@@ -723,6 +750,11 @@ Notes:
   timeout with partial output, closed stdin, a grandchild that does not survive
   the timeout, and (Windows only) proof that the job object is actually
   assigned rather than silently falling back to `taskkill`.
+* Approval colour is covered by `tests/test_agent_term.py` (12, 11 run on
+  Windows): diff/rule/label line rules, `+++`/`---` headers not being mistaken
+  for changes, plain lines untouched, TTY/`NO_COLOR` (including an empty
+  value)/`TERM=dumb`/`FORCE_COLOR` policy, the plain prompt being byte-identical
+  to the historical text, and the coloured prompt stripping back to it exactly.
 
 ---
 
@@ -735,17 +767,13 @@ Ordered by value, with the honest reason each was left out.
    confinement; the policy is the only barrier on what a command can touch. A
    Windows job-object/container option that also restricted access would let
    `--yolo` be safe in more places.
-2. **The TTY prompt has no colour.** The HUD highlights diffs and folds
-   context, but `python -m agent` prints the same detail as plain text. That is
-   fine for piping and logs; adding ANSI colour would need a TTY check so a
-   redirected run stays parseable.
-3. **Subagents are sequential and share the parent's model.** `run_subagent` is
+2. **Subagents are sequential and share the parent's model.** `run_subagent` is
    a native fence, so one child runs at a time and the parent waits; there is no
    model/provider choice, no parallel fan-out, no resumable child session, and
    its transcript is discarded (only the report survives). That is the price of
    one enforcement path and a bounded run; a coordinator that needs more should
    be built on the event stream rather than by spawning second runtimes.
-4. **Streaming is not universal.** The local, custom, OpenRouter and stub
+3. **Streaming is not universal.** The local, custom, OpenRouter and stub
    transports stream in both the CLI and the GUI text path; only the voice path
    does not, because Gemini's live socket owns its delivery. A custom server
    that rejects `stream: true` falls back to one plain request (see D29). The
