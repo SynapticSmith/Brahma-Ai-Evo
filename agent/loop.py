@@ -34,7 +34,7 @@ from .prompts import (
     PATH_ARG_KEYS,
     load_directory_instructions,
 )
-from .retry import Cancelled, call_with_retry
+from .retry import Cancelled, call_with_retry, is_transient
 from .runtime import AgentRuntime, current as current_runtime
 from .session import AgentSession
 from .spec import ToolSpec, all_specs, get as get_spec, lowercase_schema
@@ -328,7 +328,30 @@ class AgentLoop:
         if streamer is not None:
             def attempt() -> Any:
                 self._delta_sent = False
-                return streamer(messages, tools, self._on_delta)
+                active = self._streamer
+                if active is None:
+                    # A previous attempt already fell back; stay plain for the
+                    # rest of this run (including a retry after this point).
+                    return self._complete(messages, tools)
+                try:
+                    return active(messages, tools, self._on_delta)
+                except Exception as exc:
+                    # A stream that fails before its first delta is usually a
+                    # server that rejects `stream: true` (a 400, not a flaky
+                    # network). Transient errors belong to the retry wrapper;
+                    # a terminal one gets one plain request, then this run
+                    # stays on the non-streaming path.
+                    if self._delta_sent or is_transient(exc):
+                        raise
+                    self._streamer = None
+                    self._emit(
+                        "stream_fallback",
+                        reason=(
+                            "streaming failed before any output; using a single "
+                            f"request ({type(exc).__name__}: {exc})"
+                        )[:300],
+                    )
+                    return self._complete(messages, tools)
         else:
             def attempt() -> Any:
                 return self._complete(messages, tools)

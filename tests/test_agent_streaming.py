@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from agent.__main__ import _make_printer
-from agent.loop import AgentLoop
+from agent.loop import AgentLoop, STOP_ERROR
 from agent.permissions import PermissionPolicy
 from agent.providers import _endpoint_base, build_completer
 from agent.runtime import AgentRuntime
@@ -429,6 +429,91 @@ def test_streaming_off_never_calls_the_streamer(tmp_path: Path):
 
     assert loop.run("hi").text == "plain"
     assert script.requests == []
+
+
+def test_a_rejected_stream_falls_back_to_one_plain_request(tmp_path: Path):
+    calls = []
+
+    class Unsupported:
+        stream_calls = 0
+
+        def __call__(self, messages, tools):
+            calls.append("plain")
+            return {"role": "assistant", "content": "plain answer"}
+
+        def stream(self, messages, tools, on_delta):
+            Unsupported.stream_calls += 1
+            raise ValueError("stream is not supported")
+
+    loop = AgentLoop(
+        Unsupported(), runtime=_runtime(tmp_path), system="BASE", max_turns=2, stream=True
+    )
+    result = loop.run("hi")
+
+    assert result.text == "plain answer"
+    assert calls == ["plain"]
+    assert Unsupported.stream_calls == 1
+    fallbacks = [
+        event for event in result.events if event.get("type") == "stream_fallback"
+    ]
+    assert len(fallbacks) == 1
+    assert "streaming failed before any output" in fallbacks[0]["reason"]
+    assert "ValueError" in fallbacks[0]["reason"]
+
+
+def test_a_stream_failure_after_output_is_not_silently_replaced(tmp_path: Path):
+    calls = []
+
+    class HalfStream:
+        def __call__(self, messages, tools):
+            calls.append("plain")
+            return {"role": "assistant", "content": "plain"}
+
+        def stream(self, messages, tools, on_delta):
+            on_delta({"kind": "text", "text": "half"})
+            raise ValueError("bad frame")
+
+    loop = AgentLoop(
+        HalfStream(), runtime=_runtime(tmp_path), system="BASE", max_turns=2, stream=True
+    )
+    result = loop.run("hi")
+
+    # A second request would duplicate text the user already saw.
+    assert calls == []
+    assert result.stop_reason == STOP_ERROR
+    assert "bad frame" in result.text
+
+
+def test_a_transient_stream_failure_is_retried_not_fallen_back(tmp_path: Path):
+    attempts = {"count": 0}
+    calls = []
+
+    class Flaky:
+        def __call__(self, messages, tools):
+            calls.append("plain")
+            return {"role": "assistant", "content": "plain"}
+
+        def stream(self, messages, tools, on_delta):
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise TimeoutError("timed out")
+            return {"role": "assistant", "content": "after retry"}
+
+    loop = AgentLoop(
+        Flaky(),
+        runtime=_runtime(tmp_path),
+        system="BASE",
+        max_turns=2,
+        stream=True,
+        retry_attempts=2,
+        retry_base_delay=0.0,
+    )
+    result = loop.run("hi")
+
+    assert result.text == "after retry"
+    assert attempts["count"] == 2
+    assert calls == []
+    assert not [e for e in result.events if e.get("type") == "stream_fallback"]
 
 
 def test_a_retry_after_partial_text_resets_it(tmp_path: Path):

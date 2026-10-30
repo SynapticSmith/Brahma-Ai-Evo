@@ -56,7 +56,7 @@ class ProviderUnavailable(RuntimeError):
 
 def _has_custom() -> bool:
     try:
-        from llm_client import ai_client
+        from llm_client import client as ai_client
 
         ai_client.reload_settings()
         return bool(getattr(ai_client, "_custom_url", "") and getattr(ai_client, "_custom_model", ""))
@@ -97,6 +97,42 @@ def resolve_provider(provider: str = "auto") -> str:
     )
 
 
+def custom_stream(
+    messages: List[Dict[str, Any]],
+    tools: List[Dict[str, Any]],
+    on_delta: Optional[Callable[[Dict[str, Any]], None]],
+    *,
+    temperature: float = 0.7,
+    max_tokens: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Stream one completion from the configured custom endpoint.
+
+    Shared by the CLI adapter and the GUI text path so the two cannot drift:
+    both build the same payload and normalise a URL that may already end in
+    ``/chat/completions``. Settings are reloaded per call, matching
+    ``chat_as_completion`` — a saved endpoint change needs no restart.
+    """
+    from llm_client import client as ai_client
+
+    ai_client.reload_settings()
+    payload: Dict[str, Any] = {
+        "model": ai_client._custom_model,  # noqa: SLF001 - configured endpoint
+        "messages": messages,
+        "temperature": temperature,
+        "stream": True,
+        # Ask for the final usage chunk; servers that do not support it
+        # ignore the field, and usage simply stays unknown.
+        "stream_options": {"include_usage": True},
+    }
+    if max_tokens:
+        payload["max_tokens"] = max_tokens
+    if tools:
+        payload["tools"] = tools
+    url = f"{_endpoint_base(ai_client._custom_url)}/chat/completions"  # noqa: SLF001
+    headers = ai_client._auth_headers(ai_client._custom_api_key)  # noqa: SLF001
+    return collect(openai_stream(url, payload, headers=headers), on_delta)
+
+
 def build_completer(
     provider: str = "auto",
     model: Optional[str] = None,
@@ -130,7 +166,7 @@ def build_completer(
         return complete_local
 
     if pid == "custom":
-        from llm_client import ai_client
+        from llm_client import client as ai_client
 
         def complete_custom(messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]) -> Dict[str, Any]:
             return ai_client.chat_as_completion(
@@ -142,20 +178,9 @@ def build_completer(
             )
 
         def stream_custom(messages, tools, on_delta):
-            payload: Dict[str, Any] = {
-                "model": ai_client._custom_model,  # noqa: SLF001 - configured endpoint
-                "messages": messages,
-                "temperature": temperature,
-                "stream": True,
-                # Ask for the final usage chunk; servers that do not support it
-                # ignore the field, and usage simply stays unknown.
-                "stream_options": {"include_usage": True},
-            }
-            if tools:
-                payload["tools"] = tools
-            url = f"{_endpoint_base(ai_client._custom_url)}/chat/completions"  # noqa: SLF001
-            headers = ai_client._auth_headers(ai_client._custom_api_key)  # noqa: SLF001
-            return collect(openai_stream(url, payload, headers=headers), on_delta)
+            return custom_stream(
+                messages, tools, on_delta, temperature=temperature
+            )
 
         complete_custom.stream = stream_custom
         return complete_custom
@@ -165,7 +190,7 @@ def build_completer(
         # through or_client, which drops the tools array. Use the shared
         # OpenAI transport directly so tool calling survives.
         import or_client
-        from llm_client import ai_client
+        from llm_client import client as ai_client
 
         def complete_openrouter(messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]) -> Dict[str, Any]:
             message = ai_client._openai_chat_completion(  # noqa: SLF001 - documented transport reuse
@@ -268,7 +293,7 @@ def describe(provider: str = "auto") -> Dict[str, Any]:
         detail["endpoint"] = getattr(local_brain, "endpoint", "")
         detail["model"] = getattr(local_brain, "default_model", "")
     elif pid == "custom":
-        from llm_client import ai_client
+        from llm_client import client as ai_client
 
         detail["endpoint"] = getattr(ai_client, "_custom_url", "")
         detail["model"] = getattr(ai_client, "_custom_model", "")

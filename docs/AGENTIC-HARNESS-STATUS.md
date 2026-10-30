@@ -37,6 +37,7 @@ database migration is required; the new tables are additive.
 | Streaming output (text + tool calls) | Done |
 | GUI session persistence + replay | Done |
 | Diff highlighting + CHANGES ONLY folding in the banner | Done |
+| Custom-endpoint streaming in the GUI; rejected-stream fallback | Done |
 | Python floor + CI matrix | Done |
 | Docs | This file + `AGENTIC-HARNESS.md` |
 | Commit | One commit per hardening batch on `main` (see `git log --oneline`) |
@@ -80,6 +81,9 @@ Modified:
 | `core/ui_shell_tray.py` | **Resume Agent Session…** submits `/resume` through the normal command path. |
 | `core/diff_preview.py` | New pure-Python view model for banner diffs: `split_detail`, `count_changes`, `fold_diff`, `preview_detail`. |
 | `core/ui_overlays.py` | `DetailHighlighter` (green/red/cyan diff lines) and the diff summary plus CHANGES ONLY toggle in `ConfirmationOverlay`. |
+| `agent/providers.py` | Fixed the custom/OpenRouter adapters importing the non-existent `ai_client` from `llm_client`; added shared `custom_stream` used by the CLI and the GUI custom path. |
+| `agent/loop.py` | A stream rejected before its first delta gets one plain request and a `stream_fallback`; transient errors still retry, and failures after output still stop. |
+| `main.py` | The GUI custom path streams through `custom_stream`; streaming is enabled for `source in ("local", "custom")`. |
 | `.github/workflows/ci.yml` | `harness-pythons` job: harness suite on 3.11/3.12/3.13 with only pytest installed. |
 | `.gitignore` | `agent_permissions.json` ignored — it is machine-local user data. |
 
@@ -89,8 +93,9 @@ New tests: `tests/test_agent_permissions.py`, `test_agent_code_tools.py`,
 `test_agent_approval.py`, `test_agent_parallel.py`, `test_agent_usage.py`,
 `test_agent_policy_reload.py`, `test_agent_instructions.py`,
 `test_agent_streaming.py`, `test_agent_session_bridge.py`,
-`test_agent_diff_preview.py` — all pure-Python (no display, no model). HUD-only
-behaviour lives in `tests/test_confirmation_overlay.py`.
+`test_agent_diff_preview.py`, `test_agent_providers.py` — all pure-Python
+(no display, no model). HUD-only behaviour lives in
+`tests/test_confirmation_overlay.py`.
 
 ---
 
@@ -437,6 +442,35 @@ without mutating it: `toPlainText()` still equals the string the approver was
 given, and a test asserts that. The summary and toggle only appear when a diff
 was actually found; a command-only ask keeps the plain box.
 
+### D29 — A rejected stream falls back once; a broken one does not
+
+Streaming on a custom endpoint is a bet that the server speaks SSE. When it
+does not, the failure is a `400` on `stream: true` — not a transient error, and
+not something a retry can fix. Leaving it to `call_with_retry` meant the whole
+turn died on an endpoint that otherwise answers fine.
+
+The loop now distinguishes three cases by *when* and *how* the stream fails:
+
+* **before the first delta, terminal error** → one plain `complete` call, a
+  `stream_fallback` event naming the error, and `self._streamer = None` so the
+  rest of the run (including a retry of the fallback itself) stays plain;
+* **before the first delta, transient error** → re-raised into the retry
+  wrapper, because a timeout is a network problem, not a protocol mismatch;
+* **after any delta** → re-raised and reported as a stop. Falling back would
+  send a second request whose text duplicates what the user already saw.
+
+The check reads `self._streamer`, not the closure's captured value, so the
+fallback decision survives a retry. `custom_stream()` is the shared payload
+builder for the CLI adapter and the GUI custom path, which removes the drift
+that let the two transports diverge in the first place.
+
+That work exposed a plain bug: `build_completer("custom")` and
+`build_completer("openrouter")` did `from llm_client import ai_client`, but the
+module only ever defines `client`. Every non-stub CLI or GUI provider path
+failed at build time with an ImportError; the fake-module tests now mirror the
+shipped name so it cannot regress. The GUI custom path also stopped announcing
+`stream_fallback` — it streams through the same helper.
+
 ### D20 — Parallel dispatch is whole-turn and read-only
 
 Model turns often contain several `read_file`/`glob_files`/`grep_files` calls,
@@ -473,8 +507,8 @@ and the default `python` are 3.14 and lack `ruff`/`pytest`.
 
 ```
 py -3.11 -m ruff check .                 # All checks passed!
-py -3.11 -m pytest tests -q              # 551 passed  (QT_QPA_PLATFORM=offscreen)
-py -3.11 -m pytest tests -q -k agent     # 214 passed
+py -3.11 -m pytest tests -q              # 559 passed  (QT_QPA_PLATFORM=offscreen)
+py -3.11 -m pytest tests -q -k agent     # 222 passed
 py -3.11 -c "import main; ..."           # 66 declarations, all six tools present
 py -3.11 -m agent tools                  # lists the six primitives
 py -3.11 -m agent permissions show       # reports built-in defaults
@@ -488,7 +522,7 @@ Notes:
   `len(TOOL_DECLARATIONS) == 66` and that
   `{read_file, write_file, edit_file, glob_files, grep_files, run_command}` are
   all present.
-* The 214 harness tests run without a display or a model:
+* The 222 harness tests run without a display or a model:
   `py -3.11 -m pytest tests -q -k agent`.
 * `python -m agent run --provider stub --json` is the cheapest end-to-end
   smoke test (used by `test_agent_cli`).
@@ -515,10 +549,15 @@ Notes:
   `tests/test_agent_instructions.py` (15): ancestor-chain order, directory vs
   file paths, ignored directories, outside paths, dedupe across turns, depth
   and character budgets, and the system-prompt injection the next request sees.
-* Streaming is covered by `tests/test_agent_streaming.py` (27): text and
+* Streaming is covered by `tests/test_agent_streaming.py` (30): text and
   fragmented tool-call assembly, usage-only tails, error chunks, SSE parsing and
   HTTP error bodies, the stub transport, loop `delta` / `reset` /
-  `stream_fallback` events, and the CLI printer's no-duplicate rule.
+  `stream_fallback` events, rejection fallback vs transient retry vs
+  post-output failure, and the CLI printer's no-duplicate rule.
+* Provider adapters are covered by `tests/test_agent_providers.py` (5): the
+  custom and OpenRouter completers build against `llm_client.client` (the old
+  `ai_client` import fails the fake), and the shared custom stream posts the
+  right URL, headers and payload with per-call settings reload.
 * The GUI session bridge is covered by `tests/test_agent_session_bridge.py`
   (8): system-row stripping, prefix-only appends on resume, transcript
   filtering, one-line titles, and the picker/summary labels. It is pure Python
@@ -539,10 +578,12 @@ Ordered by value, with the honest reason each was left out.
    serialises everything. A per-call scheduler and a subagent layer can be built
    on the event stream.
 2. **Streaming is not universal.** The local, custom, OpenRouter and stub
-   transports stream; the GUI's custom path and the voice path announce
-   `stream_fallback` and use one request. The assembler follows the protocol
-   (argument fragments are concatenated), so a non-compliant server that
-   repeats a full arguments blob would produce invalid JSON.
+   transports stream in both the CLI and the GUI text path; only the voice path
+   does not, because Gemini's live socket owns its delivery. A custom server
+   that rejects `stream: true` falls back to one plain request (see D29). The
+   assembler follows the protocol (argument fragments are concatenated), so a
+   non-compliant server that repeats a full arguments blob would produce
+   invalid JSON.
 3. **Sandboxing.** `run_command` is `shell=True` with policy as the only
    barrier. A Windows job-object / container option would let `--yolo` be safe
    in more places.

@@ -3804,6 +3804,7 @@ class BrahmaLive:
         """
         from agent import session_bridge as bridge
         from agent.loop import AgentLoop
+        from agent.providers import custom_stream
         from agent.runtime import current as current_agent_runtime
         from agent.spec import all_specs
         from agent.streaming import collect as collect_stream
@@ -3846,6 +3847,16 @@ class BrahmaLive:
                     "custom", "", full_messages=msgs, tools=tools,
                 )
 
+            def _stream(msgs, tools, on_delta):
+                # The custom endpoint is OpenAI-compatible and the provider
+                # helper owns the URL normalisation, auth headers and payload,
+                # so the GUI path streams exactly like the CLI adapter.
+                return custom_stream(
+                    msgs, tools, on_delta, temperature=0.7, max_tokens=4096
+                )
+
+            _complete.stream = _stream
+
         seeded = list(messages or [])
         context = bridge.seed_context(seeded)
 
@@ -3873,7 +3884,7 @@ class BrahmaLive:
             max_turns=AGENT_MAX_TURNS,
             on_event=self._agent_event,
             cancel=runtime.cancel_event,
-            stream=source == "local",
+            stream=source in ("local", "custom"),
         )
         try:
             result = loop.run(first_response=res)

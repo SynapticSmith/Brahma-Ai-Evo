@@ -98,7 +98,7 @@ Three invariants make the rest of the design work:
 | `agent/session.py` | Durable messages/events in SQLite; list/open/resume | …resume loses messages. |
 | `agent/session_bridge.py` | Qt-free bridge between a stored session and the GUI's `[system, history, user]` seed | …the HUD restarts from a hard reset or a resumed turn duplicates history. |
 | `agent/prompts.py` | Resident system prompt + `AGENTS.md` / `BRAHMA.md` loader, path-driven subdirectory discovery | …the model behaves against project conventions. |
-| `agent/providers.py` | Loop-compatible completers for local/custom/OpenRouter/stub; summariser | …tool calling fails on one provider only. |
+| `agent/providers.py` | Loop-compatible completers for local/custom/OpenRouter/stub; shared `custom_stream`; summariser | …tool calling fails on one provider only. |
 | `agent/retry.py` | Transient-error classifier, exponential backoff with jitter, cancellation-aware wait | …a run stalled on a 503 or retried something it should not. |
 | `agent/__main__.py` | `python -m agent` CLI | …you need a scriptable surface. |
 
@@ -261,12 +261,24 @@ never be completed. `on_retry` emits `reset` before the `retry` event, and the
 assembler starts empty on the next attempt, so the finished `assistant` event
 and the transcript contain the successful attempt only.
 
+A stream can also be **rejected** before it produces anything — typically a
+server that answers `400` to `stream: true`. That is not a transient failure and
+retrying cannot fix it, so the loop makes exactly one plain `complete` call and
+emits `stream_fallback` naming the error. The run stays on the non-streaming
+path from then on. A failure *after* the first delta is different: falling back
+would duplicate text the user already saw, so it propagates as a normal stop.
+Transient errors (`timeout`, `429`, `5xx`) still go to the retry wrapper first,
+so a flaky network is retried rather than downgraded. `AgentLoop` checks
+`self._streamer` on each attempt, not the closure, so a retry after a fallback
+does not reach for the rejected transport again.
+
 The CLI's `--stream` renders deltas as they arrive, suppresses the duplicate
 `assistant` text for that turn, and prints an explicit "partial output
 discarded" line on reset. `--json` emits every `delta` unchanged, which is the
-hook a TUI or an editor plugin uses. The GUI enables streaming on the local
-text path only (`local_brain.generate_chat_stream`); the custom path has no
-streaming transport, so it announces `stream_fallback` and uses one request.
+hook a TUI or an editor plugin uses. The GUI streams on both OpenAI-compatible
+text paths: local uses `local_brain.generate_chat_stream`, custom reuses
+`agent.providers.custom_stream` (the same helper as the CLI adapter). The voice
+path does not stream: Gemini's live socket has its own delivery.
 
 ### Protocol shape
 
@@ -659,7 +671,7 @@ Every event is a dict with `type` plus fields. The same objects go to
 | `compaction` | `dropped`, `summary_chars`, `total_chars` | After folding. |
 | `retry` | `attempt`, `delay_s`, `error` | Before waiting to retry a transient model-call failure. |
 | `delta` | `turn`, `kind` (`text\|tool_call\|reset`), `text` / `index`, `id?`, `name?`, `arguments?` / `reason` | Only while streaming; `reset` says to drop the partial answer. |
-| `stream_fallback` | `reason` | Once, when `--stream` was requested but the provider has no streaming transport. |
+| `stream_fallback` | `reason` | Once per run, when streaming was requested but the provider has no transport, or the stream was rejected before producing output. |
 | `policy_reload` | `ok`, `source`, `error` (when `ok=False`) | When an edited policy file was adopted or rejected. |
 | `instructions` | `loaded[labels]`, `chars`, `truncated` | When a turn touched a directory whose instruction file was not in the prompt yet. |
 | `error` | `error` | Loop-level fatal. |
@@ -745,7 +757,8 @@ unchanged); only the loop around it is new.
 | `tests/test_agent_parallel.py` | Concurrent reads, `max_parallel_tools` cap, write/`ask` serialisation, submission-order results, cancellation fillers for undispatched calls. |
 | `tests/test_agent_usage.py` | OpenAI/Gemini/SDK usage shapes, unknown vs zero, summed totals only from real halves, accumulation, per-turn `assistant.usage`. |
 | `tests/test_agent_policy_reload.py` | An edit takes effect mid-session, malformed edits keep the last good policy, no-file policies never reload, throttle/`force`, event payload, deny not widened by a session approval. |
-| `tests/test_agent_streaming.py` | Delta assembly (text, fragmented tool calls, usage tails, error chunks), SSE parsing and HTTP error bodies, endpoint normalisation, stub streaming, loop delta/`reset`/`stream_fallback` events, and the CLI printer's no-duplicate rule. |
+| `tests/test_agent_streaming.py` | Delta assembly (text, fragmented tool calls, usage tails, error chunks), SSE parsing and HTTP error bodies, endpoint normalisation, stub streaming, loop delta/`reset`/`stream_fallback` events, rejection fallback vs retry, and the CLI printer's no-duplicate rule. |
+| `tests/test_agent_providers.py` | Custom/OpenRouter adapters build against the shipped `llm_client.client` name; custom streaming payload, URL normalisation, auth headers and per-call settings reload. |
 | `tests/test_confirmation_overlay.py` | HUD banner: ALWAYS ALLOW only for session-approvable calls, remembers-what hint, diff box, diff summary and CHANGES ONLY fold/restore, irreversible header. |
 
 They do not need a model. The `test_agent_*` files are pure-Python and need
@@ -794,11 +807,13 @@ These are known and deliberate, not surprises:
   letting an agent work inside it.
 * **Streaming is wired only where a transport exists.** Local (the existing
   Ollama-compatible SSE reader), custom OpenAI-compatible endpoints,
-  OpenRouter and the stub stream; the GUI's custom path and the voice path do
-  not, so they emit `stream_fallback` and use one request. The assembler
-  follows the protocol and *concatenates* argument fragments, so a
-  non-compliant server that repeats the whole `arguments` blob on every chunk
-  would produce invalid JSON. (A repeated full tool *name* is tolerated.)
+  OpenRouter and the stub stream, in both the CLI and the GUI text path. The
+  voice path does not (Gemini's live socket has its own delivery). A custom
+  server that rejects `stream: true` is retried once as a plain request and
+  then stays non-streaming for the run. The assembler follows the protocol and
+  *concatenates* argument fragments, so a non-compliant server that repeats the
+  whole `arguments` blob on every chunk would produce invalid JSON. (A repeated
+  full tool *name* is tolerated.)
 * **Parallelism is read-only and whole-turn.** A turn with a single write,
   `exec`, native call, or approval prompt runs entirely sequentially; there is
   no per-call scheduler, and no subagent layer yet. A coordinator can be built
