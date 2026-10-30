@@ -36,6 +36,8 @@ class _ShellTrayMixin:
         show_icon_action = menu.addAction("Show Floating Icon")
         hide_icon_action = menu.addAction("Hide Floating Icon")
         menu.addSeparator()
+        resume_session_action = menu.addAction("Resume Agent Session\u2026")
+        menu.addSeparator()
         restart_action = menu.addAction("Restart")
         quit_action = menu.addAction("Quit")
 
@@ -45,6 +47,7 @@ class _ShellTrayMixin:
         startup_action.triggered.connect(lambda: self._toggle_workspace_on_startup(startup_action.isChecked()))
         show_icon_action.triggered.connect(self._show_floating_icon)
         hide_icon_action.triggered.connect(self._hide_launcher_with_protection)
+        resume_session_action.triggered.connect(lambda: self._submit_command("/resume"))
         restart_action.triggered.connect(self._restart_app)
         quit_action.triggered.connect(self._app.quit)
         return menu

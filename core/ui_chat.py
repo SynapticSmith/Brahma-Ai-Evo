@@ -1565,23 +1565,31 @@ class WorkspaceSidebar(QWidget):
         attachments = data.get("attachments") or []
         stamp = data.get("timestamp")
         convo_id = data.get("conversation_id") or self._active_conversation_id
+        # A replay of a stored agent session is a view: those turns were
+        # recorded when they happened, so writing them again would duplicate
+        # every bubble in the history tab.
+        persist = bool(data.get("persist", True))
         if role == "user":
-            convo_id = self._store.record_chat("user", text, conversation_id=convo_id, attachments=attachments)
+            if persist:
+                convo_id = self._store.record_chat("user", text, conversation_id=convo_id, attachments=attachments)
             self._active_conversation_id = convo_id
             self._feed.add_message("user", "You", text, _fmt_time_stamp(stamp), attachments=attachments)
             memories = self._store.search_memories(text)
             self._show_memory_banner(memories)
         elif role == "assistant":
-            convo_id = self._store.record_chat("assistant", text, conversation_id=convo_id, attachments=attachments)
+            if persist:
+                convo_id = self._store.record_chat("assistant", text, conversation_id=convo_id, attachments=attachments)
             self._active_conversation_id = convo_id
             self._feed.add_message("assistant", "Brahma Evo", text, _fmt_time_stamp(stamp), attachments=attachments, animate=True)
             self._hide_memory_banner()
         elif role == "system":
-            convo_id = self._store.record_chat("system", text, conversation_id=convo_id, attachments=attachments)
+            if persist:
+                convo_id = self._store.record_chat("system", text, conversation_id=convo_id, attachments=attachments)
             self._active_conversation_id = convo_id
             self._feed.add_message("system", "System", text, _fmt_time_stamp(stamp), attachments=attachments, event_type=text)
         elif role == "file":
-            convo_id = self._store.record_chat("assistant", text, conversation_id=convo_id, attachments=attachments)
+            if persist:
+                convo_id = self._store.record_chat("assistant", text, conversation_id=convo_id, attachments=attachments)
             self._active_conversation_id = convo_id
             self._feed.add_message("file", "Files", text, _fmt_time_stamp(stamp), attachments=attachments)
         self._refresh_history()
@@ -2076,22 +2084,29 @@ class InlineChatWorkspace(QFrame):
         if len(self._last_chat_events) > 20:
             self._last_chat_events = self._last_chat_events[-10:]
 
-        convo_id = data.get("conversation_id") or self._ensure_conversation(text if role == "user" else None)
+        persist = bool(data.get("persist", True))
+        convo_id = data.get("conversation_id")
+        if not convo_id and persist:
+            convo_id = self._ensure_conversation(text if role == "user" else None)
         attachments = data.get("attachments") or []
         stamp = _fmt_time_stamp(data.get("timestamp"))
         if role == "user":
-            self._store.record_chat("user", text, conversation_id=convo_id, attachments=attachments)
+            if persist:
+                self._store.record_chat("user", text, conversation_id=convo_id, attachments=attachments)
             self._feed.add_message("user", "You", text, stamp, attachments=attachments)
             self._show_memories(self._store.search_memories(text))
         elif role == "assistant":
-            self._store.record_chat("assistant", text, conversation_id=convo_id, attachments=attachments)
+            if persist:
+                self._store.record_chat("assistant", text, conversation_id=convo_id, attachments=attachments)
             self._feed.add_message("assistant", "Brahma Evo", text, stamp, attachments=attachments)
             self._hide_memories()
         elif role == "system":
-            self._store.record_chat("system", text, conversation_id=convo_id, attachments=attachments)
+            if persist:
+                self._store.record_chat("system", text, conversation_id=convo_id, attachments=attachments)
             self._feed.add_message("system", "System", text, stamp, attachments=attachments)
         elif role == "file":
-            self._store.record_chat("assistant", text, conversation_id=convo_id, attachments=attachments)
+            if persist:
+                self._store.record_chat("assistant", text, conversation_id=convo_id, attachments=attachments)
             self._feed.add_message("file", "Files", text, stamp, attachments=attachments)
         self._refresh_history()
 

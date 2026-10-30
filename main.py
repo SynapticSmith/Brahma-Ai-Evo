@@ -2251,6 +2251,10 @@ class BrahmaLive:
         self._reply_mode = False
         self._attention_lock = threading.Lock()
         self._last_user_text = ""
+        # Durable transcript for the OpenAI-compatible text paths. Lazy: the
+        # first agentic turn creates the row, /new drops the binding, and
+        # /resume binds an existing one. See agent/session_bridge.py.
+        self._agent_session = None
         # --- Always On / On Call session control ---------------------------------
         # _live_mode is the user's preference; _manual_call_active is the
         # momentary "a live socket is wanted right now" gate. Both are written
@@ -2664,10 +2668,100 @@ class BrahmaLive:
         except Exception:
             pass
 
+    def _handle_agent_session_command(self, text: str) -> bool:
+        """Handle ``/sessions``, ``/resume`` and ``/new`` for the text path.
+
+        The GUI runs a turn on a worker thread, so the modal picker is
+        marshalled to the GUI thread by ``ui.choose_session`` instead of being
+        opened here. Returns True when the text was consumed.
+        """
+        parts = (text or "").strip().split()
+        if not parts:
+            return False
+        command = parts[0].lower()
+        if command not in ("/sessions", "/resume", "/new"):
+            return False
+
+        from agent import session_bridge as bridge
+        from agent.session import AgentSession, SessionNotFound
+
+        if command == "/new":
+            self._agent_session = None
+            self.ui.write_log("SYS: New agent session. The next message starts fresh.")
+            return True
+
+        if command == "/sessions":
+            records = AgentSession.recent(20)
+            if not records:
+                self.ui.write_log("SYS: No agent sessions yet.")
+                return True
+            self.ui.write_log("SYS: Recent agent sessions (resume with /resume <id>):")
+            for record in records:
+                self.ui.write_log(f"SYS: {bridge.session_summary(record)}")
+            return True
+
+        wanted = parts[1] if len(parts) > 1 else ""
+        if wanted and len(wanted) < 32:
+            # Accept a unique id prefix, the way a user copies one line out of
+            # /sessions without the whole uuid.
+            matches = [
+                record.id
+                for record in AgentSession.recent(200)
+                if record.id.startswith(wanted)
+            ]
+            if len(matches) == 1:
+                wanted = matches[0]
+            elif len(matches) > 1:
+                self.ui.write_log(
+                    f"ERR: session prefix '{wanted}' is ambiguous; use the full id."
+                )
+                return True
+        if not wanted:
+            records = AgentSession.recent(20)
+            if not records:
+                self.ui.write_log("SYS: No agent sessions to resume.")
+                return True
+            labels = [bridge.picker_label(record) for record in records]
+            index = -1
+            chooser = getattr(self.ui, "choose_session", None)
+            if callable(chooser):
+                try:
+                    index = int(chooser(labels))
+                except Exception:
+                    index = -1
+            if not (0 <= index < len(records)):
+                return True
+            wanted = records[index].id
+
+        try:
+            session = AgentSession.open(wanted)
+        except SessionNotFound as exc:
+            self.ui.write_log(f"ERR: {exc}")
+            return True
+
+        self._agent_session = session
+        replay = bridge.transcript(session.messages())
+        renderer = getattr(self.ui, "replay_agent_session", None)
+        if callable(renderer) and replay:
+            try:
+                renderer(replay)
+            except Exception:
+                pass
+        self.ui.write_log(
+            f"SYS: Resumed agent session {session.id} "
+            f"({bridge.title_for(session.title or 'untitled')})."
+        )
+        return True
+
     def _on_text_command(self, text: str, source: str = "local"):
         self._reset_idle_activity()
         text = (text or "").strip()
         if not text:
+            return
+        # Slash commands are control plane, not prompts: handle them before the
+        # memory hook, the reply-mode ladders and the provider routing so a
+        # "/sessions" can never be sent to a model.
+        if self._handle_agent_session_command(text):
             return
         if len(text) > 4:
             threading.Thread(
@@ -3545,6 +3639,39 @@ class BrahmaLive:
         except Exception:
             pass
 
+    def _ensure_agent_session(self, request_text: str, model: str = ""):
+        """Return the durable GUI session, creating it on the first turn.
+
+        The GUI previously wrote no ``agent_*`` rows at all: every module start
+        rebuilt ``[system, user]`` and the transcript was lost. The row is
+        created against the agent runtime's workspace, not the process cwd,
+        because a shortcut launch starts in the install directory.
+        """
+        if self._agent_session is not None:
+            return self._agent_session
+        from agent import session_bridge as bridge
+        from agent.session import AgentSession
+
+        workspace = ""
+        try:
+            from agent.runtime import current as current_agent_runtime
+
+            workspace = str(current_agent_runtime().workspace)
+        except Exception:
+            workspace = ""
+        workspace = workspace or os.getcwd()
+        try:
+            self._agent_session = AgentSession.create(
+                workspace,
+                title=bridge.title_for(request_text),
+                model=model or "",
+            )
+        except Exception as exc:
+            # Persistence is a convenience, never a reason to fail the turn.
+            print(f"[BRAHMA EVO] \u26a0\ufe0f session persistence unavailable: {exc}")
+            self._agent_session = None
+        return self._agent_session
+
     def _local_brain_reply(self, request_text: str, local_model_target: str) -> str:
         """One full Local Brain turn: bounded tools, execution, one follow-up.
 
@@ -3553,6 +3680,7 @@ class BrahmaLive:
         produced neither content nor tool calls, which the ladder counts as a
         failed attempt instead of speaking a scripted non-answer.
         """
+        self._ensure_agent_session(request_text, local_model_target)
         messages = self._agentic_seed_messages(request_text)
         local_tools, _skill_ctx = local_brain.resolve_tools(
             request_text, TOOL_DECLARATIONS
@@ -3638,8 +3766,16 @@ class BrahmaLive:
         except Exception:
             pass
 
+        # A resumed session contributes its stored turns between the freshly
+        # built system prompt and the new request. The system prompt is never
+        # persisted: it names the workspace, endpoint and instruction files of
+        # *this* run, and a stale copy would be worse than rebuilding it.
+        from agent import session_bridge as bridge
+
+        history = bridge.history(self._agent_session)
         return [
             {"role": "system", "content": system_prompt},
+            *history,
             {"role": "user", "content": request_text},
         ]
 
@@ -3666,7 +3802,7 @@ class BrahmaLive:
         transport failures); the custom path owns its own call wrapper and
         passes ``source="custom"``.
         """
-        from agent.context import ConversationContext
+        from agent import session_bridge as bridge
         from agent.loop import AgentLoop
         from agent.runtime import current as current_agent_runtime
         from agent.spec import all_specs
@@ -3711,13 +3847,19 @@ class BrahmaLive:
                 )
 
         seeded = list(messages or [])
-        system = None
-        if seeded and seeded[0].get("role") == "system":
-            system = seeded[0].get("content")
-            seeded = seeded[1:]
-        context = ConversationContext(system=system)
-        for message in seeded:
-            context.append(message)
+        context = bridge.seed_context(seeded)
+
+        # Persist only what this turn added. The loop appends the assistant and
+        # tool messages itself; the seeded history is already in the row, so
+        # appending it again would duplicate every earlier turn on resume.
+        session = self._agent_session
+        if session is not None:
+            try:
+                pending = bridge.messages_after(bridge.history(session), context.messages)
+                for message in pending:
+                    session.append_message(message)
+            except Exception as exc:
+                print(f"[BRAHMA EVO] \u26a0\ufe0f session write failed: {exc}")
 
         runtime = current_agent_runtime()
         runtime.reset_cancel()  # a previous Stop must not kill this new turn
@@ -3727,6 +3869,7 @@ class BrahmaLive:
             native_dispatch=self._execute_tool_sync,
             runtime=runtime,
             context=context,
+            session=session,
             max_turns=AGENT_MAX_TURNS,
             on_event=self._agent_event,
             cancel=runtime.cancel_event,
@@ -3804,6 +3947,7 @@ class BrahmaLive:
         tool-less for the session and the turn is retried as a plain reply,
         because a tool-less server still answers but crashes on a tools array.
         """
+        self._ensure_agent_session(request_text, label)
         messages = self._agentic_seed_messages(
             request_text, advertise_discovery=not self._custom_tools_broken
         )

@@ -96,6 +96,7 @@ Three invariants make the rest of the design work:
 | `agent/loop.py` | Bounded agent loop, repeat detection, stop reasons, event stream | …the agent stops early or will not stop. |
 | `agent/context.py` | Character budget, protocol-safe compaction, output truncation | …context is overflowing or a resumed prompt is rejected. |
 | `agent/session.py` | Durable messages/events in SQLite; list/open/resume | …resume loses messages. |
+| `agent/session_bridge.py` | Qt-free bridge between a stored session and the GUI's `[system, history, user]` seed | …the HUD restarts from a hard reset or a resumed turn duplicates history. |
 | `agent/prompts.py` | Resident system prompt + `AGENTS.md` / `BRAHMA.md` loader, path-driven subdirectory discovery | …the model behaves against project conventions. |
 | `agent/providers.py` | Loop-compatible completers for local/custom/OpenRouter/stub; summariser | …tool calling fails on one provider only. |
 | `agent/retry.py` | Transient-error classifier, exponential backoff with jitter, cancellation-aware wait | …a run stalled on a 503 or retried something it should not. |
@@ -108,7 +109,7 @@ import PyQt, the tool index, or a provider client. Import submodules directly.
 
 | File | Change |
 | --- | --- |
-| `main.py` | `TOOL_DECLARATIONS.extend(_agent_gemini_declarations())`; `AGENT_MAX_TURNS = 24`; `_finish_tool_turn` now runs the loop; `_agent_event` mirrors telemetry; `main()` configures the runtime (workspace + HUD approver). |
+| `main.py` | `TOOL_DECLARATIONS.extend(_agent_gemini_declarations())`; `AGENT_MAX_TURNS = 24`; `_finish_tool_turn` now runs the loop; `_agent_event` mirrors telemetry; `_ensure_agent_session` and `/sessions`, `/resume`, `/new` bind the GUI text path to durable sessions; `main()` configures the runtime (workspace + HUD approver). |
 | `core/tool_exec.py` | Harness branch at the top of `ToolExecutor.execute`: registered tools go to the runtime in a worker thread, then fall through to the legacy path. |
 | `core/confirm.py` | `is_bound()`, `ask_blocking()`, `_on_qt_main_thread()`, and waiter/verdict plumbing on `_Pending`. |
 | `core/tool_index.py` | `read_file`, `edit_file`, `run_command` added to `DEFAULT_PINNED_TOOLS`. |
@@ -589,6 +590,43 @@ python -m agent resume <session-id> "continue"
 The CLI reopens the session, reuses its `cwd` when `--cwd` is absent, rebuilds
 the system prompt, and continues appending to the same transcript.
 
+### The GUI text path is a session too
+
+The HUD used to rebuild `[system, user]` on every turn and never created an
+`agent_*` row, so closing the window was a hard reset even though the tables
+were already there. `BrahmaLive` now binds the first agentic text turn to a
+session created against the runtime workspace; later turns seed
+`[fresh system, stored history, new user]` and reuse the same row. The first
+provider request of a resumed turn therefore sees the earlier conversation,
+not just the new sentence.
+
+Two invariants make that safe:
+
+* **The system prompt is never persisted.** It names this run's workspace,
+  endpoint and instruction files; a stale copy would be worse than rebuilding
+  it. `agent/session_bridge.history()` strips a stored system row defensively.
+* **Only the new tail is appended.** `messages_after(history, seeded)` compares
+  the common prefix, so re-seeding a resumed transcript adds one user message
+  instead of duplicating every earlier turn. The loop keeps appending assistant
+  and tool messages and rewrites the row after compaction, exactly as the CLI
+  path does.
+
+Commands (typing them in the HUD command bar; they never reach a model):
+
+| Command | Effect |
+| --- | --- |
+| `/sessions` | List the 20 most recent sessions with full id, status and turn count. |
+| `/resume` | Open a modal picker on the GUI thread; the worker waits for the choice. |
+| `/resume <id>` | Bind that session directly. A unique id prefix is accepted. |
+| `/new` | Drop the binding; the next message starts a fresh session. |
+
+A replay of the stored user/assistant text goes into the chat feed with
+`persist=False`: those turns were already written to `workspace_store` when
+they happened, so a resume is a view, not a second copy. Tool calls and results
+are execution detail and are not replayed. The tray menu has a
+**Resume Agent Session…** item that submits `/resume` through the normal
+command path.
+
 ---
 
 ## 9. Event stream
@@ -683,6 +721,7 @@ unchanged); only the loop around it is new.
 | `tests/test_agent_context.py` | Token estimate, tail-preserving truncation, safe-boundary compaction, no orphaned tool results, summariser fallback. |
 | `tests/test_agent_loop.py` | Multi-turn continuation, protocol integrity, repeat stop, turn cap, denial stop, approval, cancellation, completer failure, `first_response`, in-loop compaction, event order, session parity, provider shapes. |
 | `tests/test_agent_session.py` | Round-trip incl. `tool_calls`, listing order, rewrite after compaction, status/summary, events, missing DB. |
+| `tests/test_agent_session_bridge.py` | GUI↔session seed: system stripping, prefix-only append on resume, transcript filtering, picker labels, one-line titles. |
 | `tests/test_agent_cli.py` | Stub run, stdin prompt, missing prompt, bare-word run, tools/permissions/sessions, NDJSON shape, exit codes. |
 | `tests/test_agent_retry.py` | Transient vs permanent classification, backoff shape, retry budget, cancellation during backoff, loop `retry` events and `usage["retries"]`, runtime flags, CLI Ctrl-C handler. |
 | `tests/test_agent_prompts.py` | Instruction-file priority, bounded upward walk and its env override, root exclusion, tail-preserving truncation, prompt ordering. |
@@ -753,7 +792,9 @@ These are known and deliberate, not surprises:
 * **`run_command` is `shell=True`.** The policy is the only barrier; there is
   no OS sandbox. Treat `--yolo` as "run me in a container".
 * **The voice path is not session-persisted.** Gemini's live session owns its
-  own history; only the text path and CLI write `agent_*` rows.
+  own history; the text path and CLI write `agent_*` rows, but a voice turn
+  still does not. Resuming a GUI text session does not replay it into a live
+  Gemini socket.
 * **Windows-first.** The code is portable Python but the denylist, paths and
   host integration are Windows-shaped, matching the rest of the app.
 

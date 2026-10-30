@@ -65,6 +65,19 @@ they govern; `agent/prompts.py` owns discovery and its budgets.
   (`policy_check_interval`), so an edit needs no restart; a malformed edit keeps
   the last good policy and emits `policy_reload` with `ok=False`.
 
+## Sessions
+
+- The CLI (`run`/`resume`/`sessions`) and the GUI text path share
+  `agent/session.py`. The GUI creates a row on its first agentic turn against
+  the runtime workspace and seeds later turns as
+  `[fresh system, stored history, new user]` via `agent/session_bridge.py`.
+- HUD commands: `/sessions` lists recent rows, `/resume` opens a picker,
+  `/resume <id>` binds a row (unique prefix accepted), `/new` starts fresh.
+  The tray menu's **Resume Agent Session…** submits `/resume`.
+- The system prompt is never persisted; only the transcript and tail-added
+  messages are. A repersisted replay would duplicate the earlier turns, so use
+  `messages_after(history, seeded)` rather than appending the whole seed.
+
 ## Parallel tool calls
 
 - A turn runs concurrently only when every call is a policy-allowed,

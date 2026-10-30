@@ -95,6 +95,64 @@ class _ShellDelegatesMixin:
     def write_log(self, text: str):
         self._win._log_sig.emit(text)
 
+    def choose_session(self, labels: list[str], title: str = "Resume agent session") -> int:
+        """Show a modal session picker on the GUI thread and return its index.
+
+        ``BrahmaLive`` handles a turn on a worker thread, so the dialog is
+        marshalled to the GUI thread and that worker waits for the answer.
+        Returns -1 when the picker is cancelled or has nothing to show.
+        """
+        labels = list(labels or [])
+        if not labels:
+            return -1
+
+        import threading
+
+        from PyQt6.QtWidgets import QInputDialog
+
+        result = {"index": -1}
+        done = threading.Event()
+
+        def _ask():
+            try:
+                choice, ok = QInputDialog.getItem(
+                    self._win, title, "Session:", labels, 0, False
+                )
+                if ok and choice in labels:
+                    result["index"] = labels.index(choice)
+            finally:
+                done.set()
+
+        self._ui(_ask)
+        done.wait(timeout=300)
+        return result["index"]
+
+    def replay_agent_session(self, messages: list[dict]) -> None:
+        """Render a stored agent transcript without persisting it again.
+
+        These turns already exist in the workspace store from when they were
+        live; ``persist=False`` keeps the replay a view, not a second copy.
+        """
+        turns = [dict(message) for message in (messages or []) if isinstance(message, dict)]
+        if not turns:
+            return
+
+        def _do():
+            for target in (
+                getattr(self, "_workspace_sidebar", None),
+                getattr(self._win, "_inline_workspace", None),
+            ):
+                recorder = getattr(target, "record_chat_event", None)
+                if not callable(recorder):
+                    continue
+                for turn in turns:
+                    try:
+                        recorder({**turn, "persist": False})
+                    except Exception:
+                        pass
+
+        self._ui(_do)
+
     def show_confirm(self, title: str, detail: str = ""):
         self.w.show_confirm(title, detail)
 

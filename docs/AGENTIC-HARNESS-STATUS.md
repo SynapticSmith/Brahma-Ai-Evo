@@ -35,6 +35,7 @@ database migration is required; the new tables are additive.
 | Policy hot-reload (fail-safe) | Done |
 | Subdirectory instructions (path-driven) | Done |
 | Streaming output (text + tool calls) | Done |
+| GUI session persistence + replay | Done |
 | Python floor + CI matrix | Done |
 | Docs | This file + `AGENTIC-HARNESS.md` |
 | Commit | One commit per hardening batch on `main` (see `git log --oneline`) |
@@ -54,6 +55,7 @@ agent/runtime.py        AgentRuntime, configure(), gui_approver, policy_note
 agent/loop.py           AgentLoop, AgentResult, stop reasons, event stream
 agent/context.py        ContextBudget, ConversationContext, compaction
 agent/session.py        AgentSession (agent_* tables), SessionRecord
+agent/session_bridge.py Qt-free GUI↔session seed, transcript, picker labels
 agent/prompts.py        resident prompt + AGENTS.md/BRAHMA.md loader
 agent/providers.py      local/custom/openrouter/stub completers + summariser
 agent/streaming.py      delta assembler + SSE transport (stdlib urllib)
@@ -65,13 +67,16 @@ Modified:
 
 | File | Change |
 | --- | --- |
-| `main.py` | Appends harness declarations to `TOOL_DECLARATIONS`; `AGENT_MAX_TURNS = 24`; `_finish_tool_turn` now seeds `AgentLoop(first_response=res)` with the turn-one tool surface; new `_agent_event`; `main()` configures the runtime with the developer-mode workspace and the HUD approver. |
+| `main.py` | Appends harness declarations to `TOOL_DECLARATIONS`; `AGENT_MAX_TURNS = 24`; `_finish_tool_turn` now seeds `AgentLoop(first_response=res)` with the turn-one tool surface; new `_agent_event`; `_ensure_agent_session` persists GUI text turns and `/sessions`, `/resume`, `/new` bind or drop the session; `main()` configures the runtime with the developer-mode workspace and the HUD approver. |
 | `core/tool_exec.py` | Harness branch at the top of `ToolExecutor.execute`, dispatched via `asyncio.to_thread`. Falls through to the legacy path otherwise. |
 | `core/confirm.py` | `is_bound()`, `_on_qt_main_thread()`, `ask_blocking()`; `_Pending` gained `waiter`/`verdict`; `resolve()` now completes the waiter (timeout ⇒ `False`). |
 | `core/tool_index.py` | Pinned `read_file`, `edit_file`, `run_command` alongside `undo`/`recall_memory`. |
 | `config/agent_permissions.example.json` | Generated from the built-in defaults as an editable reference. |
 | `ui.py` | `Ctrl+Shift+X` → `MainWindow._cancel_agent()` → `agent.runtime.cancel()`. |
 | `setup.py` | Refuses to run below Python 3.11 with a readable message. |
+| `core/ui_shell_delegates.py` | `choose_session()` marshals the modal picker to the GUI thread; `replay_agent_session()` renders stored turns without re-persisting them. |
+| `core/ui_chat.py` | `record_chat_event(..., persist=False)` makes a replay a view; the live path still writes to `workspace_store`. |
+| `core/ui_shell_tray.py` | **Resume Agent Session…** submits `/resume` through the normal command path. |
 | `.github/workflows/ci.yml` | `harness-pythons` job: harness suite on 3.11/3.12/3.13 with only pytest installed. |
 | `.gitignore` | `agent_permissions.json` ignored — it is machine-local user data. |
 
@@ -80,8 +85,9 @@ New tests: `tests/test_agent_permissions.py`, `test_agent_code_tools.py`,
 `test_agent_cli.py`, `test_agent_retry.py`, `test_agent_prompts.py`,
 `test_agent_approval.py`, `test_agent_parallel.py`, `test_agent_usage.py`,
 `test_agent_policy_reload.py`, `test_agent_instructions.py`,
-`test_agent_streaming.py` — all pure-Python (no display, no model). HUD-only
-behaviour lives in `tests/test_confirmation_overlay.py`.
+`test_agent_streaming.py`, `test_agent_session_bridge.py` — all pure-Python
+(no display, no model). HUD-only behaviour lives in
+`tests/test_confirmation_overlay.py`.
 
 ---
 
@@ -371,6 +377,34 @@ base URL is normalised with `_endpoint_base()` because `or_client.API_URL`
 already ends in `/chat/completions` while the shared transport appends that
 path itself.
 
+### D27 — The GUI seeds `[system, history, user]`, never a stored system row
+
+The CLI had `resume`; the HUD rebuilt `[system, user]` on every turn and wrote
+no `agent_*` row at all, so closing the window was a hard reset. The fix could
+not simply hand the GUI a `ConversationContext` built from `session.messages()`:
+the seed also has to be the exact list the *first* provider request sends, or
+the model answers the new sentence without the earlier conversation.
+
+`agent/session_bridge.py` is the Qt-free seam. `history(session)` strips a
+leading system row; `seed_context()` builds the turn context with a freshly
+rebuilt system prompt; and `messages_after(history, seeded)` returns only the
+tail, so a resumed turn appends one user message instead of duplicating the
+whole transcript. `_finish_tool_turn` persists that tail once and then passes
+the session to `AgentLoop`, which keeps its existing append/compaction/status
+behaviour. The row is created against the runtime workspace, not the process
+cwd, because a shortcut launch starts in the install directory.
+
+The system prompt is deliberately **not** persisted. It names the workspace,
+endpoint, instruction files and permission note of the current run; an old copy
+would silently outrank the current one. The CLI already rebuilds it on resume,
+so both surfaces now behave the same way.
+
+Replay is a view, not a second write: `record_chat_event(..., persist=False)`
+adds the stored user/assistant text to the feed without touching
+`workspace_store`. `/resume` with no id opens a modal picker marshalled to the
+GUI thread (the command runs on a worker); a unique id prefix is accepted. The
+tray menu submits `/resume`, so the feature is reachable without typing.
+
 ### D20 — Parallel dispatch is whole-turn and read-only
 
 Model turns often contain several `read_file`/`glob_files`/`grep_files` calls,
@@ -407,8 +441,8 @@ and the default `python` are 3.14 and lack `ruff`/`pytest`.
 
 ```
 py -3.11 -m ruff check .                 # All checks passed!
-py -3.11 -m pytest tests -q              # 530 passed  (QT_QPA_PLATFORM=offscreen)
-py -3.11 -m pytest tests -q -k agent     # 196 passed
+py -3.11 -m pytest tests -q              # 538 passed  (QT_QPA_PLATFORM=offscreen)
+py -3.11 -m pytest tests -q -k agent     # 204 passed
 py -3.11 -c "import main; ..."           # 66 declarations, all six tools present
 py -3.11 -m agent tools                  # lists the six primitives
 py -3.11 -m agent permissions show       # reports built-in defaults
@@ -422,7 +456,7 @@ Notes:
   `len(TOOL_DECLARATIONS) == 66` and that
   `{read_file, write_file, edit_file, glob_files, grep_files, run_command}` are
   all present.
-* The 196 harness tests run without a display or a model:
+* The 204 harness tests run without a display or a model:
   `py -3.11 -m pytest tests -q -k agent`.
 * `python -m agent run --provider stub --json` is the cheapest end-to-end
   smoke test (used by `test_agent_cli`).
@@ -453,6 +487,10 @@ Notes:
   fragmented tool-call assembly, usage-only tails, error chunks, SSE parsing and
   HTTP error bodies, the stub transport, loop `delta` / `reset` /
   `stream_fallback` events, and the CLI printer's no-duplicate rule.
+* The GUI session bridge is covered by `tests/test_agent_session_bridge.py`
+  (8): system-row stripping, prefix-only appends on resume, transcript
+  filtering, one-line titles, and the picker/summary labels. It is pure Python
+  so the harness CI job still needs only pytest.
 
 ---
 
@@ -464,23 +502,22 @@ Ordered by value, with the honest reason each was left out.
    parallel, but the decision is whole-turn: one write or approval prompt
    serialises everything. A per-call scheduler and a subagent layer can be built
    on the event stream.
-2. **Session replay in the GUI.** The CLI can `resume`; the HUD cannot. A
-   session picker would map `agent_sessions` into the existing conversation UI.
-3. **Approval UX is still plain text.** The banner now shows the command, cwd,
+2. **Approval UX is still plain text.** The banner now shows the command, cwd,
    rule, and a diff, but there is no syntax highlighting or per-hunk folding,
    and the TTY prompt prints the same block. Naming the remembered scope is
    done; reviewing a 1 600-character diff on a HUD is the remaining friction.
-4. **Streaming is not universal.** The local, custom, OpenRouter and stub
+3. **Streaming is not universal.** The local, custom, OpenRouter and stub
    transports stream; the GUI's custom path and the voice path announce
    `stream_fallback` and use one request. The assembler follows the protocol
    (argument fragments are concatenated), so a non-compliant server that
    repeats a full arguments blob would produce invalid JSON.
-5. **Sandboxing.** `run_command` is `shell=True` with policy as the only
+4. **Sandboxing.** `run_command` is `shell=True` with policy as the only
    barrier. A Windows job-object / container option would let `--yolo` be safe
    in more places.
-6. **Voice-path session persistence.** Gemini owns the live history, so voice
+5. **Voice-path session persistence.** Gemini owns the live history, so voice
    turns do not write `agent_*` rows. Unifying them would need a transcript
-   bridge from the live session.
+   bridge from the live session; a GUI text session cannot be replayed into a
+   live socket.
 
 ---
 
