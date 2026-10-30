@@ -86,3 +86,74 @@ def test_banner_names_what_always_allow_will_remember():
     assert any("PHYSICAL CONFIRMATION REQUIRED" in text for text in plain_texts)
     assert not any("ALWAYS ALLOW remembers" in text for text in plain_texts)
     plain.deleteLater()
+
+
+DIFF_DETAIL = """file: app.py
+replace: 1 occurrence(s)
+
+--- a/app.py
++++ b/app.py
+@@ -1,9 +1,9 @@
+ one
+ two
+-old
++new
+ four
+ five
+ six
+ seven
+ eight
+"""
+
+
+def _diff_overlay():
+    overlay = ConfirmationOverlay("Apply this edit?", DIFF_DETAIL, allow_always=True)
+    return overlay
+
+
+def test_a_diff_gets_a_summary_and_a_changes_only_toggle():
+    _app()
+    overlay = _diff_overlay()
+
+    texts = [label.text() for label in overlay.findChildren(QLabel)]
+    assert any("diff: +1 \u22121 in 1 hunk" in text for text in texts)
+    assert "CHANGES ONLY" in _labels(overlay)
+    # Highlighting formats the existing text; it never rewrites it.
+    assert overlay._detail_highlighter is not None
+    box = overlay.findChildren(QPlainTextEdit)[0]
+    assert box.toPlainText() == DIFF_DETAIL
+    overlay.deleteLater()
+
+
+def test_changes_only_folds_context_and_restores_the_full_detail():
+    _app()
+    overlay = _diff_overlay()
+    box = overlay.findChildren(QPlainTextEdit)[0]
+
+    button = next(b for b in overlay.findChildren(QPushButton) if b.text() == "CHANGES ONLY")
+    button.click()
+
+    folded = box.toPlainText()
+    assert "…" in folded and "unchanged line(s)" in folded
+    assert "+new" in folded and "-old" in folded
+    assert "eight" not in folded
+    assert button.text() == "SHOW FULL DETAIL"
+
+    button.click()
+    assert box.toPlainText() == DIFF_DETAIL
+    assert button.text() == "CHANGES ONLY"
+    overlay.deleteLater()
+
+
+def test_a_detail_without_a_diff_has_no_fold_controls():
+    _app()
+    overlay = ConfirmationOverlay(
+        "Run this command?",
+        "rule: classes.exec\ncommand: pytest -q",
+        allow_always=True,
+    )
+    texts = [label.text() for label in overlay.findChildren(QLabel)]
+    assert not any(text.startswith("diff:") for text in texts)
+    assert "CHANGES ONLY" not in _labels(overlay)
+    assert overlay._detail_highlighter is not None
+    overlay.deleteLater()

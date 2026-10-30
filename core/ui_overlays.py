@@ -6,8 +6,9 @@ from __future__ import annotations
 import time
 
 from PyQt6.QtCore import (QTimer, Qt, pyqtSignal)
-from PyQt6.QtGui import (QColor, QFont, QPixmap)
+from PyQt6.QtGui import (QColor, QFont, QPixmap, QSyntaxHighlighter, QTextCharFormat)
 from PyQt6.QtWidgets import (QFrame, QGraphicsDropShadowEffect, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget)
+from core.diff_preview import preview_detail
 from core.ui_theme import (C)
 
 class RemoteKeyOverlay(QWidget):
@@ -626,6 +627,52 @@ class DailyBriefingOverlay(QWidget):
         self.closed.emit()
 
 
+class DetailHighlighter(QSyntaxHighlighter):
+    """Colour a plain-text approval detail so a diff is readable at a glance.
+
+    The detail is text, not markup: a command plus rule, or a unified diff. This
+    only sets character formats, so the underlying string the approver sees is
+    unchanged and ``toPlainText()`` still returns exactly what was passed in.
+    """
+
+    _HEADINGS = ("rule:", "command:", "cwd:", "timeout:", "file:", "replace:", "tool:")
+
+    def __init__(self, document):
+        super().__init__(document)
+        self._file = QTextCharFormat()
+        self._file.setForeground(QColor(C.TEXT))
+        self._file.setFontWeight(QFont.Weight.Bold)
+        self._hunk = QTextCharFormat()
+        self._hunk.setForeground(QColor(C.ACC))
+        self._add = QTextCharFormat()
+        self._add.setForeground(QColor("#4ade80"))
+        self._del = QTextCharFormat()
+        self._del.setForeground(QColor("#f87171"))
+        self._dim = QTextCharFormat()
+        self._dim.setForeground(QColor(C.TEXT_DIM))
+        self._key = QTextCharFormat()
+        self._key.setForeground(QColor(C.TEXT_MED))
+        self._key.setFontWeight(QFont.Weight.Bold)
+
+    def highlightBlock(self, text: str) -> None:
+        if text.startswith(("+++", "---")) and not text.startswith("--- before"):
+            self.setFormat(0, len(text), self._file)
+        elif text.startswith("@@"):
+            self.setFormat(0, len(text), self._hunk)
+        elif text.startswith("+"):
+            self.setFormat(0, len(text), self._add)
+        elif text.startswith("-"):
+            self.setFormat(0, len(text), self._del)
+        elif text.startswith("…"):
+            # Fold marker: deliberately dim, so it does not read as content.
+            self.setFormat(0, len(text), self._dim)
+        else:
+            for heading in self._HEADINGS:
+                if text.startswith(heading):
+                    self.setFormat(0, len(heading), self._key)
+                    break
+
+
 class ConfirmationOverlay(QWidget):
     """Physical confirmation gate for irreversible actions (shutdown, restart, wifi toggles)."""
     answered = pyqtSignal(bool)
@@ -671,6 +718,11 @@ class ConfirmationOverlay(QWidget):
         ttl.setStyleSheet(f"color: {C.TEXT}; background: transparent;")
         lay.addWidget(ttl)
 
+        self._detail_box = None
+        self._detail_highlighter = None
+        self._fold_button = None
+        self._preview = preview_detail(detail or "")
+
         if detail:
             if "\n" in detail or len(detail) > 160:
                 # A command plus a rule, or a diff, is not a one-line subtitle.
@@ -687,7 +739,11 @@ class ConfirmationOverlay(QWidget):
                     f" border: 1px solid {C.BORDER}; border-radius: 6px;"
                     " padding: 6px; }"
                 )
+                self._detail_box = box
+                self._detail_highlighter = DetailHighlighter(box.document())
                 lay.addWidget(box)
+                if self._preview.has_diff:
+                    lay.addLayout(self._build_diff_row())
             else:
                 dtl = QLabel(detail)
                 dtl.setWordWrap(True)
@@ -784,6 +840,60 @@ class ConfirmationOverlay(QWidget):
         self._timer.setInterval(1000)
         self._timer.timeout.connect(self._tick)
         self._timer.start()
+
+    def _build_diff_row(self) -> QHBoxLayout:
+        """Summary plus a fold toggle, shown only when the detail has a diff."""
+        row = QHBoxLayout()
+        row.setSpacing(8)
+
+        summary = QLabel(f"diff: {self._preview.summary}")
+        summary.setFont(QFont("Segoe UI", 8))
+        summary.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
+        row.addWidget(summary)
+        row.addStretch(1)
+
+        toggle = QPushButton("CHANGES ONLY")
+        toggle.setFixedHeight(22)
+        toggle.setFont(QFont("Segoe UI", 8))
+        toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        toggle.setToolTip("Hide unchanged context lines around each change")
+        toggle.setStyleSheet(f"""
+            QPushButton {{
+                background: rgba(0, 229, 255, 0.06);
+                color: {C.TEXT_MED};
+                border: 1px solid {C.BORDER};
+                border-radius: 4px;
+                padding: 0 8px;
+            }}
+            QPushButton:hover {{
+                color: {C.WHITE};
+                border-color: {C.BORDER_B};
+                background: rgba(0, 229, 255, 0.18);
+            }}
+        """)
+        toggle.clicked.connect(self._toggle_fold)
+        row.addWidget(toggle)
+        self._fold_button = toggle
+        return row
+
+    def _toggle_fold(self):
+        if self._detail_box is None or self._fold_button is None:
+            return
+        self._set_folded(not bool(self._detail_box.property("folded")))
+
+    def _set_folded(self, folded: bool):
+        """Swap the box between the full detail and its changes-only form."""
+        if self._detail_box is None or self._fold_button is None:
+            return
+        self._detail_box.setProperty("folded", folded)
+        self._detail_box.setPlainText(
+            self._preview.folded if folded else self._preview.full
+        )
+        self._fold_button.setText("SHOW FULL DETAIL" if folded else "CHANGES ONLY")
+        self._fold_button.setToolTip(
+            "Show the whole detail again" if folded
+            else "Hide unchanged context lines around each change"
+        )
 
     def _tick(self):
         self._remaining_secs -= 1

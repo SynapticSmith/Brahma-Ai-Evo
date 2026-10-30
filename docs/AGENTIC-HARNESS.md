@@ -114,6 +114,8 @@ import PyQt, the tool index, or a provider client. Import submodules directly.
 | `core/confirm.py` | `is_bound()`, `ask_blocking()`, `_on_qt_main_thread()`, and waiter/verdict plumbing on `_Pending`. |
 | `core/tool_index.py` | `read_file`, `edit_file`, `run_command` added to `DEFAULT_PINNED_TOOLS`. |
 | `ui.py` | `Ctrl+Shift+X` → `MainWindow._cancel_agent()` → `agent.runtime.cancel()`. |
+| `core/diff_preview.py` | Finds the diff in an approval detail, counts it, and folds unchanged context for the banner's CHANGES ONLY view. Pure Python. |
+| `core/ui_overlays.py` | `DetailHighlighter` colours diff lines; the banner adds the diff summary and fold toggle. |
 | `setup.py` | Refuses to run below Python 3.11 with a readable message. |
 
 ---
@@ -474,6 +476,17 @@ The rule and its reason come first so a person can see *why* they are being
 asked before reading *what* will run. A multi-line detail is rendered in a
 read-only scroll box, not a label that grows the banner off screen.
 
+The HUD colours that box: additions green, removals red, hunk headers cyan,
+file headers bold, and rule/command keys bold. Highlighting is presentation
+only — `toPlainText()` still returns exactly the string the approver was
+given. When the detail contains a unified diff, the banner also shows a
+one-line summary (`+2 −1 in 1 hunk`) and a **CHANGES ONLY** button that folds
+away unchanged lines more than one line from a change, replacing each dropped
+run with `… N unchanged line(s)`. The toggle switches back to **SHOW FULL
+DETAIL**; the underlying diff is untouched, so approving either view executes
+the same call. The parser and folder are pure Python in `core/diff_preview.py`
+so they are tested without Qt.
+
 ### "Headless" means "no human can be asked"
 
 `AgentRuntime.decide` computes:
@@ -728,11 +741,12 @@ unchanged); only the loop around it is new.
 | `tests/test_agent_instructions.py` | Path-driven subdirectory discovery: ancestor chain order, directory-vs-file paths, ignored/vendored dirs, outside paths, dedupe and `seen`, depth and character budgets, loop injection into the next request, one load per file. |
 | `tests/test_agent_approval.py` | Session "always allow" keying (tool vs exact command), bool answers not remembered, deny never widened, reconfigure survival, confirm tri-state and timeout. |
 | `tests/test_agent_approval_detail.py` | Banner text: rule-first ordering, command/cwd, real diffs, create vs overwrite, bounded output, path-scoped session keys. |
+| `tests/test_agent_diff_preview.py` | Diff detection in a detail, add/remove/hunk counts, context folding and its `… N unchanged` markers, no false diff for a `--- before ---` heading. |
 | `tests/test_agent_parallel.py` | Concurrent reads, `max_parallel_tools` cap, write/`ask` serialisation, submission-order results, cancellation fillers for undispatched calls. |
 | `tests/test_agent_usage.py` | OpenAI/Gemini/SDK usage shapes, unknown vs zero, summed totals only from real halves, accumulation, per-turn `assistant.usage`. |
 | `tests/test_agent_policy_reload.py` | An edit takes effect mid-session, malformed edits keep the last good policy, no-file policies never reload, throttle/`force`, event payload, deny not widened by a session approval. |
 | `tests/test_agent_streaming.py` | Delta assembly (text, fragmented tool calls, usage tails, error chunks), SSE parsing and HTTP error bodies, endpoint normalisation, stub streaming, loop delta/`reset`/`stream_fallback` events, and the CLI printer's no-duplicate rule. |
-| `tests/test_confirmation_overlay.py` | HUD banner: ALWAYS ALLOW only for session-approvable calls, remembers-what hint, diff box, irreversible header. |
+| `tests/test_confirmation_overlay.py` | HUD banner: ALWAYS ALLOW only for session-approvable calls, remembers-what hint, diff box, diff summary and CHANGES ONLY fold/restore, irreversible header. |
 
 They do not need a model. The `test_agent_*` files are pure-Python and need
 neither a display nor PyQt; only `test_confirmation_overlay.py` constructs a Qt

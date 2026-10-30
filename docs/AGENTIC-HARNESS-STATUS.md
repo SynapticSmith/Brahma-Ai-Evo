@@ -36,6 +36,7 @@ database migration is required; the new tables are additive.
 | Subdirectory instructions (path-driven) | Done |
 | Streaming output (text + tool calls) | Done |
 | GUI session persistence + replay | Done |
+| Diff highlighting + CHANGES ONLY folding in the banner | Done |
 | Python floor + CI matrix | Done |
 | Docs | This file + `AGENTIC-HARNESS.md` |
 | Commit | One commit per hardening batch on `main` (see `git log --oneline`) |
@@ -77,6 +78,8 @@ Modified:
 | `core/ui_shell_delegates.py` | `choose_session()` marshals the modal picker to the GUI thread; `replay_agent_session()` renders stored turns without re-persisting them. |
 | `core/ui_chat.py` | `record_chat_event(..., persist=False)` makes a replay a view; the live path still writes to `workspace_store`. |
 | `core/ui_shell_tray.py` | **Resume Agent Session…** submits `/resume` through the normal command path. |
+| `core/diff_preview.py` | New pure-Python view model for banner diffs: `split_detail`, `count_changes`, `fold_diff`, `preview_detail`. |
+| `core/ui_overlays.py` | `DetailHighlighter` (green/red/cyan diff lines) and the diff summary plus CHANGES ONLY toggle in `ConfirmationOverlay`. |
 | `.github/workflows/ci.yml` | `harness-pythons` job: harness suite on 3.11/3.12/3.13 with only pytest installed. |
 | `.gitignore` | `agent_permissions.json` ignored — it is machine-local user data. |
 
@@ -85,9 +88,9 @@ New tests: `tests/test_agent_permissions.py`, `test_agent_code_tools.py`,
 `test_agent_cli.py`, `test_agent_retry.py`, `test_agent_prompts.py`,
 `test_agent_approval.py`, `test_agent_parallel.py`, `test_agent_usage.py`,
 `test_agent_policy_reload.py`, `test_agent_instructions.py`,
-`test_agent_streaming.py`, `test_agent_session_bridge.py` — all pure-Python
-(no display, no model). HUD-only behaviour lives in
-`tests/test_confirmation_overlay.py`.
+`test_agent_streaming.py`, `test_agent_session_bridge.py`,
+`test_agent_diff_preview.py` — all pure-Python (no display, no model). HUD-only
+behaviour lives in `tests/test_confirmation_overlay.py`.
 
 ---
 
@@ -405,6 +408,35 @@ adds the stored user/assistant text to the feed without touching
 GUI thread (the command runs on a worker); a unique id prefix is accepted. The
 tray menu submits `/resume`, so the feature is reachable without typing.
 
+### D28 — Diff folding is a view over the detail string, not a new payload
+
+The banner already received a bounded unified diff from
+`agent/approval_detail.py`, but on a HUD a two-hunk edit still spends most of a
+150-pixel box on unchanged context, and a flat monochrome block makes `+` and
+`-` easy to miss. Two temptations were rejected:
+
+* **Passing structured data to the banner.** That would change the approver
+  contract (a `str`) and force every approver — TTY, tests, third-party hosts —
+  to learn a new type. The diff stays text; `core/diff_preview.py` derives the
+  view from it.
+* **Folding inside `approval_detail`.** The approver's string must remain the
+  complete, exact detail: it is what the CLI prints and what a test asserts.
+  Folding is a display choice, so it lives beside the widget.
+
+`split_detail()` only recognises a diff when `--- ` is immediately followed by
+`+++ `, which avoids misreading the edit preview's `--- before ---` heading.
+`count_changes()` ignores file headers, so `+1 −1 in 1 hunk` describes changes
+rather than header noise. `fold_diff()` keeps one line of context either side
+of every change and replaces each dropped run with `… N unchanged line(s)` so an
+elided gap is visible rather than silent. The toggle swaps the box text between
+the two renderings; approving either one executes the same call, because the
+underlying arguments never changed.
+
+`DetailHighlighter` is a `QSyntaxHighlighter`, so it formats the document
+without mutating it: `toPlainText()` still equals the string the approver was
+given, and a test asserts that. The summary and toggle only appear when a diff
+was actually found; a command-only ask keeps the plain box.
+
 ### D20 — Parallel dispatch is whole-turn and read-only
 
 Model turns often contain several `read_file`/`glob_files`/`grep_files` calls,
@@ -441,8 +473,8 @@ and the default `python` are 3.14 and lack `ruff`/`pytest`.
 
 ```
 py -3.11 -m ruff check .                 # All checks passed!
-py -3.11 -m pytest tests -q              # 538 passed  (QT_QPA_PLATFORM=offscreen)
-py -3.11 -m pytest tests -q -k agent     # 204 passed
+py -3.11 -m pytest tests -q              # 551 passed  (QT_QPA_PLATFORM=offscreen)
+py -3.11 -m pytest tests -q -k agent     # 214 passed
 py -3.11 -c "import main; ..."           # 66 declarations, all six tools present
 py -3.11 -m agent tools                  # lists the six primitives
 py -3.11 -m agent permissions show       # reports built-in defaults
@@ -456,7 +488,7 @@ Notes:
   `len(TOOL_DECLARATIONS) == 66` and that
   `{read_file, write_file, edit_file, glob_files, grep_files, run_command}` are
   all present.
-* The 204 harness tests run without a display or a model:
+* The 214 harness tests run without a display or a model:
   `py -3.11 -m pytest tests -q -k agent`.
 * `python -m agent run --provider stub --json` is the cheapest end-to-end
   smoke test (used by `test_agent_cli`).
@@ -466,14 +498,14 @@ Notes:
 * Cancellation and retries were verified by `tests/test_agent_retry.py`
   (16 tests) plus the loop's existing cancellation tests.
 * Instruction discovery and the approval tri-state are covered by
-  `tests/test_agent_prompts.py` (7) and `tests/test_agent_approval.py` (10);
-  `tests/test_confirmation_overlay.py` (2) checks the HUD button itself.
+  `tests/test_agent_prompts.py` (7) and `tests/test_agent_approval.py` (10).
 * Parallel dispatch and protocol-safe cancellation are covered by
   `tests/test_agent_parallel.py` (8): overlap, the cap, write/`ask`
   serialisation, submission order, and filler results for undispatched calls.
 * Approval detail and path-scoped approvals are covered by
-  `tests/test_agent_approval_detail.py` (10); the banner's remember-label hint
-  and diff box are checked in `tests/test_confirmation_overlay.py` (3).
+  `tests/test_agent_approval_detail.py` (10); the banner's remember-label hint,
+  diff box, summary and fold/restore toggle are checked in
+  `tests/test_confirmation_overlay.py` (6).
 * Provider usage and policy hot-reload are covered by
   `tests/test_agent_usage.py` (11) and `tests/test_agent_policy_reload.py` (8):
   unknown vs zero, summed totals only from real halves, mid-session edits,
@@ -491,6 +523,10 @@ Notes:
   (8): system-row stripping, prefix-only appends on resume, transcript
   filtering, one-line titles, and the picker/summary labels. It is pure Python
   so the harness CI job still needs only pytest.
+* Banner diff folding is covered by `tests/test_agent_diff_preview.py` (10):
+  real-diff detection vs a `--- before ---` heading, add/remove/hunk counts,
+  context retention and `… N unchanged` markers, zero-context folding, and the
+  summary string. Still pure Python, still no Qt in the harness CI job.
 
 ---
 
@@ -502,22 +538,22 @@ Ordered by value, with the honest reason each was left out.
    parallel, but the decision is whole-turn: one write or approval prompt
    serialises everything. A per-call scheduler and a subagent layer can be built
    on the event stream.
-2. **Approval UX is still plain text.** The banner now shows the command, cwd,
-   rule, and a diff, but there is no syntax highlighting or per-hunk folding,
-   and the TTY prompt prints the same block. Naming the remembered scope is
-   done; reviewing a 1 600-character diff on a HUD is the remaining friction.
-3. **Streaming is not universal.** The local, custom, OpenRouter and stub
+2. **Streaming is not universal.** The local, custom, OpenRouter and stub
    transports stream; the GUI's custom path and the voice path announce
    `stream_fallback` and use one request. The assembler follows the protocol
    (argument fragments are concatenated), so a non-compliant server that
    repeats a full arguments blob would produce invalid JSON.
-4. **Sandboxing.** `run_command` is `shell=True` with policy as the only
+3. **Sandboxing.** `run_command` is `shell=True` with policy as the only
    barrier. A Windows job-object / container option would let `--yolo` be safe
    in more places.
-5. **Voice-path session persistence.** Gemini owns the live history, so voice
+4. **Voice-path session persistence.** Gemini owns the live history, so voice
    turns do not write `agent_*` rows. Unifying them would need a transcript
    bridge from the live session; a GUI text session cannot be replayed into a
    live socket.
+5. **The TTY prompt has no colour.** The HUD highlights diffs and folds
+   context, but `python -m agent` prints the same detail as plain text. That is
+   fine for piping and logs; adding ANSI colour would need a TTY check so a
+   redirected run stays parseable.
 
 ---
 
