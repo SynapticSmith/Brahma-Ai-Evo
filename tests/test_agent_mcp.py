@@ -55,12 +55,21 @@ TOOLS = [
     {"name": "resource", "description": "A text resource.", "inputSchema": {"type": "object"}},
     {"name": "structured", "description": "Structured content.", "inputSchema": {"type": "object"}},
     {"name": "crash", "description": "Exit the server.", "inputSchema": {"type": "object"}},
+    {"name": "pid", "description": "This process's id.", "inputSchema": {"type": "object"}},
+    {"name": "mutate", "description": "Change the tool list and notify.", "inputSchema": {"type": "object"}},
+    {"name": "break_listing", "description": "Make tools/list fail.", "inputSchema": {"type": "object"}},
 ]
+
+LISTING_BROKEN = False
 
 
 def send(payload):
     sys.stdout.write(json.dumps(payload) + "\n")
     sys.stdout.flush()
+
+
+def notify(method):
+    send({"jsonrpc": "2.0", "method": method})
 
 
 for line in sys.stdin:
@@ -82,6 +91,20 @@ for line in sys.stdin:
             "serverInfo": {"name": "fake", "version": "1.0"},
         }
     elif method == "tools/list":
+        if LISTING_BROKEN:
+            sys.stderr.write("fake server list failure\n")
+            sys.stderr.flush()
+            # Give the client's stderr reader a moment so the failure carries
+            # the tail, the same way a real server's crash report would.
+            time.sleep(0.1)
+            send(
+                {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {"code": -32603, "message": "listing is broken"},
+                }
+            )
+            continue
         result = {"tools": TOOLS}
     elif method == "tools/call":
         params = message.get("params") or {}
@@ -123,6 +146,26 @@ for line in sys.stdin:
             sys.stderr.write("fake server crashing\n")
             sys.stderr.flush()
             os._exit(3)
+        elif name == "pid":
+            result = {"content": [{"type": "text", "text": str(os.getpid())}]}
+        elif name == "mutate":
+            for tool in list(TOOLS):
+                if tool["name"] == "binary":
+                    TOOLS.remove(tool)
+            if not any(tool["name"] == "added" for tool in TOOLS):
+                TOOLS.append(
+                    {
+                        "name": "added",
+                        "description": "Appeared after list_changed.",
+                        "inputSchema": {"type": "object"},
+                    }
+                )
+            notify("notifications/tools/list_changed")
+            result = {"content": [{"type": "text", "text": "mutated"}]}
+        elif name == "break_listing":
+            LISTING_BROKEN = True
+            notify("notifications/tools/list_changed")
+            result = {"content": [{"type": "text", "text": "broken"}]}
         else:
             result = {"content": [{"type": "text", "text": "unknown tool"}], "isError": True}
     else:
@@ -393,7 +436,7 @@ def test_start_status_reports_the_tool_count(tmp_path: Path):
     session = _session(tmp_path)
     try:
         assert session.statuses[0].ok is True
-        assert session.statuses[0].tools == 7
+        assert session.statuses[0].tools == 10
         assert session.statuses[0].name == "demo"
     finally:
         session.close()
@@ -478,7 +521,7 @@ def test_the_cli_lists_servers_and_tools(tmp_path: Path, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert code == 0
     assert payload["servers"][0]["ok"] is True
-    assert payload["servers"][0]["tools"] == 7
+    assert payload["servers"][0]["tools"] == 10
     assert "mcp_demo_echo" in payload["tools"]
 
 
@@ -681,5 +724,167 @@ def test_merging_appends_mcp_tools_without_duplicating_a_name(tmp_path: Path):
 def test_merging_is_a_no_op_when_nothing_is_registered():
     assert with_mcp_tools(None) == []
     assert with_mcp_tools([{"name": "read_file"}]) == [{"name": "read_file"}]
+
+
+# --------------------------------------------------------------------------- #
+# In-place refresh: tools/list_changed and a dead process
+# --------------------------------------------------------------------------- #
+
+def _call_spec(name: str, arguments: dict | None = None) -> str:
+    """Invoke a registered tool through its spec handler, like the runtime does."""
+    spec = get_spec(name)
+    assert spec is not None, f"{name} is not registered"
+    return spec.handler(arguments or {}, None)
+
+
+def _two_server_config(root: Path) -> Path:
+    script = _script(root)
+    path = root / ".brahma" / "mcp.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    name: {"command": sys.executable, "args": [str(script)], "timeout": 10}
+                    for name in ("alpha", "beta")
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_the_workspace_manager_does_not_refresh_a_healthy_session(tmp_path: Path):
+    _workspace_config(tmp_path)
+    events: list = []
+    manager = WorkspaceMCP()
+    try:
+        assert manager.ensure(tmp_path, on_event=events.append) is True
+        assert manager.ensure(tmp_path, on_event=events.append) is True
+
+        assert [e for e in events if e["type"] == "mcp_refresh"] == []
+        assert manager.generation == 1
+    finally:
+        manager.close()
+
+
+def test_a_list_changed_notification_refreshes_the_catalogue(tmp_path: Path):
+    _workspace_config(tmp_path)
+    events: list = []
+    manager = WorkspaceMCP()
+    try:
+        assert manager.ensure(tmp_path) is True
+        assert get_spec("mcp_demo_added") is None
+        assert get_spec("mcp_demo_binary") is not None
+
+        # The server changes its list and sends notifications/tools/list_changed.
+        assert _call_spec("mcp_demo_mutate") == "mutated"
+
+        assert manager.ensure(tmp_path, on_event=events.append) is True
+
+        assert get_spec("mcp_demo_added") is not None
+        assert get_spec("mcp_demo_binary") is None
+        assert _call_spec("mcp_demo_echo", {"text": "still"}) == '{"text": "still"}'
+
+        refresh = [e for e in events if e["type"] == "mcp_refresh"]
+        assert len(refresh) == 1
+        assert refresh[0]["server"] == "demo"
+        assert refresh[0]["restarted"] is False
+        assert refresh[0]["added"] == ["added"]
+        assert refresh[0]["removed"] == ["binary"]
+        # Re-listing is not a restart, so the generation counter is unchanged.
+        assert manager.generation == 1
+    finally:
+        manager.close()
+
+
+def test_a_killed_server_is_restarted_on_the_next_ensure(tmp_path: Path):
+    _workspace_config(tmp_path)
+    events: list = []
+    manager = WorkspaceMCP()
+    try:
+        assert manager.ensure(tmp_path) is True
+        before = _call_spec("mcp_demo_pid")
+        assert "failed" in _call_spec("mcp_demo_crash").lower()
+
+        assert manager.ensure(tmp_path, on_event=events.append) is True
+
+        after = _call_spec("mcp_demo_pid")
+        assert after != before
+        assert _call_spec("mcp_demo_echo", {"text": "back"}) == '{"text": "back"}'
+        assert manager.generation == 2
+        refresh = [e for e in events if e["type"] == "mcp_refresh"]
+        assert refresh and refresh[0]["restarted"] is True
+    finally:
+        manager.close()
+
+
+def test_only_the_changed_server_is_restarted(tmp_path: Path):
+    _two_server_config(tmp_path)
+    events: list = []
+    manager = WorkspaceMCP()
+    try:
+        assert manager.ensure(tmp_path) is True
+        alpha_before = _call_spec("mcp_alpha_pid")
+        beta_before = _call_spec("mcp_beta_pid")
+
+        _call_spec("mcp_alpha_mutate")
+        assert manager.ensure(tmp_path, on_event=events.append) is True
+
+        assert _call_spec("mcp_alpha_pid") == alpha_before
+        assert _call_spec("mcp_beta_pid") == beta_before
+        assert get_spec("mcp_alpha_binary") is None
+        assert get_spec("mcp_beta_binary") is not None
+
+        refresh = [e for e in events if e["type"] == "mcp_refresh"]
+        assert [e["server"] for e in refresh] == ["alpha"]
+        assert refresh[0]["restarted"] is False
+    finally:
+        manager.close()
+
+
+def test_a_failed_refresh_drops_the_tools_and_reports_the_error(tmp_path: Path):
+    _workspace_config(tmp_path)
+    events: list = []
+    manager = WorkspaceMCP()
+    try:
+        assert manager.ensure(tmp_path) is True
+        assert get_spec("mcp_demo_echo") is not None
+        assert _call_spec("mcp_demo_break_listing") == "broken"
+
+        assert manager.ensure(tmp_path, on_event=events.append) is True
+
+        # A stale catalogue is worse than none: the tools are gone, and the
+        # failure is reported once with the server's stderr tail.
+        assert get_spec("mcp_demo_echo") is None
+        assert manager.tools == []
+        errors = [e for e in events if e["type"] == "error"]
+        assert errors and "list failure" in errors[0]["error"]
+        assert manager.statuses[0].ok is False
+        assert "listing is broken" in manager.statuses[0].error
+
+        # The broken server is not respawned on every following turn.
+        assert manager.ensure(tmp_path, on_event=events.append) is True
+        assert len([e for e in events if e["type"] == "error"]) == 1
+    finally:
+        manager.close()
+
+
+def test_a_refresh_leaves_no_duplicate_or_orphaned_specs(tmp_path: Path):
+    _workspace_config(tmp_path)
+    manager = WorkspaceMCP()
+    try:
+        assert manager.ensure(tmp_path) is True
+        _call_spec("mcp_demo_mutate")
+        assert manager.ensure(tmp_path) is True
+
+        names = manager.tools
+        assert len(names) == len(set(names))
+        assert all(get_spec(name) is not None for name in names)
+    finally:
+        manager.close()
+
+    assert all(get_spec(name) is None for name in names)
 
 

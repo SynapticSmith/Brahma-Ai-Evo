@@ -11,6 +11,9 @@ Scope is deliberately small — the part the agent actually needs:
 * ``initialize`` / ``notifications/initialized``
 * ``tools/list`` (with cursor pagination)
 * ``tools/call``
+* ``notifications/tools/list_changed`` — latched by the reader thread and
+  acted on by :meth:`MCPSession.refresh`, which the workspace manager calls
+  once per turn. There is no background watcher.
 
 Resources, prompts, sampling, roots and logging are not implemented. They are
 separate capabilities, and pretending to support them would produce tools that
@@ -38,7 +41,18 @@ import threading
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Deque, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import (
+    Any,
+    Deque,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+)
 
 from .process import _kill_tree, _windows_job
 from .spec import ToolSpec, all_specs, register, unregister
@@ -707,6 +721,7 @@ class MCPSession:
         self._servers: Dict[str, StdioServer] = {}
         self._specs: List[str] = []
         self._calls: Dict[str, Tuple[str, str]] = {}
+        self._by_server: Dict[str, List[str]] = {}
         self.statuses: List[MCPServerStatus] = []
 
     def start(
@@ -734,29 +749,13 @@ class MCPSession:
                 continue
 
             self._servers[config.name] = server
-            count = 0
-            for tool in tools:
-                tool_name = str(tool["name"])
-                spec_name = tool_spec_name(config.name, tool_name, taken=taken)
-                taken.add(spec_name)
-                spec = ToolSpec(
-                    name=spec_name,
-                    description=_clean_description(tool.get("description"), config.name, tool_name),
-                    parameters=_clean_schema(tool.get("inputSchema")),
-                    tool_class="mcp",
-                    handler=self._handler(spec_name),
-                    tags=("mcp", config.name),
-                    max_output_chars=20_000,
-                )
-                register(spec)
-                self._specs.append(spec_name)
-                self._calls[spec_name] = (config.name, tool_name)
-                count += 1
+            names = self._register_tools(config, tools, taken)
+            self._by_server[config.name] = names
             status = MCPServerStatus(
                 name=config.name,
                 command=config.command,
                 ok=True,
-                tools=count,
+                tools=len(names),
             )
             self.statuses.append(status)
             self._emit(on_event, status)
@@ -767,6 +766,7 @@ class MCPSession:
             unregister(name)
         self._specs.clear()
         self._calls.clear()
+        self._by_server.clear()
         for server in self._servers.values():
             server.close()
         self._servers.clear()
@@ -792,7 +792,161 @@ class MCPSession:
             raise MCPError(f"MCP server {server_name!r} is not running")
         return server.call_tool(tool_name, arguments)
 
+    # -- refresh -----------------------------------------------------------
+
+    def needs_refresh(self) -> bool:
+        """True when a server died or announced that its tool list changed.
+
+        The notification is only latched by the reader thread; deciding *when*
+        to act on it belongs to the host, so this is the cheap predicate the
+        workspace manager calls on every turn. ``closed`` matters as well as
+        ``alive``: the reader thread sees EOF before ``poll()`` necessarily
+        reports the exit, and a closed transport can never answer again.
+        """
+        return any(
+            server.tools_changed or server.closed or not server.alive
+            for server in self._servers.values()
+        )
+
+    def refresh(self, *, on_event: Optional[Any] = None) -> bool:
+        """Re-list tools for the stale servers, restarting dead processes.
+
+        Returns True when at least one process was restarted. A server whose
+        re-list fails loses its tools (a stale catalogue would advertise calls
+        that cannot work) and is reported once; it is not retried on every
+        turn, which keeps a broken command from spawning a process per turn.
+        """
+        restarted_any = False
+        for name in list(self._servers):
+            server = self._servers.get(name)
+            if server is None:
+                continue
+            if not (server.tools_changed or server.closed or not server.alive):
+                continue
+
+            old_tools = self._tool_names(name)
+            self._unregister_server(name)
+            # Clear before the request: a notification that arrives *during*
+            # the re-list must schedule another refresh, not be swallowed.
+            server.tools_changed = False
+            restarted = server.closed or not server.alive
+            if restarted:
+                server.close()
+                server = StdioServer(server.config)
+                restarted_any = True
+                try:
+                    server.start()
+                except MCPError as exc:
+                    self._report_failed_refresh(name, server.config, exc, on_event)
+                    continue
+            try:
+                tools = server.list_tools()
+            except MCPError as exc:
+                server.close()
+                self._report_failed_refresh(name, server.config, exc, on_event)
+                continue
+
+            self._servers[name] = server
+            taken = {spec.name for spec in all_specs()}
+            names = self._register_tools(server.config, tools, taken)
+            self._by_server[name] = names
+            new_tools = {self._calls[spec][1] for spec in names}
+            self._replace_status(
+                MCPServerStatus(
+                    name=name,
+                    command=server.config.command,
+                    ok=True,
+                    tools=len(names),
+                )
+            )
+            _emit_event(
+                on_event,
+                {
+                    "type": "mcp_refresh",
+                    "server": name,
+                    "ok": True,
+                    "tools": len(names),
+                    "restarted": restarted,
+                    "added": sorted(new_tools - old_tools),
+                    "removed": sorted(old_tools - new_tools),
+                },
+            )
+        return restarted_any
+
     # -- internals ---------------------------------------------------------
+
+    def _register_tools(
+        self,
+        config: MCPServerConfig,
+        tools: Sequence[Mapping[str, Any]],
+        taken: Set[str],
+    ) -> List[str]:
+        """Register one server's tools and return their spec names."""
+        names: List[str] = []
+        for tool in tools:
+            tool_name = str(tool["name"])
+            spec_name = tool_spec_name(config.name, tool_name, taken=taken)
+            taken.add(spec_name)
+            spec = ToolSpec(
+                name=spec_name,
+                description=_clean_description(tool.get("description"), config.name, tool_name),
+                parameters=_clean_schema(tool.get("inputSchema")),
+                tool_class="mcp",
+                handler=self._handler(spec_name),
+                tags=("mcp", config.name),
+                max_output_chars=20_000,
+            )
+            register(spec)
+            self._specs.append(spec_name)
+            self._calls[spec_name] = (config.name, tool_name)
+            names.append(spec_name)
+        return names
+
+    def _tool_names(self, server_name: str) -> Set[str]:
+        """The un-namespaced tool names one server currently contributes."""
+        return {
+            tool
+            for spec_name, (owner, tool) in self._calls.items()
+            if owner == server_name
+        }
+
+    def _unregister_server(self, server_name: str) -> None:
+        for spec_name in self._by_server.pop(server_name, []):
+            unregister(spec_name)
+            self._calls.pop(spec_name, None)
+            try:
+                self._specs.remove(spec_name)
+            except ValueError:
+                pass
+
+    def _replace_status(self, status: MCPServerStatus) -> None:
+        for index, existing in enumerate(self.statuses):
+            if existing.name == status.name:
+                self.statuses[index] = status
+                return
+        self.statuses.append(status)
+
+    def _report_failed_refresh(
+        self,
+        name: str,
+        config: MCPServerConfig,
+        exc: MCPError,
+        on_event: Optional[Any],
+    ) -> None:
+        self._servers.pop(name, None)
+        self._by_server.pop(name, None)
+        self._replace_status(
+            MCPServerStatus(
+                name=name,
+                command=config.command,
+                ok=False,
+                error=str(exc),
+            )
+        )
+        _emit_event(
+            on_event,
+            {"type": "error", "error": f"MCP server {name!r} refresh failed: {exc}"},
+        )
 
     @staticmethod
     def _emit(sink: Optional[Any], status: MCPServerStatus) -> None:
@@ -880,6 +1034,11 @@ class WorkspaceMCP:
     is unchanged, and tears it down and restarts when either the workspace or
     the config's identity changes.
 
+    Between restarts it also refreshes *in place*: a server that announced
+    ``tools/list_changed`` or whose process died is re-listed (and, if dead,
+    restarted) on the next :meth:`ensure`, so a long-lived GUI process does not
+    advertise a stale catalogue or a dead server's tools.
+
     It is thread-safe because the text turn runs on a worker thread while
     application shutdown closes the manager from the main thread. A malformed
     config returns ``False`` rather than raising: one bad file must not take
@@ -945,6 +1104,8 @@ class WorkspaceMCP:
                     fingerprint = (str(path), -1, -1)
 
             if self._workspace == root and self._fingerprint == fingerprint:
+                if self._session is not None and self._session.needs_refresh():
+                    self._refresh_locked(on_event)
                 return self._ok
 
             self._close_locked()
@@ -982,6 +1143,25 @@ class WorkspaceMCP:
         self._session = None
         if session is not None:
             session.close()
+
+    def _refresh_locked(self, on_event: Optional[Any]) -> None:
+        """Refresh the live session without touching the config fingerprint.
+
+        The fingerprint is the *config* trigger; a latched notification or a
+        dead process is the *runtime* trigger. Refreshing must never break the
+        turn, so an unexpected error becomes one event and the turn continues.
+        """
+        session = self._session
+        if session is None:
+            return
+        try:
+            if session.refresh(on_event=on_event):
+                self._generation += 1
+        except Exception as exc:  # noqa: BLE001 - a refresh must never break a turn
+            _emit_event(
+                on_event,
+                {"type": "error", "error": f"MCP refresh failed: {exc}"},
+            )
 
 
 def _emit_event(sink: Optional[Any], event: Mapping[str, Any]) -> None:

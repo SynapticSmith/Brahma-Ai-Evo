@@ -492,16 +492,22 @@ starts the configured servers, prints their tool counts, and shuts them down —
 the diagnostic to run before blaming the model.
 
 Two honest limits: tools only (resources, prompts and sampling are not
-implemented), and no automatic restart or refresh. The `tools/list_changed`
-notification is received and latched, but the next turn does not re-list. A
-crashed server stays failed until the enclosing lifetime ends — one command for
-the CLI, a workspace/config change or app restart for the GUI. The CLI starts
-servers for the length of one command; the GUI text path uses a lazily started
-`WorkspaceMCP` that reuses the session across turns, restarts when the
-workspace or config file changes, and closes at app exit. It merges the MCP
-declarations into the *first* model call as well as the follow-ups — a model
-that never learns a tool exists will never call it. The live voice path keeps
-its own SDK-based manager (`core/mcp_manager.py`).
+implemented), and no background watcher. Refresh happens at the turn boundary
+instead: the GUI's `WorkspaceMCP` asks the live session whether any server
+latched `tools/list_changed` or lost its transport, and if so re-lists that
+server, restarts it when the process is gone, and re-registers its specs before
+the next model call merges the surface. Unchanged servers are left alone. A
+re-list that fails drops that server's tools and reports one error (with the
+stderr tail) rather than advertising calls that cannot work; it is not retried
+every turn, so a broken command does not spawn a process per turn. A server
+that failed to start in the first place is still only retried when the config
+file changes. The CLI starts servers for the length of one command, so it has
+no turn to refresh at. The GUI text path uses a lazily started `WorkspaceMCP`
+that reuses the session across turns, restarts when the workspace or config
+file changes, refreshes in place as described, and closes at app exit. It
+merges the MCP declarations into the *first* model call as well as the
+follow-ups — a model that never learns a tool exists will never call it. The
+live voice path keeps its own SDK-based manager (`core/mcp_manager.py`).
 
 ---
 

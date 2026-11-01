@@ -16,11 +16,11 @@ to the status doc, and re-rank what remains. A stale tracker is worse than none.
 | Field | Value |
 | --- | --- |
 | Snapshot date | 2026-10-31 |
-| `HEAD` | `ad2d708 docs: add ranked harness work tracker` (base of the N1 + N3 batch) |
-| Working tree | N1 + N3 landed in the commit that carries this line |
-| Harness batches on `main` | 21 before this batch: 20 harness batches plus the tracker's own commit |
-| Last decision recorded | D40 (one project-prompt seam for every surface) |
-| Gate result | `ruff` clean; `pytest tests` → **724 passed, 1 skipped** (offscreen) |
+| `HEAD` | `f42f4b2 agent: give the GUI and voice paths the project prompt` (base of the N2 batch) |
+| Working tree | N2 landed in the commit that carries this line |
+| Harness batches on `main` | 22 before this batch: 20 hardening batches, the tracker, and N1 + N3 |
+| Last decision recorded | D41 (MCP refresh at the turn boundary) |
+| Gate result | `ruff` clean; `pytest tests` → **730 passed, 1 skipped** (offscreen) |
 
 Reproduce the snapshot:
 
@@ -32,8 +32,9 @@ py -3.11 -m pytest tests -q -k agent
 
 All §1 rows in `AGENTIC-HARNESS-STATUS.md` are `Done`. The harness is **not**
 mid-batch: the last batch (project skills) landed complete, and the work below
-is new scope rather than cleanup of an unfinished change. N1 and N3 have since
-landed (D40); N2 is the next recommended batch.
+is new scope rather than cleanup of an unfinished change. N1, N3 and N2 have
+since landed (D40, D41); nothing on the board is unblocked any more, so the next
+batch needs a decision rather than a queue entry.
 
 ---
 
@@ -42,7 +43,7 @@ landed (D40); N2 is the next recommended batch.
 | ID | Task | Value | Effort | Status |
 | --- | --- | --- | --- | --- |
 | N1 | Give the GUI text and voice paths the project prompt | High | S–M | Done (D40) |
-| N2 | Consume MCP `tools/list_changed` and revive a dead server | Medium | M | Open |
+| N2 | Consume MCP `tools/list_changed` and revive a dead server | Medium | M | Done (D41) |
 | N3 | Correct the stale claims in the two harness docs | Low | S | Done (with N1) |
 | N4 | Filesystem/network confinement for `run_command` | High (design) | XL | Blocked on decision |
 | N5 | Parallel / model-selecting subagents | Medium (design) | L | Blocked on decision |
@@ -50,8 +51,9 @@ landed (D40); N2 is the next recommended batch.
 | N7 | Executable skills / `allowed-tools` enforcement | Low | M | Rejected (would be a second boundary) |
 | N8 | Unify harness skills with the core Skills Library | Medium (design) | M | Blocked on naming story |
 
-Ordered by value per unit of risk, not by size. N2 is now the recommended next
-commit; N1 and N3 landed together.
+Ordered by value per unit of risk, not by size. N1, N3 and N2 landed in two
+batches. Every remaining item is blocked, deliberately deferred, or rejected:
+the next batch starts with a decision on N4, N5 or N8.
 
 ---
 
@@ -173,6 +175,11 @@ are missing, and they are missing before the first tool call.
 
 ## 3. N2 — Consume MCP `tools/list_changed` and revive a dead server
 
+**Landed.** Decision D41 in `AGENTIC-HARNESS-STATUS.md`;
+`MCPSession.needs_refresh`/`refresh` in `agent/mcp.py`, called from
+`WorkspaceMCP.ensure` on the unchanged-fingerprint path. The section below is
+kept as the record of what was verified.
+
 ### 3.1 The gap
 
 `agent/mcp.py:509` sets `self.tools_changed = True` when a server sends
@@ -206,27 +213,32 @@ The docs list this as a limit; the unused flag shows the intended next step.
 
 ### 3.3 Acceptance criteria
 
-- [ ] A fake stdio server that emits `tools/list_changed` and answers a new
+- [x] A fake stdio server that emits `tools/list_changed` and answers a new
       `tools/list` has its new tool callable on the next `ensure()`.
-- [ ] A removed tool is unregistered and no longer advertised.
-- [ ] A killed server is restarted on the next `ensure()`, and a still-broken
+- [x] A removed tool is unregistered and no longer advertised.
+- [x] A killed server is restarted on the next `ensure()`, and a still-broken
       server fails one call with its stderr tail rather than hanging.
-- [ ] Two servers, one changed and one not: the unchanged one is not restarted.
-- [ ] `close()` still unregisters everything; no spec leaks across tests.
+- [x] Two servers, one changed and one not: the unchanged one is not restarted.
+- [x] `close()` still unregisters everything; no spec leaks across tests.
 
 ### 3.4 Tests
 
 Extend `tests/test_agent_mcp.py` (it already runs against a real fake stdio
 server): add a `list_changed` capability to the fake, plus restart and
-partial-refresh cases. Keep it in the stdlib-only CI job.
+partial-refresh cases. Keep it in the stdlib-only CI job. Landed as six tests:
+a healthy session is never refreshed, a notification re-lists without
+restarting (added and removed tools both checked), a killed server restarts
+once and is callable again, only the changed server in a two-server config is
+refreshed, a failed re-list drops the tools and reports the stderr tail once,
+and a refresh leaves no duplicate or orphaned specs.
 
 ---
 
 ## 4. N3 — Correct the stale claims
 
-**Landed with N1.** Both docs now say the notification is latched but not acted
-on, and that the project blocks reach the HUD text and Live prompts. The table
-below is the record of what was wrong.
+**Landed with N1.** Both docs were corrected to say the notification is latched
+(and, since N2, acted on at the turn boundary) and that the project blocks reach
+the HUD text and Live prompts. The table below is the record of what was wrong.
 
 Cheap, and it prevents the next reader from re-deriving the wrong state.
 
@@ -302,4 +314,5 @@ legacy tool because the harness branch in `core/tool_exec.py` runs first.
 
 | Batch | Commit | Summary |
 | --- | --- | --- |
-| N1 + N3 | _(this commit)_ | `agent.prompts.project_context()`; wired into the HUD text seed and the Live `_build_config`; docs corrected (D40). |
+| N1 + N3 | `f42f4b2` | `agent.prompts.project_context()`; wired into the HUD text seed and the Live `_build_config`; docs corrected (D40). |
+| N2 | _(this commit)_ | `MCPSession.needs_refresh`/`refresh`; `WorkspaceMCP.ensure` re-lists or restarts a stale server on the unchanged-fingerprint path; `mcp_refresh` event (D41). |

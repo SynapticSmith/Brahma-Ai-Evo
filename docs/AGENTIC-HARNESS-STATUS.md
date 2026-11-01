@@ -34,6 +34,7 @@ database migration is required; the new tables are additive.
 | Whole-tree command termination on timeout | Done |
 | Policy `exec.sandbox`: credential scrubbing, trusted prefix, resource limits | Done |
 | MCP servers over stdio (tools only), CLI + GUI text path | Done |
+| MCP in-place refresh (`tools/list_changed`, dead server) | Done |
 | TTY colour for the approval diff (opt-out, pipe-safe) | Done |
 | Cancellation-safe transcript | Done |
 | Provider-reported token usage | Done |
@@ -105,6 +106,9 @@ Modified:
 | `agent/runtime.py` | Imports `agent.skills`, which registers `load_project_skill` as an ordinary read-class tool. |
 | `agent/__main__.py` | `skills [--cwd DIR] [--json]` prints the discovered roots, skills and diagnostics, mirroring `mcp list`. |
 | `main.py` | `_with_agent_mcp` merges lazily started harness MCP tools into the local/custom first call; `main()`'s `finally` closes the manager beside the voice MCP manager. |
+| `agent/mcp.py` | `MCPSession.refresh` re-lists a server that latched `tools/list_changed` or lost its transport, restarting a dead process once and re-registering only that server's specs; `WorkspaceMCP.ensure` calls it on the unchanged-fingerprint path. |
+| `main.py` | `_agent_event` prints the `mcp_refresh` event (re-listed vs restarted). |
+| `agent/__main__.py` | The CLI event printer formats `mcp_refresh` like the existing `mcp` status line. |
 | `.github/workflows/ci.yml` | `harness-pythons` job: harness suite on 3.11/3.12/3.13 with only pytest installed. |
 | `.gitignore` | `agent_permissions.json` ignored — it is machine-local user data. |
 
@@ -824,6 +828,35 @@ Discovery stays silent. The prompt is rebuilt every turn, so a per-turn
 they actually add a file. A missing or unreadable workspace is non-fatal: the
 helper returns `""` and the host prompt is unchanged.
 
+### D41 — Refresh MCP at the turn boundary, not in a watcher
+
+The client already received `notifications/tools/list_changed` and latched it in
+`StdioServer.tools_changed`, but nothing read the flag, and `WorkspaceMCP.ensure`
+returned early on an unchanged config fingerprint without checking the session.
+A GUI process therefore advertised a stale catalogue after a server changed its
+tools, and a crashed server's tools stayed in the registry (and failed on first
+call) until the workspace, the config file or the app changed.
+
+The fix keeps the fingerprint as the *config* trigger and adds a *runtime*
+trigger: `MCPSession.needs_refresh()` is true when a server latched the
+notification, lost its transport (`closed`), or its process is gone
+(`alive`). `ensure` checks that predicate on the unchanged-fingerprint path and
+calls `MCPSession.refresh`, which unregisters only the stale server's specs,
+re-lists it, and re-registers them; a server whose process died is closed and
+started again exactly once. Re-registration recomputes the `taken` name set from
+the live registry, so refresh cannot duplicate a name or orphan an old spec.
+
+Three deliberate limits. There is no background thread: the next turn is the
+refresh point (D38's discipline), so a server that changes mid-turn is picked up
+on the following turn. A re-list that fails drops that server's tools and emits
+one error with the stderr tail instead of leaving a catalogue of calls that
+cannot work; it is not retried on every turn, so a broken command cannot spawn
+a process per turn. A server that failed to start at session start is still only
+retried when the config fingerprint changes. `closed` is checked alongside
+`alive` because the reader thread observes EOF before `poll()` necessarily
+reports the exit — the first version of this change missed that race and
+reported a dead transport as healthy.
+
 ### D20 — Parallel dispatch is whole-turn and read-only (superseded by D30, then D32)
 
 Model turns often contain several `read_file`/`glob_files`/`grep_files` calls,
@@ -860,8 +893,8 @@ and the default `python` are 3.14 and lack `ruff`/`pytest`.
 
 ```
 py -3.11 -m ruff check .                 # All checks passed!
-py -3.11 -m pytest tests -q              # 724 passed, 1 skipped  (QT_QPA_PLATFORM=offscreen)
-py -3.11 -m pytest tests -q -k agent     # 378 passed, 1 skipped
+py -3.11 -m pytest tests -q              # 730 passed, 1 skipped  (QT_QPA_PLATFORM=offscreen)
+py -3.11 -m pytest tests -q -k agent     # 384 passed, 1 skipped
 py -3.11 -c "import main; ..."           # 66 voice declarations; six code tools, no run_subagent
 py -3.11 -m agent tools                  # lists the eight tool specs (load_project_skill included)
 py -3.11 -m agent permissions show       # reports built-in defaults
@@ -877,7 +910,7 @@ Notes:
   `{read_file, write_file, edit_file, glob_files, grep_files, run_command}` are
   all present, while `run_subagent` is intentionally absent from the voice
   surface (the text and CLI loops advertise it via `all_specs()`).
-* The 378 harness tests run without a display or a model:
+* The 384 harness tests run without a display or a model:
   `py -3.11 -m pytest tests -q -k agent`. The one skip is the POSIX-only
   `prepare_stream` test, which a Windows run cannot execute.
 * `python -m agent run --provider stub --json` is the cheapest end-to-end
@@ -969,15 +1002,20 @@ Notes:
   for changes, plain lines untouched, TTY/`NO_COLOR` (including an empty
   value)/`TERM=dumb`/`FORCE_COLOR` policy, the plain prompt being byte-identical
   to the historical text, and the coloured prompt stripping back to it exactly.
-* MCP is covered by `tests/test_agent_mcp.py` (52), all against a real fake
+* MCP is covered by `tests/test_agent_mcp.py` (58), all against a real fake
   stdio server: config defaults/validation/discovery and relative `cwd`, name
   sanitising/truncation/collision, listing and calling through a `ToolSpec`,
   text/binary/resource/structured/error rendering, per-request timeout, a crash
   failing the pending call with the stderr tail, per-server start failure,
   allow/deny/per-tool policy through the runtime, spec unregistration on close,
   `mcp list` JSON, no-config and broken-config behaviour, workspace-manager
-  reuse/restart/close across workspace and config changes, and duplicate-free
-  merging into the model's first tool surface.
+  reuse/restart/close across workspace and config changes, duplicate-free
+  merging into the model's first tool surface, and in-place refresh: a latched
+  `tools/list_changed` re-lists without restarting, a killed server is
+  restarted exactly once and its tools come back, a second unchanged server is
+  left alone, a failed re-list drops that server's tools and reports the error
+  (with the stderr tail) exactly once, a healthy session is never refreshed,
+  and refresh leaves no duplicate or orphaned specs.
 * The GUI-only MCP wiring is covered by `tests/test_gui_mcp_wiring.py` (3):
   the first-surface merge, a broken config degrading to the built-in tools with
   one error event, and the process-wide manager identity. It imports `main`,
@@ -1014,16 +1052,17 @@ lands; this section stays the historical summary.
    assembler follows the protocol (argument fragments are concatenated), so a
    non-compliant server that repeats a full arguments blob would produce
    invalid JSON.
-4. **MCP is tools-only and has no live refresh.** The client implements
-   `initialize`, `tools/list` and `tools/call`; resources, prompts and sampling
-   are left out because a half-supported capability produces tools that fail on
-   first use. Sessions do not auto-restart and the `tools/list_changed`
-   notification is received and latched (`agent/mcp.py`) but never acted on: a
-   CLI server lives for one command, the GUI manager for the app's life, but a
-   crashed server stays failed until that lifetime ends. The GUI text path keeps
-   a `WorkspaceMCP` and restarts it on a workspace or config change; the live
-   voice path still uses its own SDK-based manager. Tracked as N2 in
-   [`AGENTIC-HARNESS-NEXT.md`](AGENTIC-HARNESS-NEXT.md).
+4. **MCP is tools-only and refreshes only at the turn boundary.** The client
+   implements `initialize`, `tools/list`, `tools/call` and acts on
+   `notifications/tools/list_changed`; resources, prompts and sampling are left
+   out because a half-supported capability produces tools that fail on first
+   use. There is no background watcher: the GUI's `WorkspaceMCP` re-lists a
+   changed server and restarts a dead one on the next `ensure()` (D41), so a
+   change mid-turn lands on the following turn. A re-list that fails drops that
+   server's tools and reports once; a server that failed its very first start is
+   retried only when the config file changes. The CLI has no turn to refresh at
+   — its session lives for one command — and the live voice path still uses its
+   own SDK-based manager.
 5. **Project skills are instructional, not executable.** `load_project_skill`
    returns text the model reads; there are no scripts, no per-skill tools and no
    `allowed-tools` enforcement (the policy is still the only boundary). There is

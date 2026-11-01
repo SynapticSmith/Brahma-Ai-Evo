@@ -80,6 +80,9 @@ def _render_event(event: Dict[str, Any]) -> Optional[str]:
         if event.get("ok"):
             return f"  ~~ mcp {event.get('name')}: {event.get('tools')} tool(s)"
         return f"  !! mcp {event.get('name')}: {event.get('error')}"
+    if kind == "mcp_refresh":
+        state = "restarted" if event.get("restarted") else "re-listed"
+        return f"  ~~ mcp {event.get('server')} {state}: {event.get('tools')} tool(s)"
     if kind == "instructions":
         labels = ", ".join(event.get("loaded") or [])
         suffix = " (truncated)" if event.get("truncated") else ""

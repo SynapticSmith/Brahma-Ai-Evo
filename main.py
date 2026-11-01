@@ -4038,6 +4038,10 @@ class BrahmaLive:
                 else:
                     print(f"[BRAHMA EVO] \u26a0\ufe0f mcp {event.get('name')}: "
                           f"{event.get('error')}")
+            elif kind == "mcp_refresh":
+                state = "restarted" if event.get("restarted") else "re-listed"
+                print(f"[BRAHMA EVO] \U0001f504 mcp {event.get('server')} {state}: "
+                      f"{event.get('tools')} tool(s)")
             elif kind == "error":
                 print(f"[BRAHMA EVO] \u26a0\ufe0f {event.get('error')}")
             elif kind == "stream_fallback":

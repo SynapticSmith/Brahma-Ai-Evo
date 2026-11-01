@@ -102,6 +102,12 @@ they govern; `agent/prompts.py` owns discovery and its budgets.
   a session per turn: it is keyed by workspace + config identity and closed in
   `main()`'s `finally`. Merge its tools with `with_mcp_tools` so the first model
   call advertises them; the loop's `all_specs()` merge only covers follow-ups.
+- A server that latched `tools/list_changed`, lost its transport (`closed`) or
+  whose process is gone is refreshed at the turn boundary: `WorkspaceMCP.ensure`
+  calls `MCPSession.refresh`, which re-lists that server only and restarts a
+  dead one once. No background watcher and no per-turn retry loop — a failed
+  re-list drops that server's tools and reports the stderr tail once. Check
+  `closed` as well as `alive`: the reader thread sees EOF before `poll()` does.
 
 ## Sessions
 
