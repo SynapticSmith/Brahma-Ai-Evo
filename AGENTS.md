@@ -9,6 +9,10 @@ A Windows-first PyQt6 desktop assistant. `main.py` is the entry point and owns
 `BrahmaLive` (Gemini Live audio, plus the local/custom/OpenRouter text paths).
 Tool implementations live in `actions/`; cross-cutting seams live in `core/`.
 
+`docs/ARCHITECTURE-SPEC.md` is the system map: document authority, invariants,
+implemented-vs-designed status, the security workstream, and the ranked work
+queues. Read it before starting a non-trivial batch.
+
 ## Environment
 
 - **Use Python 3.11 for every gate**: `py -3.11 -m ruff …`, `py -3.11 -m pytest …`.
