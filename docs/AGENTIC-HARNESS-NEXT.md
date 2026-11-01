@@ -16,11 +16,11 @@ to the status doc, and re-rank what remains. A stale tracker is worse than none.
 | Field | Value |
 | --- | --- |
 | Snapshot date | 2026-10-31 |
-| `HEAD` | `b2c7d36 agent: add project skills with on-demand loading` |
-| Working tree | clean when this snapshot was taken (this file is the only addition) |
-| Harness batches on `main` | 20 commits, one per hardening batch (`git log --oneline`) |
-| Last decision recorded | D39 (project skills, on-demand loading) |
-| Gate result | `ruff` clean; `pytest tests` → **715 passed, 1 skipped** (offscreen) |
+| `HEAD` | `ad2d708 docs: add ranked harness work tracker` (base of the N1 + N3 batch) |
+| Working tree | N1 + N3 landed in the commit that carries this line |
+| Harness batches on `main` | 21 before this batch: 20 harness batches plus the tracker's own commit |
+| Last decision recorded | D40 (one project-prompt seam for every surface) |
+| Gate result | `ruff` clean; `pytest tests` → **724 passed, 1 skipped** (offscreen) |
 
 Reproduce the snapshot:
 
@@ -32,7 +32,8 @@ py -3.11 -m pytest tests -q -k agent
 
 All §1 rows in `AGENTIC-HARNESS-STATUS.md` are `Done`. The harness is **not**
 mid-batch: the last batch (project skills) landed complete, and the work below
-is new scope rather than cleanup of an unfinished change.
+is new scope rather than cleanup of an unfinished change. N1 and N3 have since
+landed (D40); N2 is the next recommended batch.
 
 ---
 
@@ -40,21 +41,26 @@ is new scope rather than cleanup of an unfinished change.
 
 | ID | Task | Value | Effort | Status |
 | --- | --- | --- | --- | --- |
-| N1 | Give the GUI text and voice paths the project prompt | High | S–M | Open |
+| N1 | Give the GUI text and voice paths the project prompt | High | S–M | Done (D40) |
 | N2 | Consume MCP `tools/list_changed` and revive a dead server | Medium | M | Open |
-| N3 | Correct the stale claims in the two harness docs | Low | S | Open |
+| N3 | Correct the stale claims in the two harness docs | Low | S | Done (with N1) |
 | N4 | Filesystem/network confinement for `run_command` | High (design) | XL | Blocked on decision |
 | N5 | Parallel / model-selecting subagents | Medium (design) | L | Blocked on decision |
 | N6 | MCP resources, prompts, sampling | Low | M | Deliberately deferred |
 | N7 | Executable skills / `allowed-tools` enforcement | Low | M | Rejected (would be a second boundary) |
 | N8 | Unify harness skills with the core Skills Library | Medium (design) | M | Blocked on naming story |
 
-Ordered by value per unit of risk, not by size. N1 is the recommended next
-commit; N2 is the natural follow-up; N3 rides along with whichever lands first.
+Ordered by value per unit of risk, not by size. N2 is now the recommended next
+commit; N1 and N3 landed together.
 
 ---
 
 ## 2. N1 — Give the GUI text and voice paths the project prompt
+
+**Landed.** Decision D40 in `AGENTIC-HARNESS-STATUS.md`; helper in
+`agent/prompts.py:project_context()`, wired into `main.py:_agentic_seed_messages`
+and `core/session_lifecycle.py:_build_config`. The section below is kept as the
+record of what was verified.
 
 ### 2.1 The gap
 
@@ -118,36 +124,38 @@ are missing, and they are missing before the first tool call.
    `advertise_discovery` branches.
 3. Call it from `core/session_lifecycle.py` beside `live_extra`
    (`core/session_lifecycle.py:492-495`), using the runtime workspace.
-4. Add a `instructions`/diagnostic event or startup log line naming what
-   loaded, so a user can tell the file was read. Reuse the existing event name
-   and payload shape from `agent/loop.py` where possible.
+4. (Landed as silence.) No per-turn `instructions` event: the base prompt is
+   rebuilt every turn, so it would be noise. The catalogue is inspectable with
+   `python -m agent skills`; subdirectory loads still emit `instructions` when
+   they actually add a file.
 5. Do **not** copy the blocks into the transcript. They are system-prompt text;
    resume and compaction must stay untouched (D27).
 
 ### 2.4 Acceptance criteria
 
-- [ ] A GUI text turn in a workspace with `AGENTS.md` sends that text in the
+- [x] A GUI text turn in a workspace with `AGENTS.md` sends that text in the
       `system` message of its **first** provider request.
-- [ ] The same turn lists project skills (`name: description`) when
+- [x] The same turn lists project skills (`name: description`) when
       `.brahma/skills/*/SKILL.md` exists.
-- [ ] A voice session's `LiveConnectConfig.system_instruction` contains the same
+- [x] A voice session's `LiveConnectConfig.system_instruction` contains the same
       two blocks.
-- [ ] A workspace with neither file produces no extra blank sections.
-- [ ] CLI and subagent prompts are unchanged (existing prompt tests still pass).
-- [ ] `agent/` still imports with only pytest installed; `agent/__init__.py`
+- [x] A workspace with neither file produces no extra blank sections.
+- [x] CLI and subagent prompts are unchanged (existing prompt tests still pass).
+- [x] `agent/` still imports with only pytest installed; `agent/__init__.py`
       stays empty; no PyQt import from `agent/`.
 
 ### 2.5 Tests
 
-- Pure-Python helper tests (extend `tests/test_agent_prompts.py` or
-  `tests/test_agent_skills.py`): ordering, empty workspace, budget caps,
-  instruction + skills combined.
-- A GUI wiring test in the style of `tests/test_gui_mcp_wiring.py` (imports
-  `main`, so **not** named `test_agent_*`): `_agentic_seed_messages()` includes
-  the blocks for a temp workspace, in both discovery branches.
-- A `session_lifecycle` prompt-assembly test if the existing test seam allows
-  it without constructing a live Gemini session; otherwise assert the helper is
-  called and keep the voice assertion to the composed string.
+- `tests/test_agent_prompts.py`: `project_context` composition, the empty
+  workspace, and the guarantee that it is the workspace half of
+  `build_system_prompt`.
+- `tests/test_gui_prompt_wiring.py` (imports `main`, outside the harness CI
+  job): the blocks in `_agentic_seed_messages`, both discovery branches, a
+  workspace with no files, and runtime workspace over process cwd.
+- `tests/test_voice_prompt_wiring.py` (imports `core.session_lifecycle`,
+  outside the harness CI job): the blocks in the assembled
+  `LiveConnectConfig.system_instruction`, and no section when the workspace has
+  none.
 
 ### 2.6 Risks / notes
 
@@ -215,6 +223,10 @@ partial-refresh cases. Keep it in the stdlib-only CI job.
 ---
 
 ## 4. N3 — Correct the stale claims
+
+**Landed with N1.** Both docs now say the notification is latched but not acted
+on, and that the project blocks reach the HUD text and Live prompts. The table
+below is the record of what was wrong.
 
 Cheap, and it prevents the next reader from re-deriving the wrong state.
 
@@ -288,4 +300,6 @@ legacy tool because the harness branch in `core/tool_exec.py` runs first.
 
 ### Landed
 
-_(empty — the next batch appends here)_
+| Batch | Commit | Summary |
+| --- | --- | --- |
+| N1 + N3 | _(this commit)_ | `agent.prompts.project_context()`; wired into the HUD text seed and the Live `_build_config`; docs corrected (D40). |

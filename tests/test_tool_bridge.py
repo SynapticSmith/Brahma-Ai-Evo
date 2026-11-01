@@ -446,7 +446,12 @@ def test_explain_reports_ranking_detail(bridge):
 def test_main_no_longer_advertises_every_tool_unconditionally():
     """`_build_config` must go through the bridge, not splice the full list."""
     src = (ROOT / "core" / "session_lifecycle.py").read_text(encoding="utf-8")
-    body = src[src.index("def _build_config"):src.index("def _build_config") + 4000]
+    # Bound the slice by the next method rather than a fixed character count:
+    # the prompt assembly above the tool block grows, and a magic window turns
+    # an unrelated prompt edit into a false failure.
+    start = src.index("def _build_config")
+    end = src.find("\n    def ", start + 1)
+    body = src[start:end if end != -1 else None]
     assert "tool_bridge.build_session_payload" in body
     assert "DynamicToolRegistry.get_tool_declarations()" not in body, (
         "the unindexed full-tool splice is the bug that produced 173 declarations"

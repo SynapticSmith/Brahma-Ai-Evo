@@ -486,6 +486,26 @@ class SessionLifecycle:
             "Remain completely silent until the user speaks to you or asks a question."
         )
 
+        # Workspace-scoped harness prompt: the same AGENTS.md/BRAHMA.md walk and
+        # project-skills catalogue the CLI gets from
+        # ``agent.prompts.build_system_prompt``. This is the only place the Live
+        # instruction is assembled, so without it a voice session never sees
+        # either block (and ``load_project_skill`` has no catalogue to use).
+        project_ctx = ""
+        try:
+            from agent.prompts import project_context
+            from agent.runtime import current as current_agent_runtime
+
+            project_ctx = project_context(current_agent_runtime().workspace)
+        except Exception:
+            project_ctx = ""
+        if project_ctx:
+            print(
+                f"[BRAHMA EVO] \U0001f4c4 live prompt += {len(project_ctx)} "
+                "chars of project context"
+            )
+            parts.append(project_ctx)
+
         # Optional instruction blocks for the LIVE layer. This is the only place
         # Gemini Live's system instruction is assembled, so anything a voice
         # session is meant to follow has to be composed here.

@@ -2,13 +2,23 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from agent.prompts import (
     MAX_PROJECT_CHARS,
     PROJECT_FILES,
     build_system_prompt,
     instruction_dirs,
     load_project_instructions,
+    project_context,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolated_skill_roots(tmp_path: Path, monkeypatch):
+    """Keep the developer's real user-level skills out of these tests."""
+    monkeypatch.delenv("BRAHMA_SKILLS_DIR", raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "localappdata"))
 
 
 def _write(path: Path, text: str) -> None:
@@ -91,3 +101,38 @@ def test_system_prompt_puts_project_rules_after_generic_advice(tmp_path: Path):
     assert prompt.index("You are Brahma") < prompt.index("NOTE")
     assert prompt.index("NOTE") < prompt.index("PROJECT-SPECIFIC RULE")
     assert prompt.index("PROJECT-SPECIFIC RULE") < prompt.index("EXTRA")
+
+
+def test_project_context_combines_instructions_and_skills(tmp_path: Path):
+    _write(tmp_path / "AGENTS.md", "PROJECT-SPECIFIC RULE")
+    _write(
+        tmp_path / ".brahma" / "skills" / "demo" / "SKILL.md",
+        "---\nname: demo\ndescription: Does demo things.\n---\n\nBody.\n",
+    )
+
+    text = project_context(tmp_path, max_parents=0)
+
+    assert "PROJECT-SPECIFIC RULE" in text
+    assert "## Project skills" in text
+    assert "`demo`: Does demo things." in text
+    # Project rules stay first; the catalogue follows them.
+    assert text.index("PROJECT-SPECIFIC RULE") < text.index("## Project skills")
+
+
+def test_project_context_is_empty_without_workspace_or_files(tmp_path: Path):
+    assert project_context(None) == ""
+    assert project_context(tmp_path, max_parents=0) == ""
+
+
+def test_project_context_is_the_workspace_half_of_the_system_prompt(tmp_path: Path):
+    _write(tmp_path / "AGENTS.md", "PROJECT-SPECIFIC RULE")
+    _write(
+        tmp_path / ".brahma" / "skills" / "demo" / "SKILL.md",
+        "---\nname: demo\ndescription: Does demo things.\n---\n\nBody.\n",
+    )
+
+    project = project_context(tmp_path, max_parents=0)
+    prompt = build_system_prompt(tmp_path, max_parents=0)
+
+    assert project in prompt
+    assert prompt.index("You are Brahma") < prompt.index(project)

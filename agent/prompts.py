@@ -5,9 +5,12 @@ instructions compete for the same window, and a model that has read forty
 rules remembers none of them. What is here is the irreducible set: work until
 verified, read before writing, never invent tool output.
 
-Project instructions (``AGENTS.md`` / ``BRAHMA.md``) are appended last and are
-the only per-workspace input. That ordering is intentional: project rules
-should win over generic advice.
+Project instructions (``AGENTS.md`` / ``BRAHMA.md``) and the project-skills
+catalogue are appended last and are the only per-workspace input. That ordering
+is intentional: project rules should win over generic advice. They are exposed
+as :func:`project_context` so a host that builds its own resident prompt (the
+GUI text path, the Gemini Live voice path) can append the same blocks instead
+of re-implementing discovery.
 
 Instruction files are also read from the workspace's parent directories (a
 repo nested inside a monorepo should inherit the monorepo's rules). The walk is
@@ -361,6 +364,31 @@ def load_directory_instructions(
 
 
 
+def project_context(
+    workspace: Optional[Path],
+    *,
+    max_parents: Optional[int] = None,
+) -> str:
+    """Workspace-scoped prompt blocks: instruction files plus project skills.
+
+    This is the part of the harness prompt that depends on the *workspace*
+    rather than on the run's transport. :func:`build_system_prompt` composes it
+    for the CLI and subagent loops; the GUI text path and the Gemini Live voice
+    path append it to their own resident prompt, so the same project rules and
+    the same skill catalogue reach every surface.
+
+    Returns ``""`` when the workspace has neither, so a caller can append
+    unconditionally without adding a blank section.
+    """
+    if workspace is None:
+        return ""
+    blocks = (
+        load_project_instructions(workspace, max_parents=max_parents),
+        _skill_prompt_block(workspace),
+    )
+    return "\n\n".join(block for block in blocks if block)
+
+
 def build_system_prompt(
     workspace: Optional[Path] = None,
     *,
@@ -373,12 +401,9 @@ def build_system_prompt(
         parts.append(f"Workspace root: {workspace}")
     if permission_note:
         parts.append(permission_note)
-    project = load_project_instructions(workspace, max_parents=max_parents)
+    project = project_context(workspace, max_parents=max_parents)
     if project:
         parts.append(project)
-    skills = _skill_prompt_block(workspace) if workspace is not None else ""
-    if skills:
-        parts.append(skills)
     if extra:
         parts.append(extra)
     return "\n\n".join(part for part in parts if part)

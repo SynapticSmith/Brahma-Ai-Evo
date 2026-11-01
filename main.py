@@ -3828,6 +3828,23 @@ class BrahmaLive:
             if skill_ctx:
                 system_prompt = f"{system_prompt}\n\n{skill_ctx}"
 
+        # Workspace-scoped harness prompt. The CLI and subagent loops get this
+        # from ``agent.prompts.build_system_prompt``; the HUD builds its own
+        # resident prompt, so without this block the text path never sees the
+        # repo's AGENTS.md/BRAHMA.md or the project-skills catalogue -- and it
+        # would advertise ``load_project_skill`` with no catalogue to load from.
+        # Appended before the instruction layers below, matching the CLI order:
+        # project rules outrank generic advice, host extras stay last.
+        try:
+            from agent.prompts import project_context
+            from agent.runtime import current as current_agent_runtime
+
+            project = project_context(current_agent_runtime().workspace)
+        except Exception:
+            project = ""
+        if project:
+            system_prompt = f"{system_prompt}\n\n{project}"
+
         # Optional instruction blocks. The "local"/"custom" layers are
         # separate by design; compose both so the custom endpoint is not the
         # only OpenAI-compatible path that can be silenced.

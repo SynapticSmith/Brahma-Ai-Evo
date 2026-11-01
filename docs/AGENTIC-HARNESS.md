@@ -492,7 +492,8 @@ starts the configured servers, prints their tool counts, and shuts them down —
 the diagnostic to run before blaming the model.
 
 Two honest limits: tools only (resources, prompts and sampling are not
-implemented), and no automatic restart or `tools/list_changed` refresh. A
+implemented), and no automatic restart or refresh. The `tools/list_changed`
+notification is received and latched, but the next turn does not re-list. A
 crashed server stays failed until the enclosing lifetime ends — one command for
 the CLI, a workspace/config change or app restart for the GUI. The CLI starts
 servers for the length of one command; the GUI text path uses a lazily started
@@ -997,6 +998,26 @@ task-level instruction. The CLI builds the prompt with
 `build_system_prompt(workspace, permission_note=policy_note())`. The GUI text
 path reuses the app's existing core prompt (tool-index tiering and manuals are
 unchanged); only the loop around it is new.
+
+### Every surface gets the same project blocks
+
+`agent/prompts.py:project_context(workspace)` is the workspace-scoped half of
+the prompt: the `AGENTS.md`/`BRAHMA.md` walk plus the project-skills catalogue.
+`build_system_prompt()` is composed from it for the CLI and subagent loops;
+`main.py:_agentic_seed_messages()` appends it to the HUD's own resident prompt
+(in both the normal and the no-tool-discovery branch), and
+`core/session_lifecycle.py:_build_config()` appends it to the Gemini Live system
+instruction. Before this, the repo's `AGENTS.md` reached only the CLI and child
+loops, and `load_project_skill` was advertised on the HUD and voice surfaces
+with no catalogue to discover — a tool the model could only guess at.
+
+The blocks are inserted before host-specific `instruction_injector` layers, so
+project rules still outrank generic advice and host extras stay last. They live
+in the system prompt, never in the transcript, so resume and compaction are
+unaffected (D27). Discovery is silent by design: the prompt is rebuilt every
+turn, so a per-turn `instructions` event would be noise; use
+`python -m agent skills` to inspect the catalogue, and subdirectory loads still
+emit `instructions` when they actually add a file.
 
 ---
 

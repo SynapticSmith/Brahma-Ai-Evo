@@ -40,6 +40,7 @@ database migration is required; the new tables are additive.
 | Policy hot-reload (fail-safe) | Done |
 | Subdirectory instructions (path-driven) | Done |
 | Project skills (`SKILL.md`, on-demand) | Done |
+| Project prompt on GUI text + voice (`AGENTS.md`, skills catalogue) | Done |
 | Streaming output (text + tool calls) | Done |
 | GUI session persistence + replay | Done |
 | Voice-path session persistence | Done |
@@ -98,7 +99,9 @@ Modified:
 | `agent/loop.py` | A stream rejected before its first delta gets one plain request and a `stream_fallback`; transient errors still retry, and failures after output still stop. |
 | `agent/loop.py` | `_run_subagent` builds the bounded child loop and relays its events; `_run_one` injects the runner through `ToolContext.extra`; `allow_subagents=False` makes recursion impossible in the child. |
 | `main.py` | The GUI custom path streams through `custom_stream`; streaming is enabled for `source in ("local", "custom")`. |
-| `agent/prompts.py` | Appends the resident project-skills block after the instruction files and before host `extra` text. |
+| `agent/prompts.py` | Appends the resident project-skills block after the instruction files and before host `extra` text. `project_context()` is the workspace half (instructions + skills); `build_system_prompt` composes it, so CLI output is unchanged. |
+| `main.py` | `_agentic_seed_messages` appends `project_context(runtime.workspace)`, so the HUD text path sends the repo's `AGENTS.md` and the skills catalogue on its first request (both discovery branches). |
+| `core/session_lifecycle.py` | `_build_config` appends the same blocks to the Gemini Live system instruction, before `live_extra`. |
 | `agent/runtime.py` | Imports `agent.skills`, which registers `load_project_skill` as an ordinary read-class tool. |
 | `agent/__main__.py` | `skills [--cwd DIR] [--json]` prints the discovered roots, skills and diagnostics, mirroring `mcp list`. |
 | `main.py` | `_with_agent_mcp` merges lazily started harness MCP tools into the local/custom first call; `main()`'s `finally` closes the manager beside the voice MCP manager. |
@@ -115,7 +118,10 @@ New tests: `tests/test_agent_permissions.py`, `test_agent_code_tools.py`,
 `test_agent_subagent.py`, `test_agent_process.py`, `test_agent_sandbox.py`,
 `test_agent_mcp.py`, `test_agent_term.py`, `test_agent_skills.py` — all pure-Python
 (no display, no model). HUD-only behaviour lives in
-`tests/test_confirmation_overlay.py`.
+`tests/test_confirmation_overlay.py`. Two host-wiring tests,
+`test_gui_prompt_wiring.py` and `test_voice_prompt_wiring.py`, import `main` /
+`core.session_lifecycle` and are therefore deliberately outside the
+stdlib-only harness CI job.
 
 ---
 
@@ -792,6 +798,32 @@ not immediately. This is separate from the richer core Skills Library
 (`skills_library/`, `%LOCALAPPDATA%\BrahmaAI\skills_library`), which the voice
 path and the GUI's existing tool surface still use.
 
+### D40 — One project-prompt seam for every surface
+
+`build_system_prompt` already composed the workspace's instruction files and
+skills catalogue, but it had only two call sites: the CLI and the child loop.
+The HUD built its own resident prompt and the Live path built its own, so
+neither read `AGENTS.md` — despite `AGENTS.md` promising the harness does — and
+both advertised `load_project_skill` while listing no skills. The tool was
+therefore unguessable: the catalogue is the whole point of progressive
+disclosure (D39).
+
+The fix is one helper, not two copies. `project_context(workspace)` returns the
+workspace-scoped blocks (the instruction walk plus `skills.prompt_block`), and
+`build_system_prompt` is now composed from it. The HUD appends it in
+`_agentic_seed_messages` — in both the normal and the `advertise_discovery=False`
+branch, because this is prompt text, not a tool — and the Live path appends it
+in `_build_config`, before the host's `instruction_injector` layer. Ordering is
+deliberate: project rules outrank generic advice, host extras stay last, and the
+text stays in the system prompt rather than the transcript, so resume and
+compaction are untouched (D27).
+
+Discovery stays silent. The prompt is rebuilt every turn, so a per-turn
+`instructions` event would be noise; the catalogue is inspectable with
+`python -m agent skills`, and subdirectory loads still emit `instructions` when
+they actually add a file. A missing or unreadable workspace is non-fatal: the
+helper returns `""` and the host prompt is unchanged.
+
 ### D20 — Parallel dispatch is whole-turn and read-only (superseded by D30, then D32)
 
 Model turns often contain several `read_file`/`glob_files`/`grep_files` calls,
@@ -828,8 +860,8 @@ and the default `python` are 3.14 and lack `ruff`/`pytest`.
 
 ```
 py -3.11 -m ruff check .                 # All checks passed!
-py -3.11 -m pytest tests -q              # 715 passed, 1 skipped  (QT_QPA_PLATFORM=offscreen)
-py -3.11 -m pytest tests -q -k agent     # 375 passed, 1 skipped
+py -3.11 -m pytest tests -q              # 724 passed, 1 skipped  (QT_QPA_PLATFORM=offscreen)
+py -3.11 -m pytest tests -q -k agent     # 378 passed, 1 skipped
 py -3.11 -c "import main; ..."           # 66 voice declarations; six code tools, no run_subagent
 py -3.11 -m agent tools                  # lists the eight tool specs (load_project_skill included)
 py -3.11 -m agent permissions show       # reports built-in defaults
@@ -845,7 +877,7 @@ Notes:
   `{read_file, write_file, edit_file, glob_files, grep_files, run_command}` are
   all present, while `run_subagent` is intentionally absent from the voice
   surface (the text and CLI loops advertise it via `all_specs()`).
-* The 375 harness tests run without a display or a model:
+* The 378 harness tests run without a display or a model:
   `py -3.11 -m pytest tests -q -k agent`. The one skip is the POSIX-only
   `prepare_stream` test, which a Windows run cannot execute.
 * `python -m agent run --provider stub --json` is the cheapest end-to-end
@@ -910,6 +942,16 @@ Notes:
   resident-block budgets, prompt ordering, the loader through the runtime, and
   a guard that the harness name is `load_project_skill` and never shadows the
   core `load_skill`. Two CLI tests cover `agent skills` text and JSON output.
+* The shared project prompt is covered by `tests/test_agent_prompts.py` (10):
+  `project_context` composes the instruction walk and the skills catalogue,
+  returns `""` for a missing workspace or one with neither file, and is the
+  exact workspace half of `build_system_prompt`. The two host wirings sit
+  outside the stdlib-only harness job because they import the host modules:
+  `tests/test_gui_prompt_wiring.py` (4, imports `main`) checks
+  `_agentic_seed_messages` in both discovery branches, the empty workspace, and
+  that the runtime workspace wins over the process cwd;
+  `tests/test_voice_prompt_wiring.py` (2, imports `core.session_lifecycle`)
+  checks the assembled `LiveConnectConfig.system_instruction`.
 * Command containment is covered by `tests/test_agent_process.py` plus one
   test in `tests/test_agent_code_tools.py`: output and exit code, stderr,
   timeout with partial output, closed stdin, a grandchild that does not survive
@@ -972,22 +1014,26 @@ lands; this section stays the historical summary.
    assembler follows the protocol (argument fragments are concatenated), so a
    non-compliant server that repeats a full arguments blob would produce
    invalid JSON.
-4. **MCP is tools-only and CLI-only.** The client implements `initialize`,
-   `tools/list` and `tools/call`; resources, prompts and sampling are left out
-   because a half-supported capability produces tools that fail on first use.
-   Sessions do not auto-restart and `tools/list_changed` is not handled: a CLI
-   server lives for one command, the GUI manager for the app's life, but a
+4. **MCP is tools-only and has no live refresh.** The client implements
+   `initialize`, `tools/list` and `tools/call`; resources, prompts and sampling
+   are left out because a half-supported capability produces tools that fail on
+   first use. Sessions do not auto-restart and the `tools/list_changed`
+   notification is received and latched (`agent/mcp.py`) but never acted on: a
+   CLI server lives for one command, the GUI manager for the app's life, but a
    crashed server stays failed until that lifetime ends. The GUI text path keeps
    a `WorkspaceMCP` and restarts it on a workspace or config change; the live
-   voice path still uses its own SDK-based manager.
+   voice path still uses its own SDK-based manager. Tracked as N2 in
+   [`AGENTIC-HARNESS-NEXT.md`](AGENTIC-HARNESS-NEXT.md).
 5. **Project skills are instructional, not executable.** `load_project_skill`
    returns text the model reads; there are no scripts, no per-skill tools and no
    `allowed-tools` enforcement (the policy is still the only boundary). There is
    no watcher: discovery runs when a prompt is built and when the loader is
-   called, so a skill added mid-run appears on the next turn. The harness
-   catalogue is separate from the core Skills Library, which the voice path and
-   the existing GUI tool surface still use; unifying them would need one naming
-   and precedence story, not a second loader.
+   called, so a skill added mid-run appears on the next turn. Since D40 the
+   catalogue also reaches the HUD text and Gemini Live prompts; before that it
+   was in the CLI and child-loop prompts only. The harness catalogue is separate
+   from the core Skills Library, which the voice path and the existing GUI tool
+   surface still use; unifying them would need one naming and precedence story,
+   not a second loader.
 
 ---
 
