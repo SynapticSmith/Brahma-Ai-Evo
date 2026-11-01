@@ -946,7 +946,11 @@ Notes:
 
 ## 5. Known gaps / next phases
 
-Ordered by value, with the honest reason each was left out.
+Ordered by value, with the honest reason each was left out. The tracked,
+re-ranked version of this list — with code evidence, acceptance criteria and
+tests for each item — lives in
+[`AGENTIC-HARNESS-NEXT.md`](AGENTIC-HARNESS-NEXT.md). Update both when a batch
+lands; this section stays the historical summary.
 
 1. **No built-in filesystem/network confinement.** Timeouts end the whole
    process tree, credential-shaped variables are withheld, `exec.sandbox` can

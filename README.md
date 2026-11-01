@@ -181,8 +181,9 @@ Brahma AI Evo/
 ```
 
 The agent harness is documented in [`docs/AGENTIC-HARNESS.md`](docs/AGENTIC-HARNESS.md)
-(architecture and reference) and [`docs/AGENTIC-HARNESS-STATUS.md`](docs/AGENTIC-HARNESS-STATUS.md)
-(build log and decisions). It also runs headless:
+(architecture and reference), [`docs/AGENTIC-HARNESS-STATUS.md`](docs/AGENTIC-HARNESS-STATUS.md)
+(build log and decisions), and [`docs/AGENTIC-HARNESS-NEXT.md`](docs/AGENTIC-HARNESS-NEXT.md)
+(the ranked next-work tracker). It also runs headless:
 
 ```powershell
 python -m agent "fix the failing test" --cwd .

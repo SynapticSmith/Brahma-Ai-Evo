@@ -5,7 +5,9 @@ tool-calling loop — and where every piece lives.
 
 Written for the next engineer (or model) who has to change it without
 re-deriving the design. The decision history and verification log are in
-[`AGENTIC-HARNESS-STATUS.md`](AGENTIC-HARNESS-STATUS.md).
+[`AGENTIC-HARNESS-STATUS.md`](AGENTIC-HARNESS-STATUS.md). The ranked work still
+outstanding, with evidence and acceptance criteria, is in
+[`AGENTIC-HARNESS-NEXT.md`](AGENTIC-HARNESS-NEXT.md).
 
 ---
 
