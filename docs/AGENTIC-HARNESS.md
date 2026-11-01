@@ -105,7 +105,7 @@ Three invariants make the rest of the design work:
 | `agent/session.py` | Durable messages/events in SQLite; list/open/resume | …resume loses messages. |
 | `agent/session_bridge.py` | Qt-free bridge between a stored session and the GUI's `[system, history, user]` seed; `record_voice_turn` archives completed Live turns | …the HUD restarts from a hard reset, a resumed turn duplicates history, or a spoken turn is lost on exit. |
 | `agent/prompts.py` | Resident system prompt + `AGENTS.md` / `BRAHMA.md` loader, path-driven subdirectory discovery | …the model behaves against project conventions. |
-| `agent/skills.py` | Project skills: `SKILL.md` parsing, `.brahma/skills` discovery, the resident name/description block, and the `load_project_skill` tool | …a project skill is not listed, loads the wrong body, or the Skills Library tool stopped working. |
+| `agent/skills.py` | Project skills: `SKILL.md` parsing, the shared `.brahma/skills` root walk, the resident name/description block, and the `load_project_skill` tool | …a project skill is not listed, loads the wrong body, or the Skills Library tool stopped working. |
 | `agent/providers.py` | Loop-compatible completers for local/custom/OpenRouter/stub; shared `custom_stream`; summariser | …tool calling fails on one provider only. |
 | `agent/retry.py` | Transient-error classifier, exponential backoff with jitter, cancellation-aware wait | …a run stalled on a 503 or retried something it should not. |
 | `agent/__main__.py` | `python -m agent` CLI | …you need a scriptable surface. |
@@ -981,7 +981,14 @@ that may hold many playbooks.
   Otherwise discovery reads `.brahma/skills` in the workspace, then in up to
   three ancestors, then `%LOCALAPPDATA%\BrahmaAI\skills` (or
   `~/.config/brahma/skills`). The nearest definition wins; a shadowed copy is a
-  diagnostic, never a silent behaviour change.
+  diagnostic, never a silent behaviour change. `project_roots()` is the single
+  definition of the workspace half of that walk.
+* **One store for project skills.** The same `.brahma/skills` roots are the
+  highest-precedence source in the app's core Skills Library (D42), so
+  `search_skills`/`load_skill` on the voice and GUI surfaces see a project's
+  skills too. There they accept only `<id>/SKILL.md`, keep the directory name as
+  the id, and stay instructional even if a file claims `executable: true`: a
+  repository may describe how work is done, not ship code the app runs.
 * **Cost.** The resident pass reads at most 8 KB per file and caps the block at
   24 skills / 4 000 characters (then prints `N more skill(s)`). The loader
   re-discovers and reads the full body, capped at 256 KB.
@@ -1104,9 +1111,10 @@ These are known and deliberate, not surprises:
   prompt text; it cannot register a tool, and its `allowed-tools` field is
   advisory (the policy is still the only execution boundary). Discovery runs
   when a prompt is built, so a skill added mid-run appears on the next run, not
-  the next turn; there is no watcher. The GUI and voice paths keep the app's
-  richer core Skills Library (`load_skill`); the harness loader is
-  `load_project_skill`, and the two catalogues are intentionally separate.
+  the next turn; there is no watcher. The GUI and voice paths also expose those
+  roots through the app's richer core Skills Library (`load_skill`, D42); the
+  harness loader keeps its own name and contract (`load_project_skill`), so one
+  store still has two doors.
 * **Streaming is wired only where a transport exists.** Local (the existing
   Ollama-compatible SSE reader), custom OpenAI-compatible endpoints,
   OpenRouter and the stub stream, in both the CLI and the GUI text path. The

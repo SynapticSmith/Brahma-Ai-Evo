@@ -413,3 +413,28 @@ def test_snapshot_reports_the_library(env):
     snap = tool_bridge.snapshot()
     assert snap["skills"]["skills"] == 1
     assert snap["skills"]["enabled"] is True
+
+
+# --------------------------------------------------------------------------- #
+# Project skills share one store
+# --------------------------------------------------------------------------- #
+
+
+def test_project_skills_are_searchable_and_loadable_through_the_bridge(env, tmp_path):
+    lib, builtin, idx, calls, registry = env
+    directory = tmp_path / "workspace" / ".brahma" / "skills" / "release-notes"
+    directory.mkdir(parents=True)
+    (directory / "SKILL.md").write_text(
+        "---\nname: release-notes\ndescription: write the changelog from merged work\n---\n"
+        "# Release notes\n\nGroup changes by user impact.\n",
+        encoding="utf-8",
+    )
+    lib.set_project_dirs([tmp_path / "workspace" / ".brahma" / "skills"])
+
+    found = _run("search_skills", {"intent": "write the changelog"})
+    assert "release-notes" in found
+
+    out = _run("load_skill", {"skill_id": "release-notes"})
+    assert "[SKILL: release-notes]" in out
+    assert "Group changes by user impact." in out
+

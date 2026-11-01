@@ -16,11 +16,11 @@ to the status doc, and re-rank what remains. A stale tracker is worse than none.
 | Field | Value |
 | --- | --- |
 | Snapshot date | 2026-10-31 |
-| `HEAD` | `f42f4b2 agent: give the GUI and voice paths the project prompt` (base of the N2 batch) |
-| Working tree | N2 landed in the commit that carries this line |
-| Harness batches on `main` | 22 before this batch: 20 hardening batches, the tracker, and N1 + N3 |
-| Last decision recorded | D41 (MCP refresh at the turn boundary) |
-| Gate result | `ruff` clean; `pytest tests` → **730 passed, 1 skipped** (offscreen) |
+| `HEAD` | `4f81a65 agent: refresh MCP at the turn boundary` (base of the N8 batch) |
+| Working tree | N8 landed in the commit that carries this line |
+| Harness batches on `main` | 23 before this batch: 20 hardening batches, the tracker, N1 + N3, and N2 |
+| Last decision recorded | D42 (project skills shared with the Skills Library) |
+| Gate result | `ruff` clean; `pytest tests` → **744 passed, 1 skipped** (offscreen) |
 
 Reproduce the snapshot:
 
@@ -32,9 +32,9 @@ py -3.11 -m pytest tests -q -k agent
 
 All §1 rows in `AGENTIC-HARNESS-STATUS.md` are `Done`. The harness is **not**
 mid-batch: the last batch (project skills) landed complete, and the work below
-is new scope rather than cleanup of an unfinished change. N1, N3 and N2 have
-since landed (D40, D41); nothing on the board is unblocked any more, so the next
-batch needs a decision rather than a queue entry.
+is new scope rather than cleanup of an unfinished change. N1, N3, N2 and N8
+have since landed (D40, D41, D42); the remaining items are blocked on a decision,
+deliberately deferred, or rejected, so the next batch starts with N4 or N5.
 
 ---
 
@@ -49,11 +49,11 @@ batch needs a decision rather than a queue entry.
 | N5 | Parallel / model-selecting subagents | Medium (design) | L | Blocked on decision |
 | N6 | MCP resources, prompts, sampling | Low | M | Deliberately deferred |
 | N7 | Executable skills / `allowed-tools` enforcement | Low | M | Rejected (would be a second boundary) |
-| N8 | Unify harness skills with the core Skills Library | Medium (design) | M | Blocked on naming story |
+| N8 | Unify harness skills with the core Skills Library | Medium (design) | M | Done (D42) |
 
-Ordered by value per unit of risk, not by size. N1, N3 and N2 landed in two
-batches. Every remaining item is blocked, deliberately deferred, or rejected:
-the next batch starts with a decision on N4, N5 or N8.
+Ordered by value per unit of risk, not by size. N1, N3, N2 and N8 landed in
+three batches. The remaining items are blocked on a decision, deliberately
+deferred, or rejected: the next batch starts with N4 or N5.
 
 ---
 
@@ -261,6 +261,7 @@ Also add, after N1/N2 land:
 ## 5. Blocked / deliberately deferred
 
 Do not start these without an explicit decision; each has a documented reason.
+N8 was decided and is kept below as the record of the disagreement it resolved.
 
 ### N4 — Filesystem/network confinement
 
@@ -290,10 +291,18 @@ gate (D39).
 
 ### N8 — Unify harness skills with the core Skills Library
 
+**Landed.** Decision D42 in `AGENTIC-HARNESS-STATUS.md`;
+`agent.skills.project_roots()` is the single workspace walk, `SkillsLibrary`
+scans those roots last (so a project overrides builtin and user copies) under
+the harness contract and instructional-only rule, and
+`configure_library(project_workspace=...)` wires it at startup. The two tool
+names stay distinct on purpose. The note below is kept as the record of the
+disagreement.
+
 Two catalogues exist on purpose: `load_project_skill` (harness, `.brahma/skills`)
 and `load_skill` (core Skills Library, `skill_id`). Sharing a name shadows the
 legacy tool because the harness branch in `core/tool_exec.py` runs first.
-**Decision needed:** one naming and precedence story before any merge.
+**Resolved by D42:** one store for *project* skills, two doors and two names.
 
 ---
 
@@ -315,4 +324,5 @@ legacy tool because the harness branch in `core/tool_exec.py` runs first.
 | Batch | Commit | Summary |
 | --- | --- | --- |
 | N1 + N3 | `f42f4b2` | `agent.prompts.project_context()`; wired into the HUD text seed and the Live `_build_config`; docs corrected (D40). |
-| N2 | _(this commit)_ | `MCPSession.needs_refresh`/`refresh`; `WorkspaceMCP.ensure` re-lists or restarts a stale server on the unchanged-fingerprint path; `mcp_refresh` event (D41). |
+| N2 | `4f81a65` | `MCPSession.needs_refresh`/`refresh`; `WorkspaceMCP.ensure` re-lists or restarts a stale server on the unchanged-fingerprint path; `mcp_refresh` event (D41). |
+| N8 | _(this commit)_ | `agent.skills.project_roots()`; `SkillsLibrary` scans workspace `.brahma/skills` as the last, instructional-only source; `configure_library(project_workspace=...)` wired at startup (D42). |

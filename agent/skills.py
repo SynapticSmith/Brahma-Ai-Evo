@@ -305,14 +305,17 @@ def user_skills_root() -> Path:
     return Path.home() / ".config" / "brahma" / "skills"
 
 
-def default_roots(workspace: Optional[str | Path]) -> List[Path]:
-    """Skill directories, nearest first.
+def project_roots(workspace: Optional[str | Path]) -> List[Path]:
+    """Workspace-scoped skill directories, nearest first.
 
-    ``BRAHMA_SKILLS_DIR`` is an explicit override (``os.pathsep``-separated),
+    ``BRAHMA_SKILLS_DIR`` replaces this walk entirely (``os.pathsep``-separated),
     mirroring ``BRAHMA_MCP_CONFIG``: a test or a deployment can point at exactly
-    one tree and pay for no other discovery. Without it, workspace and ancestors
-    come before the user-level directory, so a project can pin its own version
-    of a skill.
+    one tree and pay for no other discovery.
+
+    This is the one definition of "where a project's skills live". The harness
+    uses it for discovery, and ``core.skills_library`` uses it to make the same
+    project skills visible to ``search_skills``/``load_skill`` (D42), so the two
+    surfaces cannot disagree about which directories are in scope.
     """
     override = os.getenv("BRAHMA_SKILLS_DIR")
     if override is not None:
@@ -325,7 +328,19 @@ def default_roots(workspace: Optional[str | Path]) -> List[Path]:
     if workspace is not None:
         for directory in _parent_dirs(_resolved(workspace)):
             roots.append(directory / ".brahma" / "skills")
-    roots.append(user_skills_root())
+    return roots
+
+
+def default_roots(workspace: Optional[str | Path]) -> List[Path]:
+    """Skill directories, nearest first: project roots, then the user root.
+
+    An explicit ``BRAHMA_SKILLS_DIR`` override is the whole list — the user
+    directory is not appended — so a deployment that pins one tree gets exactly
+    that tree.
+    """
+    roots = project_roots(workspace)
+    if os.getenv("BRAHMA_SKILLS_DIR") is None:
+        roots.append(user_skills_root())
     return roots
 
 
@@ -510,6 +525,7 @@ __all__ = [
     "default_roots",
     "discover",
     "parse_skill",
+    "project_roots",
     "prompt_block",
     "user_skills_root",
 ]

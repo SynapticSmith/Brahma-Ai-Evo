@@ -4531,6 +4531,26 @@ def main():
     except Exception as exc:
         _startup_log(f"agent harness unavailable: {exc}")
 
+    # Project skills are one store with two doors. The harness lists
+    # `.brahma/skills` in the prompt and loads bodies with
+    # `load_project_skill`; the Skills Library behind the voice/core
+    # `search_skills`/`load_skill` surface catalogues the same directories.
+    # Re-point it at the runtime workspace, which is fixed at startup.
+    try:
+        from agent.runtime import current as _current_agent_runtime
+        from core import skills_library as _skills_library
+
+        _skills_library.configure_library(
+            project_workspace=str(_current_agent_runtime().workspace)
+        )
+        _roots = _skills_library.get_library().project_dirs()
+        _startup_log(
+            "skills library project roots: "
+            + (", ".join(str(root) for root in _roots) or "none")
+        )
+    except Exception as exc:
+        _startup_log(f"skills library project roots unavailable: {exc}")
+
     dashboard = None
     dashboard_enabled = DashboardServer is not None and not _is_port_in_use(8000)
     if DashboardServer is not None and not dashboard_enabled:

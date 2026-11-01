@@ -48,6 +48,13 @@ an id collision:
 
 1. ``<repo>/skills_library`` — built-ins that ship with the codebase.
 2. ``<user data>/skills_library`` — user skills, the editable/workable layer.
+3. zero or more **project roots** — a workspace's ``.brahma/skills`` (and its
+   ancestors, nearest last) configured by the host. They are always last, so a
+   project pins its own version of a skill, and they are *instructional only*:
+   a repository may describe how work is done but may not ship code the app
+   runs. Project skills use the harness contract (``SKILL.md``, id = directory
+   name, frontmatter ``name`` must match it), which is also what the harness's
+   ``load_project_skill`` reads. One store, two doors.
 
 Fail-soft everywhere: a malformed skill is skipped with a warning and can never
 stop the library (or the app) from loading.
@@ -94,6 +101,15 @@ DEFAULT_CACHE_SIZE = 256
 #: Source label used for skills registered into the tool catalogue.
 SKILL_SOURCE = "skill_library"
 
+#: Source label for workspace ``.brahma/skills`` roots.
+PROJECT_SOURCE = "project"
+
+#: The harness owns the project-skill contract (``agent.skills.NAME_RE``). The
+#: pattern is duplicated rather than imported because importing ``agent.skills``
+#: registers the harness tool as a side effect, which a library-only process (a
+#: test, the dashboard) must not do. A drift-guard test asserts equality.
+PROJECT_SKILL_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 _VALID_NAME_CHARS = re.compile(r"[^0-9A-Za-z_]+")
 
@@ -136,7 +152,7 @@ class SkillSpec:
     manual: str = ""
     dependencies: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
-    #: "builtin" | "user"
+    #: "builtin" | "user" | "project"
     source: str = "user"
     #: Directory (executable) or the single definition file itself.
     path: Optional[Path] = None
@@ -243,6 +259,7 @@ class LibraryStats:
     disabled: int = 0
     builtin: int = 0
     user: int = 0
+    project: int = 0
     cached: int = 0
     last_scan_ms: float = 0.0
     last_query_ms: float = 0.0
@@ -424,6 +441,52 @@ def _spec_from_mapping(
     )
 
 
+def _project_skill(data: Dict[str, Any], spec: SkillSpec, skill_id: str) -> Optional[SkillSpec]:
+    """Normalise one skill from a workspace ``.brahma/skills`` root.
+
+    The harness owns this contract (``agent/skills.py``): the id is the
+    directory name, a declared ``name`` must equal it, and the skill is
+    instructional only. Returning ``None`` skips a file the harness would
+    refuse, so the two catalogues agree about what a project skill is instead
+    of disagreeing on a corner case.
+    """
+    if not PROJECT_SKILL_NAME_RE.fullmatch(skill_id):
+        logger.warning(
+            "[SkillsLibrary] Project skill directory %r is not a valid skill id; "
+            "the harness cannot list it, so it is skipped.",
+            skill_id,
+        )
+        return None
+    declared = str(data.get("name") or "").strip()
+    if declared and declared != skill_id:
+        logger.warning(
+            "[SkillsLibrary] Project skill %r declares name %r; the directory "
+            "name is the id, so this copy is skipped.",
+            skill_id,
+            declared,
+        )
+        return None
+    spec.skill_id = skill_id
+    spec.name = declared or skill_id
+    # The harness contract has no executable, tool, manual or active fields: a
+    # project skill is always listed and always text. Ignoring them here keeps
+    # `search_skills`/`load_skill` from disagreeing with the prompt.
+    spec.executable = False
+    spec.tool_name = ""
+    spec.parameters = {"type": "OBJECT", "properties": {}}
+    spec.manual = ""
+    spec.active = True
+    if not spec.description:
+        # `agent.skills` derives a description from the first body line so a
+        # SKILL.md without frontmatter `description` is still searchable.
+        for line in (spec.instructions or "").splitlines():
+            text = line.strip().lstrip("#").strip()
+            if text:
+                spec.description = " ".join(text.split())[:200]
+                break
+    return spec
+
+
 def _meta_from_spec(spec: SkillSpec) -> SkillMeta:
     mtime = 0.0
     size = 0
@@ -472,11 +535,14 @@ class SkillsLibrary:
         *,
         cache_size: int = DEFAULT_CACHE_SIZE,
         enabled: bool = True,
+        project_dirs: Optional[Iterable[Path]] = None,
     ) -> None:
         self.builtin_dir = Path(builtin_dir) if builtin_dir is not None else BUILTIN_SKILLS_DIR
         self.user_dir = Path(user_dir) if user_dir is not None else (get_user_data_dir() / "skills_library")
         self._cache_size = max(8, int(cache_size))
         self._enabled = bool(enabled)
+        #: Workspace roots in override order (later wins, so nearest last).
+        self._project_dirs: List[Path] = [Path(p) for p in (project_dirs or ())]
 
         self._lock = threading.RLock()
         self._meta: "OrderedDict[str, SkillMeta]" = OrderedDict()
@@ -493,7 +559,32 @@ class SkillsLibrary:
 
     def roots(self) -> List[Tuple[str, Path]]:
         """``[(source, path), ...]`` in override order (later wins)."""
-        return [("builtin", self.builtin_dir), ("user", self.user_dir)]
+        roots: List[Tuple[str, Path]] = [
+            ("builtin", self.builtin_dir),
+            ("user", self.user_dir),
+        ]
+        roots.extend((PROJECT_SOURCE, path) for path in self._project_dirs)
+        return roots
+
+    def project_dirs(self) -> List[Path]:
+        """The workspace roots in override order (nearest last)."""
+        with self._lock:
+            return list(self._project_dirs)
+
+    def set_project_dirs(self, paths: Optional[Iterable[Path]]) -> bool:
+        """Replace the workspace roots; invalidates the catalogue on change.
+
+        Returns True when the roots actually changed, so a caller can log a
+        re-point without an extra comparison. A later root overrides an earlier
+        one, which is why the caller passes them *outermost first*.
+        """
+        new = [Path(p) for p in (paths or ())]
+        with self._lock:
+            if new == self._project_dirs:
+                return False
+            self._project_dirs = new
+            self._loaded = False
+            return True
 
     # -- discovery ---------------------------------------------------------- #
 
@@ -525,6 +616,35 @@ class SkillsLibrary:
                     continue
                 yield item, item.stem
 
+    def _iter_project_sources(self, root: Path) -> Iterable[Tuple[Path, str]]:
+        """Yield ``(SKILL.md, directory_name)`` — the harness project contract.
+
+        Deliberately narrower than :meth:`_iter_sources`: the harness only reads
+        ``<root>/<id>/SKILL.md``, so a project root accepts nothing else. A
+        ``skill.yaml`` or a loose single file under ``.brahma/skills`` would be
+        listed by the library and invisible to ``load_project_skill``, which is
+        exactly the disagreement this module is meant to remove.
+        """
+        if not root.exists():
+            return
+        try:
+            items = sorted(root.iterdir(), key=lambda p: p.name.lower())
+        except OSError as exc:
+            logger.warning("[SkillsLibrary] Cannot scan %s: %s", root, exc)
+            return
+
+        for item in items:
+            if item.name.startswith((".", "_")):
+                continue
+            try:
+                if item.is_symlink() or not item.is_dir():
+                    continue
+            except OSError:
+                continue
+            candidate = item / "SKILL.md"
+            if candidate.is_file():
+                yield candidate, item.name
+
     def refresh(self, force: bool = False) -> LibraryStats:
         """(Re)build the lightweight catalogue. Idempotent unless ``force``."""
         with self._lock:
@@ -534,7 +654,12 @@ class SkillsLibrary:
 
             meta: "OrderedDict[str, SkillMeta]" = OrderedDict()
             for source, root in self.roots():
-                for path, fallback_id in self._iter_sources(root):
+                sources = (
+                    self._iter_project_sources(root)
+                    if source == PROJECT_SOURCE
+                    else self._iter_sources(root)
+                )
+                for path, fallback_id in sources:
                     read = _read_definition(path)
                     if read is None:
                         continue
@@ -542,6 +667,10 @@ class SkillsLibrary:
                     spec = _spec_from_mapping(data, fallback_id, source, path, checksum)
                     if spec is None:
                         continue
+                    if source == PROJECT_SOURCE:
+                        spec = _project_skill(data, spec, fallback_id)
+                        if spec is None:
+                            continue
                     if spec.executable and not self._has_executor(spec):
                         logger.warning(
                             "[SkillsLibrary] Skill '%s' is marked executable but has no executor.py; "
@@ -571,6 +700,7 @@ class SkillsLibrary:
                 disabled=len(self._disabled),
                 builtin=sum(1 for m in self._rows if m.source == "builtin"),
                 user=sum(1 for m in self._rows if m.source == "user"),
+                project=sum(1 for m in self._rows if m.source == PROJECT_SOURCE),
                 cached=0,
                 last_scan_ms=round((time.perf_counter() - started) * 1000.0, 2),
                 enabled=self._enabled,
@@ -650,6 +780,10 @@ class SkillsLibrary:
             spec = _spec_from_mapping(data, meta.skill_id, meta.source, meta.path, checksum)
             if spec is None:
                 return None
+            if meta.source == PROJECT_SOURCE:
+                spec = _project_skill(data, spec, meta.skill_id)
+                if spec is None:
+                    return None
             if spec.executable and not self._has_executor(spec):
                 spec.executable = False
             self._remember(spec)
@@ -896,6 +1030,7 @@ class SkillsLibrary:
             "disabled": stats.disabled,
             "builtin": stats.builtin,
             "user": stats.user,
+            "project": stats.project,
             "cached": stats.cached,
             "last_scan_ms": stats.last_scan_ms,
             "last_query_ms": stats.last_query_ms,
@@ -936,6 +1071,27 @@ def get_library() -> SkillsLibrary:
         return _library
 
 
+def _project_dirs_for_workspace(workspace: Optional[str]) -> List[Path]:
+    """A workspace's project skill roots in *library* order (outermost first).
+
+    The harness walks nearest-first because the nearest definition wins; this
+    module keeps the last root because a later root wins mid-scan. The reversal
+    happens once, here, at the boundary between the two conventions.
+    ``agent.skills`` is imported lazily because it registers a tool at import
+    time, and a library-only process must not mutate the harness registry.
+    """
+    try:
+        from agent.skills import project_roots
+    except Exception as exc:  # pragma: no cover - agent/ is stdlib only
+        logger.warning("[SkillsLibrary] Cannot resolve project skill roots: %s", exc)
+        return []
+    try:
+        return list(reversed(project_roots(workspace)))
+    except Exception as exc:  # noqa: BLE001 - a bad workspace must not break startup
+        logger.warning("[SkillsLibrary] Cannot resolve project skill roots: %s", exc)
+        return []
+
+
 def configure_library(
     *,
     builtin_dir: Optional[Path] = None,
@@ -943,11 +1099,16 @@ def configure_library(
     cache_size: Optional[int] = None,
     enabled: Optional[bool] = None,
     disabled: Optional[Iterable[str]] = None,
+    project_workspace: Optional[str] = None,
+    project_dirs: Optional[Iterable[Path]] = None,
 ) -> SkillsLibrary:
     """Creates or re-points the process-wide library, then applies settings.
 
     Used at startup (to honour an install that stores skills elsewhere) and by
-    the test suite to isolate an instance.
+    the test suite to isolate an instance. ``project_workspace`` derives the
+    workspace's ``.brahma/skills`` roots through :func:`agent.skills.project_roots`
+    so the library sees the same project skills the harness prompt lists;
+    an explicit ``project_dirs`` (already in override order) wins over it.
     """
     global _library
     with _library_lock:
@@ -962,6 +1123,10 @@ def configure_library(
             if user_dir is not None:
                 lib.user_dir = Path(user_dir)
                 lib._loaded = False  # noqa: SLF001 - deliberate catalogue invalidation
+    if project_dirs is None and project_workspace is not None:
+        project_dirs = _project_dirs_for_workspace(project_workspace)
+    if project_dirs is not None:
+        lib.set_project_dirs(project_dirs)
     if enabled is not None:
         lib.set_enabled(enabled)
     if disabled is not None:
@@ -980,6 +1145,8 @@ __all__ = [
     "BUILTIN_SKILLS_DIR",
     "DEFAULT_CACHE_SIZE",
     "LibraryStats",
+    "PROJECT_SKILL_NAME_RE",
+    "PROJECT_SOURCE",
     "SKILL_FILENAMES",
     "SKILL_SOURCE",
     "SkillHit",

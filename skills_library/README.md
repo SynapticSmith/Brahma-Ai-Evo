@@ -17,13 +17,21 @@ the agent decides it needs one.
 
 ## Layout
 
-Two roots are scanned, in order; a later root overrides an earlier one on an id
-collision:
+Three root classes are scanned, in order; a later root overrides an earlier one
+on an id collision:
 
 | Source | Path | Purpose |
 |---|---|---|
 | `builtin` | `<repo>/skills_library` | Skills that ship with the codebase. |
 | `user` | `%LOCALAPPDATA%\BrahmaAI\skills_library` | Your skills — the editable layer. |
+
+| `project` | `<workspace>/.brahma/skills` (and up to three ancestors) | A project's own playbooks; always last, so a project pins its version. Instructional only. |
+
+Project roots are added by the host with `configure_library(project_workspace=...)`
+and use the harness contract: `<id>/SKILL.md`, directory name = id, frontmatter
+`name` must match it. They stay instructional even when the file says
+`executable: true`: a repository may describe how work is done, but it may not
+ship code the app runs.
 
 ## Anatomy of a skill
 

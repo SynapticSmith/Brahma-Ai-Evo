@@ -41,6 +41,7 @@ database migration is required; the new tables are additive.
 | Policy hot-reload (fail-safe) | Done |
 | Subdirectory instructions (path-driven) | Done |
 | Project skills (`SKILL.md`, on-demand) | Done |
+| Project skills shared with the core Skills Library (`.brahma/skills`) | Done |
 | Project prompt on GUI text + voice (`AGENTS.md`, skills catalogue) | Done |
 | Streaming output (text + tool calls) | Done |
 | GUI session persistence + replay | Done |
@@ -107,6 +108,9 @@ Modified:
 | `agent/__main__.py` | `skills [--cwd DIR] [--json]` prints the discovered roots, skills and diagnostics, mirroring `mcp list`. |
 | `main.py` | `_with_agent_mcp` merges lazily started harness MCP tools into the local/custom first call; `main()`'s `finally` closes the manager beside the voice MCP manager. |
 | `agent/mcp.py` | `MCPSession.refresh` re-lists a server that latched `tools/list_changed` or lost its transport, restarting a dead process once and re-registering only that server's specs; `WorkspaceMCP.ensure` calls it on the unchanged-fingerprint path. |
+| `agent/skills.py` | `project_roots()` is now the one definition of the workspace skill walk; `default_roots()` composes it with the user-level directory, and a `BRAHMA_SKILLS_DIR` override replaces both. |
+| `core/skills_library.py` | Scans workspace `.brahma/skills` roots last as `PROJECT_SOURCE` under the harness contract (`<id>/SKILL.md`, name = directory, instructional only), ignores `executable`/`executor.py` there, and exposes `set_project_dirs`/`configure_library(project_workspace=...)`. |
+| `main.py` | Startup re-points the Skills Library at the runtime workspace, so `search_skills`/`load_skill` see the same project skills the harness prompt lists. |
 | `main.py` | `_agent_event` prints the `mcp_refresh` event (re-listed vs restarted). |
 | `agent/__main__.py` | The CLI event printer formats `mcp_refresh` like the existing `mcp` status line. |
 | `.github/workflows/ci.yml` | `harness-pythons` job: harness suite on 3.11/3.12/3.13 with only pytest installed. |
@@ -798,9 +802,10 @@ remains the only execution boundary, and a second filter here would be a hole,
 not a feature. A malformed file is a diagnostic and never disables the rest; a
 BOM is stripped with `utf-8-sig`. Discovery runs when a prompt is built and
 when the loader is called, so a skill added mid-run appears on the next turn,
-not immediately. This is separate from the richer core Skills Library
+not immediately. At D39 this was separate from the richer core Skills Library
 (`skills_library/`, `%LOCALAPPDATA%\BrahmaAI\skills_library`), which the voice
-path and the GUI's existing tool surface still use.
+path and the GUI's existing tool surface still use; D42 later made the project
+roots visible to that library too, without merging the two user-level layers.
 
 ### D40 — One project-prompt seam for every surface
 
@@ -857,6 +862,45 @@ retried when the config fingerprint changes. `closed` is checked alongside
 reports the exit — the first version of this change missed that race and
 reported a dead transport as healthy.
 
+### D42 — Project skills are one store with two doors
+
+Two catalogues grew up separately: the harness discovers
+`.brahma/skills/<id>/SKILL.md` for the prompt and `load_project_skill`, while
+the core Skills Library behind `search_skills`/`load_skill` only scanned
+`<repo>/skills_library` and `<user data>/skills_library`. The naming problem was
+real — `load_skill` already belongs to the library, and a harness tool with that
+name would shadow it because the harness branch in `core/tool_exec.py` runs
+first — but the *store* did not have to stay separate. A repository's skills
+were invisible to the voice path and to the older GUI tool surface, which is
+where a user would most expect "the project's skills" to be.
+
+The decision is one store, two doors, and one owner per concern.
+`agent.skills.project_roots()` is the only definition of the workspace walk
+(workspace plus three parents, nearest first, or `BRAHMA_SKILLS_DIR`).
+`SkillsLibrary` appends those roots last, so a project copy overrides a builtin
+and a user copy; it imports `agent.skills` lazily inside the host wiring rather
+than from the library module, because that import registers a tool and the
+library must stay usable in a process that is not the harness. Project roots
+accept only the harness contract — `<dir>/SKILL.md`, directory name = id,
+frontmatter `name` must match — and stay instructional even when the file says
+`executable: true`: a repository may describe how work is done, but it may not
+ship code the app runs (D39's boundary).
+
+`configure_library(project_workspace=...)` reverses the harness's nearest-first
+list once, inside the library, because the library's scan is "later root wins";
+that reversal is the single point where the two conventions meet. Wiring is
+startup-only because the runtime workspace is fixed at startup from
+`developer_mode_workspace`, and re-calling it with a different workspace
+re-points the catalogue, so a future workspace switch already has the seam.
+
+Rejected alternatives: importing `core` into `agent/` (the harness must stay
+stdlib-only), merging the two user-level directories (the harness's
+`<userdata>/skills` and the library's `<userdata>/skills_library` mean different
+things), sharing the `load_skill` name (shadowing, not unification), and
+executing project skill code (a second boundary by the back door). The shared
+contract is deliberately the *project*, where a repository has one obvious
+answer.
+
 ### D20 — Parallel dispatch is whole-turn and read-only (superseded by D30, then D32)
 
 Model turns often contain several `read_file`/`glob_files`/`grep_files` calls,
@@ -893,8 +937,8 @@ and the default `python` are 3.14 and lack `ruff`/`pytest`.
 
 ```
 py -3.11 -m ruff check .                 # All checks passed!
-py -3.11 -m pytest tests -q              # 730 passed, 1 skipped  (QT_QPA_PLATFORM=offscreen)
-py -3.11 -m pytest tests -q -k agent     # 384 passed, 1 skipped
+py -3.11 -m pytest tests -q              # 744 passed, 1 skipped  (QT_QPA_PLATFORM=offscreen)
+py -3.11 -m pytest tests -q -k agent     # 387 passed, 1 skipped
 py -3.11 -c "import main; ..."           # 66 voice declarations; six code tools, no run_subagent
 py -3.11 -m agent tools                  # lists the eight tool specs (load_project_skill included)
 py -3.11 -m agent permissions show       # reports built-in defaults
@@ -910,7 +954,7 @@ Notes:
   `{read_file, write_file, edit_file, glob_files, grep_files, run_command}` are
   all present, while `run_subagent` is intentionally absent from the voice
   surface (the text and CLI loops advertise it via `all_specs()`).
-* The 384 harness tests run without a display or a model:
+* The 387 harness tests run without a display or a model:
   `py -3.11 -m pytest tests -q -k agent`. The one skip is the POSIX-only
   `prepare_stream` test, which a Windows run cannot execute.
 * `python -m agent run --provider stub --json` is the cheapest end-to-end
@@ -968,13 +1012,22 @@ Notes:
   refusal without a loop, relayed child events, and empty/unknown-request
   refusals. A refused subagent call is the turn's only call, so it ends at
   `permission_denied` exactly like any other all-refused turn; no child starts.
-* Project skills are covered by `tests/test_agent_skills.py` (23): frontmatter
+* Project skills are covered by `tests/test_agent_skills.py` (26): frontmatter
   parsing (quoted scalars, block/inline lists, derived name/description, BOM,
   invalid or mismatched names, the size cap), discovery order and shadow
-  diagnostics, `BRAHMA_SKILLS_DIR` override/disable, metadata-only listing,
-  resident-block budgets, prompt ordering, the loader through the runtime, and
-  a guard that the harness name is `load_project_skill` and never shadows the
-  core `load_skill`. Two CLI tests cover `agent skills` text and JSON output.
+  diagnostics, `BRAHMA_SKILLS_DIR` override/disable, project-root ordering and
+  the user-root split, metadata-only listing, resident-block budgets, prompt
+  ordering, the loader through the runtime, and a guard that the harness name is
+  `load_project_skill` and never shadows the core `load_skill`. Two CLI tests
+  cover `agent skills` text and JSON output.
+* The shared project store is covered by `tests/test_skills_library.py` (33):
+  project roots are catalogued last (so a project overrides builtin and user
+  copies), the nearest root wins, `executable: true` stays instructional and
+  publishes nothing, a name/id mismatch or a non-harness file is skipped, and
+  `configure_library(project_workspace=...)` follows the workspace and drops the
+  old roots. One drift guard asserts the duplicated name pattern equals
+  `agent.skills.NAME_RE`. `tests/test_skills_bridge.py` (24) loads a project
+  skill end to end through `search_skills`/`load_skill`.
 * The shared project prompt is covered by `tests/test_agent_prompts.py` (10):
   `project_context` composes the instruction walk and the skills catalogue,
   returns `""` for a missing workspace or one with neither file, and is the
@@ -1069,10 +1122,11 @@ lands; this section stays the historical summary.
    no watcher: discovery runs when a prompt is built and when the loader is
    called, so a skill added mid-run appears on the next turn. Since D40 the
    catalogue also reaches the HUD text and Gemini Live prompts; before that it
-   was in the CLI and child-loop prompts only. The harness catalogue is separate
-   from the core Skills Library, which the voice path and the existing GUI tool
-   surface still use; unifying them would need one naming and precedence story,
-   not a second loader.
+   was in the CLI and child-loop prompts only. Since D42 the same
+   `.brahma/skills` roots are also the highest-precedence source in the core
+   Skills Library, so `search_skills`/`load_skill` (voice and GUI) see them;
+   the two user-level directories stay separate, and a project skill that
+   claims `executable: true` is still loaded as text.
 
 ---
 

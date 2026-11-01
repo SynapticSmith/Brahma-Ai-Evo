@@ -348,3 +348,187 @@ def test_configure_library_repoints_singleton(tmp_path):
         assert sl.get_library() is lib
     finally:
         sl.reset_library()
+
+
+# --------------------------------------------------------------------------- #
+# Project roots (`.brahma/skills`, D42)
+# --------------------------------------------------------------------------- #
+
+
+def _project_skill(root: Path, skill_id: str, *, description: str = "project skill",
+                   frontmatter: str = "") -> Path:
+    """Write the harness contract: ``<root>/<id>/SKILL.md``."""
+    return _write(
+        root / skill_id / "SKILL.md",
+        f"---\nname: {skill_id}\ndescription: {description}\n{frontmatter}---\n\nDo it.\n",
+    )
+
+
+def _project_lib(tmp_path: Path, project_dirs) -> sl.SkillsLibrary:
+    """An isolated library whose only skills are the ones under test."""
+    builtin = tmp_path / "builtin"
+    user = tmp_path / "user"
+    builtin.mkdir(exist_ok=True)
+    user.mkdir(exist_ok=True)
+    return sl.SkillsLibrary(builtin, user, project_dirs=project_dirs)
+
+
+def test_project_root_is_catalogued_and_loadable(tmp_path):
+    root = tmp_path / ".brahma" / "skills"
+    _project_skill(root, "release-notes", description="write the changelog")
+
+    lib = _project_lib(tmp_path, [root])
+    stats = lib.refresh()
+
+    meta = lib.meta("release-notes")
+    assert meta is not None
+    assert meta.source == sl.PROJECT_SOURCE
+    assert stats.project == 1
+    assert lib.manifest()["project"] == 1
+    assert ("project", root) in lib.roots()
+    spec = lib.get("release-notes")
+    assert spec is not None
+    assert "Do it." in spec.instructions
+    assert [hit.skill_id for hit in lib.search("changelog")] == ["release-notes"]
+
+
+def test_project_skill_overrides_builtin_and_user_copies(tmp_path):
+    builtin = tmp_path / "builtin"
+    user = tmp_path / "user"
+    project = tmp_path / "project"
+    _write(builtin / "review" / "skill.yaml", "id: review\ndescription: builtin copy\ninstructions: b\n")
+    _write(user / "review" / "skill.yaml", "id: review\ndescription: user copy\ninstructions: u\n")
+    _project_skill(project, "review", description="project copy")
+
+    lib = sl.SkillsLibrary(builtin, user, project_dirs=[project])
+    lib.refresh()
+
+    meta = lib.meta("review")
+    assert meta.source == sl.PROJECT_SOURCE
+    assert meta.description == "project copy"
+    assert lib.get("review").instructions.strip() == "Do it."
+    assert lib.stats().project == 1
+
+
+def test_the_nearest_project_root_wins(tmp_path):
+    far = tmp_path / "repo" / ".brahma" / "skills"
+    near = tmp_path / "repo" / "pkg" / ".brahma" / "skills"
+    _project_skill(far, "style", description="repo style")
+    _project_skill(near, "style", description="package style")
+
+    # Library order is outermost first, so the nearest root comes last.
+    lib = sl.SkillsLibrary(project_dirs=[far, near])
+    lib.refresh()
+
+    assert lib.meta("style").description == "package style"
+
+
+def test_project_skills_are_instructional_even_with_an_executor(tmp_path):
+    root = tmp_path / ".brahma" / "skills"
+    _project_skill(
+        root,
+        "deploy",
+        frontmatter="executable: true\ntool_name: deploy_now\nactive: false\nmanual: hidden\n",
+    )
+    _write(root / "deploy" / "executor.py", "def execute(**k):\n    raise AssertionError('must not run')\n")
+
+    lib = _project_lib(tmp_path, [root])
+    lib.refresh()
+    registry = FakeRegistry()
+    assert lib.publish(registry) == 0
+
+    spec = lib.get("deploy")
+    assert spec.executable is False
+    assert spec.tool_name == ""
+    assert spec.active is True
+    assert spec.manual == ""
+    assert lib.meta("deploy").active is True
+    assert spec.resolved_tool_name() != "deploy_now"
+    assert "[CALLABLE]" not in spec.rendered()
+
+
+def test_project_skill_name_mismatch_is_skipped(tmp_path):
+    root = tmp_path / ".brahma" / "skills"
+    _write(root / "one" / "SKILL.md", "---\nname: two\ndescription: wrong\n---\nbody\n")
+    _project_skill(root, "good")
+
+    lib = _project_lib(tmp_path, [root])
+    lib.refresh()
+
+    assert lib.meta("one") is None
+    assert lib.meta("good") is not None
+
+
+def test_project_skill_derives_a_description_from_the_body(tmp_path):
+    root = tmp_path / ".brahma" / "skills"
+    _write(root / "plain" / "SKILL.md", "---\nname: plain\n---\n# Plain rules\n\nKeep it short.\n")
+
+    lib = _project_lib(tmp_path, [root])
+    lib.refresh()
+
+    assert lib.meta("plain").description == "Plain rules"
+
+
+def test_invalid_project_skill_directory_name_is_skipped(tmp_path):
+    root = tmp_path / ".brahma" / "skills"
+    _write(root / "Bad_Name" / "SKILL.md", "---\nname: Bad_Name\n---\nbody\n")
+
+    lib = _project_lib(tmp_path, [root])
+    lib.refresh()
+
+    assert lib.entries() == []
+
+
+def test_project_roots_accept_only_the_harness_contract(tmp_path):
+    root = tmp_path / ".brahma" / "skills"
+    # A loose single-file skill and a YAML-only directory are both invisible to
+    # agent.skills.discover, so the library must not list them either.
+    _write(root / "loose.md", "do something\n")
+    _write(root / "yaml-only" / "skill.yaml", "id: yaml-only\ninstructions: x\n")
+    _project_skill(root, "real")
+
+    lib = _project_lib(tmp_path, [root])
+    lib.refresh()
+
+    assert [meta.skill_id for meta in lib.entries()] == ["real"]
+
+
+def test_configure_library_follows_the_workspace(tmp_path, monkeypatch):
+    monkeypatch.delenv("BRAHMA_SKILLS_DIR", raising=False)
+    repo = tmp_path / "repo"
+    package = repo / "packages" / "pkg"
+    package.mkdir(parents=True)
+    other = tmp_path / "other"
+    other.mkdir()
+    _write(package / ".brahma" / "skills" / "from-pkg" / "SKILL.md",
+           "---\nname: from-pkg\n---\nPackage rule.\n")
+    _write(repo / ".brahma" / "skills" / "from-repo" / "SKILL.md",
+           "---\nname: from-repo\n---\nRepo rule.\n")
+    _write(other / ".brahma" / "skills" / "from-other" / "SKILL.md",
+           "---\nname: from-other\n---\nOther rule.\n")
+
+    builtin = tmp_path / "builtin"
+    user = tmp_path / "user"
+    builtin.mkdir()
+    user.mkdir()
+    sl.reset_library()
+    try:
+        lib = sl.configure_library(
+            builtin_dir=builtin, user_dir=user, project_workspace=str(package)
+        )
+        assert lib.project_dirs()[-1] == (package.resolve() / ".brahma" / "skills")
+        assert lib.has("from-pkg")
+        assert lib.has("from-repo")
+
+        sl.configure_library(project_workspace=str(other))
+        assert lib.project_dirs()[-1] == (other.resolve() / ".brahma" / "skills")
+        assert lib.has("from-other")
+        assert not lib.has("from-pkg")
+    finally:
+        sl.reset_library()
+
+
+def test_project_skill_name_pattern_matches_the_harness():
+    from agent import skills as agent_skills
+
+    assert sl.PROJECT_SKILL_NAME_RE.pattern == agent_skills.NAME_RE.pattern

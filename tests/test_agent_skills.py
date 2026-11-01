@@ -1,6 +1,7 @@
 """Project skills: parsing, discovery, the resident list, and the loader."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -177,6 +178,43 @@ def test_default_roots_walk_up_three_parents(tmp_path: Path):
     assert repo.resolve() / ".brahma" / "skills" in roots
     # workspace + three parents + the user-level directory
     assert len(roots) == 5
+
+
+def test_project_roots_are_workspace_only_and_nearest_first(tmp_path: Path):
+    repo = tmp_path / "repo"
+    package = repo / "packages" / "pkg"
+    package.mkdir(parents=True)
+
+    roots = skills.project_roots(package)
+    user_root = skills.user_skills_root()
+
+    assert roots == [
+        package.resolve() / ".brahma" / "skills",
+        (repo / "packages").resolve() / ".brahma" / "skills",
+        repo.resolve() / ".brahma" / "skills",
+        tmp_path.resolve() / ".brahma" / "skills",
+    ]
+    # workspace + three parents: no user-level directory in the project walk
+    assert len(roots) == 4
+    assert user_root not in roots
+
+
+def test_project_roots_honour_the_skills_dir_override(tmp_path: Path, monkeypatch):
+    first = tmp_path / "one"
+    second = tmp_path / "two"
+    monkeypatch.setenv(
+        "BRAHMA_SKILLS_DIR", f"{first}{os.pathsep}{second}"
+    )
+
+    assert skills.project_roots(tmp_path) == [first, second]
+    # An override is the whole list: the user-level directory is not appended.
+    assert skills.default_roots(tmp_path) == [first, second]
+
+
+def test_default_roots_append_the_user_root(tmp_path: Path):
+    project = skills.project_roots(tmp_path)
+
+    assert skills.default_roots(tmp_path) == project + [skills.user_skills_root()]
 
 
 def test_a_malformed_skill_is_a_diagnostic_not_a_failure(tmp_path: Path):
