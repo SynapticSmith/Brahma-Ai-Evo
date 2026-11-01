@@ -103,6 +103,7 @@ Three invariants make the rest of the design work:
 | `agent/session.py` | Durable messages/events in SQLite; list/open/resume | …resume loses messages. |
 | `agent/session_bridge.py` | Qt-free bridge between a stored session and the GUI's `[system, history, user]` seed; `record_voice_turn` archives completed Live turns | …the HUD restarts from a hard reset, a resumed turn duplicates history, or a spoken turn is lost on exit. |
 | `agent/prompts.py` | Resident system prompt + `AGENTS.md` / `BRAHMA.md` loader, path-driven subdirectory discovery | …the model behaves against project conventions. |
+| `agent/skills.py` | Project skills: `SKILL.md` parsing, `.brahma/skills` discovery, the resident name/description block, and the `load_project_skill` tool | …a project skill is not listed, loads the wrong body, or the Skills Library tool stopped working. |
 | `agent/providers.py` | Loop-compatible completers for local/custom/OpenRouter/stub; shared `custom_stream`; summariser | …tool calling fails on one provider only. |
 | `agent/retry.py` | Transient-error classifier, exponential backoff with jitter, cancellation-aware wait | …a run stalled on a 503 or retried something it should not. |
 | `agent/__main__.py` | `python -m agent` CLI | …you need a scriptable surface. |
@@ -394,6 +395,7 @@ ToolSpec(
 | `grep_files` | read | Python regex; `path:line: text`; glob filter; caps files and matches. |
 | `run_command` | exec | Shell in the workspace; **stdin is closed**; exit code + stdout + stderr; timeout (default 120 s, max 1800 s) terminates the **whole process tree**; output capped; `exec.sandbox` controls credential scrubbing, an optional sandbox prefix and resource limits. |
 | `run_subagent` | native | Bounded child loop with a filtered read-default surface; returns a report; never recursive; refuses outside a loop. |
+| `load_project_skill` | read | Loads one project skill body by name from `.brahma/skills`; the resident prompt lists names and descriptions only. `allowed-tools` is advisory — the policy remains the boundary. Deliberately **not** named `load_skill`, which belongs to the app's Skills Library. |
 | `mcp_<server>_<tool>` | mcp | One spec per tool discovered from a configured MCP server; the handler is the server's `tools/call`; output is text, resources or a binary summary. Names are sanitised to the function-name grammar. |
 
 Edits and writes register with **`core/undo.py`**, so the existing `undo` tool
@@ -727,6 +729,7 @@ python -m agent run "fix the failing test" --cwd . --provider auto
 python -m agent resume <session-id> "now run the suite"
 python -m agent sessions --limit 10
 python -m agent tools --json
+python -m agent skills [--cwd DIR] [--json]
 python -m agent mcp list [--config PATH] [--cwd DIR] [--json]
 python -m agent permissions show | init [--path ...] [--force]
 ```
@@ -957,7 +960,38 @@ reading `packages/foo/app.py` loads `packages/AGENTS.md` and
 * Discovery is per run, not persisted: a resumed session rebuilds the base
   prompt and re-discovers as it touches paths again.
 
-The CLI builds the prompt with
+### Project skills are loaded on demand
+
+A project can keep task-specific instructions in `.brahma/skills/<name>/SKILL.md`.
+Only the name and description are resident; the body is fetched by
+`load_project_skill` when the model decides the skill matches the work. This is
+the same progressive-disclosure shape as `AGENTS.md`, applied to a catalogue
+that may hold many playbooks.
+
+* **Roots.** `BRAHMA_SKILLS_DIR` (a `os.pathsep`-separated override) wins.
+  Otherwise discovery reads `.brahma/skills` in the workspace, then in up to
+  three ancestors, then `%LOCALAPPDATA%\BrahmaAI\skills` (or
+  `~/.config/brahma/skills`). The nearest definition wins; a shadowed copy is a
+  diagnostic, never a silent behaviour change.
+* **Cost.** The resident pass reads at most 8 KB per file and caps the block at
+  24 skills / 4 000 characters (then prints `N more skill(s)`). The loader
+  re-discovers and reads the full body, capped at 256 KB.
+* **Failures are diagnostics.** A malformed `SKILL.md`, a name that does not
+  match its directory, or an oversized file is reported by
+  `python -m agent skills` and skipped; one bad file never disables the rest.
+* **The name is `load_project_skill`, not `load_skill`.** `load_skill` is the
+  app's Skills Library meta-tool (`skill_id`) and the harness dispatcher in
+  `core/tool_exec.py` runs first. Registering the same name here would shadow
+  the existing tool in the voice and GUI paths, so the harness tool is
+  deliberately distinct.
+* **Skills are trusted input.** Like `AGENTS.md`, a cloned tree's skill body is
+  speaking to the model with project authority. `allowed-tools` is parsed and
+  shown by the CLI but **not enforced**: a second tool-filter path would be a
+  permission hole, so the runtime's policy stays the only boundary.
+
+The block is appended after the instruction files and before any host `extra`
+text, so project rules still outrank generic advice while a skill remains a
+task-level instruction. The CLI builds the prompt with
 `build_system_prompt(workspace, permission_note=policy_note())`. The GUI text
 path reuses the app's existing core prompt (tool-index tiering and manuals are
 unchanged); only the loop around it is new.
@@ -980,6 +1014,7 @@ unchanged); only the loop around it is new.
 | `tests/test_agent_cli.py` | Stub run, stdin prompt, missing prompt, bare-word run, tools/permissions/sessions, NDJSON shape, exit codes. |
 | `tests/test_agent_retry.py` | Transient vs permanent classification, backoff shape, retry budget, cancellation during backoff, loop `retry` events and `usage["retries"]`, runtime flags, CLI Ctrl-C handler. |
 | `tests/test_agent_prompts.py` | Instruction-file priority, bounded upward walk and its env override, root exclusion, tail-preserving truncation, prompt ordering. |
+| `tests/test_agent_skills.py` | `SKILL.md` parsing (frontmatter, derived description/name, BOM, invalid/mismatched names, size cap), discovery order and `BRAHMA_SKILLS_DIR`, shadow diagnostics, metadata-only listing, the resident block budgets, prompt ordering, loader behaviour through the runtime, and the `load_skill` collision guard. |
 | `tests/test_agent_instructions.py` | Path-driven subdirectory discovery: ancestor chain order, directory-vs-file paths, ignored/vendored dirs, outside paths, dedupe and `seen`, depth and character budgets, loop injection into the next request, one load per file. |
 | `tests/test_agent_approval.py` | Session "always allow" keying (tool vs exact command), bool answers not remembered, deny never widened, reconfigure survival, confirm tri-state and timeout. |
 | `tests/test_agent_approval_detail.py` | Banner text: rule-first ordering, command/cwd, real diffs, create vs overwrite, bounded output, path-scoped session keys. |
@@ -1036,6 +1071,13 @@ These are known and deliberate, not surprises:
   model with the same authority as the repository's own file. Vendored and
   generated directories are skipped, but review an unfamiliar tree before
   letting an agent work inside it.
+* **Project skills are instructional, not executable.** A `SKILL.md` body is
+  prompt text; it cannot register a tool, and its `allowed-tools` field is
+  advisory (the policy is still the only execution boundary). Discovery runs
+  when a prompt is built, so a skill added mid-run appears on the next run, not
+  the next turn; there is no watcher. The GUI and voice paths keep the app's
+  richer core Skills Library (`load_skill`); the harness loader is
+  `load_project_skill`, and the two catalogues are intentionally separate.
 * **Streaming is wired only where a transport exists.** Local (the existing
   Ollama-compatible SSE reader), custom OpenAI-compatible endpoints,
   OpenRouter and the stub stream, in both the CLI and the GUI text path. The

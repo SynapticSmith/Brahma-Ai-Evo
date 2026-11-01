@@ -173,3 +173,8 @@ they govern; `agent/prompts.py` owns discovery and its budgets.
    `TERM=dumb` (it is the reason redirected logs stay parseable).
 7. Prefer targeted edits over whole-file rewrites, and run the project's own
    checks rather than asserting that a change works.
+8. Never register a harness tool under a core meta-tool name (`load_skill`,
+   `search_tools`, `recall_memory`, …). The harness branch in
+   `core/tool_exec.py` runs first, so a shared name shadows the legacy tool in
+   the voice and GUI paths. The project-skills loader is `load_project_skill`
+   for exactly this reason; `load_skill` remains the core Skills Library.

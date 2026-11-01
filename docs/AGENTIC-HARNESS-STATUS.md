@@ -39,6 +39,7 @@ database migration is required; the new tables are additive.
 | Provider-reported token usage | Done |
 | Policy hot-reload (fail-safe) | Done |
 | Subdirectory instructions (path-driven) | Done |
+| Project skills (`SKILL.md`, on-demand) | Done |
 | Streaming output (text + tool calls) | Done |
 | GUI session persistence + replay | Done |
 | Voice-path session persistence | Done |
@@ -70,6 +71,7 @@ agent/context.py        ContextBudget, ConversationContext, compaction
 agent/session.py        AgentSession (agent_* tables), SessionRecord
 agent/session_bridge.py Qt-free GUI↔session seed, voice-turn archive, transcript, picker labels
 agent/prompts.py        resident prompt + AGENTS.md/BRAHMA.md loader
+agent/skills.py         project SKILL.md discovery, resident list, load_project_skill
 agent/providers.py      local/custom/openrouter/stub completers + summariser
 agent/streaming.py      delta assembler + SSE transport (stdlib urllib)
 agent/retry.py          transient classifier + cancellation-aware backoff
@@ -96,6 +98,9 @@ Modified:
 | `agent/loop.py` | A stream rejected before its first delta gets one plain request and a `stream_fallback`; transient errors still retry, and failures after output still stop. |
 | `agent/loop.py` | `_run_subagent` builds the bounded child loop and relays its events; `_run_one` injects the runner through `ToolContext.extra`; `allow_subagents=False` makes recursion impossible in the child. |
 | `main.py` | The GUI custom path streams through `custom_stream`; streaming is enabled for `source in ("local", "custom")`. |
+| `agent/prompts.py` | Appends the resident project-skills block after the instruction files and before host `extra` text. |
+| `agent/runtime.py` | Imports `agent.skills`, which registers `load_project_skill` as an ordinary read-class tool. |
+| `agent/__main__.py` | `skills [--cwd DIR] [--json]` prints the discovered roots, skills and diagnostics, mirroring `mcp list`. |
 | `main.py` | `_with_agent_mcp` merges lazily started harness MCP tools into the local/custom first call; `main()`'s `finally` closes the manager beside the voice MCP manager. |
 | `.github/workflows/ci.yml` | `harness-pythons` job: harness suite on 3.11/3.12/3.13 with only pytest installed. |
 | `.gitignore` | `agent_permissions.json` ignored — it is machine-local user data. |
@@ -108,7 +113,7 @@ New tests: `tests/test_agent_permissions.py`, `test_agent_code_tools.py`,
 `test_agent_streaming.py`, `test_agent_session_bridge.py`,
 `test_agent_diff_preview.py`, `test_agent_providers.py`,
 `test_agent_subagent.py`, `test_agent_process.py`, `test_agent_sandbox.py`,
-`test_agent_mcp.py`, `test_agent_term.py` — all pure-Python
+`test_agent_mcp.py`, `test_agent_term.py`, `test_agent_skills.py` — all pure-Python
 (no display, no model). HUD-only behaviour lives in
 `tests/test_confirmation_overlay.py`.
 
@@ -747,6 +752,46 @@ then returns the built-in tool list; the same file is not re-reported on every
 turn because the fingerprint is unchanged. Fixing the file changes the
 fingerprint and the next turn recovers.
 
+### D39 — Project skills are listed cheaply and loaded on demand
+
+A project skill is a folder under `.brahma/skills/<name>/` holding a `SKILL.md`
+whose frontmatter names it and describes when it applies. Putting every body in
+the system prompt would make the resident cost proportional to how much people
+wrote, and a body the model does not need competes with the instructions it
+does. So the prompt carries only `name: description`, and the model calls
+`load_project_skill` when one matches. Discovery for the prompt reads an 8 KB
+prefix (`with_body=False`); the loader re-discovers with full bodies so it
+always returns the current file. The body cap is 256 KB, because a larger file
+is a document, not a skill.
+
+The name is deliberately **not** `load_skill`. That name already belongs to the
+app's Skills Library (`skill_id`) in `core/tool_index.py`, and the harness
+branch at the top of `core/tool_exec.py` runs first, so registering a harness
+tool under the same name shadows the legacy tool for both voice and GUI text.
+The failure was live, not theoretical: `load_skill` started demanding `name`
+instead of `skill_id`. Two catalogues, two names; the harness loader is
+`load_project_skill`, and `is_registered("load_skill")` must stay `False`.
+
+Roots are the workspace, up to three ancestors (a package in a monorepo
+inherits the monorepo's skills), then `%LOCALAPPDATA%\BrahmaAI\skills` (or
+`~/.config/brahma/skills`). Nearest wins; a shadowed copy is reported as a
+diagnostic rather than silently changing behaviour. `BRAHMA_SKILLS_DIR`
+(`os.pathsep`-separated) overrides every root, and an empty value disables
+discovery, mirroring `BRAHMA_MCP_CONFIG`. The resident block is bounded to 24
+skills / 4 000 characters and says `N more skill(s)` rather than truncating a
+line mid-description.
+
+Skills are trusted input in the same sense as `AGENTS.md`: the body is
+instructions, not code the harness runs. `allowed-tools` is parsed and shown
+for humans and future policy work but is **not** enforced — the runtime policy
+remains the only execution boundary, and a second filter here would be a hole,
+not a feature. A malformed file is a diagnostic and never disables the rest; a
+BOM is stripped with `utf-8-sig`. Discovery runs when a prompt is built and
+when the loader is called, so a skill added mid-run appears on the next turn,
+not immediately. This is separate from the richer core Skills Library
+(`skills_library/`, `%LOCALAPPDATA%\BrahmaAI\skills_library`), which the voice
+path and the GUI's existing tool surface still use.
+
 ### D20 — Parallel dispatch is whole-turn and read-only (superseded by D30, then D32)
 
 Model turns often contain several `read_file`/`glob_files`/`grep_files` calls,
@@ -783,11 +828,12 @@ and the default `python` are 3.14 and lack `ruff`/`pytest`.
 
 ```
 py -3.11 -m ruff check .                 # All checks passed!
-py -3.11 -m pytest tests -q              # 690 passed, 1 skipped  (QT_QPA_PLATFORM=offscreen)
-py -3.11 -m pytest tests -q -k agent     # 350 passed, 1 skipped
+py -3.11 -m pytest tests -q              # 715 passed, 1 skipped  (QT_QPA_PLATFORM=offscreen)
+py -3.11 -m pytest tests -q -k agent     # 375 passed, 1 skipped
 py -3.11 -c "import main; ..."           # 66 voice declarations; six code tools, no run_subagent
-py -3.11 -m agent tools                  # lists the seven tool specs
+py -3.11 -m agent tools                  # lists the eight tool specs (load_project_skill included)
 py -3.11 -m agent permissions show       # reports built-in defaults
+py -3.11 -m agent skills --json          # discovered roots, skills and diagnostics
 ```
 
 Notes:
@@ -799,7 +845,7 @@ Notes:
   `{read_file, write_file, edit_file, glob_files, grep_files, run_command}` are
   all present, while `run_subagent` is intentionally absent from the voice
   surface (the text and CLI loops advertise it via `all_specs()`).
-* The 350 harness tests run without a display or a model:
+* The 375 harness tests run without a display or a model:
   `py -3.11 -m pytest tests -q -k agent`. The one skip is the POSIX-only
   `prepare_stream` test, which a Windows run cannot execute.
 * `python -m agent run --provider stub --json` is the cheapest end-to-end
@@ -857,6 +903,13 @@ Notes:
   refusal without a loop, relayed child events, and empty/unknown-request
   refusals. A refused subagent call is the turn's only call, so it ends at
   `permission_denied` exactly like any other all-refused turn; no child starts.
+* Project skills are covered by `tests/test_agent_skills.py` (23): frontmatter
+  parsing (quoted scalars, block/inline lists, derived name/description, BOM,
+  invalid or mismatched names, the size cap), discovery order and shadow
+  diagnostics, `BRAHMA_SKILLS_DIR` override/disable, metadata-only listing,
+  resident-block budgets, prompt ordering, the loader through the runtime, and
+  a guard that the harness name is `load_project_skill` and never shadows the
+  core `load_skill`. Two CLI tests cover `agent skills` text and JSON output.
 * Command containment is covered by `tests/test_agent_process.py` plus one
   test in `tests/test_agent_code_tools.py`: output and exit code, stderr,
   timeout with partial output, closed stdin, a grandchild that does not survive
@@ -923,6 +976,14 @@ Ordered by value, with the honest reason each was left out.
    crashed server stays failed until that lifetime ends. The GUI text path keeps
    a `WorkspaceMCP` and restarts it on a workspace or config change; the live
    voice path still uses its own SDK-based manager.
+5. **Project skills are instructional, not executable.** `load_project_skill`
+   returns text the model reads; there are no scripts, no per-skill tools and no
+   `allowed-tools` enforcement (the policy is still the only boundary). There is
+   no watcher: discovery runs when a prompt is built and when the loader is
+   called, so a skill added mid-run appears on the next turn. The harness
+   catalogue is separate from the core Skills Library, which the voice path and
+   the existing GUI tool surface still use; unifying them would need one naming
+   and precedence story, not a second loader.
 
 ---
 
@@ -960,6 +1021,12 @@ Gotchas that cost time the first time:
   `close()` unregistering are what keep the catalogue honest. The config is
   trusted input, so a new field needs validation in `parse_servers`, not a
   silent default.
+* Never register a harness tool under a core meta-tool name (`load_skill`,
+  `search_tools`, `recall_memory`, …). The harness branch at the top of
+  `core/tool_exec.py` runs first, so the harness spec shadows the legacy one for
+  voice and GUI text instead of adding a second tool. This is why the project
+  skills loader is `load_project_skill`: the core `load_skill` takes `skill_id`,
+  and sharing the name made it demand `name`.
 * If `import main` fails after editing `TOOL_DECLARATIONS`, check that the
   harness import block landed *after* the closing `]` and that
   `_pcm_block` still follows it.

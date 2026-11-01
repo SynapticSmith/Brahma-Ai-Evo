@@ -28,6 +28,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, List, Optional, Set, Tuple
 
+from .skills import prompt_block as _skill_prompt_block
+
 #: Instruction files looked for in each directory, in priority order.
 PROJECT_FILES = ("AGENTS.md", "BRAHMA.md", ".brahma/AGENTS.md")
 
@@ -374,6 +376,9 @@ def build_system_prompt(
     project = load_project_instructions(workspace, max_parents=max_parents)
     if project:
         parts.append(project)
+    skills = _skill_prompt_block(workspace) if workspace is not None else ""
+    if skills:
+        parts.append(skills)
     if extra:
         parts.append(extra)
     return "\n\n".join(part for part in parts if part)

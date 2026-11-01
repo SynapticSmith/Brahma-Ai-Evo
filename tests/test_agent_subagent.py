@@ -123,7 +123,14 @@ def test_child_surface_is_read_only_and_never_recursive(tmp_path: Path):
     # The parent can delegate; the child cannot delegate again and does not
     # inherit write/exec primitives it was not asked to use.
     assert SUBAGENT_TOOL in script.tool_names[0]
-    assert script.tool_names[1] == ["glob_files", "grep_files", "read_file"]
+    # `load_project_skill` is read-class too, and the child shares the parent's
+    # system prompt, so it can follow a project skill without mutating anything.
+    assert script.tool_names[1] == [
+        "glob_files",
+        "grep_files",
+        "load_project_skill",
+        "read_file",
+    ]
 
 
 def test_requested_tools_are_intersected_with_the_parent_surface(tmp_path: Path):

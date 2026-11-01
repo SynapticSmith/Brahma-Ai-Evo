@@ -6,6 +6,7 @@ Everything the GUI can do with an agent, without starting a GUI:
     python -m agent resume <session-id> "and run the suite"
     python -m agent sessions
     python -m agent tools
+    python -m agent skills
     python -m agent mcp list
     python -m agent permissions init
 
@@ -437,6 +438,34 @@ def _cmd_tools(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_skills(args: argparse.Namespace) -> int:
+    """Show what discovery found before blaming the model for ignoring a skill."""
+    from .skills import discover
+
+    workspace = Path(args.cwd or os.getcwd()).expanduser().resolve()
+    catalog = discover(workspace, with_body=False)
+    if args.json:
+        sys.stdout.write(
+            json.dumps(catalog.to_dict(), ensure_ascii=False, indent=2) + "\n"
+        )
+        return EXIT_OK
+    sys.stdout.write(f"workspace: {workspace}\n")
+    sys.stdout.write(
+        "roots: "
+        + (", ".join(str(root) for root in catalog.roots) or "(none)")
+        + "\n"
+    )
+    if not catalog.skills:
+        sys.stdout.write(
+            "No project skills found. Create .brahma/skills/<name>/SKILL.md.\n"
+        )
+    for skill in catalog.skills:
+        sys.stdout.write(f"{skill.name:<24} {skill.description}\n    {skill.path}\n")
+    for diagnostic in catalog.diagnostics:
+        sys.stderr.write(f"warning: {diagnostic}\n")
+    return EXIT_OK
+
+
 def _cmd_mcp(args: argparse.Namespace) -> int:
     workspace = Path(args.cwd or os.getcwd()).expanduser().resolve()
     explicit = Path(args.config).expanduser() if args.config else None
@@ -572,6 +601,10 @@ def build_parser() -> argparse.ArgumentParser:
     tools = sub.add_parser("tools", help="List registered harness tools")
     tools.add_argument("--json", action="store_true")
 
+    skills = sub.add_parser("skills", help="List discovered project skills")
+    skills.add_argument("--cwd", help="Workspace root used for discovery")
+    skills.add_argument("--json", action="store_true")
+
     mcp = sub.add_parser("mcp", help="List configured MCP servers and their tools")
     mcp.add_argument("action", nargs="?", choices=("list",), default="list")
     mcp.add_argument("--config", help="MCP config file (default: discovery)")
@@ -595,7 +628,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
 
     # `python -m agent "do the thing"` -> treat the first bare word as a run.
-    known = {"run", "resume", "sessions", "tools", "mcp", "permissions", "-h", "--help"}
+    known = {
+        "run", "resume", "sessions", "tools", "skills", "mcp", "permissions",
+        "-h", "--help",
+    }
     if argv and argv[0] not in known:
         argv = ["run"] + argv
 
@@ -613,6 +649,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             return _cmd_sessions(args)
         if args.command == "tools":
             return _cmd_tools(args)
+        if args.command == "skills":
+            return _cmd_skills(args)
         if args.command == "mcp":
             return _cmd_mcp(args)
         if args.command == "permissions":

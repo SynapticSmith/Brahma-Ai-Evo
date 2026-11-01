@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional
 
 from . import code_tools  # noqa: F401  (import registers the six tools)
+from . import skills as _skills  # noqa: F401  (import registers load_project_skill)
 from . import subagent  # noqa: F401  (import registers run_subagent)
 from .approval_detail import describe_call, path_scoped_approval_key
 from .permissions import DENY, PermissionPolicy, PolicyResult

@@ -104,6 +104,36 @@ def test_tools_json_lists_the_six_primitives(capsys):
     assert {"read_file", "write_file", "edit_file", "glob_files", "grep_files", "run_command"} <= names
 
 
+def test_skills_json_lists_discovered_project_skills(
+    tmp_path: Path, monkeypatch, capsys
+):
+    root = tmp_path / "skills"
+    folder = root / "demo"
+    folder.mkdir(parents=True)
+    (folder / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: A demo skill.\n---\n\nDo it.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BRAHMA_SKILLS_DIR", str(root))
+
+    code = main(["skills", "--cwd", str(tmp_path), "--json"])
+
+    data = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert data["skills"][0]["name"] == "demo"
+    assert data["skills"][0]["description"] == "A demo skill."
+
+
+def test_skills_text_reports_an_empty_catalog(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.setenv("BRAHMA_SKILLS_DIR", str(tmp_path / "none"))
+
+    code = main(["skills", "--cwd", str(tmp_path)])
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "No project skills found" in out
+
+
 def test_permissions_show_reports_the_defaults(capsys, tmp_path: Path):
     code = main(
         ["permissions", "show", "--path", str(tmp_path / "none.json"), "--json"]
