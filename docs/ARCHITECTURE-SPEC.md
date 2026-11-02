@@ -657,9 +657,9 @@ Accepted 2026-10-17, but **acceptance is not authorization to build**: they were
 3. ✅ (landed 2026-11-01, ADR-021) Resolve the deferred-tool `1008` and I-19 violation (`O-8`): `call_tool` templates in `_handle_search`/`_handle_list_tools`, the `tool_bridge.py` promotion append deleted, and session-scoped `resolve(pinned_extra=...)` with budget accounting, oldest-first eviction, and a `pinned_extra_dropped` counter.
 4. ✅ (landed 2026-11-01, ADR-019 waves 1–3) Migrate native tools to `ToolSpec`s behind `AgentRuntime` by capability class (`exec`/`write` first, then `device`/`network`, then `read`), retiring the `elif` chain in `core/tool_exec.py` and extracting turn controllers from `main.py` (`O-6`). **Wave 1** migrated 9 `write`/`exec` tools; **Wave 2** migrated 18 specs (`file_controller`/`smart_organizer`/`desktop_organizer` per-action `read`/`write` classifiers, `silent=True` on `save_memory`, 7 `device`, 7 `network`); **Wave 3** migrated the remaining 57 specs (`read`, `device`, `network`, `write`, per-call classified tools, aliases, and the retired `agent_task` pointer = 84 desktop specs total in `core/desktop_tools.py`), retired the `elif` chain in `core/tool_exec.py` (`865→147` lines, `80→0` `elif`s), and extracted `core/text_turn_controller.py` plus the remaining session/voice control methods into `core/session_lifecycle.py` (`main.py` `4,811→3,233` lines).
 5. ✅ (landed 2026-11-01..02, B8/B9/B10) Add workspace trust fingerprinting (`trusted_workspaces`), verified container probe (`sandbox doctor` + `require_confined`, `O-1`), and read-only subagent fan-out (`run_subagent_batch`, `O-2`), one concern per batch. **All three landed:** ADR-020 (`trusted_roots` + `trusted_workspaces` + repo-local MCP gating + instruction delimiters, B8), `sandbox doctor` + `require_confined` (`O-1` / `N4`, B9), and `run_subagent_batch` (`O-2` / `N5`, B10).
-6. Keep the two MCP clients per I-18 (`agent/mcp.py` is stdio-only; `core/mcp_manager.py` owns HTTP/SSE + headers/auth); bring the voice MCP manager to refresh parity or scope HTTP/SSE parity explicitly.
+6. ✅ (landed 2026-11-02, B22) **Dual MCP Client Parity (I-18):** `core/mcp_manager.py` gains `needs_refresh()`, `refresh_server()`, and `refresh_all()` for dynamic catalog re-querying on active sessions. The architectural division of labor between `agent/mcp.py` (portable stdio stdlib client for harness) and `core/mcp_manager.py` (official SDK asyncio loop for HTTP/SSE + headers/auth) is explicitly scoped and preserved without introducing a third client (`I-18`, C-2). Guarded by `tests/test_mcp_supervise.py`.
 7. ✅ (landed 2026-11-01) Build reproducibility plumbing: `requirements-build.txt` pins PyInstaller + hooks, `scripts/setup_dev.ps1` builds a 3.11 `.venv` and refuses other interpreters, `build_all.ps1` invokes `python -m PyInstaller` and writes `dist\SHA256SUMS.txt`, and `.github/workflows/build.yml` runs a manual/tag build. No lockfile and no signing yet — that stays in WS-6/Q4.
-8. Correct any remaining doc drift (counts, guards, roots).
+8. ✅ (landed 2026-11-02, B22) **Doc Drift & Invariant Reconciliation:** Appendix A inventory tiers updated (bridge design docs marked superseded by ADR-018 / Q2); Appendix C baseline updated (888 passed offscreen, 460 passed agent suite, Phase 0 and Q2 marked complete); `AGENTIC-HARNESS-NEXT.md` snapshot and N5 commit hash updated. **Queue 1 complete.**
 
 ### Q2 — Bridge v2 (after Q0/Q1)
 
@@ -715,9 +715,9 @@ These are the cross-cutting questions raised by the synthesis, paired with their
 | `VERSION-1.0.1-CHANGES.md` | 1,037 | 3 | Historical |
 | `ONE-391-changes.md` | 332 | 3 | Historical |
 | `ONE-391-next-steps.md` | 184 | 3 | Historical/superseded |
-| `agent-orchestrator-bridge.md` | 1,330 | 4 | Aspirational |
-| `AGENT-BRIDGE-BUILD-TODO.md` | 991 | 4 | Aspirational |
-| `AGENT-BRIDGE-ADR.md` | 353 | 4 | Accepted but superseded in part |
+| `agent-orchestrator-bridge.md` | 1,330 | 4 | Superseded by ADR-018 / Q2 |
+| `AGENT-BRIDGE-BUILD-TODO.md` | 991 | 4 | Superseded by ADR-018 / Q2 |
+| `AGENT-BRIDGE-ADR.md` | 353 | 4 | Accepted; superseded in part by ADR-018 |
 
 ## Appendix B — Glossary
 
@@ -741,16 +741,16 @@ These are the cross-cutting questions raised by the synthesis, paired with their
 
 | Check | Result |
 |---|---|
-| `git log -1` | `531b961 agent: share project skills with the Skills Library` (2026-10-31) |
-| Working tree | clean; `main` in sync with `origin/main` |
+| `git log -1` | `99247f9 agent: add AgentBridge facade, tool publishing, and turn lifecycle wiring (ADR-018)` (2026-11-02) |
+| Working tree | clean; `main` ahead of `origin/main` |
 | `ruff check .` | clean |
-| `pytest tests -q` (offscreen) | 744 passed, 1 skipped |
-| `pytest tests -q -k agent` | 387 passed, 1 skipped |
+| `pytest tests -q` (offscreen) | 888 passed, 1 skipped |
+| `pytest tests -q -k agent` | 460 passed, 1 skipped |
 | Focused skills tests | 84 passed |
 | `upstream/main` | `bfb2868` (2026-10-27); 7 commits past merge base |
-| Security findings | all 8 present; gateway extra open; `confirmed` extra is a dead declaration, not a live bypass |
-| Bridge implementation | none; `core/agent_bridge/` absent |
-| Legacy executor | present and reachable via `agent_task` |
+| Security findings | Phase 0 (Q0-A and Q0-B) complete; 5 findings closed (2, 3, 4, 6, gateway); WS-1..10 roadmap active |
+| Bridge implementation | Landed (Q2 complete; `core/agent_bridge/` with detectors, registry, 3 adapters, artifacts, facade) |
+| Legacy executor | Deleted (`agent/planner.py`, `executor.py`, `task_queue.py`, `error_handler.py` removed) |
 
 ---
 

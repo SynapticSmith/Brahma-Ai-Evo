@@ -891,6 +891,56 @@ class MCPServerManager:
         _drop_from_index(sources)
         return removed
 
+    # ----------------------------------------------------------------- refresh
+
+    @classmethod
+    async def _refresh_server_tools_async(cls, name: str) -> bool:
+        """Re-query tools on an active MCP session and update dynamic registry."""
+        session = cls._sessions.get(name)
+        if session is None:
+            return False
+        try:
+            cls.unregister_server_tools(name)
+            await cls._register_server_tools(name, session)
+            tools = sorted(cls._server_tool_names(name))
+            cls._set_state(name, "ready", tools=tools)
+            return True
+        except Exception as exc:
+            cls._set_state(name, "error", error=str(exc))
+            return False
+
+    @classmethod
+    def refresh_server(cls, name: str, timeout: float = 10.0) -> bool:
+        """Re-query tools for a single active server synchronously from any thread."""
+        if not cls.is_running() or cls._loop is None:
+            return False
+        future = asyncio.run_coroutine_threadsafe(
+            cls._refresh_server_tools_async(name), cls._loop
+        )
+        try:
+            return future.result(timeout=timeout)
+        except Exception as exc:
+            logger.warning("[MCP Manager] refresh_server('%s') failed: %s", name, exc)
+            return False
+
+    @classmethod
+    def refresh_all(cls, timeout: float = 10.0) -> Dict[str, bool]:
+        """Re-query tools for all active servers synchronously."""
+        results = {}
+        for name in list(cls._sessions.keys()):
+            results[name] = cls.refresh_server(name, timeout=timeout)
+        return results
+
+    @classmethod
+    def needs_refresh(cls) -> bool:
+        """Check if any server is in a failed/error state or missing active tools."""
+        with cls._lock:
+            for entry in cls._status.values():
+                state = entry.get("state")
+                if state in ("error", "failed", "stopped") or not entry.get("tools"):
+                    return True
+            return False
+
     # ------------------------------------------------------------------ status
 
     @classmethod

@@ -115,3 +115,38 @@ def test_an_mcp_tool_never_shadows_a_different_server(monkeypatch):
 
     assert registered == []
     assert mm.MCPServerManager._registered_tools["mcp_srv_a_b"] == "other"
+
+
+def test_refresh_server_tools_async_updates_catalog(monkeypatch):
+    _reset_manager()
+    registered = []
+    _stub_registration(monkeypatch, registered)
+
+    session = _Session([_Tool("tool_one"), _Tool("tool_two")])
+    mm.MCPServerManager._sessions["srv1"] = session
+
+    ok = asyncio.run(mm.MCPServerManager._refresh_server_tools_async("srv1"))
+    assert ok is True
+    assert "mcp_srv1_tool_one" in registered
+    assert "mcp_srv1_tool_two" in registered
+    assert mm.MCPServerManager._status["srv1"]["state"] == "ready"
+    assert len(mm.MCPServerManager._status["srv1"]["tools"]) == 2
+
+    # Now update session tools to only tool_three
+    session._tools = [_Tool("tool_three")]
+    ok = asyncio.run(mm.MCPServerManager._refresh_server_tools_async("srv1"))
+    assert ok is True
+    assert "mcp_srv1_tool_three" in mm.MCPServerManager._status["srv1"]["tools"]
+    assert "mcp_srv1_tool_one" not in mm.MCPServerManager._status["srv1"]["tools"]
+
+
+def test_needs_refresh_logic():
+    _reset_manager()
+    assert mm.MCPServerManager.needs_refresh() is False
+
+    mm.MCPServerManager._status["srv1"] = {"state": "error", "tools": []}
+    assert mm.MCPServerManager.needs_refresh() is True
+
+    mm.MCPServerManager._status["srv1"] = {"state": "ready", "tools": ["mcp_srv1_test"]}
+    assert mm.MCPServerManager.needs_refresh() is False
+

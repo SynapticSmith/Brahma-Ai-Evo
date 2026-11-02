@@ -15,12 +15,12 @@ to the status doc, and re-rank what remains. A stale tracker is worse than none.
 
 | Field | Value |
 | --- | --- |
-| Snapshot date | 2026-10-31 |
-| `HEAD` | `4f81a65 agent: refresh MCP at the turn boundary` (base of the N8 batch) |
-| Working tree | N8 landed in the commit that carries this line |
-| Harness batches on `main` | 23 before this batch: 20 hardening batches, the tracker, N1 + N3, and N2 |
-| Last decision recorded | D42 (project skills shared with the Skills Library) |
-| Gate result | `ruff` clean; `pytest tests` → **744 passed, 1 skipped** (offscreen) |
+| Snapshot date | 2026-11-02 |
+| `HEAD` | `99247f9 agent: add AgentBridge facade, tool publishing, and turn lifecycle wiring (ADR-018)` |
+| Working tree | clean; Queue 1 and Queue 2 complete |
+| Harness batches on `main` | N1–N5, ADR-018–021, Bridge v2 (B14–B22) |
+| Last decision recorded | D44 (run_subagent_batch read-only fan-out) + ADR-018 / ADR-015 |
+| Gate result | `ruff` clean; `pytest tests` → **888 passed, 1 skipped** (offscreen) |
 
 Reproduce the snapshot:
 
@@ -301,4 +301,4 @@ every child's surface (`I-08`), and
 | N2 | `4f81a65` | `MCPSession.needs_refresh`/`refresh`; `WorkspaceMCP.ensure` re-lists or restarts a stale server on the unchanged-fingerprint path; `mcp_refresh` event (D41). |
 | N8 | `531b961` | `agent.skills.project_roots()`; `SkillsLibrary` scans workspace `.brahma/skills` as the last, instructional-only source; `configure_library(project_workspace=...)` wired at startup (D42). |
 | N4 (O-1) | `8214ca4` | `probe_confinement`/`check_confinement` active behavioural probe (write-outside, network egress, UID/namespace isolation), `python -m agent sandbox doctor`, and `exec.sandbox.require_confined` policy gate (D43). |
-| N5 (O-2) | _(this commit)_ | `run_subagent_batch` parallel read-only fan-out under strict workspace-confinement, no-approval, and non-recursive (`DELEGATION_TOOLS`) enforcement (D44). |
+| N5 (O-2) | `0b48614` | `run_subagent_batch` parallel read-only fan-out under strict workspace-confinement, no-approval, and non-recursive (`DELEGATION_TOOLS`) enforcement (D44). |
