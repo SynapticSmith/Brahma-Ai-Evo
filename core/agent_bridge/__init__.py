@@ -18,6 +18,7 @@ from core.agent_bridge.artifacts import (
     read_artifact,
     save_artifact,
 )
+from core.agent_bridge.bridge import AgentBridge, close_agent_bridge, get_agent_bridge
 from core.agent_bridge.detectors import DetectionContext, run_all
 from core.agent_bridge.errors import (
     AgentBridgeError,
@@ -40,6 +41,7 @@ from core.agent_bridge.registry import AgentRegistry, default_registry_path
 
 __all__ = [
     "AgentAdapter",
+    "AgentBridge",
     "AgentBridgeError",
     "AgentCallResult",
     "AgentRecord",
@@ -50,12 +52,15 @@ __all__ = [
     "Capability",
     "CLIAgentAdapter",
     "clean_expired_artifacts",
+    "close_agent_bridge",
     "ConfirmationDenied",
     "ConnectError",
     "create_read_artifact_spec",
+    "default_registry_path",
     "DetectionContext",
     "FanoutBudgetExceeded",
     "ForbiddenTarget",
+    "get_agent_bridge",
     "list_artifacts",
     "LocalModelAdapter",
     "MCPServerAdapter",
@@ -66,5 +71,4 @@ __all__ = [
     "sanitize_tool_name",
     "save_artifact",
     "SchemaDrift",
-    "default_registry_path",
 ]

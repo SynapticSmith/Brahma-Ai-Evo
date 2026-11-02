@@ -62,12 +62,20 @@ class AgentRegistry:
                     continue
             return records
 
-    def save(self, records: Dict[str, AgentRecord]) -> None:
+    def save(self, records: Dict[str, AgentRecord] | AgentRecord | List[AgentRecord]) -> None:
         """Atomically persist records to disk."""
         with self._lock:
+            if isinstance(records, AgentRecord):
+                current = self.load()
+                current[records.id] = records
+                recs_to_save = current
+            elif isinstance(records, list):
+                recs_to_save = {r.id: r for r in records}
+            else:
+                recs_to_save = records
             data = {
                 "version": 1,
-                "agents": [rec.to_dict() for rec in records.values()],
+                "agents": [rec.to_dict() for rec in recs_to_save.values()],
             }
             atomic_write_json(self._store_path, data)
 
@@ -132,6 +140,13 @@ class AgentRegistry:
             records[record_to_save.id] = record_to_save
             self.save(records)
             return record_to_save
+
+    def rescan(self, detected: List[AgentRecord]) -> List[AgentRecord]:
+        """Merge a batch of newly detected records into the registry and return all updated records."""
+        with self._lock:
+            for rec in detected:
+                self.register_or_update(rec)
+            return self.list_all()
 
     def set_enabled(self, agent_id: str, enabled: bool) -> bool:
         """Toggle an agent on or off. Marks user_edited=True so discovery won't flip it."""
