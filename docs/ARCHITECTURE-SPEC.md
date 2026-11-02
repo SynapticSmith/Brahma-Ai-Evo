@@ -124,7 +124,7 @@ The fourth door is the single largest structural inconsistency in the repo. §6.
 | `agent/` | The stdlib-only agent harness (22 modules) | No pre-fork autonomous executor remains; `agent/__init__.py` is inert. |
 | `features/` | Forge output, hot-loaded at startup | Untrusted model-generated code; see §7. |
 | `brahma_connect/` | Phone/device gateway (HTTP + WebSocket + mDNS) | Defaults to `127.0.0.1`, disabled, no mDNS advertise; HTTP control routes still unauthenticated when enabled. |
-| `tests/` | Pytest suite; 758 passed / 1 skipped after Q0-B | `test_agent_*` are display- and SDK-free. |
+| `tests/` | Pytest suite; 766 passed / 1 skipped after the build-plumbing batch | `test_agent_*` are display- and SDK-free. |
 | `docs/` | Design records, build logs, proposals | Eighteen documents; see §3. |
 
 ### 2.3 Subsystem inventory
@@ -188,7 +188,7 @@ The `docs/` tree mixes five kinds of document. Treating them as one authority le
 | Claim in an older doc | Current reality |
 |---|---|
 | "Nothing has been committed" (`ONE-391-changes`) | 1.0.1 and 23+ harness batches are on `main`. |
-| Test counts 167 / 221 / 331 | 758 passed, 1 skipped after Q0-B. |
+| Test counts 167 / 221 / 331 | 766 passed, 1 skipped after the build-plumbing batch. |
 | `main.py` ≤ 3,903; `ui.py` ≤ 692 (bridge guards) | 4,833 / 827. |
 | "MCP is CLI-only" | GUI text path, voice manager, and CLI all use MCP. |
 | "Skills Library has two roots" | Three: project `.brahma/skills` is highest precedence (D42). |
@@ -554,7 +554,7 @@ py -3.11 -m pytest tests -q -k agent
 py -3.11 -m agent run "say hello" --provider stub --json --no-session
 ```
 
-Baseline after Q0-B: ruff clean; **758 passed, 1 skipped**; `-k agent` **391 passed, 1 skipped**; full suite ~111 s. Python 3.11 is mandatory for the gates; the repo `.venv` and default `python` are 3.14 and lack dev tools.
+Baseline after the build-plumbing batch: ruff clean; **766 passed, 1 skipped**; `-k agent` **391 passed, 1 skipped**; full suite ~2–5 min depending on host load. Python 3.11 is mandatory for the gates; the repo `.venv` and default `python` are 3.14 and lack the dev tools (`scripts/setup_dev.ps1 -Force` recreates it on 3.11).
 
 ### 10.3 Definition of done
 
@@ -574,6 +574,16 @@ A batch is done when:
 - Never update an old changelog to "correct" it. Add a dated note or supersede it here.
 - When a proposal lands, move its row from Tier 2/4 to Tier 1 and say which sections are now historical.
 - Keep line numbers out of new prose where a symbol will do.
+
+### 10.5 Environment and packaging contract (added 2026-11-01)
+
+| Concern | Contract |
+| --- | --- |
+| Interpreter | Python **3.11** only, for gates *and* packaging. `scripts/setup_dev.ps1` resolves it through `py -3.11` and refuses anything else; `bootstrap.ps1` installs it and creates `.venv`. |
+| Requirement sets | `requirements.txt` (runtime, top-level pins), `requirements-dev.txt` (ruff + pytest only), `requirements-build.txt` (PyInstaller + hooks). The test gate must not need the packager. |
+| Gates | `py -3.11 -m ruff check .` and the offscreen suite; CI runs the whole suite on every push. |
+| Packaging | `build_all.ps1` calls `.\.venv\Scripts\python.exe -m PyInstaller` for both specs and writes `dist\SHA256SUMS.txt`. `.github/workflows/build.yml` is manual/tag-only and uploads the setup exe plus hashes. |
+| Known limits | No lockfile (top-level pins only), no signing step, no bit-for-bit reproducibility. WS-6 (signed, staged, reversible updates) owns closing those; until then a built artifact is *identifiable*, not *trusted*. |
 
 ---
 
@@ -639,7 +649,8 @@ Accepted 2026-10-17, but **acceptance is not authorization to build**: they were
 4. Migrate native tools to `ToolSpec`s behind `AgentRuntime` by capability class (`exec`/`write` first, then `device`/`network`, then `read`), retiring the `elif` chain in `core/tool_exec.py` and extracting turn controllers from `main.py` (`O-6`).
 5. Add workspace trust fingerprinting (`trusted_workspaces`), verified container probe (`sandbox doctor` + `require_confined`, `O-1`), and read-only subagent fan-out (`run_subagent_batch`, `O-2`), one concern per batch.
 6. Keep the two MCP clients per I-18 (`agent/mcp.py` is stdio-only; `core/mcp_manager.py` owns HTTP/SSE + headers/auth); bring the voice MCP manager to refresh parity or scope HTTP/SSE parity explicitly.
-7. Correct any remaining doc drift (counts, guards, roots).
+7. ✅ (landed 2026-11-01) Build reproducibility plumbing: `requirements-build.txt` pins PyInstaller + hooks, `scripts/setup_dev.ps1` builds a 3.11 `.venv` and refuses other interpreters, `build_all.ps1` invokes `python -m PyInstaller` and writes `dist\SHA256SUMS.txt`, and `.github/workflows/build.yml` runs a manual/tag build. No lockfile and no signing yet — that stays in WS-6/Q4.
+8. Correct any remaining doc drift (counts, guards, roots).
 
 ### Q2 — Bridge v2 (after Q0/Q1)
 

@@ -103,7 +103,7 @@
 
 ### Prerequisites
 - **Windows 10 / 11** (64-bit)
-- **Python 3.11** or **Python 3.12**
+- **Python 3.11** — required for the lint/test gates and for packaging. `bootstrap.ps1` also accepts 3.12 for a runtime-only install, but the pinned dependency versions are verified on 3.11.
 - **Git**
 - Working Microphone & Speakers (Webcam optional for vision)
 - **Google Gemini API Key** (Get from [Google AI Studio](https://aistudio.google.com/))
@@ -116,13 +116,13 @@
    cd Brahma-Ai-Evo
    ```
 
-2. **Run the Automated Setup:**
+2. **Install dependencies (Python 3.11):**
    ```powershell
-   python setup.py
+   py -3.11 setup.py
    ```
-   *Or launch using the included batch file:*
-   ```cmd
-   start_brahma.bat
+   *Or run the full bootstrap (installs Python if missing, creates `.venv`, starts the app):*
+   ```powershell
+   .\bootstrap.ps1
    ```
 
 3. **Configure API Keys:**
@@ -130,6 +130,18 @@
    - Click the **Settings** icon on the top navigation bar.
    - Enter your **Gemini API Key** and any optional credentials (Spotify MCP, Weather, etc.) into the respective cards.
    - Click **Save & Connect**.
+
+### Developer setup (gates, tests, packaging)
+
+```powershell
+.\scripts\setup_dev.ps1          # creates .venv with Python 3.11 and installs runtime + dev + build deps
+.\.venv\Scripts\python.exe -m ruff check .
+$env:QT_QPA_PLATFORM="offscreen"; .\.venv\Scripts\python.exe -m pytest tests -q
+.\build_all.ps1                  # writes dist\BrahmaEvo_Setup.exe and dist\SHA256SUMS.txt
+```
+
+The scripts refuse anything but Python 3.11 rather than failing later inside a dependency build.
+
 
 ---
 

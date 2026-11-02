@@ -1,0 +1,15 @@
+# Packaging toolchain. Kept out of requirements.txt (the app does not need a
+# packager to run) and out of requirements-dev.txt (the lint/test gate should
+# stay small and stdlib-friendly).
+#
+# PyInstaller hooks decide what gets bundled, so both halves are pinned: a new
+# hooks release can silently add or drop modules from a build.
+#
+# Usage:
+#   py -3.11 -m pip install -r requirements-build.txt
+#   py -3.11 -m PyInstaller --version
+#
+# The interpreter itself is not pinned here; scripts/setup_dev.ps1 refuses
+# anything but 3.11 because several runtime wheels have no 3.12+ build.
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.9

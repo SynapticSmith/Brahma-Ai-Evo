@@ -1,17 +1,90 @@
-Write-Host "Building Brahma Evo Application..." -ForegroundColor Cyan
-.\.venv\Scripts\pyinstaller.exe installer\BrahmaEvo.spec --noconfirm
+# Build the Brahma Evo application and setup wizard.
+#
+# Invokes PyInstaller through the .venv interpreter (`-m PyInstaller`) instead of
+# a console-script path. That is the difference between "works on the machine
+# where it was pip-installed once" and "works from a clean clone": the old
+# `.venv\Scripts\pyinstaller.exe` reference fails outright when the venv was
+# rebuilt with a different toolchain.
+#
+# Prerequisites:
+#   .\scripts\setup_dev.ps1
+#
+# Usage:
+#   .\build_all.ps1
+#   .\build_all.ps1 -Clean
+#
+# Outputs:
+#   dist\BrahmaEvo\BrahmaEvo.exe        onedir application payload
+#   dist\BrahmaEvo_Setup.exe            onefile setup wizard
+#   dist\SHA256SUMS.txt                 sha256 of both, for release notes
 
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Failed to build main application!" -ForegroundColor Red
+param(
+    [switch]$Clean
+)
+
+$ErrorActionPreference = "Stop"
+$RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Definition
+Set-Location -Path $RepoRoot
+
+function Stop-WithError([string]$Message) {
+    Write-Host ""
+    Write-Host "ERROR: $Message" -ForegroundColor Red
+    Write-Host ""
     exit 1
 }
 
-Write-Host "Main Application built successfully. Now building Setup Wizard..." -ForegroundColor Cyan
-.\.venv\Scripts\pyinstaller.exe installer\BrahmaEvo_Setup.spec --noconfirm
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Failed to build setup wizard!" -ForegroundColor Red
-    exit 1
+$VenvPy = Join-Path $RepoRoot ".venv\Scripts\python.exe"
+if (-not (Test-Path $VenvPy)) {
+    Stop-WithError "No .venv interpreter at $VenvPy. Run .\scripts\setup_dev.ps1 first."
 }
 
-Write-Host "Build complete! Setup is located in dist\BrahmaEvo_Setup.exe" -ForegroundColor Green
+$VenvVersion = (& $VenvPy -c "import sys; print('%d.%d' % sys.version_info[:2])").Trim()
+if ($VenvVersion -ne "3.11") {
+    Stop-WithError ".venv runs Python $VenvVersion but packaging requires 3.11. Run .\scripts\setup_dev.ps1 -Force to recreate it."
+}
+
+& $VenvPy -m PyInstaller --version *> $null
+if ($LASTEXITCODE -ne 0) {
+    Stop-WithError "PyInstaller is not installed in .venv. Run: .\.venv\Scripts\python.exe -m pip install -r requirements-build.txt"
+}
+
+$PyiVersion = (& $VenvPy -m PyInstaller --version).Trim()
+Write-Host "Building with PyInstaller $PyiVersion ($VenvPy)" -ForegroundColor Cyan
+
+$Specs = @(
+    @{ Spec = "installer\BrahmaEvo.spec";      Label = "main application"; Artifact = "dist\BrahmaEvo\BrahmaEvo.exe" },
+    @{ Spec = "installer\BrahmaEvo_Setup.spec"; Label = "setup wizard";      Artifact = "dist\BrahmaEvo_Setup.exe" }
+)
+
+foreach ($entry in $Specs) {
+    if (-not (Test-Path $entry.Spec)) { Stop-WithError "missing spec file: $($entry.Spec)" }
+
+    $pyiArgs = @("-m", "PyInstaller", $entry.Spec, "--noconfirm")
+    if ($Clean) { $pyiArgs += "--clean" }
+
+    Write-Host ""
+    Write-Host "Building $($entry.Label)..." -ForegroundColor Cyan
+    & $VenvPy @pyiArgs
+    if ($LASTEXITCODE -ne 0) {
+        Stop-WithError "PyInstaller failed for $($entry.Label) (exit $LASTEXITCODE)."
+    }
+
+    if (-not (Test-Path $entry.Artifact)) {
+        Stop-WithError "PyInstaller reported success but $($entry.Artifact) is missing."
+    }
+    Write-Host "OK $($entry.Artifact)" -ForegroundColor Green
+}
+
+# --- Hashes -----------------------------------------------------------------
+$Artifacts = $Specs | ForEach-Object { $_.Artifact }
+$ShaFile = Join-Path $RepoRoot "dist\SHA256SUMS.txt"
+$Lines = foreach ($artifact in $Artifacts) {
+    $hash = (Get-FileHash -Algorithm SHA256 -Path $artifact).Hash.ToLower()
+    "$hash  $(Split-Path -Leaf $artifact)"
+}
+Set-Content -Path $ShaFile -Value $Lines -Encoding ascii
+
+Write-Host ""
+Write-Host "Build complete." -ForegroundColor Green
+$Lines | ForEach-Object { Write-Host "  $_" -ForegroundColor Gray }
+Write-Host "Hashes written to $ShaFile" -ForegroundColor Gray
