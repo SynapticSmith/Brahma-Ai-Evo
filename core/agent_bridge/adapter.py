@@ -78,6 +78,12 @@ class AgentAdapter(ABC):
             def _make_handler(verb_name: str):
                 def _handler(args: dict, context: ToolContext) -> str:
                     result = self.call(verb_name, args)
+                    if not result.artifact_ref and (result.output or not result.ok):
+                        from core.agent_bridge.artifacts import persist_call_result
+                        try:
+                            result = persist_call_result(self.record.id, verb_name, result)
+                        except Exception:
+                            pass
                     if not result.ok:
                         return f"Error executing {verb_name}: {result.error or result.output}"
                     return result.output

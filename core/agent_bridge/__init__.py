@@ -10,6 +10,14 @@ from core.agent_bridge.adapter import AgentAdapter, sanitize_tool_name
 from core.agent_bridge.adapters.cli_agent import CLIAgentAdapter
 from core.agent_bridge.adapters.local_model import LocalModelAdapter
 from core.agent_bridge.adapters.mcp_server import MCPServerAdapter
+from core.agent_bridge.artifacts import (
+    clean_expired_artifacts,
+    create_read_artifact_spec,
+    list_artifacts,
+    persist_call_result,
+    read_artifact,
+    save_artifact,
+)
 from core.agent_bridge.detectors import DetectionContext, run_all
 from core.agent_bridge.errors import (
     AgentBridgeError,
@@ -41,16 +49,22 @@ __all__ = [
     "CallTimeout",
     "Capability",
     "CLIAgentAdapter",
+    "clean_expired_artifacts",
     "ConfirmationDenied",
     "ConnectError",
+    "create_read_artifact_spec",
     "DetectionContext",
     "FanoutBudgetExceeded",
     "ForbiddenTarget",
+    "list_artifacts",
     "LocalModelAdapter",
     "MCPServerAdapter",
+    "persist_call_result",
     "ProbeResult",
-    "SchemaDrift",
-    "default_registry_path",
+    "read_artifact",
     "run_all",
     "sanitize_tool_name",
+    "save_artifact",
+    "SchemaDrift",
+    "default_registry_path",
 ]
