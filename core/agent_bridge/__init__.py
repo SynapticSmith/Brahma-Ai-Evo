@@ -7,6 +7,7 @@ and publishes them as canonical ToolSpecs behind AgentRuntime.execute.
 from __future__ import annotations
 
 from core.agent_bridge.adapter import AgentAdapter, sanitize_tool_name
+from core.agent_bridge.adapters.cli_agent import CLIAgentAdapter
 from core.agent_bridge.adapters.local_model import LocalModelAdapter
 from core.agent_bridge.adapters.mcp_server import MCPServerAdapter
 from core.agent_bridge.detectors import DetectionContext, run_all
@@ -39,6 +40,7 @@ __all__ = [
     "AuthRequired",
     "CallTimeout",
     "Capability",
+    "CLIAgentAdapter",
     "ConfirmationDenied",
     "ConnectError",
     "DetectionContext",
