@@ -991,9 +991,9 @@ and the default `python` are 3.14 and lack `ruff`/`pytest`.
 
 ```
 py -3.11 -m ruff check .                 # All checks passed!
-py -3.11 -m pytest tests -q              # 744 passed, 1 skipped  (QT_QPA_PLATFORM=offscreen)
-py -3.11 -m pytest tests -q -k agent     # 387 passed, 1 skipped
-py -3.11 -c "import main; ..."           # 66 voice declarations; six code tools, no run_subagent
+py -3.11 -m pytest tests -q              # 888 passed, 1 skipped  (QT_QPA_PLATFORM=offscreen)
+py -3.11 -m pytest tests -q -k agent     # 460 passed, 1 skipped
+py -3.11 -c "import main; ..."           # 60 voice declarations; six code tools, no run_subagent
 py -3.11 -m agent tools                  # lists the eight tool specs (load_project_skill included)
 py -3.11 -m agent permissions show       # reports built-in defaults
 py -3.11 -m agent skills --json          # discovered roots, skills and diagnostics
@@ -1004,11 +1004,11 @@ Notes:
 * The full suite needs `$env:QT_QPA_PLATFORM="offscreen"`.
 * `import main` prints a pywinauto COM-threading warning on stderr; it is
   pre-existing and harmless. The import was used to assert
-  `len(TOOL_DECLARATIONS) == 66` and that
+  `len(TOOL_DECLARATIONS) == 60` and that
   `{read_file, write_file, edit_file, glob_files, grep_files, run_command}` are
   all present, while `run_subagent` is intentionally absent from the voice
   surface (the text and CLI loops advertise it via `all_specs()`).
-* The 387 harness tests run without a display or a model:
+* The 460 harness & bridge tests run without a display or a model:
   `py -3.11 -m pytest tests -q -k agent`. The one skip is the POSIX-only
   `prepare_stream` test, which a Windows run cannot execute.
 * `python -m agent run --provider stub --json` is the cheapest end-to-end
@@ -1139,19 +1139,14 @@ tests for each item — lives in
 [`AGENTIC-HARNESS-NEXT.md`](AGENTIC-HARNESS-NEXT.md). Update both when a batch
 lands; this section stays the historical summary.
 
-1. **No built-in filesystem/network confinement.** Timeouts end the whole
-   process tree, credential-shaped variables are withheld, `exec.sandbox` can
-   apply resource limits and delegate through a trusted `prefix`, but there is
-   still no filesystem or network sandbox: the policy is the only barrier on
-   what a command can touch unless the deployment configures a prefix that
-   provides one. A native Windows/container confinement layer would let
-   `--yolo` be safe in more places.
-2. **Subagents are sequential and share the parent's model.** `run_subagent` is
-   a native fence, so one child runs at a time and the parent waits; there is no
-   model/provider choice, no parallel fan-out, no resumable child session, and
-   its transcript is discarded (only the report survives). That is the price of
-   one enforcement path and a bounded run; a coordinator that needs more should
-   be built on the event stream rather than by spawning second runtimes.
+1. **No built-in filesystem/network confinement (addressed in D43 / O-1).**
+   Timeouts end the whole process tree, credential-shaped variables are withheld,
+   and `sandbox doctor` provides active behavioural probing (`write_outside`,
+   `network_egress`, `uid_isolation`) backed by `exec.sandbox.require_confined`.
+2. **Subagents are sequential and share the parent's model (addressed in D44 / O-2).**
+   `run_subagent` remains sequential for mutation to protect the undo stack, while
+   `run_subagent_batch` provides read-only parallel fan-out under strict workspace
+   confinement and single-runtime authority.
 3. **Streaming is not universal.** The local, custom, OpenRouter and stub
    transports stream in both the CLI and the GUI text path; only the voice path
    does not, because Gemini's live socket owns its delivery. A custom server

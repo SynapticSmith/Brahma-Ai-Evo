@@ -1,5 +1,16 @@
 # Agent & Orchestrator Bridge — Master Build TODO (Work Breakdown Structure)
 
+> [!NOTE]
+> **Implementation Status (2026-11-02):** Superseded in part and re-based onto the agent harness via [ADR-018](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/ADR-018-AGENT-BRIDGE-RUNTIME-BOUNDARY.md) ("Bridge as a Tool Source, Never a Runtime", O-4) and [ADR-015](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/AGENT-BRIDGE-ADR.md).
+> Implementation has landed in `core/agent_bridge/` (Queue 2, Batches B16–B21, commits `c1f747b` through `99247f9`):
+> - Discovery: `detectors.py` (Layers A–D, side-effect-free, pure inspection)
+> - Registry: `registry.py` (`AgentRegistry` with thread-safe atomic persistence)
+> - Adapters: `adapter.py` (`AgentAdapter` ABC), `adapters/mcp_server.py` (`MCPServerAdapter`), `adapters/local_model.py` (`LocalModelAdapter`), `adapters/cli_agent.py` (`CLIAgentAdapter` with `agent.process.run_captured` process tree isolation)
+> - Durable Artifacts: `artifacts.py` (persistence under `%LOCALAPPDATA%\BrahmaAI\agent_artifacts\`, `manifest.jsonl`, `read_agent_artifact` ToolSpec)
+> - Unified Facade: `bridge.py` (`AgentBridge` facade with discovery, diagnostic probing, ToolSpec publishing, and `atexit` cleanup).
+> All discovered capabilities register as canonical `ToolSpec`s behind `AgentRuntime.execute`.
+
+
 **Purpose:** execution-ready work breakdown for building the agent-orchestrator bridge
 designed in `docs/agent-orchestrator-bridge.md` (rev 3 + 2026-10-17 amendment).
 That document is the **design source of truth**; this document is the **project-management

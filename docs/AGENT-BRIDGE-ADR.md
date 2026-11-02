@@ -1,5 +1,10 @@
 # Agent & Orchestrator Bridge — Architecture Decision Records (ADR)
 
+> [!NOTE]
+> **Implementation Status (2026-11-02):** ADR-006 (no 3rd MCP client) and ADR-011 (route through confirm) are superseded by [ADR-018](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/ADR-018-AGENT-BRIDGE-RUNTIME-BOUNDARY.md) ("Bridge as a Tool Source, Never a Runtime").
+> ADR-015 (durable referencable artifacts) is fully implemented in `core/agent_bridge/artifacts.py` with `read_agent_artifact` ToolSpec.
+
+
 - **Status:** ADR-001 … ADR-013 **accepted 2026-10-17** by the project owner.
 - **Scope:** the open questions from `docs/agent-orchestrator-bridge.md` §8 (Q2–Q6) plus
   the additional build defaults raised while authoring `docs/AGENT-BRIDGE-BUILD-TODO.md`.

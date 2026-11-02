@@ -980,7 +980,7 @@ Goal: remove the worst paths with small diffs; no new architecture required.
 - [x] Gateway binds `127.0.0.1`; disabled by default; HTTP control routes enforce paired-device authentication.
 - [ ] Restore human pairing; remove auto-approve if the upstream code is integrated.
 - [x] Disable startup updates for clones; remove the hardcoded `Brahma---personal` repo and default-Yes `reset --hard`.
-- [ ] Move `api_keys.json` and `smart_home.key` behind DPAPI (minimal).
+- [x] Move `api_keys.json` and `smart_home.key` behind DPAPI (minimal).
 - [x] Delete the model-facing `confirmed` parameter; keep the HUD gate.
 
 **Exit criteria:** a forged skill does not execute automatically; no runtime `pip`; no plaintext keys; no unauthenticated gateway on the LAN; no silent startup pull.
