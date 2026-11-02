@@ -127,6 +127,28 @@ def test_session_approvals_survive_reconfigure(tmp_path: Path):
         )
 
 
+def test_default_extra_survives_reconfigure(tmp_path: Path):
+    """The desktop host bundle is installed once; a settings change must keep it."""
+    from agent import runtime as runtime_module
+
+    previous = runtime_module.current()
+    try:
+        runtime_module.configure(workspace=tmp_path)
+        sentinel = object()
+        runtime_module.current().default_extra = {"host": sentinel}
+
+        runtime_module.configure(workspace=tmp_path)
+        assert runtime_module.current().default_extra["host"] is sentinel
+    finally:
+        runtime_module.configure(
+            workspace=previous.workspace,
+            policy=previous.policy,
+            approver=previous.approver,
+            headless=previous.headless,
+        )
+        runtime_module.current().default_extra = {}
+
+
 # -- confirm tri-state ------------------------------------------------------ #
 
 

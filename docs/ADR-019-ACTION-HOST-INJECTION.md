@@ -1,6 +1,6 @@
 # ADR-019 — Action host injection for the native-tool migration
 
-**Status:** Accepted (ratified 2026-11-01) · **Gates:** O-6 waves 1–3 (B6/B7) · **Supersedes:** nothing
+**Status:** Accepted (ratified 2026-11-01) · wave 1 implemented 2026-11-01 · **Gates:** O-6 waves 1–3 (B6/B7) · **Supersedes:** nothing
 **Related:** `AGENTIC-HARNESS.md` (ToolSpec/ToolContext), `ARCHITECTURE-SPEC.md` §2.2, §6.3, §12 Q1.4
 
 ## Context
@@ -94,3 +94,82 @@ because a wrong first choice would have to be undone 59 times.
 - `agent/` still imports with only pytest installed (CI canary).
 - One action that previously needed a live Qt window is exercised in a test
   with a recording host.
+
+## Implementation — wave 1 (landed 2026-11-01)
+
+Nine names, chosen as the unambiguous slice of decision 5:
+
+| Class | Names |
+| --- | --- |
+| `write` | `pdf_document`, `word_document`, `presentation_builder`, `spreadsheet_builder` |
+| `exec` | `reminder` (persisted `schtasks` task), `auto_heal`, `self_patch`, `rollback`, `shutdown_brahma` — the last four `requires_approval=True` |
+
+`self_patch` and `rollback` have no declaration of their own; they borrow
+`auto_heal`'s schema and are described as aliases (`rollback` forces the
+`rollback` action). Deferred to wave 2 on purpose: `file_controller` and
+`smart_organizer` mix read and write per action and need a per-action class
+decision; `send_message`/Instagram are `network`; `save_memory` returns a
+`silent: True` `FunctionResponse` shape the spec layer does not model; and
+`unlock_device`/`connect_*` are `device`.
+
+Modules:
+
+- `core/desktop_host.py` — `HostUI`/`HostServices` protocols, `require_host`,
+  `present_start`/`present_end`, `HostEventSink`, `LiveHost`, and the
+  `RecordingHost`/`RecordingUI` pair the tests use. `MISSING_HOST` is the
+  diagnostic text decision 6 asks for.
+- `core/desktop_tools.py` — the `WAVE1` class/approval table, `ALIASES`, nine
+  adapters, `build_specs`/`register`/`desktop_names`, and `attach_host`.
+  Schemas are derived from `main.TOOL_DECLARATIONS` through
+  `agent.spec.lowercase_schema`, so the voice catalogue and the agent catalogue
+  cannot drift.
+- `core/tool_exec.py` — imports and ten migrated `elif` branches removed; the
+  shared HUD blocks replaced by `desktop_host.present_start`/`present_end`, and
+  the harness branch passes `extra={"host": ...}`. 865 → 716 lines, 80 → 70
+  `elif`s (ratchet lowered in the same commit).
+- `main.py` — `desktop_tools.register(TOOL_DECLARATIONS)` runs before
+  `tool_bridge.prime`, so the specs exist before the first handshake.
+- `agent/runtime.py` — `tool_end` now carries `output`, and the runtime gained
+  a generic `default_extra` mapping (see the amendment below).
+
+Two decisions were settled while implementing:
+
+1. **`ToolContext.host` was not added.** `extra["host"]` is the channel, as
+   recommended; `agent/spec.py` is unchanged.
+2. **The "`<tool> completed`" utterance is gone.** Decision 4 says the host owns
+   status speech, and a completion line is redundant: the result already
+   reaches the model, which speaks when the result is worth speaking. The
+   result is rendered by `present_end` from `tool_end.output`, which is why the
+   event gained that field — the deliverables panel needs the file path and the
+   summary, and a handler must not reach for the UI to supply them.
+
+One amendment was needed in practice. Decision 2 assumed the host could pass
+`extra={"host": …}` on every call, which is true for the voice door
+(`core/tool_exec.py` calls `AgentRuntime.execute` directly) but not for the GUI
+text door: `AgentLoop._run_one` builds the per-call mapping itself (it adds
+`subagent_runner`). So the runtime gained a generic `default_extra` mapping,
+merged underneath the per-call `extra`, and `attach_host` writes `{"host": …}`
+into both the sink and that mapping. `BrahmaLive._finish_tool_turn` attaches
+once per text turn; the voice executor attaches on construction. `agent/` still
+only sees an opaque `Mapping` — the amendment adds no host concept to the
+portable package, and a per-call `extra` still wins.
+
+`LiveHost.submit` is the only bridge to the live event loop; wave 1 has no
+async action, so it currently has no caller. `present_end(voice=...)` likewise
+takes an optional one-liner the *caller* already produced; `core/tool_exec.py`
+passes `_connect_tool_voice(...)`, which is `None` for every wave-1 name (it
+only formats `connect_*`). Whether the host protocol grows a `tool_voice`
+method is a wave-2 question, when the `device` names actually need one.
+
+Tests: `tests/test_desktop_tools.py` (14) covers the class/approval table, alias
+schemas, a real PDF run under a recording host, `current_file` threading into
+`word_document`, a policy denial that never reaches the action, a headless
+`exec` denial, `requires_approval` surviving "always allow", the missing-host
+diagnostic, the host reaching a text turn through `default_extra` (with a
+per-call override still winning), `tool_end.output`, the sink's name filter,
+sink chaining/idempotency, the absence of the migrated `elif` branches, and that
+`agent/` never imports the desktop layer. Suite: **790 passed, 1 skipped**.
+
+Wave 2 starts with the per-action class split (a `ToolSpec` per action name for
+the mixed-verb modules), then `device`/`network`; `save_memory`'s silent
+response is a small `ToolSpec` extension rather than a second dispatch path.

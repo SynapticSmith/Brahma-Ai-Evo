@@ -108,6 +108,12 @@ class AgentRuntime:
     timeout: float = 120.0
     max_output_chars: int = 20_000
     event_sink: Optional[EventSink] = None
+    #: Values every handler context starts with. A per-call ``extra`` overrides
+    #: a key here. Generic on purpose: the portable package carries the mapping
+    #: without learning what any of its values are (the desktop host bundle is
+    #: one; see ADR-019). The GUI text path cannot pass ``extra`` per call --
+    #: ``AgentLoop`` builds it -- so the host installs itself here instead.
+    default_extra: Dict[str, Any] = field(default_factory=dict, repr=False)
     #: Set by the GUI shortcut / CLI Ctrl-C. A loop reads it between turns and
     #: calls; killing a thread outright would leave a half-written file and a
     #: half-run command behind.
@@ -252,12 +258,14 @@ class AgentRuntime:
         workspace/timeout/policy always come from this runtime, so a service
         cannot smuggle in a second enforcement path.
         """
+        merged: Dict[str, Any] = dict(self.default_extra or {})
+        merged.update(extra or {})
         return ToolContext(
             workspace=self.workspace,
             timeout=self.timeout,
             max_output_chars=self.max_output_chars,
             policy=self.policy,
-            extra=dict(extra or {}),
+            extra=merged,
         )
 
     # -- policy ------------------------------------------------------------
@@ -367,7 +375,18 @@ class AgentRuntime:
                 output = f"Tool '{name}' failed: {type(exc).__name__}: {exc}"
         else:
             output = f"Unknown tool '{name}'. Registered tools: see the catalog."
-        self._emit("tool_end", {"name": name, "call_id": call_id, "chars": len(output or "")})
+        # ``output`` rides on the event so a host can render the result (a file
+        # the deliverables panel should link, a summary) without the handler
+        # reaching for the UI. It is already capped by ``execute_spec``.
+        self._emit(
+            "tool_end",
+            {
+                "name": name,
+                "call_id": call_id,
+                "chars": len(output or ""),
+                "output": output or "",
+            },
+        )
         return output or ""
 
 
@@ -402,6 +421,11 @@ def configure(
             timeout=current.timeout if timeout is None else float(timeout),
             max_output_chars=current.max_output_chars if max_output_chars is None else int(max_output_chars),
             event_sink=event_sink if event_sink is not None else current.event_sink,
+            # Carry injected services (the desktop host bundle) across a
+            # re-configure, for the same reason the sink is carried: a settings
+            # change must not silently turn every desktop action into
+            # "no host".
+            default_extra=dict(current.default_extra),
             # Carry the flag across a re-configure: a loop started before the
             # call holds a reference to this event, and a Stop press must still
             # reach it. Session approvals survive too, for the same reason.

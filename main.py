@@ -18,6 +18,7 @@ from core import boot_sentry
 boot_sentry.run()
 from core.sensorium import sensorium
 from core.local_brain import local_brain
+from core import desktop_tools
 import asyncio
 import threading
 import json
@@ -3951,6 +3952,7 @@ class BrahmaLive:
                 print(f"[BRAHMA EVO] \u26a0\ufe0f session write failed: {exc}")
 
         runtime = current_agent_runtime()
+        desktop_tools.attach_host(self)  # text turns need the host too (ADR-019)
         runtime.reset_cancel()  # a previous Stop must not kill this new turn
         loop = AgentLoop(
             _complete,
@@ -4455,6 +4457,9 @@ def main():
 
         DynamicToolRegistry.initialize()
         tool_bridge.configure(settings=_cfg.load_settings())
+        # ADR-019 wave 1: the migrated native actions are ToolSpecs before the
+        # first handshake, so both doors see them in the one registry.
+        desktop_tools.register(TOOL_DECLARATIONS)
         tool_bridge.prime(TOOL_DECLARATIONS, DynamicToolRegistry)
         _ts = tool_bridge.snapshot()
         _startup_log(

@@ -40,7 +40,9 @@ Brahma Evo is a **Windows-first, single-process PyQt6 desktop assistant** with f
 - a **Gemini Live voice session** (bidirectional audio),
 - a **GUI text path** through local / custom / OpenRouter models,
 - a **headless agent CLI** (`python -m agent`),
-- and a set of **~60 native desktop actions** dispatched by the legacy tool executor.
+- and a set of **~60 native desktop actions**, nine of which are now
+  `ToolSpec`s (ADR-019 wave 1) while the rest are still dispatched by the
+  legacy tool executor.
 
 On top of that, 1.0.1 and the harness batches that followed added:
 
@@ -52,8 +54,14 @@ On top of that, 1.0.1 and the harness batches that followed added:
 
 The system is **functionally strong and structurally uneven**. Three facts dominate the current situation:
 
-1. **The harness is real and is the best-built part of the repo.** `agent/` is stdlib-only, tested by ~391 tests, and owns one dispatch boundary, one loop, and one policy engine.
-2. **The rest of the app is still pre-harness.** Native tools are dispatched by an `elif` chain in `core/tool_exec.py` with no policy check. The older autonomous executor (`agent_task` → `TaskQueue` → `AgentExecutor`) was retired and deleted in Q0-A; its remaining cost is the ungated `elif` chain, not a second loop.
+1. **The harness is real and is the best-built part of the repo.** `agent/` is stdlib-only, tested by ~393 tests, and owns one dispatch boundary, one loop, and one policy engine.
+2. **The rest of the app is still mostly pre-harness.** The `exec` + `write`
+   wave (nine actions) now dispatches as `ToolSpec`s behind `AgentRuntime`
+   (ADR-019 wave 1); the remaining native tools still go through the
+   `elif` chain in `core/tool_exec.py` with no policy check. The older
+   autonomous executor (`agent_task` → `TaskQueue` → `AgentExecutor`) was
+   retired and deleted in Q0-A; its remaining cost is the ungated `elif`
+   chain, not a second loop.
 3. **Four of the eight critical security findings from upstream issue #4 remain.** Q0-A closed the forge execution path, the TLS-bypass prompts, runtime `pip`, and the dead `confirmed` declaration. Q0-B closed self-update by deleting it outright and made the gateway loopback-only and off by default. Plugins, secrets at rest, the Crucible denylist, privilege separation, and gateway route authentication are still open. The security roadmap is `Proposed`, not implemented.
 
 The two large proposals are in different states and must not be conflated:
@@ -91,6 +99,7 @@ The two large proposals are in different states and must not be conflated:
 │                                                                          │
 │  Dispatch: core/tool_exec.py                                             │
 │    ├── registered harness tool? → AgentRuntime.execute  (policy)         │
+│    ├── wave-1 desktop tool?     → AgentRuntime.execute  (policy)         │
 │    └── else → legacy elif chain → actions/*.py        (no policy)         │
 │                                                                          │
 │  Legacy autonomous path: retired in Q0-A (2026-11-01)                    │
@@ -106,25 +115,26 @@ The two large proposals are in different states and must not be conflated:
 
 | Door | Entry point | Harness tools | Native tools | Policy |
 |---|---|---|---|---|
-| Voice | Gemini Live session | `AgentToolExecutor` → `AgentRuntime` | legacy `elif` chain | policy for harness tools only |
-| GUI text | `main.py:_finish_tool_turn` → `AgentLoop` | `AgentRuntime` | legacy `elif` chain | policy for harness tools only |
+| Voice | Gemini Live session | `AgentToolExecutor` → `AgentRuntime` | wave-1 desktop specs via `AgentRuntime`; rest via legacy `elif` chain | policy for harness + wave-1 desktop tools; none for the remainder |
+| GUI text | `main.py:_finish_tool_turn` → `AgentLoop` | `AgentRuntime` | wave-1 desktop specs via `AgentRuntime`; rest via legacy `elif` chain | policy for harness + wave-1 desktop tools; none for the remainder |
 | CLI | `python -m agent` | `AgentRuntime` | not advertised | policy |
 | ~~Legacy autonomous~~ | ~~`agent_task` tool~~ | — | — | **retired in Q0-A; files deleted** |
 
-The fourth door is the single largest structural inconsistency in the repo. §6.10 specifies it and §13 proposes its retirement.
+The largest structural inconsistency left is the ungated remainder of the
+`elif` chain (O-6 waves 2–3), plus the turn controllers still inside `main.py`.
 
 ### 2.2 Directory map
 
 | Path | Contents | Notes |
 |---|---|---|
-| `main.py` | App entry, `BrahmaLive`, `TOOL_DECLARATIONS` (59 native tools), provider routing, GUI text loop wiring | 4,806 lines. Bridge-era guard was ≤3,903; already violated. Ratchet ceiling 4,811. |
+| `main.py` | App entry, `BrahmaLive`, `TOOL_DECLARATIONS` (59 native tools), provider routing, GUI text loop wiring | 4,811 lines. Bridge-era guard was ≤3,903; already violated. Ratchet ceiling 4,811. |
 | `ui.py` | Thin `MainWindow` composition root over `core/ui_*` modules | 820 lines. Bridge-era guard was ≤692; already violated. Ratchet ceiling 827. |
-| `core/` | Cross-cutting seams: tool dispatch/index, provider chain, confirmation, sessions, skills, avatars, UI modules | ~90 modules. The de-facto architecture layer. |
-| `actions/` | One module per native capability (~48) | Legacy tool implementations, called by the `elif` chain. |
+| `core/` | Cross-cutting seams: tool dispatch/index, provider chain, confirmation, sessions, skills, avatars, UI modules | ~96 modules. The de-facto architecture layer. |
+| `actions/` | One module per native capability (~51) | Legacy tool implementations; 9 are reached through `core/desktop_tools.py`, the rest by the `elif` chain. |
 | `agent/` | The stdlib-only agent harness (22 modules) | No pre-fork autonomous executor remains; `agent/__init__.py` is inert. |
 | `features/` | Forge output, hot-loaded at startup | Untrusted model-generated code; see §7. |
 | `brahma_connect/` | Phone/device gateway (HTTP + WebSocket + mDNS) | Defaults to `127.0.0.1`, disabled, no mDNS advertise; HTTP control routes still unauthenticated when enabled. |
-| `tests/` | Pytest suite; 775 passed / 1 skipped after the ADR-021 batch | `test_agent_*` are display- and SDK-free. |
+| `tests/` | Pytest suite; 790 passed / 1 skipped after the ADR-019 wave-1 batch | `test_agent_*` are display- and SDK-free. |
 | `docs/` | Design records, build logs, proposals, ADRs | Twenty-three documents; see §3. |
 
 ### 2.3 Subsystem inventory
@@ -133,7 +143,7 @@ The fourth door is the single largest structural inconsistency in the repo. §6.
 |---|---|---|
 | App shell / HUD | `main.py`, `ui.py`, `core/ui_*` | Built-Partial (god-object guards already breached) |
 | Provider chain | `core/provider_router.py`, `core/provider_failover.py`, `core/llm_gateway.py` | Built |
-| Tool surface | `core/tool_index.py`, `core/tool_bridge.py`, `core/dynamic_registry.py`, `core/tool_exec.py` | Built-Partial (legacy dispatch has no policy) |
+| Tool surface | `core/tool_index.py`, `core/tool_bridge.py`, `core/dynamic_registry.py`, `core/tool_exec.py`, `core/desktop_tools.py`, `core/desktop_host.py` | Built-Partial (wave-1 desktop tools gated; the rest of the legacy dispatch is not) |
 | Agent harness | `agent/*` (harness subset) | Built |
 | Sessions | `agent/session.py`, `agent/session_bridge.py` | Built |
 | Project skills | `agent/skills.py`, `agent/prompts.py` | Built |
@@ -188,8 +198,8 @@ The `docs/` tree mixes five kinds of document. Treating them as one authority le
 | Claim in an older doc | Current reality |
 |---|---|
 | "Nothing has been committed" (`ONE-391-changes`) | 1.0.1 and 23+ harness batches are on `main`. |
-| Test counts 167 / 221 / 331 | 775 passed, 1 skipped after the ADR-021 batch. |
-| `main.py` ≤ 3,903; `ui.py` ≤ 692 (bridge guards) | 4,833 / 827. |
+| Test counts 167 / 221 / 331 | 790 passed, 1 skipped after the ADR-019 wave-1 batch. |
+| `main.py` ≤ 3,903; `ui.py` ≤ 692 (bridge guards) | 4,811 / 827. |
 | "MCP is CLI-only" | GUI text path, voice manager, and CLI all use MCP. |
 | "Skills Library has two roots" | Three: project `.brahma/skills` is highest precedence (D42). |
 | "Upstream is 3 commits ahead" | 7 commits, `upstream/main` @ `bfb2868` (2026-10-27). |
@@ -314,7 +324,7 @@ Each section states the contract and the one thing most likely to break.
 - **Responsibility:** own the Qt application, the HUD, settings, tray, and thread marshalling.
 - **Shape:** `ui.py` is a thin `MainWindow`; behavior lives in ~50 `core/ui_*` modules. `main.py` still owns `BrahmaLive` and the native declarations.
 - **Contract:** all Qt widget mutation happens on the GUI thread. Worker/asyncio paths emit queued signals (`_emotion_sig`, `_state_sig`, `_audio_sig`) and never call `runJavaScript` or widget methods inline.
-- **Known debt:** both god-object guards from the bridge WBS are already breached (`main.py` 4,833 vs 3,903; `ui.py` 827 vs 692). Do not add new behavior to `main.py`; put it behind a `core/` seam.
+- **Known debt:** both god-object guards from the bridge WBS are already breached (`main.py` 4,811 vs 3,903; `ui.py` 827 vs 692). Do not add new behavior to `main.py`; put it behind a `core/` seam.
 - **Anchor tests:** `test_confirmation_overlay.py`, avatar acceptance harness, UI wiring tests.
 
 ### 6.2 Provider chain
@@ -334,7 +344,7 @@ Each section states the contract and the one thing most likely to break.
 - **Why it exists:** Gemini Live rejects >128 declarations and cannot swap tools mid-session (I-19/I-20).
 - **Contract:** every tool is a `ToolSpec` with a canonical lowercase schema; `gemini()` converts up at the edge.
 - **Failure mode to respect:** description collisions are a data problem. Fix them in `%LOCALAPPDATA%\BrahmaAI\tool_routing.json`, not in the retriever.
-- **Known gaps:** (1) the legacy `elif` chain (`core/tool_exec.py:203–791`, ~590 lines of an 868-line file) is still the executor for native tools, so "one registry" is aspirational for that half; (2) the unbudgeted `mcp_Synapse`/`cdp` append is gone (ADR-021): intent hints now go through `resolve(pinned_extra=…)` and consume budget.
+- **Known gaps:** (1) the legacy `elif` chain (`core/tool_exec.py`, 70 branches in a 716-line file after ADR-019 wave 1) is still the executor for the remaining native tools, so "one registry" is aspirational for that half; (2) the unbudgeted `mcp_Synapse`/`cdp` append is gone (ADR-021): intent hints now go through `resolve(pinned_extra=…)` and consume budget.
 
 ### 6.4 Agent harness
 
@@ -343,7 +353,7 @@ The authoritative description is `AGENTIC-HARNESS.md`. This is the orientation:
 - **Loop:** bounded turns, repeat detection by `name + canonical JSON`, stop reasons (`completed`, `max_turns`, `repeat_loop`, `cancelled`, `error`, `permission_denied`), retries on transient provider failures, protocol-safe compaction.
 - **Dispatch:** per-call path-dependency scheduling. Unrelated reads overlap; writes never overlap; read/write conflicts follow model order; `exec`, native calls, approvals, denials, and path-less writes are fences.
 - **Tools:** `read_file`, `write_file`, `edit_file`, `glob_files`, `grep_files`, `run_command`, `run_subagent`, `load_project_skill`, plus `mcp_<server>_<tool>`.
-- **Runtime:** `AgentRuntime.execute` is the only permission boundary for harness tools; policy → approval → handler. Hot reload is fail-safe.
+- **Runtime:** `AgentRuntime.execute` is the only permission boundary for harness tools; policy → approval → handler. Hot reload is fail-safe. `default_extra` carries host services underneath the per-call `extra` (ADR-019).
 - **Subagents:** one child, shared runtime, read-default surface, no recursion, 12-turn clamp, report-only return.
 - **Events:** a public contract (`turn_start`, `assistant`, `tool_call`, `tool_start/end`, `tool_result`, `permission`, `compaction`, `retry`, `delta`, `policy_reload`, `instructions`, `subagent_*`, `error`, `stop`).
 
@@ -554,7 +564,7 @@ py -3.11 -m pytest tests -q -k agent
 py -3.11 -m agent run "say hello" --provider stub --json --no-session
 ```
 
-Baseline after the ADR-021 batch: ruff clean; **775 passed, 1 skipped**; `-k agent` **391 passed, 1 skipped**; full suite ~2–5 min depending on host load. Python 3.11 is mandatory for the gates; the repo `.venv` and default `python` are 3.14 and lack the dev tools (`scripts/setup_dev.ps1 -Force` recreates it on 3.11).
+Baseline after the ADR-019 wave-1 batch: ruff clean; **790 passed, 1 skipped**; `-k agent` **393 passed, 1 skipped**; full suite ~2–5 min depending on host load. Python 3.11 is mandatory for the gates; the repo `.venv` and default `python` are 3.14 and lack the dev tools (`scripts/setup_dev.ps1 -Force` recreates it on 3.11).
 
 ### 10.3 Definition of done
 
@@ -608,7 +618,7 @@ Accepted 2026-10-17, but **acceptance is not authorization to build**: they were
 
 | ADR | Status | Decision | Gates | Document |
 | --- | --- | --- | --- | --- |
-| **ADR-019** | Accepted | Native actions get a narrow `HostServices` bundle through `ToolContext.extra["host"]`; adapters, not signature changes; HUD feedback moves to runtime events. | O-6 waves 1–3 (B6/B7) | `docs/ADR-019-ACTION-HOST-INJECTION.md` |
+| **ADR-019** | Accepted; **wave 1 landed** | Native actions get a narrow `HostServices` bundle through `ToolContext.extra["host"]`; adapters, not signature changes; HUD feedback moves to runtime events. Wave 1 = 4 `write` + 5 `exec` actions, in `core/desktop_tools.py`. | O-6 waves 1–3 (B6/B7) | `docs/ADR-019-ACTION-HOST-INJECTION.md` |
 | **ADR-020** | Accepted | `paths.trusted_roots` (human-authored, containment-only, secrets still protected) plus a `trusted_workspaces` store that gates repo-local MCP loading; trust gates execution, not reading. | O-1 trust item (B8), prompt fatigue in O-6 | `docs/ADR-020-TRUSTED-USER-ROOTS.md` |
 | **ADR-021** | **Landed** | `pinned_extra` consumes budget, ranks after global pins, drops oldest-first, and replaces the unbudgeted Synapse/cdp append. | O-8 layer 3 / the `1008` fix (Q1.3) | `docs/ADR-021-PINNED-EXTRA-SEMANTICS.md` |
 
@@ -655,7 +665,7 @@ Accepted 2026-10-17, but **acceptance is not authorization to build**: they were
 1. Record O-1/O-2 (N4/N5) in the harness status/tracker docs and write ADR-018 for the bridge boundary.
 2. ✅ (landed early as B4) Delete legacy autonomous files (`agent/planner.py`, `executor.py`, `task_queue.py`, `error_handler.py`) and land CI ratchet gates (`main.py`/`ui.py`/`core/tool_exec.py` line counts, `elif` count ratchet, `agent/` import canary) — `tests/test_architecture_invariants.py` + `tests/architecture_ratchet.json`.
 3. ✅ (landed 2026-11-01, ADR-021) Resolve the deferred-tool `1008` and I-19 violation (`O-8`): `call_tool` templates in `_handle_search`/`_handle_list_tools`, the `tool_bridge.py` promotion append deleted, and session-scoped `resolve(pinned_extra=...)` with budget accounting, oldest-first eviction, and a `pinned_extra_dropped` counter.
-4. Migrate native tools to `ToolSpec`s behind `AgentRuntime` by capability class (`exec`/`write` first, then `device`/`network`, then `read`), retiring the `elif` chain in `core/tool_exec.py` and extracting turn controllers from `main.py` (`O-6`). **ADR-019 accepted 2026-11-01; wave 1 is the next batch.**
+4. Migrate native tools to `ToolSpec`s behind `AgentRuntime` by capability class (`exec`/`write` first, then `device`/`network`, then `read`), retiring the `elif` chain in `core/tool_exec.py` and extracting turn controllers from `main.py` (`O-6`). **ADR-019 wave 1 landed 2026-11-01** (9 tools: `pdf_document`, `word_document`, `presentation_builder`, `spreadsheet_builder`, `reminder`, `auto_heal`, `self_patch`, `rollback`, `shutdown_brahma`; `core/tool_exec.py` 865→716 lines, 80→70 `elif`s). **Wave 2 is the next batch:** per-action class split for `file_controller`/`smart_organizer`, then `device`/`network` (`unlock_device`, `connect_*`, `send_message`/Instagram) and `save_memory`'s silent response shape.
 5. Add workspace trust fingerprinting (`trusted_workspaces`), verified container probe (`sandbox doctor` + `require_confined`, `O-1`), and read-only subagent fan-out (`run_subagent_batch`, `O-2`), one concern per batch. **ADR-020 accepted (workspace trust); `sandbox doctor` still needs its probe contract.**
 6. Keep the two MCP clients per I-18 (`agent/mcp.py` is stdio-only; `core/mcp_manager.py` owns HTTP/SSE + headers/auth); bring the voice MCP manager to refresh parity or scope HTTP/SSE parity explicitly.
 7. ✅ (landed 2026-11-01) Build reproducibility plumbing: `requirements-build.txt` pins PyInstaller + hooks, `scripts/setup_dev.ps1` builds a 3.11 `.venv` and refuses other interpreters, `build_all.ps1` invokes `python -m PyInstaller` and writes `dist\SHA256SUMS.txt`, and `.github/workflows/build.yml` runs a manual/tag build. No lockfile and no signing yet — that stays in WS-6/Q4.
@@ -720,7 +730,7 @@ These are the cross-cutting questions raised by the synthesis, paired with their
 |---|---|
 | **Door** | A user-facing entry point that can cause a tool call: voice, GUI text, CLI. The legacy autonomous path is an unsupported fourth. |
 | **Harness tool** | A `ToolSpec` registered in `agent/spec.py` and dispatched through `AgentRuntime`. |
-| **Native tool** | A declaration in `main.py:TOOL_DECLARATIONS` dispatched by the `core/tool_exec.py` `elif` chain. |
+| **Native tool** | A declaration in `main.py:TOOL_DECLARATIONS`. Nine now have a `ToolSpec` adapter in `core/desktop_tools.py`; the rest are still dispatched by the `core/tool_exec.py` `elif` chain. |
 | **Fence** | A call with no schedulable effect (`exec`, native, approval, denial, path-less write) that serializes dispatch around it. |
 | **Pinned** | Always advertised, regardless of retrieval. |
 | **Meta-tool** | A discovery primitive (`search_tools`, `call_tool`, …) that reaches the unadvertised catalogue. |

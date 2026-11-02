@@ -3,9 +3,9 @@
   "lines": {
     "main.py": 4811,
     "ui.py": 827,
-    "core/tool_exec.py": 865
+    "core/tool_exec.py": 716
   },
   "elif_branches": {
-    "core/tool_exec.py": 80
+    "core/tool_exec.py": 70
   }
 }
