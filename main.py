@@ -1226,15 +1226,14 @@ TOOL_DECLARATIONS = [
             "Controls the computer: volume, brightness, window management, keyboard shortcuts, "
             "typing text on screen, closing apps, fullscreen, dark mode, WiFi, restart, shutdown, "
             "scrolling, tab management, zoom, screenshots, lock screen, refresh/reload page. "
-            "Use for ANY single computer control command. NEVER route to agent_task."
+            "Use for ANY single computer control command."
         ),
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "action":      {"type": "STRING", "description": "The action to perform"},
                 "description": {"type": "STRING", "description": "Natural language description of what to do"},
-                "value":       {"type": "STRING", "description": "Optional value: volume level, text to type, etc."},
-                "confirmed":   {"type": "STRING", "description": "Pass 'yes' if the user explicitly confirmed a dangerous action like 'shutdown' or 'restart'."}
+                "value":       {"type": "STRING", "description": "Optional value: volume level, text to type, etc."}
             },
             "required": []
         }
@@ -1454,22 +1453,6 @@ TOOL_DECLARATIONS = [
         }
     },
     {
-        "name": "agent_task",
-        "description": (
-            "Executes complex multi-step tasks requiring multiple different tools. "
-            "Examples: 'research X and save to file', 'find and organize files'. "
-            "DO NOT use for single commands. NEVER use for Steam/Epic — use game_updater."
-        ),
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "goal":     {"type": "STRING", "description": "Complete description of what to accomplish"},
-                "priority": {"type": "STRING", "description": "low | normal | high (default: normal)"}
-            },
-            "required": ["goal"]
-        }
-    },
-    {
         "name": "computer_control",
         "description": "Direct computer control: type, click, hotkeys, scroll, move mouse, screenshots, find elements on screen.",
         "parameters": {
@@ -1501,7 +1484,7 @@ TOOL_DECLARATIONS = [
             "Use for: installing, downloading, updating games, listing installed games, "
             "checking download status, scheduling updates. "
             "ALWAYS call directly for any Steam/Epic/game request. "
-            "NEVER use agent_task, browser_control, or web_search for Steam/Epic."
+            "NEVER use browser_control or web_search for Steam/Epic."
         ),
         "parameters": {
             "type": "OBJECT",
@@ -4341,37 +4324,30 @@ class BrahmaLive:
         if result.get("success"):
             feature_name = str(result.get("name") or skill_name or "new feature")
             description = str(result.get("description") or "")
-            announcement = f"I created and activated the feature '{feature_name}'."
+            staged_path = str(result.get("staged_path") or result.get("skill_path") or "")
+            announcement = (
+                f"I drafted the feature '{feature_name}' and verified it in the "
+                "sandbox, but it is not active yet."
+            )
             if description:
                 announcement += f" {description}"
-            announcement += f" I created it for this goal: {goal}."
-
-            # Immediately execute the newly forged skill to satisfy the user's goal
-            execution_output = ""
-            try:
-                from core.dynamic_registry import DynamicToolRegistry
-                if DynamicToolRegistry.has_tool(feature_name):
-                    run_res = DynamicToolRegistry.execute_sync(feature_name, {"query": goal, "goal": goal, "input": goal})
-                    if run_res:
-                        if isinstance(run_res, dict):
-                            execution_output = str(run_res.get("summary") or run_res.get("output") or run_res.get("text") or run_res).strip()
-                        else:
-                            execution_output = str(run_res).strip()
-            except Exception as e_run:
-                execution_output = f"(Execution note: {e_run})"
+            announcement += f" I drafted it for this goal: {goal}."
+            if staged_path:
+                announcement += f" It is staged at {staged_path} for review."
 
             try:
                 self.ui.show_hud_deliverable(
-                    title=f"Evolution: {feature_name}",
-                    summary=execution_output or announcement,
+                    title=f"Staged feature: {feature_name}",
+                    summary=(
+                        f"{announcement}\n\n"
+                        "Nothing is imported or registered until you review and promote the staged copy."
+                    ),
                     kind="result",
                 )
             except Exception:
                 pass
             try:
                 self.ui.write_log(f"Brahma Evo: {announcement}")
-                if execution_output:
-                    self.ui.write_log(f"Result:\n{execution_output}")
             except Exception:
                 pass
             self.speak(announcement)
@@ -4807,7 +4783,9 @@ if __name__ == "__main__":
     # Intercept subprocess calls when running as PyInstaller .exe
     if len(sys.argv) >= 2:
         if sys.argv[1].endswith(".py") and os.path.exists(sys.argv[1]):
-            # AgentExecutor is trying to run a dynamic script
+            # A bundled helper may re-invoke this executable with a generated
+            # .py script; running it here keeps those helpers working when the
+            # app is frozen (sys.executable is the app, not a Python).
             try:
                 with open(sys.argv[1], 'r', encoding='utf-8') as f:
                     code = f.read()

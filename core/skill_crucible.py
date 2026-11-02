@@ -4,13 +4,14 @@ Part of Project Ultron for Brahma AI.
 
 Performs:
 1. Static AST Safety Analysis (blocks destructive OS actions).
-2. Dependency Auto-Resolution (installs required packages in .venv).
+2. Dependency Inspection (reports a plan; never installs packages at runtime).
 3. Sandboxed Subprocess Test Execution (validates against test cases with timeouts).
 """
 
 from __future__ import annotations
 
 import ast
+import importlib.util
 import json
 import logging
 import subprocess
@@ -154,52 +155,35 @@ class SkillCrucible:
 
     @classmethod
     def resolve_dependencies(cls, dependencies: List[str]) -> Tuple[bool, str]:
-        """Installs missing dependencies into the Python environment."""
+        """Report dependency availability without changing the environment.
+
+        Forge runs against model-generated code, so installing its imports at
+        runtime would let a draft mutate the interpreter it is tested in. This
+        only inspects: satisfied imports pass, missing ones are returned as a
+        plan a human can review and run. The ``(bool, str)`` contract is
+        unchanged for callers.
+        """
         if not dependencies:
             return True, "No external dependencies required."
 
-        py_exe = _get_python_executable()
-        installed_any = []
-
+        missing: List[str] = []
         for dep in dependencies:
-            pip_name = IMPORT_TO_PIP.get(dep, dep)
-            # Check if importable and healthy
-            is_healthy = False
             try:
-                check_script = f"import {dep}"
-                if dep == "speedtest":
-                    check_script = "import speedtest; assert hasattr(speedtest, 'Speedtest')"
-                elif dep == "PIL":
-                    check_script = "import PIL.Image"
-                elif dep == "cv2":
-                    check_script = "import cv2; assert hasattr(cv2, 'imread')"
-                check_cmd = [py_exe, "-c", check_script]
-                proc = subprocess.run(check_cmd, capture_output=True, timeout=5)
-                if proc.returncode == 0:
-                    is_healthy = True
-            except Exception:
-                is_healthy = False
+                found = importlib.util.find_spec(dep) is not None
+            except (ImportError, ValueError):
+                found = False
+            if not found:
+                missing.append(dep)
 
-            if is_healthy:
-                continue
+        if not missing:
+            return True, "All dependencies satisfied: " + ", ".join(sorted(dependencies))
 
-            logger.info(f"[Crucible] Installing missing or repairing dependency: {pip_name}")
-            try:
-                if dep == "speedtest":
-                    subprocess.run([py_exe, "-m", "pip", "uninstall", "-y", "speedtest"], capture_output=True, timeout=30)
-                install_cmd = [py_exe, "-m", "pip", "install", pip_name, "--quiet"]
-                proc = subprocess.run(install_cmd, capture_output=True, text=True, timeout=180)
-                if proc.returncode != 0:
-                    err_sample = proc.stderr.strip()[:180] or "Unknown pip error"
-                    return False, f"Failed to install dependency '{pip_name}': {err_sample}"
-                installed_any.append(pip_name)
-            except subprocess.TimeoutExpired:
-                return False, f"Timeout installing '{pip_name}'."
-            except Exception as e:
-                return False, f"Exception installing '{pip_name}': {e}"
-
-        msg = f"Installed: {', '.join(installed_any)}" if installed_any else "All dependencies satisfied."
-        return True, msg
+        pip_names = [IMPORT_TO_PIP.get(dep, dep) for dep in missing]
+        plan = f"{_get_python_executable()} -m pip install " + " ".join(pip_names)
+        return False, (
+            "Missing dependencies: " + ", ".join(missing) + ". No packages were installed. "
+            f"Review the staged skill and install manually with: {plan}"
+        )
 
     @classmethod
     def run_sandbox_test(

@@ -5,7 +5,7 @@ from core.skill_crucible import SkillCrucible
 from core.skill_forge import SkillForge
 
 
-def test_forged_feature_registers_and_executes(tmp_path):
+def test_forged_feature_is_staged_not_activated(tmp_path):
     original_skills = DynamicToolRegistry._skills.copy()
     original_initialized = DynamicToolRegistry._initialized
     payload = {
@@ -19,18 +19,29 @@ def test_forged_feature_registers_and_executes(tmp_path):
         "code": 'def execute(**kwargs):\n    return "forge smoke test passed"\n',
         "test_cases": [{"input": {}}],
     }
+    staged_root = tmp_path / "staged"
 
     try:
         with (
-            patch("core.dynamic_registry.FEATURES_DIR", tmp_path / "features"),
-            patch("core.dynamic_registry.APPDATA_SKILLS_DIR", tmp_path / "vault"),
+            patch("core.skill_forge.staged_skills_dir", return_value=staged_root),
             patch.object(SkillForge, "_call_llm_synthesizer", return_value=payload),
             patch.object(SkillCrucible, "resolve_dependencies", return_value=(True, "No dependencies.")),
         ):
             result = SkillForge.forge_skill("smoke test feature", "forge_smoke_test")
 
             assert result["success"] is True, result
-            assert DynamicToolRegistry.execute_sync("forge_smoke_test", {}) == "forge smoke test passed"
+            assert result["staged"] is True
+            assert result["activated"] is False
+            assert "reviewed" in result["message"]
+
+            staged_dir = staged_root / "forge_smoke_test"
+            assert (staged_dir / "skill.py").is_file()
+            assert (staged_dir / "manifest.json").is_file()
+            assert (staged_dir / "test_cases.json").is_file()
+            assert (staged_dir / "staged.json").is_file()
+
+            # Staging must not import or register the generated code.
+            assert DynamicToolRegistry.has_tool("forge_smoke_test") is False
     finally:
         DynamicToolRegistry._skills = original_skills
         DynamicToolRegistry._initialized = original_initialized
@@ -64,11 +75,11 @@ def test_forge_repairs_skill_when_sandbox_returns_error_dict(tmp_path):
     }
 
     repaired_code = 'def execute(**kwargs):\n    return {"title": "Repaired Deliverable", "summary": "Working"}\n'
+    staged_root = tmp_path / "staged"
 
     try:
         with (
-            patch("core.dynamic_registry.FEATURES_DIR", tmp_path / "features"),
-            patch("core.dynamic_registry.APPDATA_SKILLS_DIR", tmp_path / "vault"),
+            patch("core.skill_forge.staged_skills_dir", return_value=staged_root),
             patch.object(SkillForge, "_call_llm_synthesizer", return_value=initial_payload),
             patch.object(SkillCrucible, "resolve_dependencies", return_value=(True, "No dependencies.")),
             patch.object(SkillForge, "_repair_code", return_value={"success": True, "code": repaired_code}) as mock_repair,
@@ -77,8 +88,11 @@ def test_forge_repairs_skill_when_sandbox_returns_error_dict(tmp_path):
 
             assert mock_repair.called
             assert result["success"] is True, result
-            res = DynamicToolRegistry.execute_sync("repair_smoke_test", {})
-            assert isinstance(res, dict) and res.get("title") == "Repaired Deliverable"
+            assert result["staged"] is True
+            assert DynamicToolRegistry.has_tool("repair_smoke_test") is False
+
+            staged_code = (staged_root / "repair_smoke_test" / "skill.py").read_text(encoding="utf-8")
+            assert "Repaired Deliverable" in staged_code
     finally:
         DynamicToolRegistry._skills = original_skills
         DynamicToolRegistry._initialized = original_initialized

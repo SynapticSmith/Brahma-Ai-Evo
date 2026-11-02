@@ -8,21 +8,35 @@ and hot-pluggable Python skills for Brahma AI.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import re
 import time
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from core.user_paths import get_user_data_dir
 from core.skill_crucible import SkillCrucible
-from core.dynamic_registry import DynamicToolRegistry
 
 logger = logging.getLogger("SkillForge")
 
 CONFIG_DIR = get_user_data_dir() / "config"
 API_CONFIG_PATH = CONFIG_DIR / "api_keys.json"
+STAGED_SKILLS_DIRNAME = "staged_skills"
+
+
+def staged_skills_dir() -> Path:
+    """Directory where forged skills wait for human review.
+
+    Forge output is model-generated code, so it never lands in the live
+    ``features/`` package and is never imported by the process that wrote it.
+    Promotion is a separate, explicit step (see ARCHITECTURE-SPEC §7.3).
+    """
+    path = get_user_data_dir() / STAGED_SKILLS_DIRNAME
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def _get_gemini_api_key() -> str:
@@ -52,7 +66,8 @@ class SkillForge:
     ) -> Dict[str, Any]:
         """
         Synthesizes a brand new skill from natural language, verifies it in the
-        Crucible sandbox, auto-resolves pip packages, and hot-registers it.
+        Crucible sandbox, and stages it for review. Nothing is activated until a
+        human promotes the staged copy.
         """
         logger.info(f"[Forge] Initiating skill synthesis for goal: '{goal}'")
 
@@ -107,9 +122,11 @@ class SkillForge:
             # All stages passed!
             break
 
-        # 3. Commit as a Native Codebase Feature in features/ (Autonomous Self-Evolution)
-        features_dir = DynamicToolRegistry.get_skills_directory()
-        features_dir.mkdir(parents=True, exist_ok=True)
+        # 3. Stage the verified skill for review. Forge never writes into the
+        # live features/ package, never edits features/__init__.py and never
+        # hot-loads the result: generated code only becomes callable after an
+        # explicit promotion (ARCHITECTURE-SPEC §7.3).
+        staged_dir = staged_skills_dir() / actual_name
 
         # Prepare triggers & aliases
         triggers = list(manifest.get("triggers", []))
@@ -155,48 +172,51 @@ class SkillForge:
             )
             feature_code = header + feature_code
 
-        # Primary native module: features/{actual_name}.py
-        feature_py_file = features_dir / f"{actual_name}.py"
+        # Primary staged module: staged_skills/{actual_name}/skill.py
+        skill_file = staged_dir / "skill.py"
         try:
-            with open(feature_py_file, "w", encoding="utf-8") as f:
-                f.write(feature_code)
+            staged_dir.mkdir(parents=True, exist_ok=True)
+            skill_file.write_text(feature_code, encoding="utf-8")
+            (staged_dir / "manifest.json").write_text(
+                json.dumps(manifest, indent=4), encoding="utf-8"
+            )
+            (staged_dir / "test_cases.json").write_text(
+                json.dumps(test_cases, indent=4), encoding="utf-8"
+            )
 
-            # Update features/__init__.py for self-evolving codebase integration
-            init_file = features_dir / "__init__.py"
-            try:
-                init_content = init_file.read_text(encoding="utf-8") if init_file.exists() else ""
-                import_stmt = f"from . import {actual_name}\n"
-                if import_stmt not in init_content:
-                    with open(init_file, "a", encoding="utf-8") as f_init:
-                        f_init.write(import_stmt)
-            except Exception as e_init:
-                logger.warning(f"[Forge] Could not update features/__init__.py: {e_init}")
-
-            # Also maintain feature package directory for telemetry and test cases
-            target_dir = features_dir / actual_name
-            target_dir.mkdir(parents=True, exist_ok=True)
-            with open(target_dir / "manifest.json", "w", encoding="utf-8") as f:
-                json.dump(manifest, f, indent=4)
-            with open(target_dir / "skill.py", "w", encoding="utf-8") as f:
-                f.write(feature_code)
-            with open(target_dir / "test_cases.json", "w", encoding="utf-8") as f:
-                json.dump(test_cases, f, indent=4)
-
-            # 4. Hot-Load into Dynamic Registry
-            DynamicToolRegistry.initialize()
-            if not DynamicToolRegistry.has_tool(actual_name):
-                raise RuntimeError(f"Generated feature '{actual_name}' was not registered.")
+            skill_sha256 = hashlib.sha256(feature_code.encode("utf-8")).hexdigest()
+            (staged_dir / "staged.json").write_text(
+                json.dumps(
+                    {
+                        "name": actual_name,
+                        "sha256": skill_sha256,
+                        "created_at": manifest["created_at"],
+                        "verified": True,
+                        "activated": False,
+                    },
+                    indent=4,
+                ),
+                encoding="utf-8",
+            )
 
             return {
                 "success": True,
+                "staged": True,
+                "activated": False,
                 "name": actual_name,
                 "description": manifest.get("description", ""),
-                "skill_path": str(feature_py_file),
-                "message": f"Successfully forged and activated native feature '{actual_name}'! Verified via Crucible sandbox.",
+                "skill_path": str(skill_file),
+                "staged_path": str(staged_dir),
+                "sha256": skill_sha256,
+                "message": (
+                    f"Drafted '{actual_name}' and verified it in the Crucible sandbox. "
+                    f"It is staged at {staged_dir} and is NOT active until it is reviewed "
+                    "and promoted."
+                ),
                 "manifest": manifest,
             }
         except Exception as e:
-            return {"success": False, "message": f"Failed saving synthesized feature: {e}"}
+            return {"success": False, "message": f"Failed staging synthesized feature: {e}"}
 
     @classmethod
     def _parse_json_response(cls, text: str) -> Dict[str, Any]:
@@ -251,8 +271,10 @@ Skill Architecture Guidelines:
 3. Default Parameter Handling:
    - In `execute(**kwargs)`, ALWAYS assign safe fallback defaults to all expected parameters (e.g. `query = kwargs.get('query') or kwargs.get('search') or 'headphones'`).
    - If called with empty kwargs `{}` (such as during sandbox verification), the skill MUST execute cleanly without throwing KeyError or TypeError.
-4. Resilient Network & Safe SSL Handling:
-   - When external live data or web downloads are needed, prefer `requests` with `timeout=8, verify=False`, OR if using `urllib`, ALWAYS bypass Windows SSL verification via `import ssl; ctx = ssl._create_unverified_context()` because Python on Windows frequently throws `[SSL: CERTIFICATE_VERIFY_FAILED]`.
+4. Verified Network & TLS Handling:
+   - When external live data or web downloads are needed, use `requests` with `timeout=8` and keep certificate verification enabled (the library default).
+   - If using `urllib`, build the connection with `ssl.create_default_context()`.
+   - If a TLS handshake fails, catch the error and use a local fallback rather than weakening transport security.
    - NEVER require or assume environment API keys (e.g. `GIPHY_API_KEY`, `OPENAI_API_KEY`). Skills must be 100% self-contained and run out of the box using public open APIs (such as Tenor public key `LIVDSRZULELA` or open REST) or local Python logic.
    - If any network call fails or times out, ALWAYS catch generic `Exception` and supply a working fallback so `execute()` NEVER returns an `{'error': ...}` dictionary.
    - Do NOT use heavy scrapers (avoid selenium/playwright).
@@ -264,7 +286,7 @@ Skill Architecture Guidelines:
         `image_path = os.path.join(output_dir, f'{actual_name}_output.png')`
      b) For diagrams, illustrations, charts, or tech visuals: Generate the visual NATIVELY using `PIL` (`from PIL import Image, ImageDraw, ImageFont`) or `matplotlib` (`import matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot as plt`).
         Style it with a sleek cyberpunk dark theme: dark slate background `#0B0F19` or `#030712`, glowing cyan `#00F0FF`, ice cyan `#38BDF8`, emerald `#10B981`, and white `#FFFFFF`.
-     c) For web images/GIFs: Attempt downloading using safe SSL context or requests, but if download fails or if network is unavailable, IMMEDIATELY fall back to drawing a crisp high-tech visual deliverable using PIL/matplotlib so execution always succeeds and displays on screen.
+     c) For web images/GIFs: Attempt downloading with certificate verification ON, but if the download fails or if network is unavailable, IMMEDIATELY fall back to drawing a crisp high-tech visual deliverable using PIL/matplotlib so execution always succeeds and displays on screen. Never disable TLS verification to rescue a download.
      d) Return format for visuals:
         `return {'image_path': image_path, 'title': '...', 'summary': '...'}`
         This triggers Brahma Evo's HUD Result Wing to immediately display the card!
@@ -377,7 +399,7 @@ Broken Code:
 Critical Repair Instructions:
 1. Ensure `def execute(**kwargs)` handles empty or missing kwargs with safe defaults.
 2. If using `matplotlib`, ensure `import matplotlib; matplotlib.use('Agg')` is placed before `pyplot`.
-3. If making HTTP requests, use `requests` with `timeout=8, verify=False` or `urllib` with `ssl._create_unverified_context()`. NEVER assume custom library exceptions or unset API keys (like GIPHY_API_KEY).
+3. If making HTTP requests, use `requests` with `timeout=8` and keep certificate verification enabled, or `urllib` with `ssl.create_default_context()`. Never disable certificate verification, and never build or pass an unverified SSL context. NEVER assume custom library exceptions or unset API keys (like GIPHY_API_KEY).
 4. If downloading an image or media fails or has SSL errors, NEVER just return an error dictionary. Generate the image natively using PIL (Pillow) or matplotlib and save to `BrahmaAI/deliverables/<name>.png`.
 5. Return a clean deliverable dictionary with `'image_path'`, `'title'`, `'summary'` if visual, or clean structured output.
 6. The test runner checks that the returned value does NOT contain an `'error'` key. Do not return `{{'error': '...'}}`. If an error occurs, provide a graceful fallback result.

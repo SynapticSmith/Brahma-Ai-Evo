@@ -556,16 +556,13 @@ class ToolExecutor:
                 result = r or "Done."
 
             elif name == "agent_task":
-                from agent.task_queue import get_queue, TaskPriority
-                priority_map = {"low": TaskPriority.LOW, "normal": TaskPriority.NORMAL, "high": TaskPriority.HIGH}
-                priority = priority_map.get(args.get("priority", "normal").lower(), TaskPriority.NORMAL)
-                task_id  = get_queue().submit(
-                    goal=args.get("goal", ""),
-                    priority=priority,
-                    speak=self._host.speak,
-                    player=self._host.ui
+                # The legacy planner/executor was removed: it bypassed
+                # AgentRuntime entirely. Anything still calling this name gets a
+                # pointer at the harness instead of a second execution path.
+                result = (
+                    "agent_task is retired. Use the agent harness tools "
+                    "(run_command, read_file, write_file, run_subagent) instead."
                 )
-                result   = f"Task started (ID: {task_id})."
 
             elif name == "web_search":
                 r = await loop.run_in_executor(None, lambda: web_search_action(parameters=args, player=self._host.ui))
