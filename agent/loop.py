@@ -41,9 +41,13 @@ from .runtime import AgentRuntime, current as current_runtime, policy_note
 from .session import AgentSession
 from .spec import ToolSpec, all_specs, get as get_spec, lowercase_schema
 from .subagent import (
+    DEFAULT_BATCH_WORKERS,
     DEFAULT_SUBAGENT_TURNS,
+    MAX_BATCH_TASKS,
     SUBAGENT_SYSTEM,
+    clamp_batch_workers,
     clamp_turns,
+    select_batch_tools,
     select_tools,
     tool_names,
 )
@@ -221,6 +225,7 @@ class AgentLoop:
         context: Optional[ConversationContext] = None,
         stream: bool = False,
         allow_subagents: bool = True,
+        batch_readonly: bool = False,
     ):
         self._complete = complete
         self._tools: List[Any] = (
@@ -264,7 +269,12 @@ class AgentLoop:
         #: A child loop is constructed with this false, so even a surface that
         #: somehow still advertises `run_subagent` cannot recurse.
         self._allow_subagents = bool(allow_subagents)
+        #: Set on children spawned by `run_subagent_batch` (O-2): enforces
+        #: read-only, workspace-confined, approval-free execution in the shared
+        #: runtime.
+        self._batch_readonly = bool(batch_readonly)
         self._subagent_runs = 0
+        self._subagent_lock = threading.Lock()
         #: Sum of provider-reported counts. Empty until a response carries
         #: usage; ``estimated_tokens`` stays as the local fallback.
         self._tokens: Dict[str, int] = {}
@@ -293,8 +303,9 @@ class AgentLoop:
 
     def _emit(self, event_type: str, **data: Any) -> None:
         event = {"type": event_type, **data}
-        if len(self._events) < 4000:
-            self._events.append(event)
+        with self._subagent_lock:
+            if len(self._events) < 4000:
+                self._events.append(event)
         if self._session is not None:
             self._session.log_event(event_type, data)
         sink = self._on_event or self._runtime.event_sink
@@ -472,7 +483,9 @@ class AgentLoop:
         spec = get_spec(item["name"])
         if spec is None or spec.classifier is not None or spec.tool_class not in ("read", "write"):
             return None
-        _, decision = self._runtime.decide(item["name"], item["args"])
+        _, decision = self._runtime.decide(
+            item["name"], item["args"], batch_readonly=self._batch_readonly
+        )
         if not decision.allowed:
             return None
         raw = item["args"].get("path")
@@ -492,55 +505,40 @@ class AgentLoop:
     def _run_one(self, item: Dict[str, Any]) -> str:
         """Dispatch one prepared call. Never raises: the loop owns the boundary."""
         item["ran"] = True
-        extra = (
-            {"subagent_runner": self._run_subagent}
-            if self._allow_subagents
-            else None
-        )
+        extra: Dict[str, Any] = {}
+        if self._allow_subagents:
+            extra["subagent_runner"] = self._run_subagent
+            extra["subagent_batch_runner"] = self._run_subagent_batch
+        if self._batch_readonly:
+            extra["batch_readonly"] = True
         try:
             return self._runtime.execute(
                 item["name"],
                 item["args"],
                 native_dispatch=self._native_dispatch,
                 call_id=item["call"]["id"],
-                extra=extra,
+                extra=extra or None,
             )
         except Exception as exc:  # noqa: BLE001 - a worker must not kill the turn
             return f"Tool '{item['name']}' failed: {type(exc).__name__}: {exc}"
 
-    def _run_subagent(self, args: Dict[str, Any]) -> str:
-        """Run one bounded child loop and return its report as tool text.
+    def _next_subagent_label(self) -> str:
+        with self._subagent_lock:
+            self._subagent_runs += 1
+            return f"subagent-{self._subagent_runs}"
 
-        The child shares this loop's completer, runtime (policy, approver,
-        workspace, cancel event) and retry settings, but gets a fresh
-        conversation, a filtered tool surface, its own turn budget and no
-        session row. Its events are relayed under ``subagent_event`` so a host
-        can still show what it is doing without mixing its turns into the
-        parent transcript.
-        """
-        task = str(args.get("task") or "").strip()
-        if not task:
-            return "Not run: run_subagent needs a non-empty 'task'."
-        requested = args.get("tools")
-        if isinstance(requested, str):
-            requested = [requested]
-        if not isinstance(requested, (list, tuple)):
-            requested = None
-        chosen = select_tools(self._tools, requested)
-        if not chosen:
-            return (
-                "Not run: none of the requested tools are available to this "
-                "agent. Omit 'tools' for the read-only set, or request names "
-                "from this agent's own tool surface."
-            )
-
-        turns = clamp_turns(args.get("max_turns"), DEFAULT_SUBAGENT_TURNS)
-        context_text = str(args.get("context") or "").strip()
+    def _execute_child_subagent(
+        self,
+        *,
+        label: str,
+        task: str,
+        context_text: str,
+        chosen: Sequence[Any],
+        turns: int,
+        batch_readonly: bool = False,
+    ) -> str:
         prompt = task if not context_text else f"{task}\n\nContext:\n{context_text}"
         names = tool_names(chosen)
-
-        self._subagent_runs += 1
-        label = f"subagent-{self._subagent_runs}"
         self._emit(
             "subagent_start",
             subagent=label,
@@ -573,6 +571,7 @@ class AgentLoop:
             summarizer=self._summarizer,
             stream=False,
             allow_subagents=False,
+            batch_readonly=batch_readonly,
         )
 
         try:
@@ -606,6 +605,155 @@ class AgentLoop:
                 "partial and verify the work before relying on it.]"
             )
         return head + (("\n\n" + body) if body else "")
+
+    def _run_subagent(self, args: Dict[str, Any]) -> str:
+        """Run one bounded child loop and return its report as tool text.
+
+        The child shares this loop's completer, runtime (policy, approver,
+        workspace, cancel event) and retry settings, but gets a fresh
+        conversation, a filtered tool surface, its own turn budget and no
+        session row. Its events are relayed under ``subagent_event`` so a host
+        can still show what it is doing without mixing its turns into the
+        parent transcript.
+        """
+        task = str(args.get("task") or "").strip()
+        if not task:
+            return "Not run: run_subagent needs a non-empty 'task'."
+        requested = args.get("tools")
+        if isinstance(requested, str):
+            requested = [requested]
+        if not isinstance(requested, (list, tuple)):
+            requested = None
+        chosen = select_tools(self._tools, requested)
+        if not chosen:
+            return (
+                "Not run: none of the requested tools are available to this "
+                "agent. Omit 'tools' for the read-only set, or request names "
+                "from this agent's own tool surface."
+            )
+
+        turns = clamp_turns(args.get("max_turns"), DEFAULT_SUBAGENT_TURNS)
+        context_text = str(args.get("context") or "").strip()
+        label = self._next_subagent_label()
+        return self._execute_child_subagent(
+            label=label,
+            task=task,
+            context_text=context_text,
+            chosen=chosen,
+            turns=turns,
+            batch_readonly=False,
+        )
+
+    def _run_subagent_batch(self, args: Dict[str, Any]) -> str:
+        """Run 1..MAX_BATCH_TASKS read-only, workspace-confined child loops in parallel (O-2)."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        raw_tasks = args.get("tasks")
+        if not isinstance(raw_tasks, (list, tuple)) or not raw_tasks:
+            return "Not run: run_subagent_batch needs a non-empty 'tasks' list."
+        if len(raw_tasks) > MAX_BATCH_TASKS:
+            return (
+                f"Not run: run_subagent_batch accepts at most {MAX_BATCH_TASKS} "
+                f"tasks per call (got {len(raw_tasks)})."
+            )
+
+        shared_context = str(args.get("context") or "").strip()
+        shared_tools = args.get("tools")
+        if isinstance(shared_tools, str):
+            shared_tools = [shared_tools]
+        if not isinstance(shared_tools, (list, tuple)):
+            shared_tools = None
+        shared_turns = clamp_turns(args.get("max_turns"), DEFAULT_SUBAGENT_TURNS)
+
+        prepared: List[Dict[str, Any]] = []
+        for index, entry in enumerate(raw_tasks, start=1):
+            if isinstance(entry, str):
+                task_text = entry.strip()
+                item_context = ""
+                item_tools = shared_tools
+                item_turns = shared_turns
+            elif isinstance(entry, Mapping):
+                task_text = str(entry.get("task") or "").strip()
+                item_context = str(entry.get("context") or "").strip()
+                raw_item_tools = entry.get("tools", shared_tools)
+                if isinstance(raw_item_tools, str):
+                    item_tools = [raw_item_tools]
+                elif isinstance(raw_item_tools, (list, tuple)):
+                    item_tools = list(raw_item_tools)
+                else:
+                    item_tools = None
+                item_turns = clamp_turns(entry.get("max_turns", shared_turns), shared_turns)
+            else:
+                return f"Not run: run_subagent_batch task #{index} must be a string or an object."
+
+            if not task_text:
+                return f"Not run: run_subagent_batch task #{index} needs a non-empty 'task'."
+
+            chosen = select_batch_tools(self._tools, item_tools)
+            if not chosen:
+                return (
+                    f"Not run: none of the requested read-only workspace tools are "
+                    f"available for task #{index}. Omit 'tools' for the default "
+                    "read-only set, or request only read-class workspace tools."
+                )
+
+            combined_ctx = "\n\n".join(p for p in (shared_context, item_context) if p)
+            prepared.append(
+                {
+                    "index": index,
+                    "task": task_text,
+                    "context": combined_ctx,
+                    "chosen": chosen,
+                    "turns": item_turns,
+                }
+            )
+
+        for spec_item in prepared:
+            spec_item["label"] = self._next_subagent_label()
+
+        workers = min(
+            len(prepared),
+            clamp_batch_workers(args.get("max_concurrency"), DEFAULT_BATCH_WORKERS),
+        )
+        self._emit(
+            "subagent_batch_start",
+            count=len(prepared),
+            max_concurrency=workers,
+            subagents=[p["label"] for p in prepared],
+        )
+
+        def _run_spec(spec_item: Dict[str, Any]) -> str:
+            if self._cancelled():
+                return (
+                    f"Subagent {spec_item['label']} cancelled before start: "
+                    f"{CANCELLED_TOOL_OUTPUT}"
+                )
+            return self._execute_child_subagent(
+                label=spec_item["label"],
+                task=spec_item["task"],
+                context_text=spec_item["context"],
+                chosen=spec_item["chosen"],
+                turns=spec_item["turns"],
+                batch_readonly=True,
+            )
+
+        with ThreadPoolExecutor(
+            max_workers=workers, thread_name_prefix="brahma-subagent-batch"
+        ) as pool:
+            futures = [pool.submit(_run_spec, spec_item) for spec_item in prepared]
+            reports = [future.result() for future in futures]
+
+        self._emit(
+            "subagent_batch_end",
+            count=len(prepared),
+            subagents=[p["label"] for p in prepared],
+        )
+
+        sections = [
+            f"=== Task {spec_item['index']} ({spec_item['label']}): {spec_item['task']} ===\n{report}"
+            for spec_item, report in zip(prepared, reports)
+        ]
+        return f"Subagent batch completed ({len(prepared)} task(s)):\n\n" + "\n\n".join(sections)
 
     def _run_group(self, group: List[Tuple[Dict[str, Any], Tuple[str, Path]]]) -> None:
         """Run one fence-free group, starting each call as its blockers finish.

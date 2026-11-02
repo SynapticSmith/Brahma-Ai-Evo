@@ -30,7 +30,7 @@ database migration is required; the new tables are additive.
 | Session "always allow" approvals | Done |
 | Granular approval detail (rule, command/cwd, diff) | Done |
 | Path-dependency parallel tool calls | Done |
-| Bounded subagent delegation (`run_subagent`) | Done |
+| Bounded subagent delegation (`run_subagent` + read-only `run_subagent_batch`) | Done |
 | Whole-tree command termination on timeout | Done |
 | Policy `exec.sandbox`: credential scrubbing, trusted prefix, resource limits | Done |
 | Verified container confinement (`sandbox doctor` probe + `require_confined`) | Done |
@@ -924,6 +924,36 @@ prefix behaviourally before trusting it for unattended execution:
    (or when `--yolo` is passed on the CLI), `PermissionPolicy.evaluate` calls
    the cached `check_confinement` and denies `exec` tools with
    `rule="exec.sandbox.require_confined"` unless all three checks pass.
+
+### D44 — Read-only subagent fan-out (`run_subagent_batch`) shares one runtime and enforces strict workspace confinement (O-2 / N5)
+
+Mutating delegation remains sequential through `run_subagent`, because concurrent
+child writes or approval prompts would race the undo stack and stack HUD banners.
+For independent research and review tasks, `run_subagent_batch` runs up to 8
+bounded children concurrently on a `ThreadPoolExecutor` (`max_concurrency`
+default 4, clamped to 8) and returns their reports in submission order.
+
+Because `tool_class == "read"` alone is not a containment boundary (`read_file`
+can read outside the workspace or read `.env` if the parent policy or session
+approvals allow it), `run_subagent_batch` enforces a five-part contract across
+`select_batch_tools` (`agent/subagent.py`) and `AgentRuntime.decide(..., batch_readonly=True)`
+(`agent/runtime.py`):
+
+1. **Read-only workspace tools only:** `spec.tool_class == "read"`,
+   `spec.classifier is None`, and `"desktop" not in spec.tags` (no `mcp`,
+   `native`, `write`, `exec`, `network`, or `device` tools).
+2. **Strict workspace path confinement:** every path argument in `PATH_ARG_KEYS`
+   must resolve inside `runtime.workspace`. Outside-workspace paths and
+   `protected_globs` matches are denied outright (`DENY`, no approver prompt),
+   even when the parent policy sets `outside_workspace="allow"`,
+   `protected="allow"`, `trusted_roots`, or `session_allow`.
+3. **No approval-gated tools:** any tool with `requires_approval=True` is
+   excluded from the surface and denied at runtime.
+4. **No recursion (`I-08`):** `DELEGATION_TOOLS = ("run_subagent", "run_subagent_batch")`
+   are excluded from every child's advertised surface (both single and batch).
+5. **Single runtime and cancel event:** all batch children share the parent's
+   `AgentRuntime` instance and `cancel_event`, and are omitted from the voice
+   socket (`main.py`) alongside `run_subagent`.
 
 ### D20 — Parallel dispatch is whole-turn and read-only (superseded by D30, then D32)
 

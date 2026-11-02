@@ -2183,7 +2183,7 @@ try:
                 for spec in _agent_specs()
                 if (
                     desktop_tools.DESKTOP_TAG not in spec.tags
-                    and spec.name != _agent_subagent.SUBAGENT_TOOL
+                    and spec.name not in _agent_subagent.DELEGATION_TOOLS
                 )
             ]
         )

@@ -29,8 +29,8 @@ from . import code_tools  # noqa: F401  (import registers the six tools)
 from . import skills as _skills  # noqa: F401  (import registers load_project_skill)
 from . import subagent  # noqa: F401  (import registers run_subagent)
 from .approval_detail import describe_call, path_scoped_approval_key
-from .permissions import DENY, PermissionPolicy, PolicyResult
-from .spec import ToolContext, ToolSpec, execute as execute_spec, get as get_spec
+from .permissions import ALLOW, DENY, PermissionPolicy, PolicyResult
+from .spec import PATH_ARG_KEYS, ToolContext, ToolSpec, execute as execute_spec, get as get_spec
 
 Approver = Callable[[str, Dict[str, Any], str], Any]
 EventSink = Callable[[Dict[str, Any]], None]
@@ -272,9 +272,86 @@ class AgentRuntime:
 
     # -- policy ------------------------------------------------------------
 
-    def decide(self, name: str, args: Optional[Mapping[str, Any]] = None) -> tuple[ToolSpec | None, PolicyResult]:
+    def decide(
+        self,
+        name: str,
+        args: Optional[Mapping[str, Any]] = None,
+        *,
+        batch_readonly: bool = False,
+    ) -> tuple[ToolSpec | None, PolicyResult]:
         spec = get_spec(name)
         call_args = dict(args or {})
+        if batch_readonly:
+            if (
+                spec is None
+                or spec.tool_class != "read"
+                or spec.classifier is not None
+                or spec.requires_approval
+                or "desktop" in spec.tags
+            ):
+                return (
+                    spec,
+                    PolicyResult(
+                        DENY,
+                        "run_subagent_batch allows only read-only workspace tools that do not require approval.",
+                        "subagent_batch.read_only",
+                    ),
+                )
+            try:
+                ws_root = self.workspace.expanduser().resolve()
+            except OSError:
+                ws_root = self.workspace
+            for key in PATH_ARG_KEYS:
+                raw = call_args.get(key)
+                if not isinstance(raw, str) or not raw.strip():
+                    continue
+                candidate = Path(raw).expanduser()
+                if not candidate.is_absolute():
+                    candidate = ws_root / candidate
+                try:
+                    candidate = candidate.resolve()
+                except OSError:
+                    return (
+                        spec,
+                        PolicyResult(
+                            DENY,
+                            f"{raw!r} could not be resolved inside the workspace.",
+                            "paths.outside_workspace",
+                        ),
+                    )
+                rel = PermissionPolicy._rel_under_trusted_roots(candidate, (ws_root,))
+                if rel is None:
+                    return (
+                        spec,
+                        PolicyResult(
+                            DENY,
+                            f"{candidate} is outside the workspace {self.workspace}; "
+                            "run_subagent_batch children are strictly confined to the workspace.",
+                            "paths.outside_workspace",
+                        ),
+                    )
+                if self.policy._path_is_protected(rel):
+                    return (
+                        spec,
+                        PolicyResult(
+                            DENY,
+                            f"{rel} matches a protected-file pattern; "
+                            "run_subagent_batch children cannot access protected files.",
+                            "paths.protected",
+                        ),
+                    )
+            base_res = self.policy.evaluate(
+                name,
+                call_args,
+                tool_class="read",
+                context_workspace=self.workspace,
+                headless=True,
+                requires_approval=False,
+            )
+            if base_res.decision != ALLOW:
+                return spec, PolicyResult(DENY, base_res.reason, base_res.rule)
+            return spec, base_res
+
         tool_class = spec.class_for(call_args) if spec else "native"
         # "Headless" means *no human can be asked*. An injected approver makes
         # that false, whatever the flag says: the CLI passes headless=True and
@@ -315,7 +392,8 @@ class AgentRuntime:
         args = dict(args or {})
         # Cheap, throttled check: a policy edit lands without a restart.
         self.reload_policy()
-        spec, decision = self.decide(name, args)
+        batch_readonly = bool((extra or {}).get("batch_readonly"))
+        spec, decision = self.decide(name, args, batch_readonly=batch_readonly)
         key = self._approval_key(name, args, spec, decision.rule)
 
         if decision.needs_approval:

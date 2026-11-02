@@ -46,7 +46,7 @@ deliberately deferred, or rejected, so the next batch starts with N4 or N5.
 | N2 | Consume MCP `tools/list_changed` and revive a dead server | Medium | M | Done (D41) |
 | N3 | Correct the stale claims in the two harness docs | Low | S | Done (with N1) |
 | N4 | Filesystem/network confinement for `run_command` | High (design) | XL | Done (D43 / O-1) |
-| N5 | Parallel / model-selecting subagents | Medium (design) | L | Blocked on decision |
+| N5 | Parallel / model-selecting subagents | Medium (design) | L | Done (D44 / O-2) |
 | N6 | MCP resources, prompts, sampling | Low | M | Deliberately deferred |
 | N7 | Executable skills / `allowed-tools` enforcement | Low | M | Rejected (would be a second boundary) |
 | N8 | Unify harness skills with the core Skills Library | Medium (design) | M | Done (D42) |
@@ -278,51 +278,20 @@ with `rule="exec.sandbox.require_confined"` unless `check_confinement` passes.
 
 ### N5 — Parallel / model-selecting subagents
 
-`run_subagent` is a `native` fence: one child at a time, parent waits, child
-shares the parent's model, transcript discarded, no session row (D33). Fan-out
-or per-child models would need the event-stream coordinator the docs warn
-against building as a second runtime. **Decision needed:** accept sequential, or
-design a coordinator with one enforcement path.
-
-### N6 — MCP resources, prompts, sampling
-
-Deliberately omitted: a half-supported capability produces tools that fail on
-first use (D37). Add only with a complete implementation and tests.
-
-### N7 — Executable skills / `allowed-tools` enforcement
-
-Rejected as a second permission boundary. The runtime policy stays the only
-gate (D39).
-
-### N8 — Unify harness skills with the core Skills Library
-
-**Landed.** Decision D42 in `AGENTIC-HARNESS-STATUS.md`;
-`agent.skills.project_roots()` is the single workspace walk, `SkillsLibrary`
-scans those roots last (so a project overrides builtin and user copies) under
-the harness contract and instructional-only rule, and
-`configure_library(project_workspace=...)` wires it at startup. The two tool
-names stay distinct on purpose. The note below is kept as the record of the
-disagreement.
-
-Two catalogues exist on purpose: `load_project_skill` (harness, `.brahma/skills`)
-and `load_skill` (core Skills Library, `skill_id`). Sharing a name shadows the
-legacy tool because the harness branch in `core/tool_exec.py` runs first.
-**Resolved by D42:** one store for *project* skills, two doors and two names.
+**Landed (D44 / O-2).** Mutation remains sequential through `run_subagent`,
+while `run_subagent_batch` (`agent/subagent.py`, `agent/loop.py:_run_subagent_batch`,
+and `AgentRuntime.decide(..., batch_readonly=True)`) provides parallel read-only
+fan-out (1..8 tasks) under a strict single-runtime safety contract:
+(1) child tool surface restricted to `tool_class == "read"` with `classifier is None`
+and `"desktop" not in tags` (`select_batch_tools`),
+(2) path arguments restricted strictly to inside `runtime.workspace` (`paths.outside_workspace`
+and `paths.protected` denied without prompt, ignoring `trusted_roots` and `session_allow`),
+(3) `requires_approval=True` tools excluded,
+(4) both `run_subagent` and `run_subagent_batch` (`DELEGATION_TOOLS`) excluded from
+every child's surface (`I-08`), and
+(5) all children share the parent's `AgentRuntime` and `cancel_event`.
 
 ---
-
-## 6. Working agreement for the next batch
-
-1. One commit per batch on `main`, message prefixed `agent: `, tests and docs in
-   the same commit (the existing history is the template).
-2. Run the gates from §0 before claiming done; paste the numbers into the status
-   doc's §4 Verification.
-3. Add a `### Dn — …` decision entry for anything that was a fork in the road.
-4. Update this file: tick the acceptance boxes, move the item to a short
-   "Landed" list, re-rank what remains.
-5. Keep `agent/` stdlib-only; never add an `elif` to `core/tool_exec.py`; never
-   register a harness tool under a core meta-tool name (`load_skill`,
-   `search_tools`, `recall_memory`, …).
 
 ### Landed
 
@@ -331,4 +300,5 @@ legacy tool because the harness branch in `core/tool_exec.py` runs first.
 | N1 + N3 | `f42f4b2` | `agent.prompts.project_context()`; wired into the HUD text seed and the Live `_build_config`; docs corrected (D40). |
 | N2 | `4f81a65` | `MCPSession.needs_refresh`/`refresh`; `WorkspaceMCP.ensure` re-lists or restarts a stale server on the unchanged-fingerprint path; `mcp_refresh` event (D41). |
 | N8 | `531b961` | `agent.skills.project_roots()`; `SkillsLibrary` scans workspace `.brahma/skills` as the last, instructional-only source; `configure_library(project_workspace=...)` wired at startup (D42). |
-| N4 (O-1) | _(this commit)_ | `probe_confinement`/`check_confinement` active behavioural probe (write-outside, network egress, UID/namespace isolation), `python -m agent sandbox doctor`, and `exec.sandbox.require_confined` policy gate (D43). |
+| N4 (O-1) | `8214ca4` | `probe_confinement`/`check_confinement` active behavioural probe (write-outside, network egress, UID/namespace isolation), `python -m agent sandbox doctor`, and `exec.sandbox.require_confined` policy gate (D43). |
+| N5 (O-2) | _(this commit)_ | `run_subagent_batch` parallel read-only fan-out under strict workspace-confinement, no-approval, and non-recursive (`DELEGATION_TOOLS`) enforcement (D44). |

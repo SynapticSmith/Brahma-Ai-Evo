@@ -1021,9 +1021,9 @@ def test_cli_run_gates_untrusted_repo_local_mcp_config(
     assert len(untrusted) == 1
     assert untrusted[0]["servers"] == ["cli_srv"]
     result = [e for e in out_lines if e.get("type") == "result"][0]
-    assert "tools=8" in result["text"]
+    assert "tools=9" in result["text"]
 
-    # Once trusted, the next CLI run loads the server's 10 tools (8 + 10 = 18).
+    # Once trusted, the next CLI run loads the server's 10 tools (9 + 10 = 19).
     trust_workspace(repo)
     code2 = main(
         [
@@ -1044,7 +1044,7 @@ def test_cli_run_gates_untrusted_repo_local_mcp_config(
     ]
     assert code2 == 0
     result2 = [e for e in out_lines2 if e.get("type") == "result"][0]
-    assert "tools=18" in result2["text"]
+    assert "tools=19" in result2["text"]
 
 
 
