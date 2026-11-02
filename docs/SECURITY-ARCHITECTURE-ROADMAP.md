@@ -37,7 +37,7 @@ A forged skill can read only the folders the user approved, reach only the hosts
 | # | Finding | Current fork status | Target workstream |
 |---|---|---|---|
 | 1 | Forge writes and executes model-generated code with no trust boundary | Present. `SkillForge.forge_skill()` writes `features/<name>.py`, mutates `features/__init__.py`, and `main.py::_forge_skill` calls `DynamicToolRegistry.execute_sync` immediately. | WS-1, WS-2 |
-| 2 | Any `.py` in `plugins/` is imported at startup | Present. `plugin_manager.py::load_plugins()` uses `exec_module` with no signature or allowlist. | WS-4 |
+| 2 | Any `.py` in `plugins/` is imported at startup | **Closed (Q0-B, 2026-11-02).** `plugin_manager.py::load_plugins()` enforces an explicit opt-in allowlist from policy/settings; unapproved scripts are skipped. | WS-4 |
 | 3 | Unsigned self-update; default-Yes hard reset | **Closed (Q0-B, 2026-11-01).** `updater.py`, `core/updater.py`, and `core/updater_ota.py` are deleted along with the startup call and prompt UI; there is no self-update path until a signed one exists. | WS-6 |
 | 4 | Generation prompt tells skills to disable TLS verification | Present. `core/skill_forge.py` recommends `verify=False` and `ssl._create_unverified_context()`. | WS-1 |
 | 5 | Unpinned `pip install` of model-chosen names | Present. `SkillCrucible.resolve_dependencies()` runs `pip install <name> --quiet`. | WS-3 |

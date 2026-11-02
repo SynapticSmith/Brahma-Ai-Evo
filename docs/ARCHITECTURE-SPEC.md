@@ -413,7 +413,7 @@ The pre-fork autonomous stack — `agent/planner.py`, `agent/executor.py`, `agen
 | # | Finding | Status | Evidence in the current tree |
 |---|---|---|---|
 | 1 | Forge writes and executes model code with no trust boundary | **Mitigated (Q0-A)** | `core/skill_forge.py` stages into `%LOCALAPPDATA%\BrahmaAI\staged_skills\<name>\` and never imports or registers the draft; `main.py:_forge_skill` no longer calls `execute_sync`. Promotion UX is still undefined (WS-1). |
-| 2 | Any `.py` in `plugins/` is imported at startup | **Open** | `plugin_manager.py:14` `load_plugins`, `:26` `exec_module`; no signature/allowlist. |
+| 2 | Any `.py` in `plugins/` is imported at startup | **Closed (Q0-B)** | `PluginManager` requires an explicit opt-in allowlist (from `config/plugin_policy.json` or `app_settings.json`) and skips unapproved scripts by default. |
 | 3 | Unsigned self-update / hard reset | **Closed (Q0-B)** | Deleted `updater.py`, `core/updater.py`, `core/updater_ota.py`, the startup call in `main.py`, and the `UpdateChecker`/prompt UI. No self-update path exists; signed releases are WS-6. |
 | 4 | Forge prompt instructs TLS bypass | **Closed (Q0-A)** | The prompt now requires verified TLS; `tests/test_security_phase0.py` fails on `verify=False`, `_create_unverified_context`, `CERT_NONE`, or a disabled hostname check anywhere in `core/skill_forge.py`. |
 | 5 | Unpinned runtime `pip install` | **Closed (Q0-A)** | `SkillCrucible.resolve_dependencies()` only calls `importlib.util.find_spec` and returns a manual `pip install` plan; it spawns no subprocess. |
@@ -424,7 +424,7 @@ The pre-fork autonomous stack — `agent/planner.py`, `agent/executor.py`, `agen
 | + | Dead model-facing `confirmed` parameter (not a live bypass) | **Closed (Q0-A)** | Declaration removed from `main.py`; a schema test asserts no declaration advertises `confirmed`. The handler already ignored it and the `_IRREVERSIBLE` HUD gate already held. |
 | + | Legacy `agent_task` autonomous door | **Closed (Q0-A)** | Declaration and handler removed; `agent/planner.py`, `executor.py`, `task_queue.py`, `error_handler.py` deleted; invariant tests prevent their return (§6.10). |
 
-**Conclusion:** Q0-A closed the code-execution half (forge draft-only, verified TLS prompts, no runtime `pip`, no `agent_task`, no dead `confirmed`). Q0-B closed self-update by deleting every updater path, made the gateway loopback-only/off by default, and secured all gateway HTTP control routes with paired-device authentication. Storage (DPAPI), plugin trust, the Crucible denylist, and privilege separation are still upstream's posture.
+**Conclusion:** Q0-A closed the code-execution half (forge draft-only, verified TLS prompts, no runtime `pip`, no `agent_task`, no dead `confirmed`). Q0-B closed self-update by deleting every updater path, made the gateway loopback-only/off by default with authenticated HTTP control routes, and enforced an opt-in allowlist on plugin loading. Storage (DPAPI), the Crucible denylist, and privilege separation are still upstream's posture.
 
 ### 7.2 The target model
 
@@ -642,11 +642,11 @@ Accepted 2026-10-17, but **acceptance is not authorization to build**: they were
 
 ### Q0-B — Stop the bleeding: Network, secrets & supply chain (days; no new architecture)
 
-**Status: partially landed 2026-11-01..02 — items 1, 2, and 5 done; items 3 and 4 open.**
+**Status: partially landed 2026-11-01..02 — items 1, 2, 3, and 5 done; item 4 open.**
 
 1. ✅ Gateway: default `host="127.0.0.1"`, `enabled=False`, `advertise=False`; all HTTP management and control routes enforce paired-device authentication (`Authorization: Bearer <device_id>:<secret>` or secret-only, 401/403) (WS-8).
 2. ✅ Startup self-update deleted: `updater.py`, `core/updater.py`, `core/updater_ota.py`, the `main()` call, and the `UpdateChecker`/prompt UI. No hardcoded remote, no `git reset --hard`, no default-Yes dialog. Signed releases are WS-6.
-3. ⬜ Plugin loading: opt-in allowlist; do not import unsigned `.py` from a writable directory.
+3. ✅ Plugin loading: opt-in allowlist; unapproved `.py` scripts in `plugins/` are skipped by default (WS-4).
 4. ⬜ Secrets: DPAPI for `api_keys.json` and `smart_home.key`; one release of read-only fallback.
 5. ✅ `SECURITY-ARCHITECTURE-ROADMAP.md` checkbox for the updater is ticked; this document's status tables are updated. Guarded by `tests/test_security_q0b.py` (defaults, opt-in override, disabled-never-starts, no updater modules, no hardcoded upstream/`--hard`, no startup updater call).
 
