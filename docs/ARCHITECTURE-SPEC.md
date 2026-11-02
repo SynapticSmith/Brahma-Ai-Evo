@@ -334,7 +334,7 @@ Each section states the contract and the one thing most likely to break.
 - **Why it exists:** Gemini Live rejects >128 declarations and cannot swap tools mid-session (I-19/I-20).
 - **Contract:** every tool is a `ToolSpec` with a canonical lowercase schema; `gemini()` converts up at the edge.
 - **Failure mode to respect:** description collisions are a data problem. Fix them in `%LOCALAPPDATA%\BrahmaAI\tool_routing.json`, not in the retriever.
-- **Known gap:** the legacy `elif` chain is still the executor for native tools, so "one registry" is aspirational for that half.
+- **Known gaps:** (1) the legacy `elif` chain (`core/tool_exec.py:203–791`, ~590 lines of an 868-line file) is still the executor for native tools, so "one registry" is aspirational for that half; (2) `core/tool_bridge.py:386–398` appends `mcp_Synapse`/`cdp` matches *after* `index.resolve(intent, budget=budget())`, clamped only at 128 — an active violation of I-19 that must be removed with O-8.
 
 ### 6.4 Agent harness
 
@@ -419,7 +419,7 @@ This is the part the harness docs do not describe, and it matters.
 | 7 | Crucible validation is a denylist, not a sandbox | **Open** | 12 string checks + same-user subprocess + timeout. |
 | 8 | High-risk automation without privilege separation | **Open** | One process, one token, all tools in-process. |
 | + | Gateway `0.0.0.0`, unauthenticated HTTP control routes | **Open** | `server.py:33` default host; routes at `:358–407` have no auth dependency. |
-| + | Model-facing `confirmed` parameter | **Open** | `main.py:1237`; `core/confirm.py:7` accepts model-supplied `confirmed=yes`. |
+| + | Dead model-facing `confirmed` parameter (not a live bypass) | **Open (hygiene)** | `main.py:1237` still advertises it on `computer_settings`, but the handler no longer reads it (`actions/computer_settings.py` uses the `_IRREVERSIBLE` HUD gate) and `core/confirm.py:7` is docstring text describing the old bug. Removing it is schema cleanup, not a security fix. |
 
 **Conclusion:** the fork's security posture is still upstream's. The 1.0.1 work improved providers, tests, and decomposition, not trust boundaries.
 
@@ -443,7 +443,7 @@ WS-1 skill lifecycle · WS-2 SkillHost sandbox · WS-3 dependency supply chain �
 6. Gateway binds `127.0.0.1`, disabled by default; HTTP control routes require a paired device.
 7. Disable startup updates for clones; delete the hardcoded upstream and default-Yes `reset --hard`.
 8. Move `api_keys.json` and `smart_home.key` behind DPAPI (minimal migration, one release of read-only fallback).
-9. Delete the model-facing `confirmed` parameter; keep the HUD gate.
+9. Delete the dead model-facing `confirmed` parameter at `main.py:1237` and correct its finding status; the handler already ignores it and the HUD gate already holds.
 10. Disable `agent_task` until it is re-based (§6.10).
 
 **Exit criteria:** a forged skill does not execute automatically; no runtime `pip`; no plaintext keys; no unauthenticated gateway on the LAN; no silent startup pull; no ungated autonomous door.
@@ -591,69 +591,74 @@ A batch is done when:
 
 Accepted 2026-10-17, but **acceptance is not authorization to build**: they were accepted against a design that predates the harness. ADR-006 (MCP extraction) and ADR-011 (route through `core/confirm`) are the ones that conflict with §8.3 and must be superseded by ADR-018 before implementation. ADR-001's "no core growth" premise also needs revisiting, since both shell guards are already breached.
 
-### 11.3 Open decisions requiring the owner
+### 11.3 Owner decisions (ratified & amended 2026-11-01; see `ARCHITECTURE-RECOMMENDATIONS.md`)
 
-| # | Decision | Options | Recommendation |
+| # | Decision | Options | Adopted Decision |
 |---|---|---|---|
-| **O-1** | Confinement for `run_command` (N4) | container-first / AppContainer-first / prefix-is-enough | **Container-first with a verified probe** (`require_confined`, `sandbox doctor`). AppContainer silently fails (D36); prefix alone is unverified. |
-| **O-2** | Subagent fan-out (N5) | keep sequential / coordinator with model selection | **Keep sequential** for mutation; allow a read-only fan-out batch over one runtime later. A coordinator that owns its own enforcement is a second runtime. |
-| **O-3** | Security Phase 0 scope | all ten items in one batch / split | **Split into two batches:** (a) forge + pip + TLS + confirmed + `agent_task`; (b) gateway + updates + secrets + plugins. Each is independently verifiable. |
-| **O-4** | Bridge disposition | build as designed / re-base / shelve | **Re-base** (§8.4) after O-1 and Phase 0. Do not shelve: discovery + artifacts + adapter contract are valuable. |
-| **O-5** | Upstream timing | port now / after Phase 0 | **After Phase 0**, and never merge `9dd02cf` wholesale. |
-| **O-6** | Native-tool policy | leave `elif` chain / migrate incrementally | **Migrate by capability class**, starting with `exec` and `write`, wrapping each in a `ToolSpec` behind `AgentRuntime`. Do not attempt a big-bang rewrite. |
-| **O-7** | `agent_task` | keep / disable / re-implement | **Disable now**, re-implement as a harness workflow later. It is an ungated fourth door. |
-| **O-8** | Deferred-tool `1008` | prompt-only / backend-agnostic proxy | **Measure prompt-only first**; if it still fails, build a routing shim inside the existing executor, not a new path. |
+| **O-1** | Confinement for `run_command` (N4) | container-first / AppContainer-first / prefix-is-enough | **Container-first with an active behavioral probe** (`require_confined`, `sandbox doctor`). WSL2 alone is not confinement; `sandbox doctor` must probe (write-outside, network egress, UID) rather than trust a prefix label, and `require_confined` must stay off unless `sandbox doctor` passes (the probe reports; it never writes policy). |
+| **O-2** | Subagent fan-out (N5) | keep sequential / coordinator with model selection | **Keep sequential** for mutation; allow a read-only fan-out batch (`run_subagent_batch`) only under a strict contract: `tool_class == "read"` only (no `mcp`/`native`), workspace-confined paths only, refuse `requires_approval`, exclude both `run_subagent` and `run_subagent_batch` from the **child's** advertised surface, and share the parent's runtime/cancel event (preserving I-08). |
+| **O-3** | Security Phase 0 scope | all ten items in one batch / split | **Split into two atomic batches:** **Q0-A** (forge `execute_sync` removal + TLS prompt cleanup + no runtime `pip` + delete `confirmed` + disable `agent_task`); **Q0-B** (gateway loopback/auth + updates + DPAPI secrets + plugin allowlist). |
+| **O-4** | Bridge disposition | build as designed / re-base / shelve | **Re-base** (§8.4) onto `AgentRuntime` via ADR-018 ("Bridge is a tool source, never a runtime") after O-1 and Phase 0. Do not shelve: discovery + artifacts + adapter contract are valuable. |
+| **O-5** | Upstream timing | port now / after Phase 0 | **After Q0-A and Q0-B**, and never merge `9dd02cf` wholesale. |
+| **O-6** | Native-tool policy | leave `elif` chain / migrate incrementally | **Migrate by capability class** using existing `TOOL_CLASSES` (`exec` → `write` → `network`/`device` → `read`), wrapping each in a `ToolSpec` behind `AgentRuntime` (no `is_async`/`ui_feedback` needed) and retiring the `core/tool_exec.py` `elif` chain. |
+| **O-7** | `agent_task` | keep / disable / re-implement | **Disable now in Q0-A**, delete `agent/planner.py`, `executor.py`, `task_queue.py`, and `error_handler.py` in Q1, and rely on `AgentLoop`/`run_subagent`. |
+| **O-8** | Deferred-tool `1008` | prompt-only / template output + session-scoped pin | **Three-part fix:** (1) format `_handle_search`/`_handle_list_tools` hits as literal `call_tool(tool_name="...", arguments={...})` templates; (2) add session-scoped `pinned_extra` to `ToolIndex.resolve()` and `build_session_payload()` for `1008` reconnects without replaying the turn; (3) delete the unbudgeted `mcp_Synapse`/`cdp` promotion block in `core/tool_bridge.py:386–398` (restoring I-19). |
 
 ---
 
 ## 12. Work queues (ranked by value per unit of risk)
 
-### Q0 — Stop the bleeding (days; no new architecture)
+### Q0-A — Stop the bleeding: Execution & code (days; no new architecture)
 
 1. Forge draft-only: remove `execute_sync` from `main.py:_forge_skill` and `agent/executor._run_skill_forge`.
-2. Remove TLS-bypass instructions from both forge prompts.
-3. `resolve_dependencies()` returns a plan; never `pip`.
-4. Delete the model-facing `confirmed` parameter; keep the HUD gate.
-5. Gateway: bind `127.0.0.1`, default off, authenticate HTTP control routes.
-6. Disable startup updates for clones; remove the hardcoded remote and the unconditional `git reset --hard` (the UI applies it without a confirmation step).
-7. Plugin loading: opt-in allowlist; do not import unsigned `.py` from a writable directory.
-8. Secrets: DPAPI for `api_keys.json` and `smart_home.key`; one release of read-only fallback.
-9. Disable the `agent_task` declaration and its handler.
-10. Update `SECURITY-ARCHITECTURE-ROADMAP.md` checkboxes and this document's status table.
+2. Remove TLS-bypass instructions (`verify=False`, `_create_unverified_context`) from both forge prompts, guarded by a string assertion test.
+3. `resolve_dependencies()` returns a plan; never calls `pip`.
+4. Delete the dead model-facing `confirmed` declaration (`main.py:1237`) and update the finding status; the handler no longer reads it.
+5. Disable the `agent_task` declaration and its handler.
+
+### Q0-B — Stop the bleeding: Network, secrets & supply chain (days; no new architecture)
+
+1. Gateway: bind `127.0.0.1`, default off, authenticate all HTTP control routes.
+2. Disable startup updates for clones; remove the hardcoded remote and the unconditional `git reset --hard` (the UI applies it without a confirmation step).
+3. Plugin loading: opt-in allowlist; do not import unsigned `.py` from a writable directory.
+4. Secrets: DPAPI for `api_keys.json` and `smart_home.key`; one release of read-only fallback.
+5. Update `SECURITY-ARCHITECTURE-ROADMAP.md` checkboxes and this document's status table.
 
 ### Q1 — Boundary and harness correctness (1–2 weeks)
 
-1. Decide O-1/O-2 (N4/N5) and record ADR-018 if the bridge boundary changes.
-2. Migrate the `exec` and `write` native tools to `ToolSpec`s behind `AgentRuntime` (O-6).
-3. Bring the voice MCP manager to refresh parity, or document the difference as permanent.
-4. Resolve the deferred-tool `1008` with a measured prompt-only trial.
-5. Correct any remaining doc drift (counts, guards, roots).
+1. Record O-1/O-2 (N4/N5) in the harness status/tracker docs and write ADR-018 for the bridge boundary.
+2. Delete legacy autonomous files (`agent/planner.py`, `executor.py`, `task_queue.py`, `error_handler.py`) and land CI ratchet gates (`main.py`/`ui.py`/`core/tool_exec.py` line counts, `elif` count ratchet, `agent/` import canary).
+3. Resolve the deferred-tool `1008` and I-19 violation (`O-8`: `call_tool` template formatting in `_handle_search`, remove `tool_bridge.py:386–398` promotion loop, add session-scoped `resolve(pinned_extra=...)`).
+4. Migrate native tools to `ToolSpec`s behind `AgentRuntime` by capability class (`exec`/`write` first, then `device`/`network`, then `read`), retiring the `elif` chain in `core/tool_exec.py` and extracting turn controllers from `main.py` (`O-6`).
+5. Add workspace trust fingerprinting (`trusted_workspaces`), verified container probe (`sandbox doctor` + `require_confined`, `O-1`), and read-only subagent fan-out (`run_subagent_batch`, `O-2`), one concern per batch.
+6. Keep the two MCP clients per I-18 (`agent/mcp.py` is stdio-only; `core/mcp_manager.py` owns HTTP/SSE + headers/auth); bring the voice MCP manager to refresh parity or scope HTTP/SSE parity explicitly.
+7. Correct any remaining doc drift (counts, guards, roots).
 
 ### Q2 — Bridge v2 (after Q0/Q1)
 
 Discovery → registry → MCP adapter → local-model adapter → one CLI adapter behind `run_subagent` → artifacts → orchestrator connectors last. One adapter per batch, each with a contract test and a degraded state.
 
-### Q3 — Upstream port (after Q0)
+### Q3 — Upstream port (after Q0-A and Q0-B)
 
 Installer/CI → self-contained features → provider plumbing → selective voice work. No wholesale merge.
 
 ### Q4 — Assurance (continuous)
 
-Red-team suite in CI, audit log, reproducible builds/SBOM, external review of sandbox/updater/gateway, key-rotation drill.
+Red-team suite in CI, audit log, reproducible builds/SBOM, external review of sandbox/updater/gateway, key-rotation drill, incremental `mypy --strict` and legacy `subprocess` consolidation.
 
 ---
 
-## 13. Open architectural questions (not yet decisions)
+## 13. Open architectural questions (and working dispositions)
 
-These are the questions this synthesis could not answer from the documents or the code. They should be answered before Q2.
+These are the cross-cutting questions raised by the synthesis, paired with their working dispositions (full rationale in `ARCHITECTURE-RECOMMENDATIONS.md` §2.2):
 
-1. **What is the long-term relationship between the native action catalogue and the harness?** The repo has two tool worlds: ~60 hand-written actions with no policy, and 8 primitives with a policy. Is the end state "everything is a `ToolSpec`", or "native actions are a trusted, separately-reviewed surface"?
-2. **Is the gateway a product feature or a development convenience?** That determines whether it needs device auth only (product) or full pairing + audit + loopback (both).
-3. **Does "orchestrator" mean Brahma supervises other agents, or Brahma is a peer in a fleet?** The bridge says strict hierarchy; ADR-013 defers peers. The answer changes the recursion guard, the budget model, and whether Tier 3 exists at all.
-4. **What is the trusted-input policy for a cloned repository?** `AGENTS.md` and `SKILL.md` already speak with project authority; the security roadmap wants taint tracking. Today there is no answer between "trust the tree" and "dual-LLM".
-5. **How much of the forge should survive?** Phase 0 makes it draft-only. Is the product goal a reviewed skill marketplace, a local experiment, or removal?
-6. **What is the release model?** Unsigned clones, an unsigned installer, and a hardcoded update remote cannot coexist with a security claim. Pick one: developer-only, signed releases, or no self-update.
-7. **Does the harness own the voice loop eventually?** Today Gemini's session is a separate loop with shared tools. If voice gains multi-step reasoning, the loop split becomes the next architectural fork.
+1. **What is the long-term relationship between the native action catalogue and the harness?** *Working disposition:* **One unified `ToolSpec` registry.** All ~60 actions migrate into `ToolSpec`s under existing `TOOL_CLASSES` gated by `AgentRuntime.execute`; `agent/` stays stdlib-only (`I-15`) while host actions register at startup.
+2. **Is the gateway a product feature or a development convenience?** *Working disposition:* **Opt-in companion product feature** — loopback (`127.0.0.1`) and disabled by default, requiring paired-device authentication on every HTTP and WebSocket route.
+3. **Does "orchestrator" mean Brahma supervises other agents, or Brahma is a peer in a fleet?** *Working disposition:* **Strict 1-hop hierarchy (supervisor → leaf worker)** with self-target refusal; peer-fleet topologies remain deferred (ADR-013).
+4. **What is the trusted-input policy for a cloned repository?** *Working disposition:* **Workspace trust fingerprinting** (`trusted_workspaces`) gating repo-local `.mcp.json` and instruction auto-loads, paired with untrusted-content delimiters on external tool outputs.
+5. **How much of the forge should survive?** *Working disposition:* **Quarantined draft studio only** — writes to staging, runs static + subprocess checks, and requires HUD diff approval + SHA-256 manifest recording before loading.
+6. **What is the release model?** *Working disposition:* **Notify-only for git clones; signed release artifacts for packaged builds** (no `git reset --hard`, no hardcoded personal remote).
+7. **Does the harness own the voice loop eventually?** *Working disposition:* **Deferred.** Voice calls `agent_runtime.execute` directly and has no text completer (`main.py:2211–2231`), so `run_subagent` (which requires `AgentLoop._run_one`'s `subagent_runner`) cannot simply be advertised. Revisit only with a dedicated voice-completer design.
 
 ---
 
@@ -662,6 +667,7 @@ These are the questions this synthesis could not answer from the documents or th
 | File | Lines | Tier | Status |
 |---|---:|---|---|
 | `ARCHITECTURE-SPEC.md` | this | 1 | Living map |
+| `ARCHITECTURE-RECOMMENDATIONS.md` | 152 | 1 | Reviewed annex & batch blueprint (merged into §11–§13) |
 | `AGENTIC-HARNESS.md` | 1,166 | 1 | Authoritative |
 | `AGENTIC-HARNESS-STATUS.md` | 1,197 | 1 | Authoritative decisions |
 | `AGENTIC-HARNESS-NEXT.md` | 328 | 1 | Authoritative tracker |
@@ -710,7 +716,7 @@ These are the questions this synthesis could not answer from the documents or th
 | `pytest tests -q -k agent` | 387 passed, 1 skipped |
 | Focused skills tests | 84 passed |
 | `upstream/main` | `bfb2868` (2026-10-27); 7 commits past merge base |
-| Security findings | all 8 present; gateway and `confirmed` extras present |
+| Security findings | all 8 present; gateway extra open; `confirmed` extra is a dead declaration, not a live bypass |
 | Bridge implementation | none; `core/agent_bridge/` absent |
 | Legacy executor | present and reachable via `agent_task` |
 
