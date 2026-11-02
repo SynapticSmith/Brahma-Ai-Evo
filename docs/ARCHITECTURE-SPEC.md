@@ -663,7 +663,8 @@ Accepted 2026-10-17, but **acceptance is not authorization to build**: they were
 
 ### Q2 — Bridge v2 (after Q0/Q1)
 
-Discovery → registry → MCP adapter → local-model adapter → one CLI adapter behind `run_subagent` → artifacts → orchestrator connectors last. One adapter per batch, each with a contract test and a degraded state.
+1. ✅ (landed 2026-11-02, B16) **Discovery & Registry:** `core/agent_bridge/` package with `detectors.py` (Layers A–D: CLI PATH, local loopback ports, vendor configs; pure, zero spawns, never raises), `models.py` (`AgentRecord`, `Capability`, `ProbeResult`, `AgentCallResult`), and thread-safe atomic `AgentRegistry` (`registry.py`). Guarded by `tests/test_agent_discovery.py` and `tests/test_agent_registry.py`.
+2. MCP adapter → local-model adapter → one CLI adapter behind `run_subagent` → artifacts → orchestrator connectors last. One adapter per batch, each with a contract test and a degraded state.
 
 ### Q3 — Upstream port (after Q0-A and Q0-B)
 
