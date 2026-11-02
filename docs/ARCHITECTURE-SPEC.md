@@ -665,7 +665,8 @@ Accepted 2026-10-17, but **acceptance is not authorization to build**: they were
 
 1. ✅ (landed 2026-11-02, B16) **Discovery & Registry:** `core/agent_bridge/` package with `detectors.py` (Layers A–D: CLI PATH, local loopback ports, vendor configs; pure, zero spawns, never raises), `models.py` (`AgentRecord`, `Capability`, `ProbeResult`, `AgentCallResult`), and thread-safe atomic `AgentRegistry` (`registry.py`). Guarded by `tests/test_agent_discovery.py` and `tests/test_agent_registry.py`.
 2. ✅ (landed 2026-11-02, B17) **MCP Server Adapter & Golden Contract:** `core/agent_bridge/adapter.py` (`AgentAdapter` ABC, `to_tool_specs()`) and `core/agent_bridge/adapters/mcp_server.py` (`MCPServerAdapter` wrapping pure stdlib `agent.mcp.StdioServer` and publishing canonical `ToolSpec`s behind `AgentRuntime.execute`). Guarded by `tests/test_agent_adapter_contract.py` (probes, connect, call, degraded state, idempotent shutdown, runtime dispatch).
-3. Local-model adapter → one CLI adapter behind `run_subagent` → artifacts → orchestrator connectors last. One adapter per batch, each with a contract test and a degraded state.
+3. ✅ (landed 2026-11-02, B18) **Local Model Server Adapter:** `core/agent_bridge/adapters/local_model.py` (`LocalModelAdapter` supporting Ollama, LM Studio, vLLM over OpenAI-compatible `/v1` endpoints via pure stdlib `urllib.request` and publishing canonical `ToolSpec`s with `tool_class="network"` behind `AgentRuntime.execute`). Guarded by `tests/test_agent_local_model.py`.
+4. CLI adapter behind `run_subagent` → artifacts → orchestrator connectors last. One adapter per batch, each with a contract test and a degraded state.
 
 ### Q3 — Upstream port (after Q0-A and Q0-B)
 
