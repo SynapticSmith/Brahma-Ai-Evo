@@ -125,7 +125,7 @@ The fourth door is the single largest structural inconsistency in the repo. §6.
 | `features/` | Forge output, hot-loaded at startup | Untrusted model-generated code; see §7. |
 | `brahma_connect/` | Phone/device gateway (HTTP + WebSocket + mDNS) | Defaults to `127.0.0.1`, disabled, no mDNS advertise; HTTP control routes still unauthenticated when enabled. |
 | `tests/` | Pytest suite; 766 passed / 1 skipped after the build-plumbing batch | `test_agent_*` are display- and SDK-free. |
-| `docs/` | Design records, build logs, proposals | Eighteen documents; see §3. |
+| `docs/` | Design records, build logs, proposals, ADRs | Twenty-three documents; see §3. |
 
 ### 2.3 Subsystem inventory
 
@@ -604,6 +604,15 @@ A batch is done when:
 
 Accepted 2026-10-17, but **acceptance is not authorization to build**: they were accepted against a design that predates the harness. ADR-006 (MCP extraction) and ADR-011 (route through `core/confirm`) are the ones that conflict with §8.3 and must be superseded by ADR-018 before implementation. ADR-001's "no core growth" premise also needs revisiting, since both shell guards are already breached.
 
+**Proposed (2026-11-01), awaiting ratification — these gate the remaining Q1 work:**
+
+| ADR | Decision | Gates | Document |
+| --- | --- | --- | --- |
+| **ADR-019** | Native actions get a narrow `HostServices` bundle through `ToolContext.extra["host"]`; adapters, not signature changes; HUD feedback moves to runtime events. | O-6 waves 1–3 (B6/B7) | `docs/ADR-019-ACTION-HOST-INJECTION.md` |
+| **ADR-020** | `paths.trusted_roots` (human-authored, containment-only, secrets still protected) plus a `trusted_workspaces` store that gates repo-local MCP loading; trust gates execution, not reading. | O-1 trust item (B8), prompt fatigue in O-6 | `docs/ADR-020-TRUSTED-USER-ROOTS.md` |
+| **ADR-021** | `pinned_extra` consumes budget, ranks after global pins, drops oldest-first, and replaces the unbudgeted Synapse/cdp append. | O-8 layer 3 / the `1008` fix (Q1.3) | `docs/ADR-021-PINNED-EXTRA-SEMANTICS.md` |
+
+
 ### 11.3 Owner decisions (ratified & amended 2026-11-01; see `ARCHITECTURE-RECOMMENDATIONS.md`)
 
 | # | Decision | Options | Adopted Decision |
@@ -645,9 +654,9 @@ Accepted 2026-10-17, but **acceptance is not authorization to build**: they were
 
 1. Record O-1/O-2 (N4/N5) in the harness status/tracker docs and write ADR-018 for the bridge boundary.
 2. ✅ (landed early as B4) Delete legacy autonomous files (`agent/planner.py`, `executor.py`, `task_queue.py`, `error_handler.py`) and land CI ratchet gates (`main.py`/`ui.py`/`core/tool_exec.py` line counts, `elif` count ratchet, `agent/` import canary) — `tests/test_architecture_invariants.py` + `tests/architecture_ratchet.json`.
-3. Resolve the deferred-tool `1008` and I-19 violation (`O-8`: `call_tool` template formatting in `_handle_search`, remove `tool_bridge.py:386–398` promotion loop, add session-scoped `resolve(pinned_extra=...)`).
-4. Migrate native tools to `ToolSpec`s behind `AgentRuntime` by capability class (`exec`/`write` first, then `device`/`network`, then `read`), retiring the `elif` chain in `core/tool_exec.py` and extracting turn controllers from `main.py` (`O-6`).
-5. Add workspace trust fingerprinting (`trusted_workspaces`), verified container probe (`sandbox doctor` + `require_confined`, `O-1`), and read-only subagent fan-out (`run_subagent_batch`, `O-2`), one concern per batch.
+3. Resolve the deferred-tool `1008` and I-19 violation (`O-8`: `call_tool` template formatting in `_handle_search`, remove `tool_bridge.py:386–398` promotion loop, add session-scoped `resolve(pinned_extra=...)`). **Blocked on ADR-021 ratification** (budget accounting, precedence, eviction order are now specified).
+4. Migrate native tools to `ToolSpec`s behind `AgentRuntime` by capability class (`exec`/`write` first, then `device`/`network`, then `read`), retiring the `elif` chain in `core/tool_exec.py` and extracting turn controllers from `main.py` (`O-6`). **Blocked on ADR-019 ratification** (host injection shape).
+5. Add workspace trust fingerprinting (`trusted_workspaces`), verified container probe (`sandbox doctor` + `require_confined`, `O-1`), and read-only subagent fan-out (`run_subagent_batch`, `O-2`), one concern per batch. **Workspace trust is specified in ADR-020; `sandbox doctor` still needs its probe contract.**
 6. Keep the two MCP clients per I-18 (`agent/mcp.py` is stdio-only; `core/mcp_manager.py` owns HTTP/SSE + headers/auth); bring the voice MCP manager to refresh parity or scope HTTP/SSE parity explicitly.
 7. ✅ (landed 2026-11-01) Build reproducibility plumbing: `requirements-build.txt` pins PyInstaller + hooks, `scripts/setup_dev.ps1` builds a 3.11 `.venv` and refuses other interpreters, `build_all.ps1` invokes `python -m PyInstaller` and writes `dist\SHA256SUMS.txt`, and `.github/workflows/build.yml` runs a manual/tag build. No lockfile and no signing yet — that stays in WS-6/Q4.
 8. Correct any remaining doc drift (counts, guards, roots).
