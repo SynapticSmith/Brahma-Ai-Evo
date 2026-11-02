@@ -1,6 +1,6 @@
 # ADR-019 — Action host injection for the native-tool migration
 
-**Status:** Accepted (ratified 2026-11-01) · wave 1 implemented 2026-11-01 · **Gates:** O-6 waves 1–3 (B6/B7) · **Supersedes:** nothing
+**Status:** Accepted (ratified 2026-11-01) · waves 1–2 implemented 2026-11-01 · **Gates:** O-6 waves 1–3 (B6/B7) · **Supersedes:** nothing
 **Related:** `AGENTIC-HARNESS.md` (ToolSpec/ToolContext), `ARCHITECTURE-SPEC.md` §2.2, §6.3, §12 Q1.4
 
 ## Context
@@ -170,6 +170,63 @@ per-call override still winning), `tool_end.output`, the sink's name filter,
 sink chaining/idempotency, the absence of the migrated `elif` branches, and that
 `agent/` never imports the desktop layer. Suite: **790 passed, 1 skipped**.
 
-Wave 2 starts with the per-action class split (a `ToolSpec` per action name for
-the mixed-verb modules), then `device`/`network`; `save_memory`'s silent
-response is a small `ToolSpec` extension rather than a second dispatch path.
+## Implementation — wave 2 (landed 2026-11-01)
+
+Eighteen names (`WAVE2` in `core/desktop_tools.py`, bringing the desktop registry
+to 27 specs across waves 1–2):
+
+| Class | Names |
+| --- | --- |
+| `write` / `read` (per-call classifier) | `file_controller`, `smart_organizer`, `desktop_organizer` (alias of `smart_organizer`) |
+| `write` (`silent=True`) | `save_memory` |
+| `device` | `unlock_device`, `connect_list_devices`, `connect_get_device`, `connect_get_capabilities`, `connect_execute`, `connect_pair_device`, `connect_disconnect_device` |
+| `network` | `send_message`, `check_instagram_messages`, `instagram_send_dm`, `instagram_post_photo`, `instagram_post_reel`, `instagram_get_user_info`, `instagram_reply` |
+
+Three small harness/host extensions keep the wave on the single dispatch path:
+
+1. **Per-call capability classification (`ToolSpec.classifier` / `ToolSpec.class_for(args)`).**
+   `file_controller` and `smart_organizer` mix read-only inspection (`list`,
+   `read`, `find`, `largest`, `disk_usage`, `preview`, `find_duplicates`, `info`)
+   with mutation (`delete`, `write`, `move`, `organize`, `undo`, `archive_old`).
+   Rather than splitting the model-facing tool names, `ToolSpec` gained an
+   optional `classifier: Callable[[Mapping[str, Any]], str]` with a fail-safe
+   `class_for(args)` helper: if the classifier raises or returns an unknown
+   class, it falls back to the declared `tool_class` (`"write"`). Declaring
+   `"write"` as the static class also keeps read-only subagent defaults
+   (`spec.tool_class == "read"`) from inheriting a mixed-verb tool unless
+   explicitly requested. `AgentRuntime.decide`, `AgentRuntime._approval_key`,
+   and `agent.approval_detail._remember` all use `spec.class_for(args)`, and
+   class-level session approvals for classified tools are keyed as
+   `f"{name}:{tool_class}"` so approving a `read` verb never silently approves a
+   `write` verb on the same tool. In `AgentLoop._call_effect`, classified specs
+   are treated as fences so multi-path/shortcut arguments never overlap.
+2. **Silent tool responses (`ToolSpec.silent: bool = False`).** `save_memory`
+   returns `{"result": "ok", "silent": True}` on the voice `FunctionResponse`
+   and suppresses the `"Working on …"` utterance and deliverable card while
+   still restoring the UI state to `LISTENING` on `tool_end`. `AgentRuntime`
+   propagates `silent` on `tool_start`/`tool_end` events, `HostEventSink`
+   suppresses `present_start`/`present_end` when `silent` is set, and
+   `core/tool_exec.py` adds `"silent": True` to the `FunctionResponse` payload
+   when `spec.silent` is true.
+3. **`connect_*` spoken summaries in `core/desktop_host.py`.** The wave-1 open
+   question on `_connect_tool_voice` was resolved without widening
+   `HostServices`: `connect_tool_voice(name, raw_result)` moved into
+   `core/desktop_host.py` and `present_end` computes it automatically when
+   `voice` is not supplied (`core/session_lifecycle.py` delegates to the same
+   helper). Moving `ig_gemini_reply` into `core/reply_flow.py` and removing the
+   redundant wrapper on `BrahmaLive` also shrank `main.py` (`4,811 → 4,784`
+   lines).
+
+`core/tool_exec.py` dropped 16 `elif` branches plus the `save_memory` block
+(`716 → 527` lines, `70 → 54` `elif`s); all three ratchets in
+`tests/architecture_ratchet.json` were lowered in the same commit.
+
+Tests: `tests/test_desktop_tools.py` (20) adds wave-2 spec/alias/silent shape
+checks, `ToolSpec.class_for` fail-safe behavior, per-action `read` vs `write`
+policy enforcement across `file_controller` and `smart_organizer`/`desktop_organizer`,
+per-class session-approval isolation (`read` "always allow" does not approve
+`write`), `device`/`network` policy denials plus `connect_list_devices` spoken
+summary via `HostEventSink`, and `save_memory` silent HUD/event behavior.
+Suite: **796 passed, 1 skipped**.
+
+Wave 3 is the remaining ~32 native actions in `core/tool_exec.py` (system/UI/media/search/vision/dynamic skills) plus the turn-controller extraction from `main.py`.

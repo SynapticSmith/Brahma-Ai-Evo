@@ -107,12 +107,14 @@ def _path_argument(args: Mapping[str, Any]) -> Any:
 
 
 def _remember(name: str, args: Mapping[str, Any], spec: Optional[ToolSpec], rule: str, context: ToolContext) -> str:
-    tool_class = spec.tool_class if spec else "native"
+    tool_class = spec.class_for(args) if spec else "native"
     if tool_class == "exec":
         command = str(args.get("command") or args.get("cmd") or "").strip()
         return f"this exact command ({_short(command, 120)})"
     if rule in PATH_RULES:
         return f"this path ({_display(context, _path_argument(args))})"
+    if spec is not None and spec.classifier is not None and rule != f"tools.{name}":
+        return f"every {tool_class} {name} call in this session"
     return f"every {name} call in this session"
 
 

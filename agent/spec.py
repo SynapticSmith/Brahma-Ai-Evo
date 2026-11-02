@@ -92,6 +92,7 @@ class ToolContext:
 
 
 Handler = Callable[[Dict[str, Any], ToolContext], str]
+Classifier = Callable[[Mapping[str, Any]], str]
 
 
 def _uppercase_types(node: Any) -> Any:
@@ -148,6 +149,15 @@ class ToolSpec:
     #: irreversible one-offs that are not otherwise classifiable.
     requires_approval: bool = False
     max_output_chars: Optional[int] = None
+    #: Optional per-call classifier for mixed-verb tools (e.g. a single tool
+    #: declaration whose ``action`` selects read vs. write). Returns a
+    #: ``TOOL_CLASSES`` name; any invalid return or exception falls back to
+    #: ``tool_class``.
+    classifier: Optional[Classifier] = None
+    #: Whether the host should treat the call as background/silent (e.g.
+    #: ``save_memory`` returning ``{"result": "ok", "silent": True}`` on the
+    #: voice path without HUD chatter).
+    silent: bool = False
 
     def __post_init__(self) -> None:
         if not self.name or not self.name.replace("_", "").isalnum():
@@ -157,6 +167,20 @@ class ToolSpec:
                 f"tool {self.name!r}: unknown class {self.tool_class!r} "
                 f"(expected one of {TOOL_CLASSES})"
             )
+        if self.classifier is not None and not callable(self.classifier):
+            raise ToolRegistrationError(
+                f"tool {self.name!r}: classifier must be callable"
+            )
+
+    def class_for(self, args: Optional[Mapping[str, Any]] = None) -> str:
+        """Effective capability class for ``args`` (fail-safe to ``tool_class``)."""
+        if self.classifier is None:
+            return self.tool_class
+        try:
+            chosen = self.classifier(dict(args or {}))
+        except Exception:
+            return self.tool_class
+        return chosen if chosen in TOOL_CLASSES else self.tool_class
 
     # -- schema shapes -----------------------------------------------------
 
@@ -221,6 +245,8 @@ def tool(
     tags: Iterable[str] = (),
     requires_approval: bool = False,
     max_output_chars: Optional[int] = None,
+    classifier: Optional[Classifier] = None,
+    silent: bool = False,
 ) -> Callable[[Handler], Handler]:
     """Decorator form of :func:`register`."""
 
@@ -235,6 +261,8 @@ def tool(
                 tags=tuple(tags),
                 requires_approval=requires_approval,
                 max_output_chars=max_output_chars,
+                classifier=classifier,
+                silent=silent,
             )
         )
         return handler

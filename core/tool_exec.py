@@ -7,26 +7,15 @@ this executor a host reference plus the two main.py symbols it needs
 from __future__ import annotations
 
 import asyncio
-import json
 import threading
 import traceback
-from pathlib import Path
 
 from google.genai import types
 
 from actions.browser_control   import browser_control
 from actions.computer_control  import computer_control
 from actions.computer_settings import computer_settings
-from actions.brahma_connect    import (
-    connect_list_devices,
-    connect_get_device,
-    connect_get_capabilities,
-    connect_execute,
-    connect_pair_device,
-    connect_disconnect_device,
-)
 from actions.desktop           import desktop_control
-from actions.file_controller   import file_controller
 from actions.file_processor import file_processor
 from actions.flight_finder     import flight_finder
 from actions.game_updater      import game_updater
@@ -36,12 +25,8 @@ from actions.open_app          import open_app
 from core.protocols import protocols
 from actions.screen_processor  import screen_process
 from memory.memory_manager import search_memory
-from actions.send_message      import send_message
 from core.sensorium import sensorium
 from core import undo as undo_stack
-from memory.memory_manager import (
-    update_memory
-)
 from actions.weather_report    import weather_action
 from actions.web_search        import web_search as web_search_action
 from actions.youtube_video     import youtube_video
@@ -128,9 +113,10 @@ class ToolExecutor:
         try:
             from agent import code_tools  # noqa: F401  (import registers specs)
             from agent import runtime as agent_runtime
-            from agent.spec import is_registered
+            from agent.spec import get as get_spec
 
-            if is_registered(name):
+            spec = get_spec(name)
+            if spec is not None:
                 call_id = getattr(fc, "id", None) or f"call_{name}"
                 text = await asyncio.to_thread(
                     agent_runtime.execute,
@@ -140,7 +126,10 @@ class ToolExecutor:
                     extra={"host": self._desktop.host},
                 )
                 print(f"[BRAHMA EVO] 🧰 {name} -> {str(text)[:200].replace(chr(10), ' ')}")
-                return types.FunctionResponse(name=name, id=call_id, response={"result": text})
+                payload = {"result": text}
+                if spec.silent:
+                    payload["silent"] = True
+                return types.FunctionResponse(name=name, id=call_id, response=payload)
         except Exception as exc:
             print(f"[BRAHMA EVO] ⚠️ Harness tool '{name}' unavailable: {exc}")
 
@@ -231,24 +220,6 @@ class ToolExecutor:
             self._host.ui.set_state("LISTENING")
             return types.FunctionResponse(name=name, id=fc.id, response={"result": res})
 
-        if name == "save_memory":
-            category = args.get("category", "notes")
-            key      = args.get("key", "")
-            value    = args.get("value", "")
-            if key and value:
-                update_memory({category: {key: {"value": value}}})
-                print(f"[Memory] 💾 save_memory: {category}/{key} = {value}")
-                try:
-                    self._host.ui.finish_task_workspace("Memory saved.", "Memory updated.", 100)
-                except Exception:
-                    pass
-            if not self._host.ui.muted:
-                self._host.ui.set_state("LISTENING")
-            return types.FunctionResponse(
-                id=fc.id, name=name,
-                response={"result": "ok", "silent": True}
-            )
-
         loop   = asyncio.get_event_loop()
         result = "Done."
 
@@ -266,130 +237,6 @@ class ToolExecutor:
             elif name == "open_app":
                 r = await loop.run_in_executor(None, lambda: open_app(parameters=args, response=None, player=self._host.ui))
                 result = r or f"Opened {args.get('app_name')}."
-                
-            elif name == "check_instagram_messages":
-                self._host.ui.write_log("SYS: Checking Instagram messages...")
-                if hasattr(self._host.ui, "show_hud_operation"):
-                    self._host.ui.show_hud_operation("Instagram Inbox", "Fetching recent direct messages...", sources=["instagram.com"])
-                from actions.instagram_mcp import get_recent_messages, InstagramService
-                amount = int(args.get("amount", 5)) if args else 5
-                result = await loop.run_in_executor(None, get_recent_messages, amount)
-                if hasattr(self._host.ui, "show_hud_deliverable"):
-                    try:
-                        inbox_data = InstagramService.instance().get_inbox(amount=amount)
-                        bullets = [f"@{item['sender']}: {item['last_message']}" for item in inbox_data[:4]]
-                        self._host.ui.show_hud_deliverable("Instagram Inbox", summary=f"Retrieved {len(inbox_data)} recent conversations", bullets=bullets, kind="result")
-                    except Exception:
-                        pass
-
-            elif name == "instagram_send_dm":
-                recipient = args.get("recipient", "")
-                message = args.get("message", "")
-                open_browser = args.get("open_in_browser", True)
-                self._host.ui.write_log(f"SYS: Sending Instagram DM to @{recipient}...")
-                if hasattr(self._host.ui, "show_hud_operation"):
-                    self._host.ui.show_hud_operation("Instagram DM", f"Messaging @{recipient}...", sources=["instagram.com"])
-                from actions.instagram_mcp import InstagramService
-                def _do_send():
-                    return InstagramService.instance().send_dm(recipient, message, open_in_browser=open_browser)
-                res = await loop.run_in_executor(None, _do_send)
-                if hasattr(self._host.ui, "show_hud_deliverable"):
-                    self._host.ui.show_hud_deliverable("Instagram DM Sent", summary=f"Direct message sent to @{res.get('recipient')}", bullets=[f"Message: {message[:60]}...", "Opened in browser for verification"], kind="result")
-                result = f"Direct message sent to @{recipient}. Chat opened in browser: {res.get('browser_url')}"
-
-            elif name == "instagram_post_photo":
-                image_path = args.get("image_path", "")
-                caption = args.get("caption", "")
-                open_browser = args.get("open_in_browser", True)
-                self._host.ui.write_log("SYS: Publishing photo to Instagram...")
-                if hasattr(self._host.ui, "show_hud_operation"):
-                    self._host.ui.show_hud_operation("Instagram Post", f"Uploading {Path(image_path).name}...", sources=["instagram.com"])
-                from actions.instagram_mcp import InstagramService
-                def _do_post():
-                    return InstagramService.instance().post_photo(image_path, caption=caption, open_in_browser=open_browser)
-                res = await loop.run_in_executor(None, _do_post)
-                if hasattr(self._host.ui, "show_hud_deliverable"):
-                    self._host.ui.show_hud_deliverable("Instagram Post Published", summary="Photo published live to Instagram!", bullets=[f"URL: {res.get('post_url')}", f"Caption: {caption[:60]}..."], kind="deliverable")
-                result = f"Successfully published photo to Instagram! Post URL: {res.get('post_url')}"
-
-            elif name == "instagram_post_reel":
-                video_path = args.get("video_path", "")
-                caption = args.get("caption", "")
-                thumb = args.get("thumbnail_path")
-                open_browser = args.get("open_in_browser", True)
-                self._host.ui.write_log("SYS: Publishing Reel to Instagram...")
-                if hasattr(self._host.ui, "show_hud_operation"):
-                    self._host.ui.show_hud_operation("Instagram Reel", f"Uploading {Path(video_path).name}...", sources=["instagram.com"])
-                from actions.instagram_mcp import InstagramService
-                def _do_reel():
-                    return InstagramService.instance().post_reel(video_path, caption=caption, thumbnail_path=thumb, open_in_browser=open_browser)
-                res = await loop.run_in_executor(None, _do_reel)
-                if hasattr(self._host.ui, "show_hud_deliverable"):
-                    self._host.ui.show_hud_deliverable("Instagram Reel Published", summary="Reel published live to Instagram!", bullets=[f"URL: {res.get('reel_url')}", f"Caption: {caption[:60]}..."], kind="deliverable")
-                result = f"Successfully published Reel to Instagram! Reel URL: {res.get('reel_url')}"
-
-            elif name == "instagram_get_user_info":
-                username = args.get("username", "")
-                self._host.ui.write_log(f"SYS: Looking up Instagram user @{username}...")
-                if hasattr(self._host.ui, "show_hud_operation"):
-                    self._host.ui.show_hud_operation("Instagram Intelligence", f"Looking up @{username}...", sources=["instagram.com"])
-                from actions.instagram_mcp import InstagramService
-                def _do_lookup():
-                    return InstagramService.instance().get_user_profile(username)
-                res = await loop.run_in_executor(None, _do_lookup)
-                if hasattr(self._host.ui, "show_hud_deliverable"):
-                    self._host.ui.show_hud_deliverable(f"@{res.get('username')} Profile", summary=res.get("bio", "No bio"), bullets=[f"Followers: {res.get('followers', 0):,}", f"Following: {res.get('following', 0):,}", f"Posts: {res.get('posts_count', 0):,}", f"Verified: {'Yes' if res.get('is_verified') else 'No'}"], kind="result")
-                result = json.dumps(res, indent=2)
-
-            elif name == "instagram_reply":
-                action = args.get("action")
-                reply_text = args.get("reply_text")
-                if getattr(self, "_ig_pending_thread", None):
-                    thread_id = self._host._ig_pending_thread.get("thread_id")
-                    username = self._host._ig_pending_thread.get("username")
-                    from actions.instagram_mcp import add_auto_thread, send_direct_reply
-                    if action == "take_over":
-                        self._host.ui.write_log("SYS: Taking over Instagram thread via tool.")
-                        add_auto_thread(thread_id)
-                        message_text = self._host._ig_pending_thread.get('message')
-                        def _generate_and_send():
-                            try:
-                                reply = self._ig_gemini_reply(username, message_text)
-                                send_direct_reply(thread_id, reply)
-                            except Exception as e:
-                                print(f"Error taking over thread: {e}")
-                        threading.Thread(target=_generate_and_send, daemon=True).start()
-                        result = f"Successfully took over the chat with @{username}. The backend will now automatically reply to them."
-                    else:
-                        self._host.ui.write_log(f"SYS: Sending manual reply to @{username}.")
-                        send_direct_reply(thread_id, reply_text)
-                        result = f"Successfully sent manual reply to @{username} and opened thread in browser."
-                        
-                    self._host._ig_reply_mode = False
-                    self._host._ig_pending_thread = None
-                else:
-                    recipient = args.get("recipient") or args.get("username")
-                    from actions.instagram_mcp import InstagramService, add_auto_thread
-                    thread_id = None
-                    if not recipient:
-                        try:
-                            inbox = InstagramService.instance().get_inbox(amount=1)
-                            if inbox:
-                                recipient = inbox[0].get("sender")
-                                thread_id = inbox[0].get("thread_id")
-                        except Exception:
-                            pass
-
-                    if recipient:
-                        if action == "take_over":
-                            add_auto_thread(thread_id or recipient)
-                            result = f"Successfully took over the chat with @{recipient}. Brahma Evo will now automatically reply."
-                        else:
-                            res = InstagramService.instance().send_dm(recipient, reply_text, open_in_browser=True)
-                            result = f"Sent reply to @{recipient}: '{reply_text}'. Thread opened in browser."
-                        self._host._ig_reply_mode = False
-                    else:
-                        result = "Could not find a recent conversation to reply to. Please specify who you want to message."
 
             elif name == "system_manager":
                 from actions.system_manager import run as sm_run
@@ -413,14 +260,6 @@ class ToolExecutor:
             elif name == "browser_control":
                 r = await loop.run_in_executor(None, lambda: browser_control(parameters=args, player=self._host.ui))
                 result = r or "Done."
-
-            elif name == "file_controller":
-                r = await loop.run_in_executor(None, lambda: file_controller(parameters=args, player=self._host.ui))
-                result = r or "Done."
-
-            elif name == "send_message":
-                r = await loop.run_in_executor(None, lambda: send_message(parameters=args, response=None, player=self._host.ui, session_memory=None))
-                result = r or f"Message sent to {args.get('receiver')}."
 
             elif name == "youtube_video":
                 r = await loop.run_in_executor(None, lambda: youtube_video(parameters=args, response=None, player=self._host.ui))
@@ -457,11 +296,6 @@ class ToolExecutor:
                 command_text = str(args.get("command") or "").strip()
                 r = await loop.run_in_executor(None, lambda: self._host._smart_home.execute_command(command_text))
                 result = str((r or {}).get("detail") or "Smart-home command completed.")
-
-            elif name in ("smart_organizer", "desktop_organizer"):
-                from actions.desktop_organizer_mcp import smart_organizer
-                r = await loop.run_in_executor(None, lambda: smart_organizer(parameters=args, player=self._host.ui, speak=self._host.speak))
-                result = r or "Done."
 
             elif name == "desktop_control":
                 r = await loop.run_in_executor(None, lambda: desktop_control(parameters=args, player=self._host.ui))
@@ -618,24 +452,6 @@ class ToolExecutor:
                     result = out_text
                 else:
                     result = f"Unknown tool: {name}"
-            elif name == "connect_list_devices":
-                r = await loop.run_in_executor(None, lambda: connect_list_devices(parameters=args, player=self._host.ui))
-                result = r or "Done."
-            elif name == "connect_get_device":
-                r = await loop.run_in_executor(None, lambda: connect_get_device(parameters=args, player=self._host.ui))
-                result = r or "Done."
-            elif name == "connect_get_capabilities":
-                r = await loop.run_in_executor(None, lambda: connect_get_capabilities(parameters=args, player=self._host.ui))
-                result = r or "Done."
-            elif name == "connect_execute":
-                r = await loop.run_in_executor(None, lambda: connect_execute(parameters=args, player=self._host.ui))
-                result = r or "Done."
-            elif name == "connect_pair_device":
-                r = await loop.run_in_executor(None, lambda: connect_pair_device(parameters=args, player=self._host.ui))
-                result = r or "Done."
-            elif name == "connect_disconnect_device":
-                r = await loop.run_in_executor(None, lambda: connect_disconnect_device(parameters=args, player=self._host.ui))
-                result = r or "Done."
             elif name in ("spotify_controller", "spotify", "music"):
                 from actions.spotify_controller import spotify_controller
                 r = await loop.run_in_executor(None, lambda: spotify_controller(parameters=args, player=self._host.ui, speak=self._host.speak))
@@ -670,10 +486,6 @@ class ToolExecutor:
                 from actions.daily_briefing import daily_briefing
                 r = await loop.run_in_executor(None, lambda: daily_briefing(parameters=args, player=self._host.ui, speak=self._host.speak))
                 result = r or "Delivered daily briefing."
-            elif name == "unlock_device":
-                from actions.unlock_device import unlock_device
-                r = await loop.run_in_executor(None, lambda: unlock_device(parameters=args, player=self._host.ui))
-                result = r or "Done."
             elif name in ("calorie_counter", "nutrition_scan", "food_analysis"):
                 from actions.calorie_counter import calorie_counter
                 r = await loop.run_in_executor(None, lambda: calorie_counter(parameters=args, player=self._host.ui, speak=self._host.speak))
@@ -705,7 +517,6 @@ class ToolExecutor:
             name,
             args,
             result,
-            voice=self._host._connect_tool_voice(name, result),
         )
 
         return types.FunctionResponse(

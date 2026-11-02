@@ -376,31 +376,7 @@ def _gemini_text_reply(prompt: str, layer: str = "fallback") -> str:
     return _extract_gemini_text(response)
 
 
-def _ig_gemini_reply(username: str, text: str) -> str:
-    system_prompt = (
-        "You are Brahma Evo, an AI personal assistant acting on behalf of your user. "
-        "You have taken over their Instagram chat with the user's permission. "
-        "Reply naturally, briefly, and conversationally to the incoming message. "
-        "Do not sound like a bot. Keep your replies under 2 sentences."
-    )
-    prompt = f"Instagram DM from {username}: {text}"
-
-    try:
-        from core import llm_gateway
-
-        response = llm_gateway.generate_content(
-            f"{system_prompt}\n\nUser: {prompt}",
-            model="gemini-2.5-flash",
-            config={"temperature": 0.6},
-            purpose="Instagram reply",
-        )
-        return _extract_gemini_text(response)
-    except Exception as e:
-        # The gateway already failed over through every enabled provider
-        # (rate limits included); this is the last resort, and the log keeps
-        # the real cause visible instead of hiding it behind the canned line.
-        print(f"[InstagramChat] Reply generation failed: {e}")
-        return "Hey, I'm currently busy. I will get back to you later!"
+from core.reply_flow import ig_gemini_reply as _ig_gemini_reply
 
 
 def _clipboard_gemini_reply(text: str) -> str:
@@ -3519,9 +3495,6 @@ class BrahmaLive:
 
     def set_live_mode(self, mode: str):
         self._session_lifecycle.set_live_mode(mode)
-
-    def _connect_tool_voice(self, name: str, raw_result: str) -> str | None:
-        return self._session_lifecycle._connect_tool_voice(name, raw_result)
 
     def _tool_executor(self):
         """Lazily build the tool-call executor (P4-19 seam; see core.tool_exec)."""

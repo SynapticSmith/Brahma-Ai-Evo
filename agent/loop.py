@@ -466,7 +466,7 @@ class AgentLoop:
         if item["attempts"] > self.repeat_limit:
             return None
         spec = get_spec(item["name"])
-        if spec is None or spec.tool_class not in ("read", "write"):
+        if spec is None or spec.classifier is not None or spec.tool_class not in ("read", "write"):
             return None
         _, decision = self._runtime.decide(item["name"], item["args"])
         if not decision.allowed:

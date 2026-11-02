@@ -225,13 +225,15 @@ class AgentRuntime:
         outside file for the rest of the session. A class-level ask is keyed by
         the tool name: the policy is asking about the tool itself.
         """
-        tool_class = spec.tool_class if spec else "native"
+        tool_class = spec.class_for(args) if spec else "native"
         if tool_class == "exec":
             command = str(args.get("command") or args.get("cmd") or "").strip()
             return f"{name}:{command}"
         scoped = path_scoped_approval_key(name, args, rule, self.workspace)
         if scoped:
             return f"{name}:{scoped}"
+        if spec is not None and spec.classifier is not None and rule != f"tools.{name}":
+            return f"{name}:{tool_class}"
         return name
 
     def allow_for_session(
@@ -272,7 +274,8 @@ class AgentRuntime:
 
     def decide(self, name: str, args: Optional[Mapping[str, Any]] = None) -> tuple[ToolSpec | None, PolicyResult]:
         spec = get_spec(name)
-        tool_class = spec.tool_class if spec else "native"
+        call_args = dict(args or {})
+        tool_class = spec.class_for(call_args) if spec else "native"
         # "Headless" means *no human can be asked*. An injected approver makes
         # that false, whatever the flag says: the CLI passes headless=True and
         # approver=None, the TTY passes headless=False and a prompt, and the
@@ -280,7 +283,7 @@ class AgentRuntime:
         no_approver = self.approver is None
         result = self.policy.evaluate(
             name,
-            dict(args or {}),
+            call_args,
             tool_class=tool_class,
             context_workspace=self.workspace,
             headless=self.headless and no_approver,
@@ -365,7 +368,11 @@ class AgentRuntime:
             self._emit("permission", {"name": name, "decision": "deny", "rule": decision.rule, "reason": decision.reason})
             return decision.for_model(name)
 
-        self._emit("tool_start", {"name": name, "call_id": call_id, "args": args})
+        silent = bool(spec and spec.silent)
+        self._emit(
+            "tool_start",
+            {"name": name, "call_id": call_id, "args": args, "silent": silent},
+        )
         if spec is not None:
             output = execute_spec(spec, args, self.context(extra))
         elif native_dispatch is not None:
@@ -383,8 +390,10 @@ class AgentRuntime:
             {
                 "name": name,
                 "call_id": call_id,
+                "args": args,
                 "chars": len(output or ""),
                 "output": output or "",
+                "silent": silent,
             },
         )
         return output or ""

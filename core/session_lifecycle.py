@@ -13,7 +13,6 @@ attribute reference (except the nine methods moved here) to the host.
 from __future__ import annotations
 
 import asyncio
-import json
 import threading
 import time
 import traceback
@@ -391,52 +390,9 @@ class SessionLifecycle:
             except Exception as e:
                 print(f"[Proactive] Error: {e}")
     def _connect_tool_voice(self, name: str, raw_result: str) -> str | None:
-        if not str(name or "").startswith("connect_"):
-            return None
-        try:
-            data = json.loads(raw_result) if isinstance(raw_result, str) else dict(raw_result or {})
-        except Exception:
-            data = {}
+        from core.desktop_host import connect_tool_voice
 
-        if name == "connect_list_devices":
-            count = int(data.get("count") or len(data.get("devices") or []))
-            return f"I found {count} connected device{'s' if count != 1 else ''}."
-
-        if name == "connect_get_device":
-            device = data.get("device") or {}
-            label = str(device.get("name") or "the device")
-            status = "online" if device.get("online") else "offline"
-            return f"{label} is {status}."
-
-        if name == "connect_get_capabilities":
-            device = data.get("device") or {}
-            label = str(device.get("name") or "The device")
-            return f"{label} capabilities are ready."
-
-        if name == "connect_pair_device":
-            pairing = data.get("pairing") or data
-            code = str(pairing.get("pairing_code") or "").strip()
-            if code:
-                return f"Pairing code ready: {code}."
-            return "Pairing is ready."
-
-        if name == "connect_disconnect_device":
-            return "The device has been disconnected."
-
-        if name == "connect_execute":
-            if data.get("success", False):
-                detail = data.get("detail")
-                if isinstance(detail, dict):
-                    detail = detail.get("message") or detail.get("status") or detail.get("result")
-                if not detail and isinstance(data.get("data"), dict):
-                    payload = data.get("data") or {}
-                    detail = payload.get("message") or payload.get("status") or payload.get("result")
-                if not detail:
-                    detail = data.get("error") or "Task completed."
-                return str(detail)
-            return str(data.get("error") or "The device command failed.")
-
-        return None
+        return connect_tool_voice(name, raw_result)
     def _build_config(self) -> types.LiveConnectConfig:
         from datetime import datetime
 

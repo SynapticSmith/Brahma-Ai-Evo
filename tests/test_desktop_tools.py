@@ -73,9 +73,11 @@ def test_wave1_carries_the_policy_class_and_the_declared_schema():
     specs = {spec.name: spec for spec in desktop_tools.build_specs(_declarations())}
 
     assert specs, "wave 1 must publish at least one tool"
-    for name, spec in specs.items():
+    for name in desktop_tools.WAVE1:
+        spec = specs[name]
         assert spec.tool_class in ("write", "exec"), name
         assert desktop_tools.DESKTOP_TAG in spec.tags
+        assert "wave1" in spec.tags
         assert spec.parameters.get("type") == "object", (
             f"{name} kept the Gemini uppercase schema instead of the OpenAI form"
         )
@@ -88,6 +90,36 @@ def test_wave1_carries_the_policy_class_and_the_declared_schema():
         assert specs[name].tool_class == "exec"
         assert specs[name].requires_approval is True
     assert specs["reminder"].requires_approval is False
+
+
+def test_wave2_carries_the_policy_class_classifier_and_silent_flag():
+    declared = {item["name"]: item for item in _declarations()}
+    specs = {spec.name: spec for spec in desktop_tools.build_specs(_declarations())}
+
+    for name, (expected_class, needs_approval) in desktop_tools.WAVE2.items():
+        spec = specs[name]
+        assert spec.tool_class == expected_class, name
+        assert spec.requires_approval is needs_approval, name
+        assert desktop_tools.DESKTOP_TAG in spec.tags
+        assert "wave2" in spec.tags
+        assert spec.parameters.get("type") == "object", name
+
+    # Mixed-verb tools declare write as their static/fail-safe class and attach
+    # a per-call classifier that narrows read-only verbs to "read".
+    for name in ("file_controller", "smart_organizer", "desktop_organizer"):
+        assert specs[name].classifier is not None
+        assert specs[name].tool_class == "write"
+
+    # Alias borrows smart_organizer's schema.
+    assert specs["desktop_organizer"].parameters == specs["smart_organizer"].parameters
+    assert "smart_organizer" in specs["desktop_organizer"].description
+    assert specs["smart_organizer"].description == declared["smart_organizer"]["description"]
+
+    # save_memory is the only silent spec in wave 2.
+    assert specs["save_memory"].silent is True
+    for name in desktop_tools.WAVE2:
+        if name != "save_memory":
+            assert specs[name].silent is False, name
 
 
 def test_aliases_borrow_the_declared_schema_and_are_named_in_the_description():
@@ -354,10 +386,11 @@ def test_the_migrated_branches_left_the_legacy_chain():
     leftovers = [
         line.strip()
         for line in elif_lines
-        for name in desktop_tools.WAVE1
+        for name in (*desktop_tools.WAVE1, *desktop_tools.WAVE2)
         if f'"{name}"' in line
     ]
     assert leftovers == [], leftovers
+    assert 'if name == "save_memory":' not in source
     assert "desktop_host.present_start" in source
     assert "desktop_tools.attach_host" in source
 
@@ -367,3 +400,193 @@ def test_agent_never_imports_the_desktop_layer():
         text = path.read_text(encoding="utf-8")
         assert "desktop_tools" not in text, path.name
         assert "desktop_host" not in text, path.name
+
+
+# --------------------------------------------------------------------------- #
+# Wave 2: per-action class split, device/network policy, silent save_memory
+# --------------------------------------------------------------------------- #
+
+
+def test_tool_spec_classifier_fails_safe_to_declared_class():
+    from agent.spec import ToolSpec
+
+    spec = ToolSpec(
+        name="mixed_probe",
+        description="probe",
+        parameters={"type": "object", "properties": {}},
+        tool_class="write",
+        handler=lambda a, c: "ok",
+        classifier=lambda args: args["mode"],
+    )
+    assert spec.class_for({"mode": "read"}) == "read"
+    # Unknown capability class -> declared class ("write").
+    assert spec.class_for({"mode": "bogus_class"}) == "write"
+    # Exception inside classifier (missing key) -> declared class ("write").
+    assert spec.class_for({}) == "write"
+
+
+def test_file_controller_and_smart_organizer_split_read_and_write_per_action(
+    registered, tmp_path, monkeypatch
+):
+    import actions.desktop_organizer_mcp as organizer_mod
+    import actions.file_controller as fc_mod
+
+    monkeypatch.setattr(fc_mod, "file_controller", lambda **kw: "fc-ok")
+    monkeypatch.setattr(organizer_mod, "smart_organizer", lambda **kw: "org-ok")
+
+    # Read allowed, write denied: read verbs run, write/unknown verbs are denied.
+    runtime = _runtime(tmp_path, read="allow", write="deny")
+    host = desktop_host.RecordingHost()
+
+    for verb in ("list", "read", "find", "largest", "disk_usage", "preview", "duplicates", "info"):
+        out = runtime.execute(
+            "file_controller",
+            {"action": verb, "path": str(tmp_path)},
+            extra={"host": host},
+        )
+        assert out == "fc-ok", verb
+
+    for verb in ("delete", "write", "move", "copy", "rename", "create_file", "organize", "unknown_verb", ""):
+        denied = runtime.execute(
+            "file_controller",
+            {"action": verb, "path": str(tmp_path)},
+            extra={"host": host},
+        )
+        assert denied.lower().startswith("permission denied"), verb
+
+    for tool_name in ("smart_organizer", "desktop_organizer"):
+        for verb in ("preview", "dry_run", "inspect", "find_duplicates"):
+            out = runtime.execute(
+                tool_name,
+                {"action": verb, "target": str(tmp_path)},
+                extra={"host": host},
+            )
+            assert out == "org-ok", (tool_name, verb)
+
+        for verb in ("organize", "undo", "clean_empty_folders", "archive_old", ""):
+            denied = runtime.execute(
+                tool_name,
+                {"action": verb, "target": str(tmp_path)},
+                extra={"host": host},
+            )
+            assert denied.lower().startswith("permission denied"), (tool_name, verb)
+
+
+def test_classified_session_approval_does_not_bleed_from_read_to_write(
+    registered, tmp_path, monkeypatch
+):
+    import actions.file_controller as fc_mod
+
+    monkeypatch.setattr(fc_mod, "file_controller", lambda **kw: "ran")
+
+    asked = []
+
+    def approve(name, args, detail):
+        asked.append((name, args.get("action"), detail.remember))
+        return "always"
+
+    runtime = AgentRuntime(
+        workspace=tmp_path,
+        policy=PermissionPolicy.from_dict(
+            {"classes": {"read": "ask", "write": "ask"}, "headless": {}}
+        ),
+        approver=approve,
+        headless=False,
+    )
+    host = desktop_host.RecordingHost()
+
+    # First read asks and records "always" for read calls only.
+    assert (
+        runtime.execute(
+            "file_controller",
+            {"action": "list", "path": str(tmp_path)},
+            extra={"host": host},
+        )
+        == "ran"
+    )
+    # Second read does not ask again.
+    assert (
+        runtime.execute(
+            "file_controller",
+            {"action": "info", "path": str(tmp_path)},
+            extra={"host": host},
+        )
+        == "ran"
+    )
+    assert len(asked) == 1 and "read file_controller" in asked[0][2]
+
+    # A write action on the same tool MUST still ask.
+    assert (
+        runtime.execute(
+            "file_controller",
+            {"action": "delete", "path": str(tmp_path)},
+            extra={"host": host},
+        )
+        == "ran"
+    )
+    assert len(asked) == 2 and "write file_controller" in asked[1][2]
+
+
+def test_device_and_network_waves_honour_class_policy_and_speak_connect_summary(
+    registered, tmp_path, monkeypatch
+):
+    import actions.brahma_connect as connect_mod
+    import actions.send_message as send_mod
+
+    monkeypatch.setattr(
+        connect_mod,
+        "connect_list_devices",
+        lambda **kw: '{"count": 2, "devices": [{"name": "Phone"}, {"name": "Watch"}]}',
+    )
+    monkeypatch.setattr(send_mod, "send_message", lambda **kw: "sent")
+
+    host = desktop_host.RecordingHost()
+    denied_device = _runtime(tmp_path, device="deny").execute(
+        "connect_list_devices", {}, extra={"host": host}
+    )
+    assert denied_device.lower().startswith("permission denied")
+
+    denied_network = _runtime(tmp_path, network="deny").execute(
+        "send_message",
+        {"receiver": "Alice", "message_text": "hi"},
+        extra={"host": host},
+    )
+    assert denied_network.lower().startswith("permission denied")
+
+    # When allowed, connect_list_devices speaks its one-line summary via HostEventSink.
+    runtime = _runtime(tmp_path, device="allow")
+    runtime.event_sink = desktop_host.HostEventSink(host, desktop_tools.desktop_names())
+    out = runtime.execute("connect_list_devices", {}, extra={"host": host})
+    assert '"count": 2' in out
+    assert any("I found 2 connected devices." in line for line in host.spoken)
+
+
+def test_save_memory_is_silent_on_hud_and_function_response(
+    registered, tmp_path, monkeypatch
+):
+    import memory.memory_manager as mem_mod
+
+    saved = []
+    monkeypatch.setattr(mem_mod, "update_memory", lambda data: saved.append(data))
+
+    host = desktop_host.RecordingHost()
+    events = []
+    runtime = _runtime(tmp_path)
+    runtime.event_sink = desktop_host.HostEventSink(
+        host, desktop_tools.desktop_names(), also=events.append
+    )
+
+    out = runtime.execute(
+        "save_memory",
+        {"category": "prefs", "key": "editor", "value": "nvim"},
+        extra={"host": host},
+    )
+    assert out == "ok"
+    assert saved == [{"prefs": {"editor": {"value": "nvim"}}}]
+    # Silent tools do not speak "Working on save memory..." or open HUD cards,
+    # and still return the UI to LISTENING at tool_end.
+    assert host.spoken == []
+    assert host.ui.operations == []
+    assert host.ui.deliverables == []
+    assert host.ui.states == ["LISTENING"]
+    assert any(e.get("type") == "tool_end" and e.get("silent") is True for e in events)

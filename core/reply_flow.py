@@ -18,10 +18,56 @@ from actions.attention_monitor import speak_native
 from actions.send_message import send_message
 
 
+def _extract_gemini_text(response) -> str:
+    text_parts: list[str] = []
+    try:
+        for candidate in getattr(response, "candidates", []) or []:
+            content = getattr(candidate, "content", None)
+            if not content:
+                continue
+            for part in getattr(content, "parts", []) or []:
+                part_text = getattr(part, "text", None)
+                if part_text:
+                    text_parts.append(part_text)
+    except Exception:
+        pass
+
+    text = "".join(text_parts).strip()
+    if text:
+        return text
+
+    try:
+        return (getattr(response, "text", "") or "").strip()
+    except Exception:
+        return ""
+
+
+def ig_gemini_reply(username: str, text: str) -> str:
+    system_prompt = (
+        "You are Brahma Evo, an AI personal assistant acting on behalf of your user. "
+        "You have taken over their Instagram chat with the user's permission. "
+        "Reply naturally, briefly, and conversationally to the incoming message. "
+        "Do not sound like a bot. Keep your replies under 2 sentences."
+    )
+    prompt = f"Instagram DM from {username}: {text}"
+
+    try:
+        response = llm_gateway.generate_content(
+            f"{system_prompt}\n\nUser: {prompt}",
+            model="gemini-2.5-flash",
+            config={"temperature": 0.6},
+            purpose="Instagram reply",
+        )
+        return _extract_gemini_text(response)
+    except Exception as e:
+        print(f"[InstagramChat] Reply generation failed: {e}")
+        return "Hey, I'm currently busy. I will get back to you later!"
+
+
 class ReplyFlow:
     """Pending-reply, Instagram-reply and email-compose flows for BrahmaLive."""
 
-    def __init__(self, host, *, gemini_text_reply, get_api_key, ig_gemini_reply):
+    def __init__(self, host, *, gemini_text_reply, get_api_key, ig_gemini_reply=ig_gemini_reply):
         self._host = host
         self._gemini_text_reply = gemini_text_reply
         self._get_api_key = get_api_key

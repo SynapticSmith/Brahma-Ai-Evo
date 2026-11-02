@@ -21,6 +21,7 @@ being retired, so "what the user sees" stays one implementation.
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -190,6 +191,73 @@ def _deliverable(name: str, args: Mapping[str, Any], result: Any) -> Dict[str, A
     }
 
 
+def connect_tool_voice(name: str, raw_result: Any) -> Optional[str]:
+    """One-line spoken summary for a ``connect_*`` action result, or ``None``.
+
+    Lives with the rest of the desktop presentation so :class:`HostServices`
+    stays narrow (``ui``, ``speak``, ``submit``) while the migrated Connect
+    specs keep their voice line on both doors and in recording-host tests.
+    """
+    if not str(name or "").startswith("connect_"):
+        return None
+    try:
+        data = (
+            json.loads(raw_result)
+            if isinstance(raw_result, str)
+            else dict(raw_result or {})
+        )
+    except Exception:
+        data = {}
+
+    if name == "connect_list_devices":
+        count = int(data.get("count") or len(data.get("devices") or []))
+        return f"I found {count} connected device{'s' if count != 1 else ''}."
+
+    if name == "connect_get_device":
+        device = data.get("device") or {}
+        label = str(device.get("name") or "the device")
+        status = "online" if device.get("online") else "offline"
+        return f"{label} is {status}."
+
+    if name == "connect_get_capabilities":
+        device = data.get("device") or {}
+        label = str(device.get("name") or "The device")
+        return f"{label} capabilities are ready."
+
+    if name == "connect_pair_device":
+        pairing = data.get("pairing") or data
+        code = str(pairing.get("pairing_code") or "").strip()
+        if code:
+            return f"Pairing code ready: {code}."
+        return "Pairing is ready."
+
+    if name == "connect_disconnect_device":
+        return "The device has been disconnected."
+
+    if name == "connect_execute":
+        if data.get("success", False):
+            detail = data.get("detail")
+            if isinstance(detail, dict):
+                detail = (
+                    detail.get("message")
+                    or detail.get("status")
+                    or detail.get("result")
+                )
+            if not detail and isinstance(data.get("data"), dict):
+                payload = data.get("data") or {}
+                detail = (
+                    payload.get("message")
+                    or payload.get("status")
+                    or payload.get("result")
+                )
+            if not detail:
+                detail = data.get("error") or "Task completed."
+            return str(detail)
+        return str(data.get("error") or "The device command failed.")
+
+    return None
+
+
 def present_end(
     host: HostServices,
     name: str,
@@ -200,12 +268,14 @@ def present_end(
 ) -> None:
     """Render the result, then hand the microphone back.
 
-    ``voice`` is an optional one-line summary the *caller* already knows how to
-    produce (the live Connect tools have one; the host protocol deliberately
-    does not grow a method for each). Nothing else here speaks: the legacy
-    "``<tool> completed``" chatter is gone, because the result reaches the model,
-    which speaks when the result is worth speaking. See ADR-019 consequence 4.
+    ``voice`` is an optional one-line summary (computed automatically for
+    ``connect_*`` tools via :func:`connect_tool_voice`). Nothing else here
+    speaks: the legacy "``<tool> completed``" chatter is gone, because the
+    result reaches the model, which speaks when the result is worth speaking.
+    See ADR-019 consequence 4.
     """
+    if voice is None:
+        voice = connect_tool_voice(name, result)
     try:
         host.ui.finish_task_workspace(str(result), "Task completed.", 100)
     except Exception:
@@ -263,18 +333,26 @@ class HostEventSink:
 
     def on_tool_start(self, event: Mapping[str, Any]) -> None:
         name = str(event.get("name") or "")
-        if name in self.names:
+        if name in self.names and not event.get("silent"):
             present_start(self.host, name, event.get("args") or {})
 
     def on_tool_end(self, event: Mapping[str, Any]) -> None:
         name = str(event.get("name") or "")
-        if name in self.names:
-            present_end(
-                self.host,
-                name,
-                event.get("args") or {},
-                event.get("output") or "",
-            )
+        if name not in self.names:
+            return
+        if event.get("silent"):
+            try:
+                if not self.host.ui.muted:
+                    self.host.ui.set_state("LISTENING")
+            except Exception:
+                pass
+            return
+        present_end(
+            self.host,
+            name,
+            event.get("args") or {},
+            event.get("output") or "",
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -379,6 +457,7 @@ __all__ = [
     "LiveHost",
     "RecordingHost",
     "RecordingUI",
+    "connect_tool_voice",
     "present_end",
     "present_start",
     "require_host",
