@@ -1,777 +1,441 @@
-# Brahma-Ai-Evo: Upstream Integration Plan 
+# Brahma-Ai-Evo: Upstream Integration Plan (Rev 2)
 
-**Target:** Integrate upstream changes from [titechprabhasolutions/Brahma-Ai-Evo:main](https://github.com/SynapticSmith/Brahma-Ai-Evo/compare/main...titechprabhasolutions%3ABrahma-Ai-Evo%3Amain) (3 commits, +29857/-3186, 81 files) into our heavily refactored repository while preserving our 1.0.1 architecture. 
+**Target:** Integrate upstream changes from [titechprabhasolutions/Brahma-Ai-Evo:main](https://github.com/titechprabhasolutions/Brahma-Ai-Evo) (**7 commits**, **+34,763 / -3,390 lines**, **114 files**) into our refactored, hardened architecture while strictly preserving our security, line-count, and single-runtime invariants.
 
-**Status:** Planning Only - No code changes yet  
-**Created:** 2025-10-24  
-**Base Commit:** `e0bd3c5a3a258cc1cf35014ae0a35c7b6b9db87f` (merge-base)  
-**Our HEAD:** `3532e3b Add in-app avatar and background library`  
-**Upstream HEAD:** `c8d9c0f feat(installer): add universal macOS/Linux installer scripts and GitHub Actions multi-platform build workflow`  
+**Status:** Planning & Mapping Document (Updated for all 7 upstream commits)  
+**Created:** 2025-10-24 · **Amended:** 2026-11-02 (Post-Bridge v2 / Post-Security Phase 0 reconciliation)  
+**Merge-Base:** `e0bd3c5a3a258cc1cf35014ae0a35c7b6b9db87f`  
+**Our HEAD:** `4bcbc6b docs: reconcile doc drift across architecture, harness status, security roadmap, and bridge design records`  
+**Upstream HEAD:** `bfb2868 Add public Privacy Policy for Google Play Store compliance`  
+**Verified Test Baseline:** 888 passed / 1 skipped (offscreen); 460 passed / 1 skipped (`-k agent`)
 
 ---
 
 ## Table of Contents
 
-1. [Executive Summary](#executive-summary)
-2. [Current State Analysis](#current-state-analysis)
-3. [Integration Strategy](#integration-strategy)
-4. [Pre-Integration Checklist](#pre-integration-checklist)
-5. [Phase 0: Preparation & Branch Setup](#phase-0-preparation--branch-setup)
-6. [Phase 1: Low-Conflict Additions (Copy First)](#phase-1-low-conflict-additions-copy-first)
-7. [Phase 2: Feature Ports Requiring Adaptation](#phase-2-feature-ports-requiring-adaptation)
-8. [Phase 3: Surgical Fixes To Shared Files](#phase-3-surgical-fixes-to-shared-files)
-9. [Phase 4: Validation & Testing](#phase-4-validation--testing)
-10. [Rollback Plan](#rollback-plan)
-11. [File Tracking Matrix](#file-tracking-matrix)
-12. [Decision Log](#decision-log)
-13. [Notes & Warnings](#notes--warnings)
+1. [Executive Summary](#1-executive-summary)
+2. [Current State Analysis (All 7 Upstream Commits)](#2-current-state-analysis-all-7-upstream-commits)
+3. [Architectural Invariants & Non-Negotiable Gates](#3-architectural-invariants--non-negotiable-gates)
+4. [Integration Strategy & Decision Matrix](#4-integration-strategy--decision-matrix)
+5. [Pre-Integration Checklist](#5-pre-integration-checklist)
+6. [Phase 0: Preparation & Branch Setup](#6-phase-0-preparation--branch-setup)
+7. [Phase 1: Low-Conflict Standalone Additions (Copy & Adapt)](#7-phase-1-low-conflict-standalone-additions-copy--adapt)
+8. [Phase 2: Capability Ports Requiring Architecture Adaptation](#8-phase-2-capability-ports-requiring-architecture-adaptation)
+9. [Phase 3: Surgical Fixes & Patches to Shared Seams](#9-phase-3-surgical-fixes--patches-to-shared-seams)
+10. [Phase 4: Upstream Items Explicitly Rejected or Replaced](#10-phase-4-upstream-items-explicitly-rejected-or-replaced)
+11. [Phase 5: Validation & Gate Verification](#11-phase-5-validation--gate-verification)
+12. [Rollback Plan](#12-rollback-plan)
+13. [Complete 114-File Tracking Matrix](#13-complete-114-file-tracking-matrix)
+14. [Decision Log](#14-decision-log)
 
 ---
 
 ## 1. Executive Summary
 
-### The Verdict
-**Port to our architecture, do NOT do a blind merge or insert upstream wholesale.** 
+### The Verdict: Selective Surgical Porting Only — Zero Wholesale Merge
 
-Our repository has undergone massive structural refactoring (273 files changed, +159k/-18k since merge-base) decomposing `ui.py` and `main.py` into 47+ `core/ui_*` modules, introducing `core/llm_gateway.py`, `core/provider_router.py`, `core/provider_failover.py`, `core/tool_index.py`, `core/tool_bridge.py`, `core/tool_exec.py`, and a comprehensive provider-agnostic architecture. Upstream's 3 commits were built against the monolithic pre-refactor baseline. A direct merge will cause extensive semantic conflicts and risk undoing our safety rails (provider kill switches, tool caps under Gemini Live limit, gateway enforcement).
+Upstream has advanced across **7 commits** (+34,763 / -3,390 lines across 114 files). Concurrently, our repository has undergone foundational architectural evolution:
+- **Security Phase 0 (100% Landed):** Uncontained SkillForge `execute_sync` removed; runtime `pip` removed; Gateway locked to `127.0.0.1` with paired-device bearer auth; plugins restricted to an opt-in allowlist; secrets moved behind Windows DPAPI (`core/secret_store.py`); insecure startup updaters deleted.
+- **Harness & Boundary Correctness (Queue 1, 100% Landed):** 84 native actions migrated to canonical `ToolSpec`s in `core/desktop_tools.py` behind `AgentRuntime.execute`; `core/tool_exec.py` reduced to 147 lines with **0 `elif` branches**; `main.py` line ceiling ratcheted to **3,230 lines**; container behavioral confinement probe (`sandbox doctor`); read-only subagent fan-out (`run_subagent_batch`).
+- **Bridge v2 (Queue 2, 100% Landed):** Greenfield `core/agent_bridge/` package implementing side-effect-free detectors, thread-safe atomic registry, adapters (MCP, local model, CLI agent with process-tree containment), durable artifact storage (`core/agent_bridge/artifacts.py`), and unified `AgentBridge` facade.
 
-### Why This Approach
-- **Preserve Architecture:** Our decomposition prevents god objects and enforces proper separation of concerns
-- **Maintain Safety Rails:** Provider toggles, kill switches, and gateway enforcement must remain intact
-- **Extract Value:** Upstream adds valuable features (REA/web cloning, image generation, autonomous evolution) that complement our system
-- **Minimize Risk:** Selective porting with adaptation prevents breaking existing functionality
+A blind `git merge upstream/main` would completely destroy these architectural boundaries: it would re-introduce unauthenticated LAN gateway routes, resurrect uncontained execution engines, overwrite DPAPI secrets storage, and explode the `main.py` line count by 2,300+ lines.
+
+**Every upstream commit must be filtered through our ratified architecture:**
+1. High-value isolated features (installer uninstaller, neural image generator, REA web cloner, audio stutter fixes, 12 project skill playbooks, privacy policy) are extracted and ported.
+2. Capability tools must become canonical `ToolSpec`s registered in `core/desktop_tools.py` gated by `AgentRuntime.execute`.
+3. Uncontained parallel runners (`core/subagent_orchestrator.py`) and unauthenticated gateway auto-pairing in `9dd02cf` are **explicitly rejected**.
 
 ---
 
-## 2. Current State Analysis
+## 2. Current State Analysis (All 7 Upstream Commits)
 
-### Repository State
-```bash
-Our Branch: main (HEAD: 3532e3b)
-Remotes:
-  origin: https://github.com/SynapticSmith/Brahma-Ai-Evo.git
-  upstream: https://github.com/titechprabhasolutions/Brahma-Ai-Evo.git
-
-Merge-base: e0bd3c5a3a258cc1cf35014ae0a35c7b6b9db87f
+### Repository Coordinates
+```text
+Base Commit:   e0bd3c5a3a258cc1cf35014ae0a35c7b6b9db87f (merge-base)
+Upstream HEAD: bfb2868074c3fac1cbebf00e4d2318c926fa86d2 (2026-10-27)
+Our HEAD:      4bcbc6b (2026-11-02, Queue 1 and Queue 2 complete)
 ```
 
-### Diff Statistics
-| Source | Files Changed | Insertions | Deletions |
-|--------|---------------|------------|-----------|
-| Upstream (e0bd3c5..upstream/main) | 81 | +29,857 | -3,186 |
-| Ours (e0bd3c5..HEAD) | 273 | +159,432 | -18,020 |
-| Overlapping files | ~28 | - | - |
+### Cumulative Diff Statistics (`e0bd3c5..upstream/main`)
+| Metric | Value |
+| --- | ---: |
+| Total Commits Ahead | **7** |
+| Total Files Changed | **114** |
+| Added Files (`A`) | **71** |
+| Modified Files (`M`) | **42** |
+| Deleted Files (`D`) | **1** (`config/.desktop_shortcut_created`) |
+| Total Insertions | **+34,763** |
+| Total Deletions | **-3,390** |
 
-### Upstream Commits
-1. **987f47d** (Oct 18, 2026) - "feat: Brahma Evo major release - neural image generation, REA web cloning, autonomous evolution, and UI contrast fixes" (81 files)
-2. **c5e8162** (Oct 18, 2026) - "build(installer): bundle native Uninstall.exe and uninstall.cmd into BrahmaEvo_Setup installer package" (3 files)
-3. **c8d9c0f** (Oct 18, 2026) - "feat(installer): add universal macOS/Linux installer scripts and GitHub Actions multi-platform build workflow" (3 files)
+### Complete Upstream Commit Chronology
 
-### Known Conflicts (from merge-tree)
-Files that will have merge conflicts: `.gitignore`, `assets/web_background/index.html`, `config/app_settings.json`, `config/create_desktop_shortcut.ps1`, `core/globe_window.py`, `core/prompt.txt`, `features/__init__.py`, `installer/install_wizard.py`, `llm_client.py`, `main.py`, `ui.py`
-
----
-
-## 3. Integration Strategy
-
-### Strategy: Hybrid Selective Port
-We will use a **feature-by-feature porting approach** with adaptation to our architecture, rather than merging. This preserves our refactored structure while extracting valuable upstream features.
-
-### Decision Matrix
-| Approach | Verdict | Rationale |
-|----------|---------|-----------|
-| `git merge upstream/main` | **REJECT** | Our UI/main decomposition incompatible with monolith assumptions. High conflict volume, semantic conflicts likely. Will undo gateway enforcement. |
-| `git cherry-pick` individual commits | **PARTIAL** | Commits 2 & 3 (installer/CI) may be clean. Commit 1 is kitchen-sink mega-commit, cherry-pick will still hit conflicts in shared files. |
-| **Selective port into our architecture** | **ACCEPT (RECOMMENDED)** | Copy new files as-is where possible, adapt shared file logic to our seams, route through gateway/router/index. Preserves safety rails. |
+| # | Commit | Date | Author | Summary | Key File Touchpoints |
+|---|---|---|---|---|---|
+| **1** | `987f47d` | 2026-10-18 | GodxSuryaansh | **Major Feature Release:** Neural image generation, REA web cloning, autonomous evolution suite, sentinels, radar/space HUDs, UI contrast fixes. | 81 files: `actions/image_generator.py`, `actions/rea_mcp_client.py`, `actions/reverse_engineer.py`, `core/flowstate.py`, `core/net_sentinel.py`, `core/shopping_agent.py`, `ui.py`, `main.py` |
+| **2** | `c5e8162` | 2026-10-18 | GodxSuryaansh | **Installer Uninstaller Bundle:** Bundle native `Uninstall.exe` and `uninstall.cmd` into `BrahmaEvo_Setup` installer package. | 3 files: `installer/Uninstall.spec`, `installer/BrahmaEvo.spec`, `installer/BrahmaEvo_Setup.spec` |
+| **3** | `c8d9c0f` | 2026-10-18 | GodxSuryaansh | **Multi-Platform Installer:** Universal macOS/Linux installer scripts and GitHub Actions multi-platform build workflow. | 3 files: `installer/install.sh`, `installer/uninstall.sh`, `.github/workflows/build-all-platforms.yml` |
+| **4** | `9dd02cf` | 2026-10-26 | GodxSuryaansh | **Real-Time Voice Overhaul & Subagent Tools:** Overhaul real-time voice pipeline; dynamic chunk sizing (`blocksize=0`); echo barge-in gating; live voice engine; Claude tools; skills engine; subagent orchestrator; voice dashboard; 12 skill playbooks. | 31 files: `core/live_voice_engine.py`, `core/claude_tools.py`, `core/skills_engine.py`, `core/subagent_orchestrator.py`, `dashboard/static/voice.html`, `skills/*/SKILL.md` (12 files), `main.py` (+653/-112) |
+| **5** | `b3c4160` | 2026-10-26 | GodxSuryaansh | **Skills Installer Bundling:** Bundle `skills` directory and update `build_all.ps1` for uninstaller integration. | 2 files: `build_all.ps1`, `installer/BrahmaEvo.spec` |
+| **6** | `62b1591` | 2026-10-26 | GodxSuryaansh | **OpenRouter Dynamic Key & Fallback:** OpenRouter client dynamic key reloading, model pool fallback, and error handling. | 3 files: `or_client.py` (+140/-76), `llm_client.py`, `main.py` |
+| **7** | `bfb2868` | 2026-10-27 | GodxSuryaansh | **Google Play Privacy Policy:** Public privacy policy document for Google Play Store compliance. | 1 file: `PRIVACY_POLICY.md` (+52 lines) |
 
 ---
 
-## 4. Pre-Integration Checklist
+## 3. Architectural Invariants & Non-Negotiable Gates
 
-Before starting, ensure the following:
+Any porting batch must respect the following invariants ratified in `docs/ARCHITECTURE-SPEC.md`:
 
-- [ ] **Clean working tree**: `git status` shows no uncommitted changes
-- [ ] **Upstream fetched**: `git fetch upstream --prune` completed
-- [ ] **Tests pass**: Run existing tests to establish baseline (`pytest` or relevant test command)
-- [ ] **Backup created**: Tag current state `git tag backup/pre-upstream-integration-$(date +%Y%m%d)`
-- [ ] **Documentation reviewed**: Read `docs/VERSION-1.0.1-LOG.md` for full context of our changes
-- [ ] **Understand our architecture**: Familiarize with `core/llm_gateway.py`, `core/provider_router.py`, `core/tool_index.py`, `core/tool_bridge.py`
+1. **Single Runtime Enforcement Boundary (`I-01`, `D3`, `ADR-018`):** Every model-invokable capability must register as a `ToolSpec` and dispatch through `AgentRuntime.execute`. No tool or subagent may execute ungated.
+2. **Line-Count & Ratchet Invariants (`tests/test_architecture_invariants.py`):**
+   - `main.py`: **$\le 3,230$ lines** (never increase; upstream's +2,300 lines in `main.py` cannot be merged directly).
+   - `core/tool_exec.py`: **$\le 147$ lines** and **exactly 0 `elif` branches**. All native tools live in `core/desktop_tools.py`.
+   - `ui.py`: **$\le 827$ lines** (facade over decomposed `core/ui_*` modules).
+3. **Pure Stdlib Harness (`I-15`):** The `agent/` package remains stdlib-only.
+4. **Secrets at Rest via Windows DPAPI (`WS-7`):** API keys (`config/api_keys.json`) and Fernet keys (`smart_home/storage.py`) must remain encrypted with user-scoped Windows DPAPI via `core/secret_store.py`. No plaintext key storage may be re-introduced.
+5. **Gateway Security (`WS-8`):** Default host is `127.0.0.1`, `enabled=False`. All control routes require paired-device bearer authentication. No auto-pairing or `/gateway/execute` route.
+6. **No Subagent Duplication (`I-08`, `C-3`):** Subagents execute strictly through `run_subagent` (sequential mutation) or `run_subagent_batch` (read-only parallel fan-out). Upstream's `core/subagent_orchestrator.py` is forbidden.
+7. **Gemini Live Setup Budget (`I-19`, `ADR-021`):** Advertised tools must not exceed `budget()`. Deferred tools must use `call_tool(...)` templates.
 
 ---
 
-## 5. Phase 0: Preparation & Branch Setup
+## 4. Integration Strategy & Decision Matrix
 
-### Objectives
-Create isolated integration branch and establish tracking mechanisms.
+| Upstream Feature Area | Primary Commits | Verdict | Porting / Adaptation Strategy |
+|---|---|---|---|
+| **Privacy Policy** | `bfb2868` | **ACCEPT (Direct Copy)** | Copy `PRIVACY_POLICY.md` into repository root. Zero conflict. |
+| **Installer Uninstaller & Shell Scripts** | `c5e8162`, `c8d9c0f`, `b3c4160` | **ACCEPT (Selective Port)** | Port `Uninstall.spec`, `uninstall.cmd`, `install.sh`, `uninstall.sh`. Adapt `build_all.ps1` without breaking `requirements-build.txt` reproducibility. |
+| **Neural Image Generation** | `987f47d` | **ADAPT (ToolSpec)** | Port `actions/image_generator.py` into a canonical `ToolSpec` (`tool_class="network"`, `requires_approval=False`) registered in `core/desktop_tools.py`. Route via `core/llm_gateway.py`. |
+| **REA Web Cloning & Reverse Engineering** | `987f47d` | **ADAPT (ToolSpec)** | Port `actions/rea_mcp_client.py` and `actions/reverse_engineer.py` as `ToolSpec`s (`tool_class="network"` or `"write"`). |
+| **Project Skill Playbooks (12 Skills)** | `9dd02cf` | **ACCEPT (Skills Library)** | Upstream added 12 `skills/*/SKILL.md` files. Drop into project skills `.brahma/skills/` or Skills Library under Decision `D42`. Instructional-only, fully compatible. |
+| **Audio Pipeline & Echo Barge-In Fixes** | `9dd02cf` | **ADAPT (Surgical Patch)** | Port PortAudio `RawOutputStream(blocksize=0)` dynamic chunk sizing, barge-in gating in `core/echo.py`, and interrupted turn suppression into `main.py` / `core/session_lifecycle.py` without blowing line ratchets. |
+| **OpenRouter Dynamic Key & Fallback** | `62b1591` | **ADAPT (DPAPI Aware)** | Port model fallback pool and retry logic into `or_client.py`. Ensure keys are loaded dynamically via `core/secret_store.py:load_api_keys()` (DPAPI). |
+| **Sentinels & Cleaners (Game, Net, Space, Study)** | `987f47d` | **ADAPT (Component Modules)** | Copy `core/game_sentinel.py`, `core/net_sentinel.py`, `core/space_cleaner.py`, `core/study_guard.py` and their HTML assets. Wrap entry points in `ToolSpec`s. |
+| **Autonomous Evolution & Reflection** | `987f47d` | **SELECTIVE (Audit First)** | Review `core/execution_reflection.py` and `core/mem_reduct.py`. Reject monolithic state replacers (`core/omni_planner.py`). |
+| **Upstream Subagent Orchestrator** | `9dd02cf` | **REJECT** | `core/subagent_orchestrator.py` introduces a redundant, unconfined subagent execution loop that bypasses `AgentRuntime` and violates `I-08`. |
+| **Gateway Auto-Pairing Bypass** | `9dd02cf` | **REJECT** | Upstream disabled pairing validation in `gateway/server.py`. Conflicts directly with `WS-8` security hardening. |
+| **Monolithic `main.py` & `ui.py` Regrowth** | `987f47d`, `9dd02cf` | **REJECT (Wholesale Merge)** | Upstream injects thousands of lines into monolithic `main.py` and `ui.py`. Adapt all UI hooks into decomposed `core/ui_*` modules. |
 
-### Steps
+---
 
-#### 0.1 Create Integration Branch
-```bash
-cd C:\Users\Admin\Brahma-Ai-Evo
+## 5. Pre-Integration Checklist
+
+Before executing any porting batch:
+- [x] **Working tree clean**: On `main` branch, `git status` clean.
+- [x] **Upstream fetched**: `git fetch upstream --prune` completed.
+- [x] **Regression test baseline established**:
+  - `py -3.11 -m ruff check .` → Clean.
+  - `$env:QT_QPA_PLATFORM="offscreen"; py -3.11 -m pytest tests -q` → **888 passed, 1 skipped**.
+  - `py -3.11 -m pytest tests -q -k agent` → **460 passed, 1 skipped**.
+  - `py -3.11 -m pytest tests/test_architecture_invariants.py -v` → **5 passed** (`main.py` 3,230 lines $\le$ 3,230 ceiling; 0 `elif`s).
+- [ ] **Isolated integration branch created**: `git checkout -b integration/upstream-phase1`.
+- [ ] **Backup tag created**: `git tag backup/pre-upstream-integration-$(date +%Y%m%d)`.
+
+---
+
+## 6. Phase 0: Preparation & Branch Setup
+
+```powershell
+# 1. Ensure latest upstream commits are present in object store
 git fetch upstream --prune
-git checkout -b integration/upstream-selective
-git push -u origin integration/upstream-selective
+
+# 2. Create isolated work branch
+git checkout -b integration/upstream-phase1
+
+# 3. Create pre-integration backup tag
+git tag backup/pre-upstream-port-20261102
 ```
-
-#### 0.2 Create Integration Tracking Document
-Already created at `docs/UPSTREAM-INTEGRATION-PLAN.md` (this document). Also create a decision log section to fill in during process.
-
-#### 0.3 Generate File Inventory
-```bash
-# Generate detailed diff report
-git diff --name-status e0bd3c5 upstream/main > docs/upstream-file-inventory.txt
-git diff --stat e0bd3c5 upstream/main > docs/upstream-diff-stat.txt
-```
-
-#### 0.4 Establish Baseline Tests
-```bash
-# Run key tests to ensure clean baseline
-pytest tests/test_ai_evolution.py tests/test_autonomous_evolution.py -v 2>&1 | tail -30
-```
-
-**Phase 0 Exit Criteria:**
-- [ ] Integration branch created and pushed
-- [ ] File inventories generated
-- [ ] Baseline tests documented
-- [ ] Backup tag created
 
 ---
 
-## 6. Phase 1: Low-Conflict Additions (Copy First)
+## 7. Phase 1: Low-Conflict Standalone Additions (Copy & Adapt)
 
-**Priority:** HIGH | **Risk:** LOW | **Goal:** Add new features that are mostly self-contained
+**Objective:** Import self-contained files that require zero or minimal architecture adaptation.
 
-### 1.1 Installer & CI (Commits c5e8162, c8d9c0f)
-These are the most isolated changes. Consider cherry-picking first, else manual copy.
+### Batch 1.1: Documentation & Compliance (Commit `bfb2868`)
+- Copy `PRIVACY_POLICY.md` into repository root.
+- Verify no proprietary credentials or invalid links.
 
-**Files:**
-- `.github/workflows/build-all-platforms.yml` (NEW)
-- `installer/install.sh` (NEW)
-- `installer/uninstall.sh` (NEW)
-- `installer/uninstall.cmd` (NEW)
-- `installer/Uninstall.spec` (NEW)
-- `installer/uninstall_wizard.py` (NEW)
-- `installer/BrahmaEvo.spec` (MODIFIED)
-- `installer/BrahmaEvo_Setup.spec` (MODIFIED)
+### Batch 1.2: Multi-Platform Installers & Packaging (Commits `c5e8162`, `c8d9c0f`, `b3c4160`)
+- **Files to copy:**
+  - `installer/Uninstall.spec`
+  - `installer/uninstall_wizard.py`
+  - `installer/uninstall.cmd`
+  - `installer/install.sh`
+  - `installer/uninstall.sh`
+  - `.github/workflows/build-all-platforms.yml` (evaluate against `.github/workflows/ci.yml`)
+- **Adaptation:**
+  - In `build_all.ps1`: Integrate uninstaller compilation (`Uninstall.exe`) while preserving Python 3.11 requirement and SHA-256 manifest generation (`dist/SHA256SUMS.txt`).
 
-**Actions:**
-1. [ ] Try cherry-pick: `git cherry-pick c8d9c0f c5e8162` - see if clean
-2. [ ] If conflicts in spec files, manually merge comparing with our existing specs
-3. [ ] Reconcile `.github/workflows/build-all-platforms.yml` with our `.github/workflows/ci.yml` - don't duplicate, merge useful jobs
-4. [ ] Test installer scripts syntax where possible
+### Batch 1.3: Project Skills Library Playbooks (Commit `9dd02cf`)
+- **12 New Skill Folders to Copy into `skills/` (and `.brahma/skills/`):**
+  - `skills/api-mock-engine/SKILL.md`
+  - `skills/browser-automation/SKILL.md`
+  - `skills/code-review/SKILL.md`
+  - `skills/database-architect/SKILL.md`
+  - `skills/docker-devops/SKILL.md`
+  - `skills/fullstack-scaffolder/SKILL.md`
+  - `skills/git-workflow/SKILL.md`
+  - `skills/github-automation/SKILL.md`
+  - `skills/performance-profiler/SKILL.md`
+  - `skills/security-auditor/SKILL.md`
+  - `skills/test-driven-development/SKILL.md`
+  - `skills/web-scraper-stealth/SKILL.md`
+- **Validation:** Verify skills parse cleanly via `agent.skills` parser without schema violations.
 
-**Notes:** Our CI is already in place (`.github/workflows/ci.yml`). Upstream adds multi-platform build workflow - evaluate if both needed or consolidate.
-
-### 1.2 Assets (HUDs, Backgrounds)
-**Files:**
+### Batch 1.4: Standalone HTML / Three.js Visual Assets (Commit `987f47d`)
 - `assets/radar/index.html` (NEW)
 - `assets/space_cleaner/index.html` (NEW)
-- `assets/globe/index.html` (MODIFIED)
-- `assets/web_background/index.html` (MODIFIED) - **CONFLICT EXPECTED**
-- `brahma-connect-android/app/src/main/assets/web_background/index.html` (MODIFIED)
-
-**Actions:**
-1. [ ] Copy new assets (`radar/`, `space_cleaner/`) wholesale
-2. [ ] For modified assets, diff our version vs upstream and merge UI improvements carefully
-3. [ ] Check if assets are referenced by our codebase or upstream codebase
-
-### 1.3 New Features (features/ directory)
-**Files:**
-- `features/ascii_banner.py` (NEW)
-- `features/ascii_banner/manifest.json` (NEW)
-- `features/ascii_banner/skill.py` (NEW)
-- `features/ascii_banner/test_cases.json` (NEW)
-- `features/game_sentinel.py` (NEW)
-- `features/net_sentinel.py` (NEW)
-- `features/shopping_agent.py` (NEW)
-- `features/study_guard.py` (NEW)
-- `features/flowstate.py` (NEW)
-- `features/check_current_stock_prices.py` (MODIFIED)
-- `features/__init__.py` (MODIFIED) - **CONFLICT EXPECTED**
-
-**Actions:**
-1. [ ] Copy all new feature files
-2. [ ] Merge `features/__init__.py` to register new features without breaking existing registrations
-3. [ ] Review each feature's dependencies against our codebase
-
-### 1.4 New Actions (actions/ directory)
-**Files:**
-- `actions/game_sentinel.py` (NEW)
-- `actions/image_generator.py` (NEW)
-- `actions/net_sentinel.py` (NEW)
-- `actions/rea_mcp_client.py` (NEW)
-- `actions/reverse_engineer.py` (NEW)
-- `actions/study_guard.py` (NEW)
-- `actions/attention_monitor.py` (MODIFIED)
-- `actions/auto_heal_engine.py` (MODIFIED)
-- `actions/brahma_connect.py` (MODIFIED)
-- `actions/instagram_mcp.py` (MODIFIED)
-- `actions/proactive.py` (MODIFIED)
-- `actions/spotify_controller.py` (MODIFIED)
-
-**Actions:**
-1. [ ] Copy new action files
-2. [ ] For modified actions, review changes - some may be useful fixes, but ensure compatibility with our refactored structure
-3. [ ] Do NOT wire into main.py yet (Phase 2/3)
-
-### 1.5 New Core Modules (self-contained)
-**Files:**
-- `core/anticipatory_watcher.py` (NEW)
-- `core/execution_reflection.py` (NEW)
-- `core/flowstate.py` (NEW)
-- `core/game_sentinel.py` (NEW)
-- `core/intent_dispatcher.py` (NEW)
-- `core/mem_reduct.py` (NEW)
-- `core/memory_cortex.py` (NEW)
-- `core/net_sentinel.py` (NEW)
-- `core/omni_planner.py` (NEW)
-- `core/radar_hud.py` (NEW)
-- `core/shopping_agent.py` (NEW)
-- `core/space_cleaner.py` (NEW)
-- `core/space_cleaner_hud.py` (NEW)
-- `core/study_guard.py` (NEW)
-- `core/clipboard_sentry.py` (MODIFIED)
-- `core/learned_rules.py` (MODIFIED) - Can cherry-pick function
-- `core/sensorium.py` (MODIFIED)
-
-**Actions:**
-1. [ ] Copy all new core modules
-2. [ ] For `core/learned_rules.py`, extract `detect_and_learn_conversational_rule()` method if not present and useful
-3. [ ] Hold off on wiring until Phase 2
-
-### 1.6 New Tests
-**Files:**
-- `tests/test_ai_evolution.py` (NEW)
-- `tests/test_flowstate.py` (NEW)
-- `tests/test_game_sentinel.py` (NEW)
-- `tests/test_image_generator.py` (NEW)
-- `tests/test_intent_dispatcher.py` (NEW)
-- `tests/test_mobile_connect_routing.py` (NEW)
-- `tests/test_net_sentinel.py` (NEW)
-- `tests/test_proactive_engine.py` (NEW)
-- `tests/test_reverse_engineer.py` (NEW)
-- `tests/test_shopping_agent.py` (NEW)
-- `tests/test_space_cleaner.py` (NEW)
-- `tests/test_study_guard.py` (NEW)
-- `tests/test_ui_upgrades.py` (NEW)
-- Various test modifications
-
-**Actions:**
-1. [ ] Copy new tests
-2. [ ] Run them after wiring features to check compatibility
-3. [ ] Adapt imports/paths if needed for our structure
-
-**Phase 1 Exit Criteria:**
-- [ ] All new files copied (no conflicts on new files)
-- [ ] Installer/CI files in place
-- [ ] Assets copied
-- [ ] Features/actions/core modules copied
-- [ ] Tests copied
-- [ ] Git status clean of unmerged conflicts from Phase 1
+- `dashboard/static/voice.html` (NEW)
 
 ---
 
-## 7. Phase 2: Feature Ports Requiring Adaptation
+## 8. Phase 2: Capability Ports Requiring Architecture Adaptation
 
-**Priority:** HIGH | **Risk:** MEDIUM-HIGH | **Goal:** Integrate valuable features through our architecture
+**Objective:** Port external actions and sentinels, adapting them into canonical `ToolSpec`s registered in `core/desktop_tools.py` behind `AgentRuntime.execute`.
 
-### 2.1 Image Generation (`actions/image_generator.py`)
-**Complexity:** Medium | **Value:** High
+### Batch 2.1: Neural Image Generator (Commit `987f47d`)
+- **Source:** `actions/image_generator.py`, `tests/test_image_generator.py`.
+- **Adaptation Requirements:**
+  - Remove direct LLM API calls; route through `core/llm_gateway.py`.
+  - Register as `ToolSpec(name="generate_image", tool_class="network", requires_approval=False)` in `core/desktop_tools.py`.
+  - Add to `ToolIndex` with descriptive keywords.
 
-**Current State:** Copied in Phase 1 but not wired  
-**Our Architecture:** Must go through `core/llm_gateway.py`, respect provider toggles/failover
+### Batch 2.2: REA Web Cloning & Reverse Engineering (Commit `987f47d`)
+- **Source:** `actions/rea_mcp_client.py`, `actions/reverse_engineer.py`, `tests/test_reverse_engineer.py`.
+- **Adaptation Requirements:**
+  - Wrap in `ToolSpec`s with appropriate risk classes (`"network"` for reading/fetching, `"write"` for saving extracted code/assets).
+  - Enforce path resolution inside `runtime.workspace` to prevent workspace breakout.
 
-**Adaptation Steps:**
-1. [ ] Review `actions/image_generator.py` - understand its API, providers, dependencies
-2. [ ] Check if it calls LLM providers directly or has its own routing
-3. [ ] Refactor to use `core/llm_gateway.py` for any text/LLM operations
-4. [ ] Integrate with `core/provider_router.py` and respect kill switches
-5. [ ] Add settings to `config/app_settings.json` (merge keys, don't overwrite)
-6. [ ] Wire into tool system via `core/tool_index.py` / `core/tool_bridge.py`
-7. [ ] Add to features if needed
-8. [ ] Test with `tests/test_image_generator.py` (adapt if necessary)
+### Batch 2.3: Audio Pipeline Stutter Fixes & Echo Barge-In Gating (Commit `9dd02cf`)
+- **Source:** Modifications in `core/echo.py` and voice loop in `main.py`.
+- **Fixes to Extract:**
+  - PortAudio `RawOutputStream(blocksize=0)`: Allows dynamic audio buffer chunk sizing to prevent buffer underrun micro-loops.
+  - Barge-in gating in `core/echo.py`: Gate acoustic energy detection while TTS speaker is active to prevent self-interruption loops.
+  - Interrupted turn suppression flag: Drop residual audio frames from previous turn after interruption.
+- **Line Count Guard:** Apply surgical edits to `core/session_lifecycle.py` and `core/echo.py` rather than inflating `main.py`.
 
-**Key Files to Modify:** `actions/image_generator.py` (adapt), tool registration files
+### Batch 2.4: OpenRouter Dynamic Key Reload & Model Pool Fallback (Commit `62b1591`)
+- **Source:** `or_client.py`, `llm_client.py`.
+- **Adaptation Requirements:**
+  - Adopt dynamic key reloading using `core/secret_store.py:load_api_keys()` (DPAPI-protected).
+  - Adopt model pool fallback hierarchy (e.g. falling back to secondary fast models on 429/500 errors).
+  - Respect `core/provider_router.py` kill switches.
 
-### 2.2 REA Web Cloning & Reverse Engineering
-**Files:** `actions/rea_mcp_client.py`, `actions/reverse_engineer.py`  
-**Complexity:** Medium | **Value:** High
-
-**Adaptation Steps:**
-1. [ ] Review both files for architecture assumptions
-2. [ ] Integrate with our tool execution system (`core/tool_exec.py`, `core/tool_bridge.py`)
-3. [ ] Check interaction with `core/intent_dispatcher.py` (upstream adds it) - we may have our own routing
-4. [ ] Decide: use upstream intent_dispatcher as-is, adapt it, or integrate differently
-5. [ ] Ensure tools are registered in `core/tool_index.py` with proper descriptions
-6. [ ] Route any network/LLM calls through gateway if applicable
-7. [ ] Test with `tests/test_reverse_engineer.py`
-
-**Considerations:** Upstream's `core/intent_dispatcher.py` may conflict with our routing logic. Need to audit our existing routing first.
-
-### 2.3 Autonomous Evolution Suite
-**Files:** `core/flowstate.py`, `core/memory_cortex.py`, `core/omni_planner.py`, `core/anticipatory_watcher.py`, `core/execution_reflection.py`, `core/mem_reduct.py`  
-**Complexity:** HIGH | **Value:** Potentially Very High  
-**Risk:** May duplicate or conflict with existing systems
-
-**Adaptation Steps:**
-1. [ ] **Audit First:** Review our existing memory/learning/planning systems
-   - Check for memory-related code in our codebase
-   - Understand our current architecture patterns
-   - Look at `docs/VERSION-1.0.1-LOG.md` for memory-related changes
-2. [ ] **Gap Analysis:** Compare upstream modules against our capabilities
-3. [ ] **Selective Integration:** Only port pieces that fill genuine gaps
-   - `execution_reflection.py` - interesting for self-improvement
-   - `anticipatory_watcher.py` - proactive behavior
-   - Others may overlap with existing systems
-4. [ ] **Avoid Duplication:** Don't replace working systems, extend them
-5. [ ] **Test Thoroughly:** Run `tests/test_ai_evolution.py`, `tests/test_autonomous_evolution.py`, `tests/test_proactive_engine.py`, `tests/test_flowstate.py`
-6. [ ] **Wire Carefully:** May need integration points in `main.py` (Phase 3)
-
-**Warning:** This is the highest risk area. Take time to understand before integrating.
-
-### 2.4 Sentinel/HUD Features
-**Files:** `actions/game_sentinel.py`, `actions/net_sentinel.py`, `actions/study_guard.py`, `actions/shopping_agent.py`, corresponding `core/*`, `features/*`, assets, HUDs  
-**Complexity:** Low-Medium | **Value:** Nice-to-have
-
-**Adaptation Steps:**
-1. [ ] Review each sentinel for dependencies
-2. [ ] Check if they integrate with our UI system (`core/ui_*` modules) or expect monolith `ui.py`
-3. [ ] If UI integration needed, adapt to our decomposed UI architecture (add to appropriate `core/ui_*.py` modules)
-4. [ ] Copy assets if not already copied
-5. [ ] Register features/actions as appropriate
-6. [ ] Test with corresponding tests
-
-**Phase 2 Exit Criteria:**
-- [ ] Image generation ported and routing through gateway
-- [ ] REA/reverse engineer integrated with tool system
-- [ ] Evolution suite audited, gaps filled selectively
-- [ ] Sentinels reviewed and integrated where compatible
-- [ ] No direct LLM calls bypassing gateway
-- [ ] All ported features use our provider toggles
+### Batch 2.5: Sentinel Modules (Commit `987f47d`)
+- **Source:** `core/game_sentinel.py`, `core/net_sentinel.py`, `core/space_cleaner.py`, `core/study_guard.py`.
+- **Adaptation Requirements:**
+  - Port core monitoring logic into `actions/` or `core/` as pure services.
+  - Wire UI widgets into `core/ui_*` component modules, not monolithic `ui.py`.
 
 ---
 
-## 8. Phase 3: Surgical Fixes To Shared Files
+## 9. Phase 3: Surgical Fixes & Patches to Shared Seams
 
-**Priority:** CRITICAL | **Risk:** VERY HIGH | **Goal:** Merge upstream improvements without breaking our architecture
+**Priority:** CRITICAL | **Risk:** VERY HIGH | **Rule:** Single-file targeted edits only.
 
-**Handle these LAST.** These are the most conflicted files and require deep understanding of both versions.
+### 3.1 `core/prompt.txt`
+- Semantically merge upstream's prompt guidance for Reverse Engineering and Image Generation into our structured prompt brief.
+- Preserve all existing guidance on tool discovery, memory, safety, and local models.
 
-### 3.1 `core/prompt.txt` - **CONFLICT**
-**Our version:** Rewritten as multi-step agent brief with full capability map, deferred-tool discovery, memory/safety/offline doctrine (see VERSION-1.0.1-LOG section 16)  
-**Upstream adds:** RE/reverse engineering instructions, image generation instructions
+### 3.2 `config/app_settings.json`
+- Merge new default configuration keys introduced by upstream (e.g. image generation model defaults, sentinel thresholds).
+- Preserve existing keys: gateway loopback defaults, DPAPI settings, trusted workspaces.
 
-**Strategy:** SEMANTIC MERGE - Keep our structure, add upstream's feature instructions
-
-**Actions:**
-1. [ ] Read both versions completely
-2. [ ] Keep our rewritten brief structure (multi-step turn loop, capability inventory, etc.)
-3. [ ] Add upstream's "REVERSE ENGINEERING & APPLICATION CLONING" section
-4. [ ] Add upstream's "IMAGE GENERATION & VISUAL ART" section
-5. [ ] Ensure consistency with our existing tone/style
-6. [ ] Don't lose our local-model context budget notes or other additions
-
-### 3.2 `core/learned_rules.py` - **MODIFIED**
-**Upstream adds:** `detect_and_learn_conversational_rule()` method  
-**Our version:** May have different structure
-
-**Strategy:** CHERRY-PICK FUNCTION
-
-**Actions:**
-1. [ ] Compare both versions
-2. [ ] Add `detect_and_learn_conversational_rule()` if not present
-3. [ ] Test to ensure no conflicts
-4. [ ] Consider wiring it into conversation flow if useful
-
-### 3.3 `core/dynamic_registry.py` - **MODIFIED**
-**Upstream changes:** Stem expansion, threshold raised to 70, added required parameter validation
-
-**Strategy:** CAREFUL EVALUATION
-
-**Our concern:** We tuned for Gemini Live cap (128 tools advertised, ~24 sent). Threshold changes affect skill matching.
-
-**Actions:**
-1. [ ] Review upstream changes against our needs
-2. [ ] Test skill matching behavior
-3. [ ] If upstream improvements don't hurt our cap management, consider adopting
-4. [ ] Keep our optimizations intact
-
-### 3.4 `llm_client.py` - **HEAVY CONFLICT**
-**Our version:** Integrates with `provider_router`, `llm_gateway`  
-**Upstream version:** Different architecture
-
-**Strategy:** EXTRACT FIXES ONLY - Do NOT replace
-
-**Actions:**
-1. [ ] Never wholesale replace our `llm_client.py`
-2. [ ] Diff upstream vs our version line by line
-3. [ ] Extract only specific bug fixes/timeouts/routing fixes
-4. [ ] Apply as surgical patches
-5. [ ] Ensure all changes go through our gateway/router
-6. [ ] Test provider failover thoroughly
-
-### 3.5 `main.py` - **MASSIVE CONFLICT**
-**Our version:** Decomposed boot flow via `core/ui_shell_boot`, etc.  
-**Upstream adds:** Wiring for new features (image gen, REA, sentinels, evolution suite)
-
-**Strategy:** WIRE NEW FEATURES, DON'T MERGE MONOLITH
-
-**Actions:**
-1. [ ] Do NOT replace our main.py
-2. [ ] Identify new entry points/callbacks upstream adds for ported features
-3. [ ] Wire them into our decomposed boot flow
-4. [ ] Check where upstream initializes new modules and replicate in our structure
-5. [ ] May need additions to `core/ui_shell_boot.py` or other boot modules
-6. [ ] Test boot sequence thoroughly
-
-### 3.6 `ui.py` - **CONFLICT (MAJOR)**
-**Our version:** Facade over 47 `core/ui_*` modules  
-**Upstream adds:** UI features, HUDs, contrast fixes
-
-**Strategy:** PORT TO `core/ui_*` MODULES, KEEP FACADE
-
-**Actions:**
-1. [ ] Do NOT replace our facade `ui.py`
-2. [ ] Identify UI changes in upstream
-3. [ ] Port to appropriate `core/ui_*.py` modules:
-   - HUDs -> relevant UI modules
-   - Overlays -> `core/ui_overlays*.py`
-   - Settings -> `core/ui_shell_settings.py` or `core/ui_appsettings.py`
-   - etc.
-4. [ ] Keep `ui.py` minimal as facade
-5. [ ] Test UI rendering
-
-### 3.7 `config/app_settings.json` - **CONFLICT**
-**Strategy:** MERGE KEYS, PRESERVE STRUCTURE
-
-**Actions:**
-1. [ ] Never overwrite wholesale
-2. [ ] Add new keys from upstream that are relevant
-3. [ ] Keep our existing settings intact
-4. [ ] Check schema compatibility
-5. [ ] Update defaults carefully
-
-### 3.8 Other Shared Files
-| File | Strategy | Notes |
-|------|----------|-------|
-| `.gitignore` | Merge both | Add upstream ignores if useful, keep ours |
-| `assets/web_background/index.html` | Manual merge | Large file, diff carefully |
-| `config/create_desktop_shortcut.ps1` | Merge | Compare functionality |
-| `core/globe_window.py` | Merge | Check for conflicts in structure |
-| `core/circuit_hud.py` | Review | Upstream modified, check compatibility |
-| `core/dynamic_registry.py` | Selective | See 3.3 |
-| `core/sensorium.py` | Review | Modified by both |
-| `dashboard/server.py` | Review | May need updates for new features |
-| `dashboard/static/app.html` | Review | UI changes |
-| `features/__init__.py` | Merge registrations | Add new features without breaking existing |
-| `gesture_utils.py` | Review | Minor changes |
-| `installer/install_wizard.py` | Merge carefully | Compare with our flow |
-| `tests/test_autonomous_evolution.py` | Review | Both modified |
-| `tests/test_daily_briefing.py` | Review | Minor |
-| `brahma_connect/gateway/server.py` | Review | Mobile connectivity |
-| `brahma_connect/gateway/websocket.py` | Review | Mobile connectivity |
-
-**Phase 3 Exit Criteria:**
-- [ ] All conflicts resolved
-- [ ] No files reverted to monolith structure
-- [ ] Gateway/router still used for all LLM egress
-- [ ] Prompt.txt merged semantically
-- [ ] main.py/ui.py remain in decomposed/facade form
-- [ ] Git status clean (no merge conflicts)
+### 3.3 `core/dynamic_registry.py` & `core/learned_rules.py`
+- Extract `detect_and_learn_conversational_rule()` from upstream `core/learned_rules.py`.
+- In `core/dynamic_registry.py`: Review stem expansion improvements without degrading the strict `1008` Gemini Live tool budget.
 
 ---
 
-## 9. Phase 4: Validation & Testing
+## 10. Phase 4: Upstream Items Explicitly Rejected or Replaced
 
-**Priority:** CRITICAL | **Risk:** HIGH
+To protect the architecture, the following upstream additions are **permanently rejected** from being merged:
 
-### 9.1 Static Checks
-```bash
-# Syntax check Python files
-python -m py_compile main.py ui.py llm_client.py
-# Check for obvious import issues
-```
-
-### 9.2 Run Existing Tests (Regression)
-```bash
-# Provider/gateway tests
-pytest tests/ -k "gateway or provider or router or failover" -v
-
-# Core functionality
-pytest tests/test_ai_evolution.py tests/test_autonomous_evolution.py -v
-
-# UI tests
-pytest tests/test_background_orb_startup.py tests/test_daily_briefing.py -v
-```
-
-### 9.3 Run New Upstream Tests
-```bash
-# Features we ported
-pytest tests/test_image_generator.py -v
-pytest tests/test_reverse_engineer.py -v
-pytest tests/test_flowstate.py tests/test_proactive_engine.py -v
-pytest tests/test_game_sentinel.py tests/test_net_sentinel.py tests/test_shopping_agent.py tests/test_study_guard.py -v
-pytest tests/test_intent_dispatcher.py -v
-pytest tests/test_mobile_connect_routing.py -v
-pytest tests/test_space_cleaner.py -v
-pytest tests/test_ui_upgrades.py -v
-```
-
-### 9.4 Manual Smoke Testing
-- [ ] **Boot**: Application starts without errors
-- [ ] **Provider Routing**: Test with different providers, verify kill switches work
-- [ ] **Gateway**: Confirm all LLM calls go through `core/llm_gateway.py`
-- [ ] **Tool System**: Tool index/cap still enforced (under Gemini Live limit)
-- [ ] **Image Generation**: Test if ported, routes through gateway
-- [ ] **REA/Reverse Engineer**: Test if ported
-- [ ] **UI**: All UI modules load, no broken imports
-- [ ] **Mobile Connect**: Test if affected
-
-### 9.5 Architecture Validation
-- [ ] No new god objects created (check file sizes of main.py, ui.py)
-- [ ] Provider toggles enforced everywhere
-- [ ] Tool count under control
-- [ ] Gateway is single egress point
-- [ ] Decomposed structure preserved
-
-### 9.6 Documentation Update
-- [ ] Update `docs/VERSION-1.0.1-LOG.md` with upstream integration section, or create `docs/VERSION-1.0.2-LOG.md`
-- [ ] Update `docs/UPSTREAM-INTEGRATION-PLAN.md` Decision Log with all decisions made
-- [ ] Document any deviations from plan
-
-**Phase 4 Exit Criteria:**
-- [ ] All regression tests pass
-- [ ] New tests pass (or adapted and passing)
-- [ ] Smoke tests successful
-- [ ] Architecture intact
-- [ ] Documentation updated
+1. **`core/subagent_orchestrator.py` (`9dd02cf`):**
+   - *Why rejected:* Spawns arbitrary subprocesses and uncontained agent loops. Replaced by ratified `run_subagent` (sequential mutation) and `run_subagent_batch` (read-only parallel fan-out under `AgentRuntime`).
+2. **Gateway Auto-Pairing Bypass (`9dd02cf`):**
+   - *Why rejected:* Upstream commented out device verification in `gateway/server.py`. Replaced by `WS-8` paired-device authentication.
+3. **Monolithic `main.py` & `ui.py` Regrowth (`987f47d`, `9dd02cf`):**
+   - *Why rejected:* Upstream merged 2,300 lines directly into `main.py` and 1,700 lines into `ui.py`. Directly violates CI ratchets (`main.py` $\le$ 3,230 lines; `core/tool_exec.py` 0 `elif` branches).
+4. **Uncontained Code Execution via `agent_task` / `executor.py` (`987f47d`):**
+   - *Why rejected:* Legacy autonomous files were deleted in Batch B4. Any autonomous capability must route through `AgentLoop`.
 
 ---
 
-## 10. Rollback Plan
+## 11. Phase 5: Validation & Gate Verification
 
-If integration goes wrong at any point:
+Every porting batch must pass all repository verification gates:
 
-### Immediate Rollback
-```bash
-# Abort if in merge/conflict state
-git merge --abort  # if merging
-git cherry-pick --abort  # if cherry-picking
-git reset --hard HEAD  # if needed
-```
+```powershell
+# 1. Code formatting & linting
+py -3.11 -m ruff check .
 
-### Full Rollback to Pre-Integration
-```bash
-git checkout main
-git reset --hard backup/pre-upstream-integration-YYYYMMDD
-# Or to specific tag
-git reset --hard <backup-tag>
-```
+# 2. Architecture invariants and line-count ratchets
+py -3.11 -m pytest tests/test_architecture_invariants.py -v
 
-### Partial Rollback
-Use `git revert` for specific commits, or `git checkout <file>` from backup.
+# 3. Agentic harness & bridge regression suite
+py -3.11 -m pytest tests -q -k agent
 
-### Safety Measures
-- Work on separate integration branch (never directly on main until validated)
-- Create backup tag before starting
-- Commit frequently with clear messages
-- Test after each phase
-
----
-
-## 11. File Tracking Matrix
-
-Track every upstream file's status. Update as you go.
-
-### New Files (A)
-| File | Phase | Status | Decision | Notes |
-|------|-------|--------|----------|-------|
-| `.github/workflows/build-all-platforms.yml` | 1.1 | PENDING | - | Evaluate vs our ci.yml |
-| `actions/game_sentinel.py` | 1.4 | PENDING | - | Port with adaptation |
-| `actions/image_generator.py` | 1.4/2.1 | PENDING | - | Must route through gateway |
-| `actions/net_sentinel.py` | 1.4 | PENDING | - | - |
-| `actions/rea_mcp_client.py` | 1.4/2.2 | PENDING | - | Port to tool system |
-| `actions/reverse_engineer.py` | 1.4/2.2 | PENDING | - | Port to tool system |
-| `actions/study_guard.py` | 1.4 | PENDING | - | - |
-| `assets/radar/index.html` | 1.2 | PENDING | - | Copy |
-| `assets/space_cleaner/index.html` | 1.2 | PENDING | - | Copy |
-| `brahma_connect/gateway/mobile_portal.py` | 1.6 context | PENDING | - | Review |
-| `core/anticipatory_watcher.py` | 1.5/2.3 | PENDING | - | Evaluate for gaps |
-| `core/execution_reflection.py` | 1.5/2.3 | PENDING | - | High value candidate |
-| `core/flowstate.py` | 1.5/2.3 | PENDING | - | - |
-| `core/game_sentinel.py` | 1.5 | PENDING | - | - |
-| `core/intent_dispatcher.py` | 1.5/2.2 | PENDING | - | May conflict with routing |
-| `core/mem_reduct.py` | 1.5/2.3 | PENDING | - | Evaluate |
-| `core/memory_cortex.py` | 1.5/2.3 | PENDING | - | Evaluate vs existing |
-| `core/net_sentinel.py` | 1.5 | PENDING | - | - |
-| `core/omni_planner.py` | 1.5/2.3 | PENDING | - | Evaluate |
-| `core/radar_hud.py` | 1.5 | PENDING | - | UI integration needed |
-| `core/shopping_agent.py` | 1.5 | PENDING | - | - |
-| `core/space_cleaner.py` | 1.5 | PENDING | - | - |
-| `core/space_cleaner_hud.py` | 1.5 | PENDING | - | - |
-| `core/study_guard.py` | 1.5 | PENDING | - | - |
-| `features/ascii_banner/*` | 1.3 | PENDING | - | Copy + register |
-| `features/game_sentinel.py` | 1.3 | PENDING | - | Copy + register |
-| `features/net_sentinel.py` | 1.3 | PENDING | - | Copy + register |
-| `features/shopping_agent.py` | 1.3 | PENDING | - | Copy + register |
-| `features/study_guard.py` | 1.3 | PENDING | - | Copy + register |
-| `features/flowstate.py` | 1.3 | PENDING | - | Copy + register |
-| `installer/Uninstall.spec` | 1.1 | PENDING | - | - |
-| `installer/install.sh` | 1.1 | PENDING | - | - |
-| `installer/uninstall.cmd` | 1.1 | PENDING | - | - |
-| `installer/uninstall.sh` | 1.1 | PENDING | - | - |
-| `installer/uninstall_wizard.py` | 1.1 | PENDING | - | Review vs our flow |
-| `tests/test_ai_evolution.py` | 1.6 | PENDING | - | - |
-| `tests/test_flowstate.py` | 1.6 | PENDING | - | - |
-| `tests/test_game_sentinel.py` | 1.6 | PENDING | - | - |
-| `tests/test_image_generator.py` | 1.6 | PENDING | - | Adapt to gateway |
-| `tests/test_intent_dispatcher.py` | 1.6 | PENDING | - | - |
-| `tests/test_mobile_connect_routing.py` | 1.6 | PENDING | - | - |
-| `tests/test_net_sentinel.py` | 1.6 | PENDING | - | - |
-| `tests/test_proactive_engine.py` | 1.6 | PENDING | - | - |
-| `tests/test_reverse_engineer.py` | 1.6 | PENDING | - | Adapt |
-| `tests/test_shopping_agent.py` | 1.6 | PENDING | - | - |
-| `tests/test_space_cleaner.py` | 1.6 | PENDING | - | - |
-| `tests/test_study_guard.py` | 1.6 | PENDING | - | - |
-| `tests/test_ui_upgrades.py` | 1.6 | PENDING | - | - |
-
-### Modified Files (M) - High Conflict Risk
-| File | Phase | Status | Decision | Notes |
-|------|-------|--------|----------|-------|
-| `.gitignore` | 3.8 | PENDING | MERGE | - |
-| `actions/attention_monitor.py` | 1.4 | PENDING | REVIEW | Check compatibility |
-| `actions/auto_heal_engine.py` | 1.4 | PENDING | REVIEW | Check compatibility |
-| `actions/brahma_connect.py` | 1.4 | PENDING | REVIEW | Check compatibility |
-| `actions/instagram_mcp.py` | 1.4 | PENDING | REVIEW | Check compatibility |
-| `actions/proactive.py` | 1.4 | PENDING | REVIEW | Check compatibility |
-| `actions/spotify_controller.py` | 1.4 | PENDING | REVIEW | Check compatibility |
-| `assets/globe/index.html` | 1.2 | PENDING | REVIEW | - |
-| `assets/web_background/index.html` | 1.2 | PENDING | MERGE | Large conflict |
-| `brahma-connect-android/app/src/main/assets/web_background/index.html` | 1.2 | PENDING | REVIEW | - |
-| `brahma_connect/gateway/server.py` | 3.8 | PENDING | REVIEW | - |
-| `brahma_connect/gateway/websocket.py` | 3.8 | PENDING | REVIEW | - |
-| `config/app_settings.json` | 3.7 | PENDING | MERGE_KEYS | Never overwrite |
-| `config/create_desktop_shortcut.ps1` | 3.8 | PENDING | MERGE | - |
-| `core/circuit_hud.py` | 3.8 | PENDING | REVIEW | - |
-| `core/clipboard_sentry.py` | 1.5 | PENDING | REVIEW | - |
-| `core/dynamic_registry.py` | 3.3 | PENDING | EVALUATE | Watch cap/threshold |
-| `core/globe_window.py` | 3.8 | PENDING | REVIEW | - |
-| `core/learned_rules.py` | 1.5/3.2 | PENDING | CHERRY_PICK | Add function only |
-| `core/prompt.txt` | 3.1 | PENDING | SEMANTIC_MERGE | Keep our structure |
-| `core/sensorium.py` | 1.5/3.8 | PENDING | REVIEW | - |
-| `dashboard/server.py` | 3.8 | PENDING | REVIEW | - |
-| `dashboard/static/app.html` | 3.8 | PENDING | REVIEW | - |
-| `features/__init__.py` | 1.3/3.8 | PENDING | MERGE | - |
-| `features/check_current_stock_prices.py` | 1.3 | PENDING | REVIEW | - |
-| `gesture_utils.py` | 3.8 | PENDING | REVIEW | - |
-| `installer/BrahmaEvo.spec` | 1.1 | PENDING | MERGE | - |
-| `installer/BrahmaEvo_Setup.spec` | 1.1 | PENDING | MERGE | - |
-| `installer/install_wizard.py` | 3.8 | PENDING | MERGE | - |
-| `llm_client.py` | 3.4 | PENDING | EXTRACT_FIXES | NEVER REPLACE |
-| `main.py` | 3.5 | PENDING | WIRE_FEATURES | NEVER REPLACE |
-| `tests/test_autonomous_evolution.py` | 3.8 | PENDING | REVIEW | Both modified |
-| `tests/test_background_orb_startup.py` | 3.8 | PENDING | REVIEW | - |
-| `tests/test_daily_briefing.py` | 3.8 | PENDING | REVIEW | - |
-| `ui.py` | 3.6 | PENDING | PORT_TO_MODULES | NEVER REPLACE |
-| `config/.desktop_shortcut_created` | - | PENDING | DELETE | Upstream deletes this |
-
-### Deleted Files (D)
-| File | Phase | Status | Decision | Notes |
-|------|-------|--------|----------|-------|
-| `config/.desktop_shortcut_created` | 1.1 | PENDING | DELETE | Matches upstream |
-
-**Status Legend:** PENDING | IN_PROGRESS | DONE | SKIPPED | BLOCKED
-
----
-
-## 12. Decision Log
-
-Use this section to record all integration decisions during the process.
-
-| Date | File/Feature | Decision | Rationale | Reviewer |
-|------|---------------|----------|-----------|----------|
-| 2025-10-24 | Overall Strategy | Selective port to our architecture | Preserve decomposition, gateway enforcement, safety rails | User/Agent |
-| 2025-10-24 | Commits c5e8162, c8d9c0f | Try cherry-pick first | Isolated installer/CI changes | TBD |
-| 2025-10-24 | Commit 987f47d | Do NOT cherry-pick wholesale | Kitchen-sink mega-commit against monolith | TBD |
-| 2025-10-24 | main.py, ui.py, llm_client.py | Never replace wholesale | Core of our refactored architecture | TBD |
-| TBD | core/intent_dispatcher.py vs our routing | TBD | Need to audit our routing first | TBD |
-| TBD | Autonomous evolution suite | TBD | May duplicate existing systems | TBD |
-
----
-
-## 13. Notes & Warnings
-
-### Critical Warnings
-- **NEVER replace main.py or ui.py wholesale** - These are facades over our decomposed architecture. Replacing will break everything.
-- **NEVER bypass the gateway** - All LLM calls must go through `core/llm_gateway.py`. Image generation and any new features must comply.
-- **Preserve provider toggles** - Our kill switches must remain functional. Don't let new code bypass them.
-- **Watch tool count** - We maintain Gemini Live cap compliance. Don't bloat tool registry.
-- **Test after each phase** - Don't batch everything, validate incrementally.
-
-### Tips
-- When in doubt, look at how our codebase does it in the refactored structure, not how upstream does it
-- Use `git diff` extensively to understand changes
-- Keep commits small and focused per feature/phase
-- Update the tracking matrix in real-time
-- Document any architectural adaptations you make
-
-### Useful Commands
-```bash
-# Check merge conflicts
-git diff --name-only --diff-filter=U
-
-# See what upstream changed in specific file
-git show upstream/main:path/to/file
-
-# Compare our version vs upstream for specific file
-git diff e0bd3c5 upstream/main -- path/to/file
-
-# Test specific functionality
-pytest tests/test_X.py -v
-
-# Check imports
-python -c "import main, ui, llm_client"
+# 4. Full offscreen desktop test suite
+$env:QT_QPA_PLATFORM="offscreen"; py -3.11 -m pytest tests -q
 ```
 
 ---
 
-## 14. Upstream Update — 2026-10-28
+## 12. Rollback Plan
 
-This plan was written when upstream was three commits past the merge base and stopped at `c8d9c0f`. Upstream `main` is now `bfb2868` (2026-10-27), **seven** commits past `e0bd3c5` and **four** past the commit the security report was filed against.
-
-### What changed
-
-| Commit | Date | Title | Assessment |
-|---|---|---|---|
-| `9dd02cf` | 2026-10-26 | feat(voice): overhaul real-time voice pipeline | Adds `core/claude_tools.py` (`bash`, `python_repl`), `core/mcp_manager.py`, `core/skills_engine.py`, unauthenticated `POST /gateway/execute`, and auto-approval of `HELLO` pairing. **Do not merge without containment.** |
-| `b3c4160` | 2026-10-26 | build(installer): bundle skills directory | Packaging only. |
-| `62b1591` | 2026-10-26 | Fix OpenRouter client dynamic key reloading | Provider plumbing only. |
-| `bfb2868` | 2026-10-27 | Add public Privacy Policy | Documentation only. |
-
-### Security findings status
-
-None of the seven commits touches `core/skill_forge.py`, `core/skill_crucible.py`, `plugin_manager.py`, `updater.py`, `core/updater.py`, or `smart_home/storage.py`. The eight findings in [SECURITY-ANALYSIS-ISSUE-4.md](SECURITY-ANALYSIS-ISSUE-4.md) therefore remain open in upstream. `9dd02cf` adds new execution and network surface rather than reducing it.
-
-### Integration guidance
-
-1. **Do not merge `9dd02cf` wholesale.** Port the voice/UI improvements separately.
-2. If `bash` / `python_repl` are wanted, route them through the execution policy and confirmation layer rather than exposing them as raw model tools.
-3. If MCP is wanted, replace `shell=True` spawning with an argv array and a pinned/hashed server package.
-4. Keep the fork's gateway at loopback until token auth and human pairing exist. The fork predates `/gateway/execute`; it must not gain the route without auth.
-5. The upstream installer is unsigned (`codesign_identity=None`, no `signtool` step) and `BrahmaEvo_Setup.spec` sets `uac_admin=True`. Treat any published `.exe` as an unsigned build.
-
-### Reference
-
-The public analysis and engineering follow-ups are posted on [issue #4](https://github.com/titechprabhasolutions/Brahma-Ai-Evo/issues/4):
-
-- main reply: <https://github.com/titechprabhasolutions/Brahma-Ai-Evo/issues/4#issuecomment-6480568426>
-- upstream status/corrections: <https://github.com/titechprabhasolutions/Brahma-Ai-Evo/issues/4#issuecomment-6481448264>
-- architecture part 1 (execution surfaces): <https://github.com/titechprabhasolutions/Brahma-Ai-Evo/issues/4#issuecomment-6481448606>
-- architecture part 2 (updates, secrets, gateway, model): <https://github.com/titechprabhasolutions/Brahma-Ai-Evo/issues/4#issuecomment-6481448988>
+If any porting batch introduces regressions:
+1. `git checkout main && git branch -D integration/upstream-phaseX`
+2. If working tree was affected: `git reset --hard backup/pre-upstream-port-20261102`
+3. Never force-push or rebase `main`.
 
 ---
 
-**END OF PLAN** 
+## 13. Complete 114-File Tracking Matrix
 
-*This document is a living plan. Update the tracking matrix, decision log, and status as you progress through the integration.* 
+Status values: `PENDING` · `PORTED` · `ADAPTED` · `REJECTED` · `SUPERSEDED`
+
+### 13.1 Added Files in Upstream (`A`, 71 Files)
+
+| # | File | Upstream Commit | Component | Strategy | Status | Notes |
+|---|---|---|---|---|---|---|
+| 1 | `.github/workflows/build-all-platforms.yml` | `c8d9c0f` | CI/CD | ADAPT | PENDING | Evaluate vs `.github/workflows/ci.yml` |
+| 2 | `PRIVACY_POLICY.md` | `bfb2868` | Compliance | COPY | PENDING | Zero conflict; direct copy |
+| 3 | `actions/game_sentinel.py` | `987f47d` | Sentinel | ADAPT | PENDING | Wrap as service/tool |
+| 4 | `actions/image_generator.py` | `987f47d` | Capability | ADAPT | PENDING | Port to `ToolSpec` in `desktop_tools.py` |
+| 5 | `actions/net_sentinel.py` | `987f47d` | Sentinel | ADAPT | PENDING | Wrap as service/tool |
+| 6 | `actions/rea_mcp_client.py` | `987f47d` | Capability | ADAPT | PENDING | Wrap as `ToolSpec` |
+| 7 | `actions/reverse_engineer.py` | `987f47d` | Capability | ADAPT | PENDING | Wrap as `ToolSpec` |
+| 8 | `actions/study_guard.py` | `987f47d` | Sentinel | ADAPT | PENDING | Wrap as service/tool |
+| 9 | `assets/radar/index.html` | `987f47d` | Assets | COPY | PENDING | Standalone Three.js radar asset |
+| 10 | `assets/space_cleaner/index.html` | `987f47d` | Assets | COPY | PENDING | Standalone space cleaner asset |
+| 11 | `brahma_connect/gateway/mobile_portal.py` | `987f47d` | Gateway | ADAPT | PENDING | Ensure route auth (`WS-8`) is applied |
+| 12 | `config/mcp_servers.json` | `9dd02cf` | MCP Config | EVALUATE | PENDING | Check vs `app_settings.json` and ADR-020 |
+| 13 | `core/anticipatory_watcher.py` | `987f47d` | Evolution | ADAPT | PENDING | Background observer |
+| 14 | `core/claude_tools.py` | `9dd02cf` | Tools | ADAPT | PENDING | Integrate into `desktop_tools.py` |
+| 15 | `core/execution_reflection.py` | `987f47d` | Evolution | ADAPT | PENDING | High-value self-critique module |
+| 16 | `core/flowstate.py` | `987f47d` | Feature | ADAPT | PENDING | Productivity monitor |
+| 17 | `core/game_sentinel.py` | `987f47d` | Sentinel | ADAPT | PENDING | Service module |
+| 18 | `core/intent_dispatcher.py` | `987f47d` | Routing | EVALUATE | PENDING | Compare with `provider_router.py` |
+| 19 | `core/live_voice_engine.py` | `9dd02cf` | Voice | ADAPT | PENDING | Extract streaming fixes |
+| 20 | `core/mcp_manager.py` | `9dd02cf` | MCP | SUPERSEDED | SUPERSEDED | We implemented `core/mcp_manager.py` + refresh (B22) |
+| 21 | `core/mem_reduct.py` | `987f47d` | Evolution | ADAPT | PENDING | Memory reduction utility |
+| 22 | `core/memory_cortex.py` | `987f47d` | Memory | EVALUATE | PENDING | Compare with `agent/session.py` |
+| 23 | `core/net_sentinel.py` | `987f47d` | Sentinel | ADAPT | PENDING | Network guard core |
+| 24 | `core/omni_planner.py` | `987f47d` | Planning | REJECT | REJECT | Conflicts with `AgentLoop` |
+| 25 | `core/radar_hud.py` | `987f47d` | HUD | ADAPT | PENDING | Adapt into `core/ui_*` overlay |
+| 26 | `core/shopping_agent.py` | `987f47d` | Feature | ADAPT | PENDING | Wrap as `ToolSpec` |
+| 27 | `core/skills_engine.py` | `9dd02cf` | Skills | SUPERSEDED | SUPERSEDED | Replaced by `agent.skills` / Skills Library (D42) |
+| 28 | `core/space_cleaner.py` | `987f47d` | Feature | ADAPT | PENDING | Disk cleanup helper |
+| 29 | `core/space_cleaner_hud.py` | `987f47d` | HUD | ADAPT | PENDING | Adapt into `core/ui_*` overlay |
+| 30 | `core/study_guard.py` | `987f47d` | Feature | ADAPT | PENDING | Focus monitor |
+| 31 | `core/subagent_orchestrator.py` | `9dd02cf` | Subagents | REJECT | REJECT | Conflicts with `I-08` / `run_subagent_batch` |
+| 32 | `dashboard/static/voice.html` | `9dd02cf` | Dashboard | COPY | PENDING | Standalone dashboard voice interface |
+| 33 | `features/ascii_banner.py` | `987f47d` | Skill | ADAPT | PENDING | Register via staging/forge rules |
+| 34 | `features/ascii_banner/manifest.json` | `987f47d` | Skill | COPY | PENDING | Skill manifest |
+| 35 | `features/ascii_banner/skill.py` | `987f47d` | Skill | COPY | PENDING | Skill code |
+| 36 | `features/ascii_banner/test_cases.json` | `987f47d` | Skill | COPY | PENDING | Test cases |
+| 37 | `features/flowstate.py` | `987f47d` | Feature | ADAPT | PENDING | Feature entry point |
+| 38 | `features/game_sentinel.py` | `987f47d` | Feature | ADAPT | PENDING | Feature entry point |
+| 39 | `features/net_sentinel.py` | `987f47d` | Feature | ADAPT | PENDING | Feature entry point |
+| 40 | `features/shopping_agent.py` | `987f47d` | Feature | ADAPT | PENDING | Feature entry point |
+| 41 | `features/study_guard.py` | `987f47d` | Feature | ADAPT | PENDING | Feature entry point |
+| 42 | `installer/Uninstall.spec` | `c5e8162` | Installer | ADAPT | PENDING | Uninstaller build spec |
+| 43 | `installer/install.sh` | `c8d9c0f` | Installer | COPY | PENDING | Linux/macOS install script |
+| 44 | `installer/uninstall.cmd` | `c5e8162` | Installer | COPY | PENDING | Windows native uninstaller command |
+| 45 | `installer/uninstall.sh` | `c8d9c0f` | Installer | COPY | PENDING | Linux/macOS uninstall script |
+| 46 | `installer/uninstall_wizard.py` | `c5e8162` | Installer | ADAPT | PENDING | GUI uninstaller wizard |
+| 47 | `skills/api-mock-engine/SKILL.md` | `9dd02cf` | Playbook | COPY | PENDING | Project skill playbook |
+| 48 | `skills/browser-automation/SKILL.md` | `9dd02cf` | Playbook | COPY | PENDING | Project skill playbook |
+| 49 | `skills/code-review/SKILL.md` | `9dd02cf` | Playbook | COPY | PENDING | Project skill playbook |
+| 50 | `skills/database-architect/SKILL.md` | `9dd02cf` | Playbook | COPY | PENDING | Project skill playbook |
+| 51 | `skills/docker-devops/SKILL.md` | `9dd02cf` | Playbook | COPY | PENDING | Project skill playbook |
+| 52 | `skills/fullstack-scaffolder/SKILL.md` | `9dd02cf` | Playbook | COPY | PENDING | Project skill playbook |
+| 53 | `skills/git-workflow/SKILL.md` | `9dd02cf` | Playbook | COPY | PENDING | Project skill playbook |
+| 54 | `skills/github-automation/SKILL.md` | `9dd02cf` | Playbook | COPY | PENDING | Project skill playbook |
+| 55 | `skills/performance-profiler/SKILL.md` | `9dd02cf` | Playbook | COPY | PENDING | Project skill playbook |
+| 56 | `skills/security-auditor/SKILL.md` | `9dd02cf` | Playbook | COPY | PENDING | Project skill playbook |
+| 57 | `skills/test-driven-development/SKILL.md` | `9dd02cf` | Playbook | COPY | PENDING | Project skill playbook |
+| 58 | `skills/web-scraper-stealth/SKILL.md` | `9dd02cf` | Playbook | COPY | PENDING | Project skill playbook |
+| 59 | `tests/test_ai_evolution.py` | `987f47d` | Test | ADAPT | PENDING | Adapt to harness |
+| 60 | `tests/test_flowstate.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for flowstate |
+| 61 | `tests/test_game_sentinel.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for game sentinel |
+| 62 | `tests/test_image_generator.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for image generator |
+| 63 | `tests/test_intent_dispatcher.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for dispatcher |
+| 64 | `tests/test_mobile_connect_routing.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for mobile portal |
+| 65 | `tests/test_net_sentinel.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for net sentinel |
+| 66 | `tests/test_proactive_engine.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for proactive engine |
+| 67 | `tests/test_reverse_engineer.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for REA cloner |
+| 68 | `tests/test_shopping_agent.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for shopping agent |
+| 69 | `tests/test_space_cleaner.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for space cleaner |
+| 70 | `tests/test_study_guard.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for study guard |
+| 71 | `tests/test_ui_upgrades.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for UI contrast |
+
+---
+
+### 13.2 Modified Files in Upstream (`M`, 42 Files)
+
+| # | File | Upstream Commit(s) | Impact / Conflict Risk | Strategy | Notes |
+|---|---|---|---|---|---|
+| 1 | `.gitignore` | `987f47d`, `9dd02cf` | Low | MERGE | Merge ignore rules (e.g. `skills/`, temp files) |
+| 2 | `actions/attention_monitor.py` | `987f47d` | Low | REVIEW | Check compatibility |
+| 3 | `actions/auto_heal_engine.py` | `987f47d` | Low | REVIEW | Verify DPAPI key access is preserved |
+| 4 | `actions/brahma_connect.py` | `987f47d`, `9dd02cf` | Medium | REVIEW | Gateway connection helpers |
+| 5 | `actions/instagram_mcp.py` | `987f47d` | Low | REVIEW | Check tool spec compatibility |
+| 6 | `actions/open_app.py` | `9dd02cf` | Low | REVIEW | Minor parameter fixes |
+| 7 | `actions/proactive.py` | `987f47d` | Medium | REVIEW | Background proactive tasks |
+| 8 | `actions/screen_processor.py` | `9dd02cf` | Low | REVIEW | Minor fix |
+| 9 | `actions/spotify_controller.py` | `987f47d` | Low | REVIEW | Check compatibility |
+| 10 | `assets/globe/index.html` | `987f47d` | Low | REVIEW | Visual enhancements |
+| 11 | `assets/web_background/index.html` | `987f47d` | High | MERGE | Contrast and shader improvements |
+| 12 | `brahma-connect-android/.../index.html` | `987f47d` | Low | MERGE | Android web assets |
+| 13 | `brahma_connect/gateway/command_router.py` | `9dd02cf` | Medium | REVIEW | Maintain route auth |
+| 14 | `brahma_connect/gateway/device_manager.py` | `9dd02cf` | Medium | REVIEW | Maintain pairing enforcement |
+| 15 | `brahma_connect/gateway/server.py` | `987f47d`, `9dd02cf` | CRITICAL | REJECT CHANGES | Upstream disabled pairing; our WS-8 auth must stand |
+| 16 | `brahma_connect/gateway/websocket.py` | `987f47d` | Low | REVIEW | Reconnect handling |
+| 17 | `build_all.ps1` | `b3c4160` | Medium | ADAPT | Integrate `Uninstall.exe` bundling into 3.11 build |
+| 18 | `config/app_settings.json` | `987f47d` | Medium | MERGE | Merge new keys; keep DPAPI / trusted roots |
+| 19 | `config/create_desktop_shortcut.ps1` | `987f47d` | Low | REVIEW | Shortcut creation helper |
+| 20 | `core/circuit_hud.py` | `987f47d` | Low | REVIEW | Visual HUD update |
+| 21 | `core/clipboard_sentry.py` | `987f47d` | Low | REVIEW | Clipboard monitoring |
+| 22 | `core/dynamic_registry.py` | `987f47d` | High | EVALUATE | Stem matching vs Gemini Live 128-tool limit |
+| 23 | `core/echo.py` | `9dd02cf` | High | ADAPT | Port acoustic barge-in gating |
+| 24 | `core/globe_window.py` | `987f47d` | Low | REVIEW | Globe window widget |
+| 25 | `core/learned_rules.py` | `987f47d` | Medium | ADAPT | Cherry-pick rule learning function |
+| 26 | `core/prompt.txt` | `987f47d` | High | MERGE | Semantic merge for REA / image gen |
+| 27 | `core/sensorium.py` | `987f47d` | Low | REVIEW | Sensorium updates |
+| 28 | `dashboard/server.py` | `987f47d`, `9dd02cf` | Medium | REVIEW | Dashboard routes for voice/status |
+| 29 | `dashboard/static/app.html` | `987f47d`, `9dd02cf` | Medium | REVIEW | Web UI updates |
+| 30 | `features/__init__.py` | `987f47d` | Low | REVIEW | Verify safe loading under allowlist |
+| 31 | `features/check_current_stock_prices.py`| `987f47d` | Low | REVIEW | Stock feature update |
+| 32 | `gesture_utils.py` | `987f47d` | Low | REVIEW | Minor gesture tweak |
+| 33 | `installer/BrahmaEvo.spec` | `c5e8162`, `b3c4160` | Medium | ADAPT | Spec file updates for uninstaller |
+| 34 | `installer/BrahmaEvo_Setup.spec` | `c5e8162` | Medium | ADAPT | Installer packaging spec |
+| 35 | `installer/install_wizard.py` | `987f47d` | Medium | REVIEW | Wizard enhancements |
+| 36 | `llm_client.py` | `987f47d`, `62b1591` | High | ADAPT | Surgical patch for OpenRouter error handling |
+| 37 | `main.py` | `987f47d`, `9dd02cf`, `62b1591` | CRITICAL | SURGICAL ONLY | Do NOT merge wholesale. `main.py` line ceiling $\le 3,230$ |
+| 38 | `or_client.py` | `62b1591` | High | ADAPT | Adopt model pool fallback with DPAPI keys |
+| 39 | `tests/test_autonomous_evolution.py` | `987f47d` | CRITICAL | REJECT | We deleted this legacy file in B4 |
+| 40 | `tests/test_background_orb_startup.py` | `987f47d` | Low | REVIEW | Orb test check |
+| 41 | `tests/test_daily_briefing.py` | `987f47d` | Low | REVIEW | Test tweak |
+| 42 | `ui.py` | `987f47d`, `9dd02cf` | CRITICAL | ADAPT TO SEAMS | Do NOT merge into `ui.py`. Adapt to `core/ui_*` |
+
+### 13.3 Deleted Files in Upstream (`D`, 1 File)
+
+| # | File | Upstream Commit | Strategy | Notes |
+|---|---|---|---|---|
+| 1 | `config/.desktop_shortcut_created` | `987f47d` | ACCEPT DELETE | State marker file deletion |
+
+---
+
+## 14. Decision Log
+
+- **DEC-UP-001 (2026-11-02): Full Scope Expansion to 7 Commits.**  
+  Updated integration plan from 3 commits (81 files) to all 7 commits (114 files, `e0bd3c5..bfb2868`).
+- **DEC-UP-002 (2026-11-02): Explicit Rejection of `core/subagent_orchestrator.py`.**  
+  `9dd02cf` introduced an unconfined subagent orchestrator. Rejected in favor of our ratified `run_subagent` and `run_subagent_batch` under `AgentRuntime.execute`.
+- **DEC-UP-003 (2026-11-02): Line-Count Ratchet Enforcement on Upstream Ports.**  
+  Upstream's massive additions to `main.py` (+2,300 lines) and `ui.py` (+1,700 lines) must never be merged into those files. All new tool declarations must be added as `ToolSpec`s in `core/desktop_tools.py`, and UI additions must go into decomposed `core/ui_*` modules.
+- **DEC-UP-004 (2026-11-02): OpenRouter Fallback Adaptation with DPAPI.**  
+  Upstream's dynamic key reloading in `62b1591` is adapted to load keys through `core/secret_store.py:load_api_keys()`, maintaining Windows DPAPI encryption at rest.
