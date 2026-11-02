@@ -6,6 +6,8 @@ and publishes them as canonical ToolSpecs behind AgentRuntime.execute.
 
 from __future__ import annotations
 
+from core.agent_bridge.adapter import AgentAdapter, sanitize_tool_name
+from core.agent_bridge.adapters.mcp_server import MCPServerAdapter
 from core.agent_bridge.detectors import DetectionContext, run_all
 from core.agent_bridge.errors import (
     AgentBridgeError,
@@ -27,6 +29,7 @@ from core.agent_bridge.models import (
 from core.agent_bridge.registry import AgentRegistry, default_registry_path
 
 __all__ = [
+    "AgentAdapter",
     "AgentBridgeError",
     "AgentCallResult",
     "AgentRecord",
@@ -40,8 +43,10 @@ __all__ = [
     "DetectionContext",
     "FanoutBudgetExceeded",
     "ForbiddenTarget",
+    "MCPServerAdapter",
     "ProbeResult",
     "SchemaDrift",
     "default_registry_path",
     "run_all",
+    "sanitize_tool_name",
 ]
