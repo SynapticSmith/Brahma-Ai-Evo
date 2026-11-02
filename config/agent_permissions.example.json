@@ -13,7 +13,8 @@
   "tools": {},
   "paths": {
     "outside_workspace": "ask",
-    "protected": "ask"
+    "protected": "ask",
+    "trusted_roots": []
   },
   "protected_globs": [
     ".git/config",

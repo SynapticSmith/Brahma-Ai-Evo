@@ -136,3 +136,210 @@ def test_user_data_discovery_uses_the_config_subdirectory(tmp_path, monkeypatch)
     policy = PermissionPolicy.load()
     assert policy.source == target
     assert policy.data["classes"]["exec"] == ALLOW
+
+
+def test_trusted_root_allows_outside_workspace_interactively_without_prompt(
+    workspace: Path, tmp_path: Path
+):
+    trusted_dir = tmp_path.parent / f"{tmp_path.name}_trusted_code"
+    trusted_dir.mkdir(exist_ok=True)
+    target = trusted_dir / "project" / "notes.txt"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("hello\n", encoding="utf-8")
+
+    policy = PermissionPolicy.from_dict(
+        {"paths": {"trusted_roots": [str(trusted_dir)]}}
+    )
+    res = policy.evaluate(
+        "read_file",
+        {"path": str(target)},
+        tool_class="read",
+        context_workspace=workspace,
+        headless=False,
+    )
+    assert res.decision == ALLOW
+    assert res.rule == "classes.read"
+
+
+def test_trusted_root_does_not_match_sibling_prefix_or_parent(
+    workspace: Path, tmp_path: Path
+):
+    base = tmp_path.parent / f"{tmp_path.name}_roots"
+    code = base / "code"
+    code2 = base / "code2"
+    nested_ws = code / "sub" / "repo"
+    code.mkdir(parents=True, exist_ok=True)
+    code2.mkdir(parents=True, exist_ok=True)
+    nested_ws.mkdir(parents=True, exist_ok=True)
+
+    sibling_file = code2 / "secret.txt"
+    parent_file = base / "parent_secret.txt"
+
+    policy = PermissionPolicy.from_dict(
+        {"paths": {"trusted_roots": [str(code)]}}
+    )
+    # `code` must not match `code2`
+    sibling_res = policy.evaluate(
+        "read_file",
+        {"path": str(sibling_file)},
+        tool_class="read",
+        context_workspace=workspace,
+        headless=False,
+    )
+    assert sibling_res.decision == ASK
+    assert sibling_res.rule == "paths.outside_workspace"
+
+    # No upward inheritance: `base` above `code` is not trusted even when the
+    # workspace itself is nested inside `code`.
+    parent_res = policy.evaluate(
+        "read_file",
+        {"path": str(parent_file)},
+        tool_class="read",
+        context_workspace=nested_ws,
+        headless=False,
+    )
+    assert parent_res.decision == ASK
+    assert parent_res.rule == "paths.outside_workspace"
+
+
+def test_trusted_root_rejects_symlink_that_resolves_outside_root(
+    tmp_path: Path, monkeypatch
+):
+    ws = tmp_path / "workspace"
+    trusted_dir = tmp_path / "trusted_root"
+    outside_dir = tmp_path / "outside_secret"
+    ws.mkdir()
+    trusted_dir.mkdir()
+    outside_dir.mkdir()
+    outside_file = outside_dir / "secret.txt"
+    outside_file.write_text("top secret\n", encoding="utf-8")
+
+    link_path = trusted_dir / "escape_link.txt"
+    created_symlink = False
+    try:
+        link_path.symlink_to(outside_file)
+        created_symlink = True
+    except OSError:
+        created_symlink = False
+
+    if not created_symlink:
+        orig_resolve = Path.resolve
+
+        def _fake_resolve(self: Path, strict: bool = False) -> Path:
+            if str(self) == str(link_path):
+                return orig_resolve(outside_file, strict=strict)
+            return orig_resolve(self, strict=strict)
+
+        monkeypatch.setattr(Path, "resolve", _fake_resolve)
+
+    policy = PermissionPolicy.from_dict(
+        {"paths": {"trusted_roots": [str(trusted_dir)]}}
+    )
+    res = policy.evaluate(
+        "read_file",
+        {"path": str(link_path)},
+        tool_class="read",
+        context_workspace=ws,
+        headless=False,
+    )
+    assert res.decision == ASK
+    assert res.rule == "paths.outside_workspace"
+
+
+def test_protected_files_under_trusted_root_still_trigger_paths_protected(
+    tmp_path: Path
+):
+    ws = tmp_path / "workspace"
+    ws.mkdir()
+    trusted_dir = tmp_path / "trusted_code"
+    (trusted_dir / "anything").mkdir(parents=True)
+    env_file = trusted_dir / "anything" / ".env"
+    key_file = trusted_dir / "anything" / "server.key"
+
+    policy = PermissionPolicy.from_dict(
+        {"paths": {"trusted_roots": [str(trusted_dir)]}}
+    )
+    for secret in (env_file, key_file):
+        res = policy.evaluate(
+            "read_file",
+            {"path": str(secret)},
+            tool_class="read",
+            context_workspace=ws,
+            headless=False,
+        )
+        assert res.decision == ASK
+        assert res.rule == "paths.protected"
+
+
+def test_headless_mode_still_denies_outside_workspace_regardless_of_trusted_roots(
+    tmp_path: Path
+):
+    ws = tmp_path / "workspace"
+    ws.mkdir()
+    trusted_dir = tmp_path / "trusted_code"
+    trusted_dir.mkdir()
+    target = trusted_dir / "file.txt"
+
+    policy = PermissionPolicy.from_dict(
+        {"paths": {"trusted_roots": [str(trusted_dir)]}}
+    )
+    res = policy.evaluate(
+        "read_file",
+        {"path": str(target)},
+        tool_class="read",
+        context_workspace=ws,
+        headless=True,
+    )
+    assert res.decision == DENY
+    assert res.rule == "headless.outside_workspace"
+
+
+def test_unresolvable_or_relative_trusted_roots_are_ignored_with_diagnostics(
+    tmp_path: Path
+):
+    ws = tmp_path / "workspace"
+    ws.mkdir()
+    missing_dir = tmp_path / "does_not_exist"
+    file_not_dir = tmp_path / "plain.txt"
+    file_not_dir.write_text("x", encoding="utf-8")
+
+    policy = PermissionPolicy.from_dict(
+        {
+            "paths": {
+                "trusted_roots": [
+                    "relative/root",
+                    str(missing_dir),
+                    str(file_not_dir),
+                ]
+            }
+        }
+    )
+    assert policy.trusted_roots == []
+    assert len(policy.trusted_root_diagnostics) == 3
+    described = policy.describe()
+    assert "trusted_root_diagnostics" in described
+    assert len(described["trusted_root_diagnostics"]) == 3
+
+    res = policy.evaluate(
+        "read_file",
+        {"path": str(missing_dir / "a.txt")},
+        tool_class="read",
+        context_workspace=ws,
+        headless=False,
+    )
+    assert res.decision == ASK
+    assert res.rule == "paths.outside_workspace"
+
+
+@pytest.mark.parametrize(
+    "bad_roots",
+    [
+        "D:\\code",
+        [""],
+        [123],
+    ],
+)
+def test_malformed_trusted_roots_fail_at_load(bad_roots):
+    with pytest.raises(PolicyError):
+        PermissionPolicy.from_dict({"paths": {"trusted_roots": bad_roots}})
+

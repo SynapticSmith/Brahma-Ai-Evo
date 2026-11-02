@@ -254,6 +254,21 @@ def discover_config(workspace: str | Path) -> Optional[Path]:
     return None
 
 
+def _workspace_is_trusted(workspace: str | Path) -> bool:
+    try:
+        from core.user_paths import is_workspace_trusted
+
+        return is_workspace_trusted(workspace)
+    except Exception:
+        return False
+
+
+def _mark_workspace_trusted(workspace: str | Path) -> None:
+    from core.user_paths import trust_workspace
+
+    trust_workspace(workspace)
+
+
 # --------------------------------------------------------------------------- #
 # Wire protocol
 # --------------------------------------------------------------------------- #
@@ -1051,6 +1066,8 @@ class WorkspaceMCP:
         self._session: Optional[MCPSession] = None
         self._workspace: Optional[str] = None
         self._fingerprint: Optional[Tuple[str, int, int]] = None
+        self._trusted: Optional[bool] = None
+        self._untrusted_servers: List[str] = []
         self._ok = True
         self._error = ""
         self._generation = 0
@@ -1072,6 +1089,16 @@ class WorkspaceMCP:
             return self._error
 
     @property
+    def trusted(self) -> bool:
+        with self._lock:
+            return bool(self._trusted)
+
+    @property
+    def untrusted_servers(self) -> List[str]:
+        with self._lock:
+            return list(self._untrusted_servers)
+
+    @property
     def statuses(self) -> List[MCPServerStatus]:
         with self._lock:
             return list(self._session.statuses) if self._session is not None else []
@@ -1087,10 +1114,14 @@ class WorkspaceMCP:
         *,
         config_path: Optional[str | Path] = None,
         on_event: Optional[Any] = None,
+        trust_prompt: Optional[Any] = None,
     ) -> bool:
         """Start or reuse the session. Returns False only for an unusable config."""
         root = str(Path(workspace).expanduser().resolve())
         explicit = str(Path(config_path).expanduser()) if config_path else None
+        repo_local = (
+            explicit is None and not (os.getenv("BRAHMA_MCP_CONFIG") or "").strip()
+        )
         with self._lock:
             path = Path(explicit).resolve() if explicit else discover_config(root)
             fingerprint: Optional[Tuple[str, int, int]] = None
@@ -1103,7 +1134,16 @@ class WorkspaceMCP:
                     # not a silent "no servers".
                     fingerprint = (str(path), -1, -1)
 
-            if self._workspace == root and self._fingerprint == fingerprint:
+            trusted = True
+            if path is not None and repo_local:
+                trusted = _workspace_is_trusted(root)
+
+            if (
+                self._workspace == root
+                and self._fingerprint == fingerprint
+                and self._trusted == trusted
+                and not (not trusted and trust_prompt is not None)
+            ):
                 if self._session is not None and self._session.needs_refresh():
                     self._refresh_locked(on_event)
                 return self._ok
@@ -1111,6 +1151,8 @@ class WorkspaceMCP:
             self._close_locked()
             self._workspace = root
             self._fingerprint = fingerprint
+            self._trusted = trusted
+            self._untrusted_servers = []
             self._ok = True
             self._error = ""
 
@@ -1125,6 +1167,41 @@ class WorkspaceMCP:
                 _emit_event(on_event, {"type": "error", "error": str(exc)})
                 return False
 
+            if not configs:
+                return True
+
+            if repo_local and not trusted and callable(trust_prompt):
+                try:
+                    approved = bool(trust_prompt(Path(root), list(configs)))
+                except Exception:
+                    approved = False
+                if approved:
+                    _mark_workspace_trusted(root)
+                    trusted = True
+                    self._trusted = True
+
+            if repo_local and not trusted:
+                names = [cfg.name for cfg in configs]
+                self._untrusted_servers = names
+                count = len(names)
+                noun = "server" if count == 1 else "servers"
+                msg = (
+                    f"This workspace wants to start {count} MCP {noun} "
+                    f"({', '.join(names)}). Trust the workspace to load {path.name}."
+                )
+                _emit_event(
+                    on_event,
+                    {
+                        "type": "mcp_untrusted",
+                        "workspace": root,
+                        "config": str(path),
+                        "count": count,
+                        "servers": names,
+                        "message": msg,
+                    },
+                )
+                return True
+
             self._session = MCPSession()
             self._session.start(configs, on_event=on_event)
             self._generation += 1
@@ -1135,6 +1212,8 @@ class WorkspaceMCP:
             self._close_locked()
             self._workspace = None
             self._fingerprint = None
+            self._trusted = None
+            self._untrusted_servers = []
             self._ok = True
             self._error = ""
 

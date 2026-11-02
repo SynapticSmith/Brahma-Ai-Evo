@@ -83,6 +83,8 @@ def _render_event(event: Dict[str, Any]) -> Optional[str]:
     if kind == "mcp_refresh":
         state = "restarted" if event.get("restarted") else "re-listed"
         return f"  ~~ mcp {event.get('server')} {state}: {event.get('tools')} tool(s)"
+    if kind == "mcp_untrusted":
+        return f"  !! mcp untrusted: {event.get('message')}"
     if kind == "instructions":
         labels = ", ".join(event.get("loaded") or [])
         suffix = " (truncated)" if event.get("truncated") else ""
@@ -142,7 +144,7 @@ def _make_printer(as_json: bool):
         line = _render_event(event)
         if line is not None:
             stream = sys.stderr if event.get("type") in (
-                "permission", "compaction", "policy_reload", "error", "stream_fallback", "mcp"
+                "permission", "compaction", "policy_reload", "error", "stream_fallback", "mcp", "mcp_untrusted"
             ) else sys.stdout
             stream.write(line + "\n")
             stream.flush()
@@ -180,7 +182,12 @@ def _build_policy(args: argparse.Namespace) -> PermissionPolicy:
         for name in TOOL_CLASSES:
             classes[name] = "allow"
         policy.data["classes"] = classes
-        policy.data["paths"] = {"outside_workspace": "allow", "protected": "allow"}
+        existing_roots = list((policy.data.get("paths") or {}).get("trusted_roots") or [])
+        policy.data["paths"] = {
+            "outside_workspace": "allow",
+            "protected": "allow",
+            "trusted_roots": existing_roots,
+        }
 
     for name in (args.allow or []):
         for item in name.split(","):
@@ -222,6 +229,7 @@ def _start_mcp(
     if getattr(args, "no_mcp", False):
         return None, True
     explicit = getattr(args, "mcp_config", None)
+    repo_local = not explicit and not (os.getenv("BRAHMA_MCP_CONFIG") or "").strip()
     path = Path(explicit).expanduser() if explicit else discover_config(workspace)
     if path is None:
         return None, True
@@ -232,6 +240,41 @@ def _start_mcp(
         return None, False
     if not configs:
         return None, True
+    if repo_local:
+        from .mcp import _mark_workspace_trusted, _workspace_is_trusted
+
+        if not _workspace_is_trusted(workspace):
+            names = [cfg.name for cfg in configs]
+            count = len(names)
+            noun = "server" if count == 1 else "servers"
+            msg = (
+                f"This workspace wants to start {count} MCP {noun} "
+                f"({', '.join(names)}). Trust the workspace to load {path.name}."
+            )
+            headless = bool(args.headless or args.json or not sys.stdin.isatty())
+            approved = False
+            if not headless:
+                approved = bool(
+                    _tty_approver(
+                        "mcp_workspace_trust",
+                        {"workspace": str(workspace), "servers": names},
+                        msg,
+                    )
+                )
+                if approved:
+                    _mark_workspace_trusted(workspace)
+            if not approved:
+                emit(
+                    {
+                        "type": "mcp_untrusted",
+                        "workspace": str(workspace),
+                        "config": str(path),
+                        "count": count,
+                        "servers": names,
+                        "message": msg,
+                    }
+                )
+                return None, True
     session = MCPSession()
     session.start(configs, on_event=emit)
     return session, True

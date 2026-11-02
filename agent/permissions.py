@@ -33,7 +33,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from .sandbox import SandboxError, parse_sandbox
 
@@ -96,6 +96,7 @@ DEFAULT_POLICY: Dict[str, Any] = {
     "paths": {
         "outside_workspace": ASK,
         "protected": ASK,
+        "trusted_roots": [],
     },
     "protected_globs": list(DEFAULT_PROTECTED_GLOBS),
     "exec": {
@@ -173,6 +174,22 @@ def _coerce_tool_rule(raw: Any, name: str) -> Dict[str, Any]:
     return rule
 
 
+def _coerce_trusted_roots(raw: Any) -> List[str]:
+    """Validate ``paths.trusted_roots`` as a list of non-empty path strings (ADR-020)."""
+    if raw is None:
+        return []
+    if isinstance(raw, (str, bytes)) or not isinstance(raw, (list, tuple)):
+        raise PolicyError("paths.trusted_roots: expected a list of strings")
+    roots: List[str] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, str) or not item.strip():
+            raise PolicyError(
+                f"paths.trusted_roots[{index}]: expected a non-empty string"
+            )
+        roots.append(item.strip())
+    return roots
+
+
 @dataclass
 class PermissionPolicy:
     """An immutable-in-practice view of ``agent_permissions.json``."""
@@ -211,7 +228,10 @@ class PermissionPolicy:
             merged[key] = _decision(merged.get(key), key)
         for section in ("classes", "paths", "headless"):
             for name, value in dict(merged.get(section) or {}).items():
-                merged[section][name] = _decision(value, f"{section}.{name}")
+                if section == "paths" and name == "trusted_roots":
+                    merged[section][name] = _coerce_trusted_roots(value)
+                else:
+                    merged[section][name] = _decision(value, f"{section}.{name}")
         try:
             exec_cfg = merged.get("exec")
             if not isinstance(exec_cfg, dict):
@@ -262,6 +282,76 @@ class PermissionPolicy:
     def protected_globs(self) -> List[str]:
         raw = self.data.get("protected_globs") or []
         return [str(g) for g in raw]
+
+    def resolve_trusted_roots(self) -> Tuple[List[Path], List[str]]:
+        """Return ``(resolved_roots, diagnostics)`` for ``paths.trusted_roots`` (ADR-020).
+
+        Roots must be absolute, existing directories after ``Path.resolve()``
+        (symlinks followed). Any entry that is relative, missing, unreadable,
+        or not a directory is ignored with a diagnostic rather than matched.
+        """
+        paths_cfg = self.data.get("paths") or {}
+        raw_roots = paths_cfg.get("trusted_roots") or []
+        resolved: List[Path] = []
+        diagnostics: List[str] = []
+        for raw in raw_roots:
+            if not isinstance(raw, str) or not raw.strip():
+                continue
+            expanded = Path(raw.strip()).expanduser()
+            if not expanded.is_absolute():
+                diagnostics.append(
+                    f"trusted root {raw!r} ignored: path must be absolute"
+                )
+                continue
+            try:
+                target = expanded.resolve(strict=True)
+                if not target.is_dir():
+                    diagnostics.append(
+                        f"trusted root {raw!r} ignored: not a directory"
+                    )
+                    continue
+            except (OSError, RuntimeError, ValueError) as exc:
+                diagnostics.append(f"trusted root {raw!r} ignored: {exc}")
+                continue
+            resolved.append(target)
+        return resolved, diagnostics
+
+    @property
+    def trusted_roots(self) -> List[Path]:
+        roots, _ = self.resolve_trusted_roots()
+        return roots
+
+    @property
+    def trusted_root_diagnostics(self) -> List[str]:
+        _, diagnostics = self.resolve_trusted_roots()
+        return diagnostics
+
+    @staticmethod
+    def _rel_under_trusted_roots(
+        candidate: Path, trusted_roots: Sequence[Path]
+    ) -> Optional[str]:
+        """Return ``candidate`` relative to the first matching trusted root, or ``None``.
+
+        Both ``candidate`` and each root have been resolved with ``Path.resolve()``
+        (symlinks followed). Matching compares path segments (case-insensitively on
+        Windows), so ``D:\\code`` matches ``D:\\code\\sub\\file.txt`` and
+        ``d:\\CODE\\sub\\file.txt`` but never ``D:\\code2`` or ``D:\\``.
+        """
+        for root in trusted_roots:
+            try:
+                return str(candidate.relative_to(root))
+            except ValueError:
+                pass
+            if os.name == "nt":
+                cand_parts = [os.path.normcase(p) for p in candidate.parts]
+                root_parts = [os.path.normcase(p) for p in root.parts]
+                if (
+                    len(cand_parts) >= len(root_parts)
+                    and cand_parts[: len(root_parts)] == root_parts
+                ):
+                    tail = candidate.parts[len(root_parts) :]
+                    return str(Path(*tail)) if tail else "."
+        return None
 
     def _path_is_protected(self, rel: str) -> bool:
         name = Path(rel).name
@@ -322,36 +412,58 @@ class PermissionPolicy:
         if context_workspace is not None:
             from .spec import PATH_ARG_KEYS  # local import: spec imports nothing here
 
+            try:
+                ws_root = context_workspace.expanduser().resolve()
+            except OSError:
+                ws_root = context_workspace
+            trusted_roots: List[Path] = []
+            if not headless:
+                trusted_roots, _ = self.resolve_trusted_roots()
+
             for key in PATH_ARG_KEYS:
                 raw = args.get(key)
                 if not isinstance(raw, str) or not raw.strip():
                     continue
                 candidate = Path(raw).expanduser()
                 if not candidate.is_absolute():
-                    candidate = context_workspace / candidate
+                    candidate = ws_root / candidate
                 try:
                     candidate = candidate.resolve()
                 except OSError:
                     continue
                 try:
-                    rel = str(candidate.relative_to(context_workspace))
+                    rel = str(candidate.relative_to(ws_root))
                 except ValueError:
-                    paths_cfg = self.data.get("paths") or {}
-                    section = "headless.outside_workspace" if headless else "paths.outside_workspace"
-                    value = (
-                        (self.data.get("headless") or {}).get("outside_workspace")
-                        if headless else paths_cfg.get("outside_workspace")
+                    matched_rel = (
+                        self._rel_under_trusted_roots(candidate, trusted_roots)
+                        if not headless
+                        else None
                     )
-                    decision = _decision(value or DENY, section)
-                    return PolicyResult(
-                        decision,
-                        f"{candidate} is outside the workspace {context_workspace}.",
-                        section,
-                    )
+                    if matched_rel is None:
+                        paths_cfg = self.data.get("paths") or {}
+                        section = "headless.outside_workspace" if headless else "paths.outside_workspace"
+                        value = (
+                            (self.data.get("headless") or {}).get("outside_workspace")
+                            if headless else paths_cfg.get("outside_workspace")
+                        )
+                        decision = _decision(value or DENY, section)
+                        return PolicyResult(
+                            decision,
+                            f"{candidate} is outside the workspace {context_workspace}.",
+                            section,
+                        )
+                    rel = matched_rel
                 if self._path_is_protected(rel):
                     value = (self.data.get("paths") or {}).get("protected", ASK)
+                    decision = _decision(value, "paths.protected")
+                    if decision == ASK and headless:
+                        return PolicyResult(
+                            DENY,
+                            f"{rel} matches a protected-file pattern. No approver is available.",
+                            "paths.protected",
+                        )
                     return PolicyResult(
-                        _decision(value, "paths.protected"),
+                        decision,
                         f"{rel} matches a protected-file pattern.",
                         "paths.protected",
                     )
@@ -381,7 +493,8 @@ class PermissionPolicy:
         return PolicyResult(decision, f"class '{tool_class}' default.", rule_name)
 
     def describe(self) -> Dict[str, Any]:
-        return {
+        _, diagnostics = self.resolve_trusted_roots()
+        info: Dict[str, Any] = {
             "source": str(self.source) if self.source else "(built-in defaults)",
             "default": self.data.get("default"),
             "classes": dict(self.data.get("classes") or {}),
@@ -390,6 +503,9 @@ class PermissionPolicy:
             "exec": dict(self.data.get("exec") or {}),
             "tools": dict(self.data.get("tools") or {}),
         }
+        if diagnostics:
+            info["trusted_root_diagnostics"] = diagnostics
+        return info
 
 
 def write_template(

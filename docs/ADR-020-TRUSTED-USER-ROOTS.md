@@ -1,6 +1,6 @@
 # ADR-020 — Trusted user roots and trusted workspaces
 
-**Status:** Accepted (ratified 2026-11-01) · **Gates:** O-1 input-trust item (B8), and the
+**Status:** Implemented (ratified & landed 2026-11-01) · **Gates:** O-1 input-trust item (B8), and the
 prompt-fatigue part of the O-6 migration · **Supersedes:** nothing
 **Related:** `agent/permissions.py` (path scoping), `agent/prompts.py` (instruction
 discovery), `ARCHITECTURE-SPEC.md` §7.3 item 8, §12 Q1.5, §13 Q4
@@ -119,3 +119,22 @@ never be able to grant itself trust.
   next turn without a restart.
 - Instruction files are still read in an untrusted workspace and are visibly
   delimited in the prompt.
+
+## Implementation (2026-11-01)
+
+1. **`paths.trusted_roots` (`agent/permissions.py`, `config/agent_permissions.example.json`).**
+   - `DEFAULT_POLICY["paths"]["trusted_roots"] = []`; validated at load via `_coerce_trusted_roots` (`PolicyError` on non-list or non-string entries).
+   - `PermissionPolicy.resolve_trusted_roots()` resolves each root with `Path.expanduser().resolve(strict=True)` (symlinks followed) and ignores relative, missing, unreadable, or non-directory roots with a diagnostic exposed on `trusted_root_diagnostics` and `describe()`.
+   - In `PermissionPolicy.evaluate()`, when `not headless` and `candidate.relative_to(ws_root)` fails, `_rel_under_trusted_roots` checks resolved path segments (case-insensitively on Windows). If matched, `rel` is set to the path relative to the matched root so `self._path_is_protected(rel)` still enforces `paths.protected` / `protected_globs` (e.g. `.env`, `*.key`). `headless.outside_workspace` is untouched.
+2. **`trusted_workspaces` store (`core/user_paths.py`).**
+   - Persisted at `%LOCALAPPDATA%\BrahmaAI\trusted_workspaces.json` via `atomic_write_json`.
+   - `normalize_workspace_path`, `load_trusted_workspaces`, `list_trusted_workspaces`, `is_workspace_trusted`, `trust_workspace`, and `revoke_workspace_trust` record `{path, first_seen, policy_version}` per workspace root and re-read on every check so trusting or revoking takes effect on the next turn without a restart.
+3. **Repo-local MCP gating (`agent/mcp.py`, `agent/__main__.py`, `core/text_turn_controller.py`).**
+   - `WorkspaceMCP.ensure()` and CLI `_start_mcp()` parse `.brahma/mcp.json` / `.mcp.json` first (so broken JSON still reports `MCPConfigError`), then check `is_workspace_trusted(workspace)` whenever the config was discovered from the workspace rather than passed via `--mcp-config`/`BRAHMA_MCP_CONFIG`.
+   - When untrusted, no server process is started; an `mcp_untrusted` event is emitted (`"This workspace wants to start N MCP server(s) (...). Trust the workspace to load ..."`), and an interactive approver (`trust_prompt` in GUI `with_agent_mcp`, `_tty_approver` in CLI) can approve and record trust in `trusted_workspaces.json`.
+   - `WorkspaceMCP` tracks `self._trusted` alongside `self._workspace` and `self._fingerprint`, so trusting loads `.mcp.json` on the next turn and deleting the row closes the session and unregisters its tools on the next turn without a restart.
+4. **Instruction file delimiters (`agent/prompts.py`).**
+   - `load_project_instructions` (and `project_context` / `build_system_prompt`) checks `is_workspace_trusted(workspace)` when `trusted` is not explicitly specified and wraps each instruction file's body in `UNTRUSTED_INSTRUCTIONS_OPEN` / `UNTRUSTED_INSTRUCTIONS_CLOSE` (`<untrusted-instructions note="untrusted workspace; read-only context, no approval authority">...</untrusted-instructions>`).
+
+Tests: `tests/test_agent_permissions.py` (9 new tests), `tests/test_agent_prompts.py` (1 new test), `tests/test_agent_mcp.py` (3 new tests).
+Suite: **812 passed, 1 skipped** (`-k agent`: **407 passed, 1 skipped**).

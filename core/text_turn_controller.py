@@ -1249,8 +1249,33 @@ class TextTurnController:
 
         manager = m._harness_mcp_manager()
         try:
-            workspace = current_agent_runtime().workspace
-            if not manager.ensure(workspace, on_event=self._host._agent_event):
+            runtime = current_agent_runtime()
+            workspace = runtime.workspace
+            approver = getattr(runtime, "approver", None)
+            headless = bool(getattr(runtime, "headless", False))
+            trust_prompt = None
+            if callable(approver) and not headless:
+                def _ask_trust(ws, configs):
+                    names = [cfg.name for cfg in configs]
+                    count = len(names)
+                    noun = "server" if count == 1 else "servers"
+                    detail = (
+                        f"This workspace ({ws}) wants to start {count} MCP {noun}: "
+                        f"{', '.join(names)}."
+                    )
+                    ans = approver(
+                        "mcp_workspace_trust",
+                        {"workspace": str(ws), "servers": names},
+                        detail,
+                    )
+                    return bool(ans)
+
+                trust_prompt = _ask_trust
+            if not manager.ensure(
+                workspace,
+                on_event=self._host._agent_event,
+                trust_prompt=trust_prompt,
+            ):
                 return list(tools or [])
             return with_mcp_tools(tools)
         except Exception as exc:
@@ -1526,6 +1551,10 @@ class TextTurnController:
                 print(
                     f"[BRAHMA EVO] \U0001f504 mcp {event.get('server')} {state}: "
                     f"{event.get('tools')} tool(s)"
+                )
+            elif kind == "mcp_untrusted":
+                print(
+                    f"[BRAHMA EVO] \U0001f512 {event.get('message')}"
                 )
             elif kind == "error":
                 print(f"[BRAHMA EVO] \u26a0\ufe0f {event.get('error')}")

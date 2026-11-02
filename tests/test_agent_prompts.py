@@ -136,3 +136,32 @@ def test_project_context_is_the_workspace_half_of_the_system_prompt(tmp_path: Pa
 
     assert project in prompt
     assert prompt.index("You are Brahma") < prompt.index(project)
+
+
+def test_untrusted_workspace_instructions_are_visibly_delimited_until_trusted(
+    tmp_path: Path,
+):
+    from agent.prompts import UNTRUSTED_INSTRUCTIONS_CLOSE, UNTRUSTED_INSTRUCTIONS_OPEN
+    from core.user_paths import revoke_workspace_trust, trust_workspace
+
+    _write(tmp_path / "AGENTS.md", "CLONED-REPO-RULE")
+
+    untrusted_prompt = build_system_prompt(tmp_path, max_parents=0)
+    assert "CLONED-REPO-RULE" in untrusted_prompt
+    assert UNTRUSTED_INSTRUCTIONS_OPEN in untrusted_prompt
+    assert UNTRUSTED_INSTRUCTIONS_CLOSE in untrusted_prompt
+
+    row = trust_workspace(tmp_path)
+    assert row["policy_version"] == 1
+    assert row["first_seen"]
+
+    trusted_prompt = build_system_prompt(tmp_path, max_parents=0)
+    assert "CLONED-REPO-RULE" in trusted_prompt
+    assert UNTRUSTED_INSTRUCTIONS_OPEN not in trusted_prompt
+    assert UNTRUSTED_INSTRUCTIONS_CLOSE not in trusted_prompt
+
+    assert revoke_workspace_trust(tmp_path) is True
+    revoked_prompt = build_system_prompt(tmp_path, max_parents=0)
+    assert UNTRUSTED_INSTRUCTIONS_OPEN in revoked_prompt
+    assert UNTRUSTED_INSTRUCTIONS_CLOSE in revoked_prompt
+

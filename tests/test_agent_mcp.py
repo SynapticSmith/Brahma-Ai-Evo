@@ -561,8 +561,18 @@ def test_a_broken_explicit_config_stops_a_run_instead_of_dropping_tools(tmp_path
 # GUI workspace manager
 # --------------------------------------------------------------------------- #
 
-def _workspace_config(root: Path, name: str = "demo") -> Path:
+@pytest.fixture(autouse=True)
+def _isolated_user_data(tmp_path: Path, monkeypatch):
+    """Keep workspace trust records isolated per test."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "_localappdata"))
+
+
+def _workspace_config(root: Path, name: str = "demo", *, trusted: bool = True) -> Path:
     """Write ``<root>/.brahma/mcp.json``, the GUI's discovery location."""
+    if trusted:
+        from core.user_paths import trust_workspace
+
+        trust_workspace(root)
     script = _script(root)
     path = root / ".brahma" / "mcp.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -737,7 +747,11 @@ def _call_spec(name: str, arguments: dict | None = None) -> str:
     return spec.handler(arguments or {}, None)
 
 
-def _two_server_config(root: Path) -> Path:
+def _two_server_config(root: Path, *, trusted: bool = True) -> Path:
+    if trusted:
+        from core.user_paths import trust_workspace
+
+        trust_workspace(root)
     script = _script(root)
     path = root / ".brahma" / "mcp.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -886,5 +900,151 @@ def test_a_refresh_leaves_no_duplicate_or_orphaned_specs(tmp_path: Path):
         manager.close()
 
     assert all(get_spec(name) is None for name in names)
+
+
+def test_untrusted_workspace_mcp_config_is_not_loaded_until_trusted_and_revokes_on_delete(
+    tmp_path: Path, monkeypatch
+):
+    from core.user_paths import (
+        is_workspace_trusted,
+        revoke_workspace_trust,
+        trust_workspace,
+    )
+
+    monkeypatch.delenv("BRAHMA_MCP_CONFIG", raising=False)
+    repo = tmp_path / "cloned_repo"
+    repo.mkdir()
+    script = _script(repo)
+    (repo / ".mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "clone_srv": {
+                        "command": sys.executable,
+                        "args": [str(script)],
+                        "timeout": 10,
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    events: list = []
+    manager = WorkspaceMCP()
+    try:
+        assert is_workspace_trusted(repo) is False
+        assert manager.ensure(repo, on_event=events.append) is True
+        assert manager.generation == 0
+        assert manager.tools == []
+        assert get_spec("mcp_clone_srv_echo") is None
+        assert manager.untrusted_servers == ["clone_srv"]
+        untrusted = [e for e in events if e.get("type") == "mcp_untrusted"]
+        assert len(untrusted) == 1
+        assert untrusted[0]["count"] == 1
+        assert "wants to start 1 MCP server" in untrusted[0]["message"]
+
+        # Trusting the workspace loads .mcp.json on the next turn without a restart.
+        trust_workspace(repo)
+        assert is_workspace_trusted(repo) is True
+        assert manager.ensure(repo, on_event=events.append) is True
+        assert manager.generation == 1
+        assert "mcp_clone_srv_echo" in manager.tools
+        assert get_spec("mcp_clone_srv_echo") is not None
+
+        # Deleting the trust row revokes on the next turn without a restart.
+        assert revoke_workspace_trust(repo) is True
+        assert manager.ensure(repo, on_event=events.append) is True
+        assert manager.tools == []
+        assert get_spec("mcp_clone_srv_echo") is None
+    finally:
+        manager.close()
+
+
+def test_workspace_mcp_trust_prompt_can_approve_and_persist_trust(
+    tmp_path: Path, monkeypatch
+):
+    from core.user_paths import is_workspace_trusted
+
+    monkeypatch.delenv("BRAHMA_MCP_CONFIG", raising=False)
+    repo = tmp_path / "prompted_repo"
+    repo.mkdir()
+    _workspace_config(repo, "prompted", trusted=False)
+
+    prompts: list = []
+
+    def _approve(ws: Path, configs: list) -> bool:
+        prompts.append((ws, [c.name for c in configs]))
+        return True
+
+    manager = WorkspaceMCP()
+    try:
+        assert manager.ensure(repo, trust_prompt=_approve) is True
+        assert len(prompts) == 1
+        assert prompts[0][1] == ["prompted"]
+        assert is_workspace_trusted(repo) is True
+        assert "mcp_prompted_echo" in manager.tools
+    finally:
+        manager.close()
+
+
+def test_cli_run_gates_untrusted_repo_local_mcp_config(
+    tmp_path: Path, monkeypatch, capsys
+):
+    from agent.__main__ import main
+    from core.user_paths import trust_workspace
+
+    monkeypatch.delenv("BRAHMA_MCP_CONFIG", raising=False)
+    repo = tmp_path / "cli_clone"
+    repo.mkdir()
+    _workspace_config(repo, "cli_srv", trusted=False)
+
+    code = main(
+        [
+            "run",
+            "say hello",
+            "--cwd",
+            str(repo),
+            "--provider",
+            "stub",
+            "--json",
+            "--no-session",
+        ]
+    )
+    out_lines = [
+        json.loads(line)
+        for line in capsys.readouterr().out.splitlines()
+        if line.strip()
+    ]
+    assert code == 0
+    untrusted = [e for e in out_lines if e.get("type") == "mcp_untrusted"]
+    assert len(untrusted) == 1
+    assert untrusted[0]["servers"] == ["cli_srv"]
+    result = [e for e in out_lines if e.get("type") == "result"][0]
+    assert "tools=8" in result["text"]
+
+    # Once trusted, the next CLI run loads the server's 10 tools (8 + 10 = 18).
+    trust_workspace(repo)
+    code2 = main(
+        [
+            "run",
+            "say hello",
+            "--cwd",
+            str(repo),
+            "--provider",
+            "stub",
+            "--json",
+            "--no-session",
+        ]
+    )
+    out_lines2 = [
+        json.loads(line)
+        for line in capsys.readouterr().out.splitlines()
+        if line.strip()
+    ]
+    assert code2 == 0
+    result2 = [e for e in out_lines2 if e.get("type") == "result"][0]
+    assert "tools=18" in result2["text"]
+
 
 
