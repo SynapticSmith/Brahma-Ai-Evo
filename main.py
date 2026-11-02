@@ -1,5 +1,6 @@
 
 from core.user_paths import get_user_data_dir
+from core.secret_store import load_api_keys
 import os
 
 from core.qt_bootstrap import bootstrap
@@ -19,7 +20,6 @@ from core.sensorium import sensorium
 from core import desktop_tools
 import asyncio
 import threading
-import json
 import re
 import shutil
 import socket
@@ -89,13 +89,10 @@ LIVE_CONNECT_TIMEOUT = 12
 
 def _get_api_key() -> str:
     """Return the Gemini API key, or raise with an actionable message.
-
-    Previously this raised a bare ``KeyError`` from ``json.load(...)["gemini_api_key"]``
-    when the file or key was missing. That escaped ``run()`` and killed the whole
-    voice loop with no visible reason. Callers can now catch one clear RuntimeError.
+    Callers can catch RuntimeError if the config file or key is missing.
     """
     try:
-        data = json.loads(API_CONFIG_PATH.read_text(encoding="utf-8"))
+        data = load_api_keys(API_CONFIG_PATH, must_exist=True)
     except FileNotFoundError:
         raise RuntimeError(
             f"Missing {API_CONFIG_PATH}. Add {{\"gemini_api_key\": \"...\"}} or switch "

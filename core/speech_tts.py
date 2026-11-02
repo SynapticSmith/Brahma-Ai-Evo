@@ -186,16 +186,12 @@ def _gemini_api_key() -> str:
     key configured anywhere is honoured here too.
     """
     try:
-        import json
+        from core.secret_store import load_api_keys
 
-        from core.user_paths import get_user_data_dir
-
-        path = get_user_data_dir() / "config" / "api_keys.json"
-        if path.is_file():
-            with open(path, "r", encoding="utf-8") as fh:
-                key = str(json.load(fh).get("gemini_api_key", "") or "").strip()
-            if key:
-                return key
+        data = load_api_keys()
+        key = str(data.get("gemini_api_key", "") or "").strip()
+        if key:
+            return key
     except Exception:
         pass
     return (os.environ.get("GEMINI_API_KEY", "") or os.environ.get("GOOGLE_API_KEY", "")).strip()

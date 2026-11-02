@@ -41,7 +41,7 @@ A forged skill can read only the folders the user approved, reach only the hosts
 | 3 | Unsigned self-update; default-Yes hard reset | **Closed (Q0-B, 2026-11-01).** `updater.py`, `core/updater.py`, and `core/updater_ota.py` are deleted along with the startup call and prompt UI; there is no self-update path until a signed one exists. | WS-6 |
 | 4 | Generation prompt tells skills to disable TLS verification | Present. `core/skill_forge.py` recommends `verify=False` and `ssl._create_unverified_context()`. | WS-1 |
 | 5 | Unpinned `pip install` of model-chosen names | Present. `SkillCrucible.resolve_dependencies()` runs `pip install <name> --quiet`. | WS-3 |
-| 6 | Secrets recoverable: Fernet key beside DB; plaintext `api_keys.json` | Present. `smart_home/storage.py::CredentialVault`; `config/api_keys.json`. | WS-7 |
+| 6 | Secrets recoverable: Fernet key beside DB; plaintext `api_keys.json` | **Closed (Q0-B, 2026-11-02).** `core/secret_store.py` user-scoped Windows DPAPI encryption for `api_keys.json`; `smart_home/storage.py::CredentialVault` protects `smart_home.key` with DPAPI and auto-migrates existing keys. | WS-7 |
 | 7 | Crucible validation is a denylist, not a sandbox | Present. 12 substrings, module-level splice, same-user `python -c`, 75s timeout. | WS-1, WS-2 |
 | 8 | High-risk automation with no privilege separation | Present. One process, one token, all tools in-process. | WS-10 |
 | + | Gateway on `0.0.0.0:8765`, unauthenticated routes; upstream auto-pairs and adds `/gateway/execute` | **Closed (Q0-B, 2026-11-02).** Default `127.0.0.1` and `enabled=False`; all HTTP control routes require paired-device bearer auth; `/gateway/execute` not added. | WS-8 |

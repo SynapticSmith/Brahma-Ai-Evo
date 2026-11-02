@@ -3,7 +3,6 @@ mixin split). Method bodies are byte-identical; module-level helpers and
 config paths are injected via bind()."""
 from __future__ import annotations
 
-import json
 import platform
 
 if platform.system() == "Windows":
@@ -25,7 +24,8 @@ class _StartupOSMixin:
                 "os_system": platform.system(),
             }
         try:
-            data = json.loads(API_FILE.read_text(encoding="utf-8"))
+            from core.secret_store import load_api_keys
+            data = load_api_keys(API_FILE)
             if isinstance(data, dict):
                 data.setdefault("anthropic_api_key", "")
                 return data

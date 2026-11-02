@@ -1,7 +1,7 @@
 {
-  "_comment": "Ceilings, not targets. Lower a number when a file shrinks. Raising one needs an ADR, because these gates exist to stop main.py and the native dispatch chain from growing (ARCHITECTURE-SPEC §12 Q1).",
+  "_comment": "Ceilings, not targets. Lower a number when a file shrinks. Raising one needs an ADR, because these gates exist to stop main.py and the native dispatch chain from growing (ARCHITECTURE-SPEC \u00a712 Q1).",
   "lines": {
-    "main.py": 3233,
+    "main.py": 3230,
     "ui.py": 827,
     "core/tool_exec.py": 147
   },

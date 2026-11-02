@@ -1,11 +1,12 @@
-import json
 from pathlib import Path
+from core.secret_store import load_api_keys
 
 _CONFIG_PATH = Path(__file__).parent / "api_keys.json"
 
 def get_config() -> dict:
-    with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+    if _CONFIG_PATH.exists():
+        return load_api_keys(_CONFIG_PATH)
+    return load_api_keys()
 
 def get_os() -> str:
     """Returns: 'windows' | 'mac' | 'linux'"""

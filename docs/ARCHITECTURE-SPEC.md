@@ -55,7 +55,7 @@ The system is **functionally strong and structurally unified across tool dispatc
 
 1. **The harness is real and is the best-built part of the repo.** `agent/` is stdlib-only, tested by ~393 tests, and owns one dispatch boundary, one loop, and one policy engine.
 2. **All native desktop actions now route through `AgentRuntime`.** Across ADR-019 waves 1–3, all 59 native declarations in `main.py:TOOL_DECLARATIONS` (plus 24 aliases and the retired `agent_task` pointer = 84 desktop specs in `core/desktop_tools.py`) dispatch as `ToolSpec`s behind `AgentRuntime.execute`, retiring the legacy `elif` chain in `core/tool_exec.py` (`147` lines, `0` `elif` branches). Extracting `core/text_turn_controller.py` and the remaining session/voice control methods into `core/session_lifecycle.py` also reduced `main.py` from `4,811` to `3,233` lines.
-3. **Four of the eight critical security findings from upstream issue #4 remain.** Q0-A closed the forge execution path, the TLS-bypass prompts, runtime `pip`, and the dead `confirmed` declaration. Q0-B closed self-update by deleting it outright and made the gateway loopback-only and off by default. Plugins, secrets at rest, the Crucible denylist, privilege separation, and gateway route authentication are still open. The security roadmap is `Proposed`, not implemented.
+3. **Four of the eight critical security findings from upstream issue #4 remain.** Q0-A closed the forge execution path, the TLS-bypass prompts, runtime `pip`, and the dead `confirmed` declaration. Q0-B closed self-update by deleting it outright, made the gateway loopback-only and off by default with authenticated HTTP control routes, enforced an opt-in allowlist on plugin loading, and protected secrets at rest (api_keys.json, smart_home.key) with Windows DPAPI. Crucible sandbox and privilege separation remain open. Security Phase 0 is complete.
 
 The two large proposals are in different states and must not be conflated:
 
@@ -417,14 +417,14 @@ The pre-fork autonomous stack — `agent/planner.py`, `agent/executor.py`, `agen
 | 3 | Unsigned self-update / hard reset | **Closed (Q0-B)** | Deleted `updater.py`, `core/updater.py`, `core/updater_ota.py`, the startup call in `main.py`, and the `UpdateChecker`/prompt UI. No self-update path exists; signed releases are WS-6. |
 | 4 | Forge prompt instructs TLS bypass | **Closed (Q0-A)** | The prompt now requires verified TLS; `tests/test_security_phase0.py` fails on `verify=False`, `_create_unverified_context`, `CERT_NONE`, or a disabled hostname check anywhere in `core/skill_forge.py`. |
 | 5 | Unpinned runtime `pip install` | **Closed (Q0-A)** | `SkillCrucible.resolve_dependencies()` only calls `importlib.util.find_spec` and returns a manual `pip install` plan; it spawns no subprocess. |
-| 6 | Secrets recoverable (Fernet key beside DB; plaintext API keys) | **Open** | `smart_home/storage.py`; `config/api_keys.json`. |
+| 6 | Secrets recoverable (Fernet key beside DB; plaintext API keys) | **Closed (Q0-B)** | `core/secret_store.py` provides Windows DPAPI user-scope encryption for `api_keys.json` with 1-release read-only fallback; `smart_home/storage.py::CredentialVault` protects `smart_home.key` with DPAPI and auto-migrates existing keys. |
 | 7 | Crucible validation is a denylist, not a sandbox | **Open** | 12 string checks + same-user subprocess + timeout. |
 | 8 | High-risk automation without privilege separation | **Open** | One process, one token, all tools in-process. |
 | + | Gateway `0.0.0.0`, unauthenticated HTTP control routes | **Closed (Q0-B)** | `server.py` defaults to `host="127.0.0.1"`, `enabled=False`, `advertise=False`; all HTTP management and control routes enforce paired-device authentication (`Authorization: Bearer <device_id>:<secret>` or secret-only, returning 401/403). Only `/health` remains public. |
 | + | Dead model-facing `confirmed` parameter (not a live bypass) | **Closed (Q0-A)** | Declaration removed from `main.py`; a schema test asserts no declaration advertises `confirmed`. The handler already ignored it and the `_IRREVERSIBLE` HUD gate already held. |
 | + | Legacy `agent_task` autonomous door | **Closed (Q0-A)** | Declaration and handler removed; `agent/planner.py`, `executor.py`, `task_queue.py`, `error_handler.py` deleted; invariant tests prevent their return (§6.10). |
 
-**Conclusion:** Q0-A closed the code-execution half (forge draft-only, verified TLS prompts, no runtime `pip`, no `agent_task`, no dead `confirmed`). Q0-B closed self-update by deleting every updater path, made the gateway loopback-only/off by default with authenticated HTTP control routes, and enforced an opt-in allowlist on plugin loading. Storage (DPAPI), the Crucible denylist, and privilege separation are still upstream's posture.
+**Conclusion:** Q0-A closed the code-execution half (forge draft-only, verified TLS prompts, no runtime `pip`, no `agent_task`, no dead `confirmed`). Q0-B closed self-update by deleting every updater path, made the gateway loopback-only/off by default with authenticated HTTP control routes, enforced an opt-in allowlist on plugin loading, and protected secrets at rest with Windows DPAPI. Security Phase 0 is complete; Crucible sandbox and privilege separation remain open.
 
 ### 7.2 The target model
 
@@ -445,11 +445,11 @@ WS-1 skill lifecycle · WS-2 SkillHost sandbox · WS-3 dependency supply chain �
 5. ✅ **Q0-A** — no TLS-bypass instructions remain in either forge prompt.
 6. ✅ **Q0-B** — gateway now defaults to `127.0.0.1`, disabled, no mDNS advertise; all HTTP management/control routes enforce paired-device authentication.
 7. ✅ **Q0-B** — startup self-update deleted (`updater.py`, `core/updater.py`, `core/updater_ota.py`); no hardcoded upstream, no `git reset --hard`, no default-Yes prompt.
-8. Move `api_keys.json` and `smart_home.key` behind DPAPI (minimal migration, one release of read-only fallback).
+8. ✅ **Q0-B** — `api_keys.json` and `smart_home.key` moved behind DPAPI with 1-release read-only fallback (`core/secret_store.py`, `smart_home/storage.py`).
 9. ✅ **Q0-A** — dead model-facing `confirmed` declaration removed; the handler already ignored it and the HUD gate already holds.
 10. ✅ **Q0-A** — `agent_task` disabled and its legacy files deleted (§6.10).
 
-**Exit criteria:** forged skills do not execute automatically and are staged for review; no runtime `pip`; `agent_task` is retired; no model-facing `confirmed`; gateway is loopback/off by default with no self-update path and authenticated HTTP control routes. DPAPI and plugin allowlisting remain open.
+**Exit criteria:** forged skills do not execute automatically and are staged for review; no runtime `pip`; `agent_task` is retired; no model-facing `confirmed`; gateway is loopback/off by default with no self-update path and authenticated HTTP control routes; secrets at rest are protected by Windows DPAPI; plugin loading enforces an opt-in allowlist. Security Phase 0 is complete.
 
 ### 7.4 How security intersects the harness
 
@@ -642,13 +642,13 @@ Accepted 2026-10-17, but **acceptance is not authorization to build**: they were
 
 ### Q0-B — Stop the bleeding: Network, secrets & supply chain (days; no new architecture)
 
-**Status: partially landed 2026-11-01..02 — items 1, 2, 3, and 5 done; item 4 open.**
+**Status: landed 2026-11-01..02 — all items 1, 2, 3, 4, and 5 done. Security Phase 0 complete.**
 
 1. ✅ Gateway: default `host="127.0.0.1"`, `enabled=False`, `advertise=False`; all HTTP management and control routes enforce paired-device authentication (`Authorization: Bearer <device_id>:<secret>` or secret-only, 401/403) (WS-8).
 2. ✅ Startup self-update deleted: `updater.py`, `core/updater.py`, `core/updater_ota.py`, the `main()` call, and the `UpdateChecker`/prompt UI. No hardcoded remote, no `git reset --hard`, no default-Yes dialog. Signed releases are WS-6.
 3. ✅ Plugin loading: opt-in allowlist; unapproved `.py` scripts in `plugins/` are skipped by default (WS-4).
-4. ⬜ Secrets: DPAPI for `api_keys.json` and `smart_home.key`; one release of read-only fallback.
-5. ✅ `SECURITY-ARCHITECTURE-ROADMAP.md` checkbox for the updater is ticked; this document's status tables are updated. Guarded by `tests/test_security_q0b.py` (defaults, opt-in override, disabled-never-starts, no updater modules, no hardcoded upstream/`--hard`, no startup updater call).
+4. ✅ Secrets: DPAPI for `api_keys.json` and `smart_home.key`; one release of read-only fallback (WS-7, `core/secret_store.py`, `smart_home/storage.py`, `tests/test_secret_store.py`).
+5. ✅ `SECURITY-ARCHITECTURE-ROADMAP.md` checkbox for the updater is ticked; this document's status tables are updated. Guarded by `tests/test_security_q0b.py`, `tests/test_plugin_manager.py`, and `tests/test_secret_store.py`.
 
 ### Q1 — Boundary and harness correctness (1–2 weeks)
 

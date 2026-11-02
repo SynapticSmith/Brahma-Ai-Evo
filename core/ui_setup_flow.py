@@ -3,7 +3,6 @@ mixin split). Method bodies are byte-identical; module-level helpers and
 config paths are injected via bind()."""
 from __future__ import annotations
 
-import json
 import os
 import traceback
 
@@ -46,15 +45,13 @@ class _SetupFlowMixin:
         try:
             os.makedirs(CONFIG_DIR, exist_ok=True)
             existing = self._load_api_defaults()
-            API_FILE.write_text(
-                json.dumps({
-                    "gemini_api_key":    key,
-                    "openrouter_api_key": or_key,
-                    "anthropic_api_key": existing.get("anthropic_api_key", ""),
-                    "os_system":         os_name,
-                }, indent=4),
-                encoding="utf-8",
-            )
+            from core.secret_store import save_api_keys
+            save_api_keys({
+                "gemini_api_key":    key,
+                "openrouter_api_key": or_key,
+                "anthropic_api_key": existing.get("anthropic_api_key", ""),
+                "os_system":         os_name,
+            }, API_FILE)
             self._ready = True
             self._api_ready = True
             if self._overlay:

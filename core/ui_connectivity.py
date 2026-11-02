@@ -2517,12 +2517,12 @@ class SystemConnectivityPage(QWidget):
         
         # Pre-fill from API keys if they exist
         try:
-            with open(Path("config/api_keys.json"), "r", encoding="utf-8") as f:
-                d = json.load(f)
-                if d.get("instagram_username"):
-                    self._ig_username.setText(d.get("instagram_username"))
-                if d.get("instagram_password"):
-                    self._ig_password.setText(d.get("instagram_password"))
+            from core.secret_store import load_api_keys
+            d = load_api_keys()
+            if d.get("instagram_username"):
+                self._ig_username.setText(d.get("instagram_username"))
+            if d.get("instagram_password"):
+                self._ig_password.setText(d.get("instagram_password"))
         except Exception:
             pass
 
@@ -3241,15 +3241,9 @@ class SystemConnectivityPage(QWidget):
         try:
             if not hasattr(self, "_ig_status_lbl"):
                 return
-            from pathlib import Path
-            import json
-            api_keys = Path("config/api_keys.json")
-            username = ""
-            d = {}
-            if api_keys.exists():
-                with open(api_keys, "r", encoding="utf-8") as f:
-                    d = json.load(f)
-                    username = d.get("instagram_username", "")
+            from core.secret_store import load_api_keys
+            d = load_api_keys()
+            username = d.get("instagram_username", "")
 
             is_browser_auth = bool(d.get("instagram_browser_authenticated") and d.get("instagram_sessionid"))
             if is_browser_auth:
@@ -3270,18 +3264,16 @@ class SystemConnectivityPage(QWidget):
 
     def _handle_ig_disconnect(self):
         try:
-            import json
             import shutil
             from pathlib import Path
-            with open("config/api_keys.json", "r", encoding="utf-8") as f:
-                d = json.load(f)
+            from core.secret_store import load_api_keys, save_api_keys
+            d = load_api_keys()
             d["instagram_username"] = ""
             d["instagram_password"] = ""
             d["instagram_sessionid"] = ""
             d["instagram_user_id"] = ""
             d["instagram_browser_authenticated"] = False
-            with open("config/api_keys.json", "w", encoding="utf-8") as f:
-                json.dump(d, f, indent=4)
+            save_api_keys(d)
                 
             session_path = Path("config/ig_session.json")
             if session_path.exists():
@@ -3318,7 +3310,6 @@ class SystemConnectivityPage(QWidget):
             try:
                 from playwright.sync_api import sync_playwright
                 from pathlib import Path
-                import json
                 import time
 
                 profile_dir = Path("config/ig_browser_profile").resolve()
@@ -3373,18 +3364,14 @@ class SystemConnectivityPage(QWidget):
                                     pass
 
                                 try:
-                                    cfg_path = Path("config/api_keys.json")
-                                    data = {}
-                                    if cfg_path.exists():
-                                        with open(cfg_path, "r", encoding="utf-8") as f:
-                                            data = json.load(f)
+                                    from core.secret_store import load_api_keys, save_api_keys
+                                    data = load_api_keys()
                                     if detected_username:
                                         data["instagram_username"] = detected_username
                                     data["instagram_sessionid"] = sid
                                     data["instagram_user_id"] = uid
                                     data["instagram_browser_authenticated"] = True
-                                    with open(cfg_path, "w", encoding="utf-8") as f:
-                                        json.dump(data, f, indent=4)
+                                    save_api_keys(data)
                                 except Exception:
                                     pass
 
@@ -3518,7 +3505,6 @@ class SystemConnectivityPage(QWidget):
         password = self._ig_password.text().strip()
         
         from PyQt6.QtWidgets import QMessageBox
-        import json
         
         if not username or not password:
             QMessageBox.warning(self, "Error", "Please enter both username and password.")
@@ -3528,17 +3514,11 @@ class SystemConnectivityPage(QWidget):
         self._ig_connect_btn.setText("Connecting...")
         
         # Save credentials temporarily
-        try:
-            with open("config/api_keys.json", "r", encoding="utf-8") as f:
-                d = json.load(f)
-        except Exception:
-            d = {}
-            
+        from core.secret_store import load_api_keys, save_api_keys
+        d = load_api_keys()
         d["instagram_username"] = username
         d["instagram_password"] = password
-        
-        with open("config/api_keys.json", "w", encoding="utf-8") as f:
-            json.dump(d, f, indent=4)
+        save_api_keys(d)
             
         self._ig_worker = self.IGLoginWorker(username, password)
         self._ig_worker.finished_success.connect(self._ig_login_success)

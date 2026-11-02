@@ -3,7 +3,6 @@ mixin split). Method bodies are byte-identical; module-level helpers and
 config paths are injected via bind()."""
 from __future__ import annotations
 
-import json
 
 
 
@@ -38,7 +37,8 @@ class _StateAppliersMixin:
     def _check_config(self) -> bool:
         if not API_FILE.exists(): return False
         try:
-            d = json.loads(API_FILE.read_text(encoding="utf-8"))
+            from core.secret_store import load_api_keys
+            d = load_api_keys(API_FILE)
             return (bool(d.get("gemini_api_key")) and
                     bool(d.get("os_system")))
         except Exception:

@@ -23,8 +23,8 @@ API_KEY_PATH = get_user_data_dir() / "config" / "api_keys.json"
 
 def _load_api_key() -> str:
     try:
-        with open(API_KEY_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        from core.secret_store import load_api_keys
+        data = load_api_keys(API_KEY_PATH)
         key = data.get("openrouter_api_key", "").strip()
         return key
     except FileNotFoundError:

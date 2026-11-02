@@ -12,6 +12,13 @@ from typing import Any
 
 from cryptography.fernet import Fernet
 
+from core.secret_store import (
+    DPAPI_BINARY_PREFIX,
+    dpapi_protect,
+    dpapi_unprotect,
+    is_dpapi_available,
+)
+
 
 def _base_dir() -> Path:
     return Path(__file__).resolve().parent.parent
@@ -39,8 +46,28 @@ class CredentialVault:
 
     def _load_or_create_key(self) -> bytes:
         if self._key_file.exists():
-            return self._key_file.read_bytes().strip()
+            raw = self._key_file.read_bytes().strip()
+            if raw.startswith(DPAPI_BINARY_PREFIX):
+                cipher = raw[len(DPAPI_BINARY_PREFIX):]
+                return dpapi_unprotect(cipher)
+            # Legacy plaintext Fernet key (1-release read-only fallback).
+            # Transparently migrate to DPAPI if available.
+            if is_dpapi_available():
+                try:
+                    enc = dpapi_protect(raw)
+                    self._key_file.write_bytes(DPAPI_BINARY_PREFIX + enc)
+                except Exception:
+                    pass
+            return raw
+
         key = Fernet.generate_key()
+        if is_dpapi_available():
+            try:
+                enc = dpapi_protect(key)
+                self._key_file.write_bytes(DPAPI_BINARY_PREFIX + enc)
+                return key
+            except Exception:
+                pass
         self._key_file.write_bytes(key)
         return key
 
