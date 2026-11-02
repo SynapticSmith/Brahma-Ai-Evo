@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from .models import DeviceRecord
 from fastapi.responses import JSONResponse
 import uvicorn
 
@@ -355,12 +356,39 @@ class BrahmaGateway:
     def _build_app(self) -> FastAPI:
         app = FastAPI(docs_url=None, redoc_url=None)
 
+        async def _require_device(request: Request) -> DeviceRecord:
+            auth_header = request.headers.get("Authorization") or ""
+            token = ""
+            if auth_header.lower().startswith("bearer "):
+                token = auth_header[7:].strip()
+            if not token:
+                dev_id = request.headers.get("X-Device-Id") or ""
+                dev_secret = request.headers.get("X-Device-Secret") or ""
+                if dev_id and dev_secret:
+                    token = f"{dev_id}:{dev_secret}"
+                elif dev_secret:
+                    token = dev_secret
+
+            if not token:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Authentication required: paired device token missing from Authorization header.",
+                )
+
+            client_ip = request.client.host if request.client else ""
+            record, status = self.device_manager.authenticate_token(token, ip=client_ip)
+            if status == "revoked":
+                raise HTTPException(status_code=403, detail="Forbidden: Paired device has been revoked.")
+            if record is None or status != "ok":
+                raise HTTPException(status_code=401, detail="Unauthorized: Invalid or unrecognized device credentials.")
+            return record
+
         @app.get("/health")
         async def health():
             return {"ok": True, "running": self.is_running(), "host": self.config.host, "port": self.config.port}
 
         @app.get("/gateway/info")
-        async def info():
+        async def info(_device: DeviceRecord = Depends(_require_device)):
             return {
                 "ok": True,
                 "service": "Brahma Connect",
@@ -372,44 +400,44 @@ class BrahmaGateway:
             }
 
         @app.get("/gateway/pair")
-        async def get_pairing_offer():
+        async def get_pairing_offer(_device: DeviceRecord = Depends(_require_device)):
             return self.create_pairing_offer()
 
         @app.get("/gateway/devices")
-        async def list_devices():
+        async def list_devices(_device: DeviceRecord = Depends(_require_device)):
             return {"ok": True, "devices": self.device_manager.list_devices()}
 
         @app.post("/gateway/devices/{device_id}/revoke")
-        async def revoke_device(device_id: str):
+        async def revoke_device(device_id: str, _device: DeviceRecord = Depends(_require_device)):
             if not self.device_manager.revoke(device_id):
                 return JSONResponse({"ok": False, "error": "Device not found."}, status_code=404)
             self._append_log("DEVICE_REVOKED", device_id=device_id)
             return {"ok": True}
 
         @app.post("/gateway/devices/{device_id}/forget")
-        async def forget_device(device_id: str):
+        async def forget_device(device_id: str, _device: DeviceRecord = Depends(_require_device)):
             if not self.device_manager.remove(device_id):
                 return JSONResponse({"ok": False, "error": "Device not found."}, status_code=404)
             self._append_log("DEVICE_FORGOTTEN", device_id=device_id)
             return {"ok": True}
 
         @app.get("/gateway/logs")
-        async def logs():
+        async def logs(_device: DeviceRecord = Depends(_require_device)):
             return {"ok": True, "entries": self.log()}
 
         @app.get("/gateway/pending")
-        async def pending_requests():
+        async def pending_requests(_device: DeviceRecord = Depends(_require_device)):
             return {"ok": True, "requests": self.list_pending_requests()}
 
         @app.post("/gateway/pending/{pending_id}/approve")
-        async def approve_pending(pending_id: str):
+        async def approve_pending(pending_id: str, _device: DeviceRecord = Depends(_require_device)):
             result = await self.approve_pending_request(pending_id)
             if not result.get("success"):
                 return JSONResponse(result, status_code=404)
             return result
 
         @app.post("/gateway/pending/{pending_id}/reject")
-        async def reject_pending(pending_id: str):
+        async def reject_pending(pending_id: str, _device: DeviceRecord = Depends(_require_device)):
             if not self.reject_pending_request(pending_id):
                 return JSONResponse({"ok": False, "error": "Pending request not found."}, status_code=404)
             return {"ok": True}

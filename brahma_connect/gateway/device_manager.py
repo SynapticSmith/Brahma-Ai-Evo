@@ -127,6 +127,50 @@ class DeviceManager:
             self.save()
             return record
 
+    def authenticate_token(self, token: str, *, ip: str = "", connection_id: str = "") -> tuple[DeviceRecord | None, str]:
+        """Authenticate a bearer token in either ``device_id:secret`` or ``secret`` form.
+
+        Returns ``(record, "ok")`` on success, ``(record, "revoked")`` if the device
+        is known but has been revoked, and ``(None, "missing" | "invalid")`` on failure.
+        """
+        token = str(token or "").strip()
+        if not token:
+            return None, "missing"
+        with self._lock:
+            if ":" in token:
+                device_id, _, secret = token.partition(":")
+                record = self._devices.get(str(device_id))
+                if record is None:
+                    return None, "invalid"
+                if not constant_time_equals(record.secret_hash, hash_secret(secret)):
+                    return None, "invalid"
+                if record.revoked:
+                    return record, "revoked"
+                record.online = True
+                record.last_seen = now_iso()
+                record.ip = ip or record.ip
+                record.connection_id = connection_id or record.connection_id
+                self.save()
+                return record, "ok"
+
+            # Secret-only token: check all registered records with constant-time equality
+            target_hash = hash_secret(token)
+            revoked_record: DeviceRecord | None = None
+            for record in self._devices.values():
+                if constant_time_equals(record.secret_hash, target_hash):
+                    if record.revoked:
+                        revoked_record = record
+                        continue
+                    record.online = True
+                    record.last_seen = now_iso()
+                    record.ip = ip or record.ip
+                    record.connection_id = connection_id or record.connection_id
+                    self.save()
+                    return record, "ok"
+            if revoked_record is not None:
+                return revoked_record, "revoked"
+            return None, "invalid"
+
     def mark_offline(self, device_id: str) -> None:
         with self._lock:
             record = self._devices.get(str(device_id))

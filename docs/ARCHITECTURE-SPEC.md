@@ -420,11 +420,11 @@ The pre-fork autonomous stack — `agent/planner.py`, `agent/executor.py`, `agen
 | 6 | Secrets recoverable (Fernet key beside DB; plaintext API keys) | **Open** | `smart_home/storage.py`; `config/api_keys.json`. |
 | 7 | Crucible validation is a denylist, not a sandbox | **Open** | 12 string checks + same-user subprocess + timeout. |
 | 8 | High-risk automation without privilege separation | **Open** | One process, one token, all tools in-process. |
-| + | Gateway `0.0.0.0`, unauthenticated HTTP control routes | **Mitigated (Q0-B), route auth open** | `server.py` now defaults to `host="127.0.0.1"`, `enabled=False`, `advertise=False`; a LAN bind requires explicit config. Routes at `:358–407` still have no auth dependency. |
+| + | Gateway `0.0.0.0`, unauthenticated HTTP control routes | **Closed (Q0-B)** | `server.py` defaults to `host="127.0.0.1"`, `enabled=False`, `advertise=False`; all HTTP management and control routes enforce paired-device authentication (`Authorization: Bearer <device_id>:<secret>` or secret-only, returning 401/403). Only `/health` remains public. |
 | + | Dead model-facing `confirmed` parameter (not a live bypass) | **Closed (Q0-A)** | Declaration removed from `main.py`; a schema test asserts no declaration advertises `confirmed`. The handler already ignored it and the `_IRREVERSIBLE` HUD gate already held. |
 | + | Legacy `agent_task` autonomous door | **Closed (Q0-A)** | Declaration and handler removed; `agent/planner.py`, `executor.py`, `task_queue.py`, `error_handler.py` deleted; invariant tests prevent their return (§6.10). |
 
-**Conclusion:** Q0-A closed the code-execution half (forge draft-only, verified TLS prompts, no runtime `pip`, no `agent_task`, no dead `confirmed`). Q0-B closed self-update by deleting every updater path and made the gateway loopback-only and off by default. Storage (DPAPI), plugin trust, the Crucible denylist, privilege separation, and gateway route authentication are still upstream's posture.
+**Conclusion:** Q0-A closed the code-execution half (forge draft-only, verified TLS prompts, no runtime `pip`, no `agent_task`, no dead `confirmed`). Q0-B closed self-update by deleting every updater path, made the gateway loopback-only/off by default, and secured all gateway HTTP control routes with paired-device authentication. Storage (DPAPI), plugin trust, the Crucible denylist, and privilege separation are still upstream's posture.
 
 ### 7.2 The target model
 
@@ -443,13 +443,13 @@ WS-1 skill lifecycle · WS-2 SkillHost sandbox · WS-3 dependency supply chain �
 3. Crucible executes module-level code only in a subprocess with a timeout.
 4. ✅ **Q0-A** — `resolve_dependencies()` returns a plan; never calls `pip`.
 5. ✅ **Q0-A** — no TLS-bypass instructions remain in either forge prompt.
-6. ◐ **Q0-B (partial)** — gateway now defaults to `127.0.0.1`, disabled, no mDNS advertise; HTTP control routes still need a paired-device dependency.
+6. ✅ **Q0-B** — gateway now defaults to `127.0.0.1`, disabled, no mDNS advertise; all HTTP management/control routes enforce paired-device authentication.
 7. ✅ **Q0-B** — startup self-update deleted (`updater.py`, `core/updater.py`, `core/updater_ota.py`); no hardcoded upstream, no `git reset --hard`, no default-Yes prompt.
 8. Move `api_keys.json` and `smart_home.key` behind DPAPI (minimal migration, one release of read-only fallback).
 9. ✅ **Q0-A** — dead model-facing `confirmed` declaration removed; the handler already ignored it and the HUD gate already holds.
 10. ✅ **Q0-A** — `agent_task` disabled and its legacy files deleted (§6.10).
 
-**Exit criteria:** forged skills do not execute automatically and are staged for review; no runtime `pip`; `agent_task` is retired; no model-facing `confirmed`; gateway is loopback/off by default with no self-update path. Route auth, DPAPI, and plugin allowlisting remain open.
+**Exit criteria:** forged skills do not execute automatically and are staged for review; no runtime `pip`; `agent_task` is retired; no model-facing `confirmed`; gateway is loopback/off by default with no self-update path and authenticated HTTP control routes. DPAPI and plugin allowlisting remain open.
 
 ### 7.4 How security intersects the harness
 
@@ -642,9 +642,9 @@ Accepted 2026-10-17, but **acceptance is not authorization to build**: they were
 
 ### Q0-B — Stop the bleeding: Network, secrets & supply chain (days; no new architecture)
 
-**Status: partially landed 2026-11-01 (batch Q0-B mechanical slice) — items 2 and 5 done; item 1 defaults done, route auth open; items 3 and 4 open.**
+**Status: partially landed 2026-11-01..02 — items 1, 2, and 5 done; items 3 and 4 open.**
 
-1. ◐ Gateway: default `host="127.0.0.1"`, `enabled=False`, `advertise=False`; a LAN bind requires explicit config. HTTP control routes still need a paired-device dependency (WS-8).
+1. ✅ Gateway: default `host="127.0.0.1"`, `enabled=False`, `advertise=False`; all HTTP management and control routes enforce paired-device authentication (`Authorization: Bearer <device_id>:<secret>` or secret-only, 401/403) (WS-8).
 2. ✅ Startup self-update deleted: `updater.py`, `core/updater.py`, `core/updater_ota.py`, the `main()` call, and the `UpdateChecker`/prompt UI. No hardcoded remote, no `git reset --hard`, no default-Yes dialog. Signed releases are WS-6.
 3. ⬜ Plugin loading: opt-in allowlist; do not import unsigned `.py` from a writable directory.
 4. ⬜ Secrets: DPAPI for `api_keys.json` and `smart_home.key`; one release of read-only fallback.

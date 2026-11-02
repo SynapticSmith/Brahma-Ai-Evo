@@ -44,7 +44,7 @@ A forged skill can read only the folders the user approved, reach only the hosts
 | 6 | Secrets recoverable: Fernet key beside DB; plaintext `api_keys.json` | Present. `smart_home/storage.py::CredentialVault`; `config/api_keys.json`. | WS-7 |
 | 7 | Crucible validation is a denylist, not a sandbox | Present. 12 substrings, module-level splice, same-user `python -c`, 75s timeout. | WS-1, WS-2 |
 | 8 | High-risk automation with no privilege separation | Present. One process, one token, all tools in-process. | WS-10 |
-| + | Gateway on `0.0.0.0:8765`, unauthenticated routes; upstream auto-pairs and adds `/gateway/execute` | Present in fork (without `/gateway/execute`; still unauthenticated). | WS-8 |
+| + | Gateway on `0.0.0.0:8765`, unauthenticated routes; upstream auto-pairs and adds `/gateway/execute` | **Closed (Q0-B, 2026-11-02).** Default `127.0.0.1` and `enabled=False`; all HTTP control routes require paired-device bearer auth; `/gateway/execute` not added. | WS-8 |
 | + | New upstream surfaces: `bash`, `python_repl`, MCP, `SKILL.md` | Not in the fork yet, but planned for integration. | WS-5 |
 
 The fork's existing `core/confirm.py` HUD gate is a good primitive. It is used for `restart`, `shutdown`, and `toggle_wifi` in `actions/computer_settings.py`. It should become the single approval surface, not a per-module exception.
@@ -972,12 +972,12 @@ See WS-8. Allowlisted `command`, schema-validated `args`, `nonce`, `ts`, `sig`.
 
 Goal: remove the worst paths with small diffs; no new architecture required.
 
-- [ ] `_forge_skill` no longer calls `execute_sync`; returns a draft.
+- [x] `_forge_skill` no longer calls `execute_sync`; returns a draft.
 - [ ] `DynamicToolRegistry.initialize()` does not load `features/*.py` unless a signed index marks them installed.
 - [ ] `SkillCrucible` does not execute module-level code; `execute()` only in a subprocess with a timeout.
 - [x] `resolve_dependencies()` returns a plan; never calls `pip`.
 - [x] Remove `verify=False` / `_create_unverified_context()` from the forge prompt.
-- [x] Gateway binds `127.0.0.1`; disabled by default.
+- [x] Gateway binds `127.0.0.1`; disabled by default; HTTP control routes enforce paired-device authentication.
 - [ ] Restore human pairing; remove auto-approve if the upstream code is integrated.
 - [x] Disable startup updates for clones; remove the hardcoded `Brahma---personal` repo and default-Yes `reset --hard`.
 - [ ] Move `api_keys.json` and `smart_home.key` behind DPAPI (minimal).
