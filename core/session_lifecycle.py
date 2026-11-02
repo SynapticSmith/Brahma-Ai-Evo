@@ -731,3 +731,223 @@ class SessionLifecycle:
             delay = self._host._next_reconnect_delay()
             print(f"[BRAHMA EVO] 🔄 Reconnecting in {delay:.0f}s...")
             await self._pause_until(delay)
+
+    def set_live_call(self, active: bool):
+        """Connect / Disconnect. Authoritative in BOTH modes."""
+        active = bool(active)
+        with self._host._control_lock:
+            self._host._manual_call_active = active
+            self._host._live_suspended = not active
+        if active:
+            self._host._stop_wakeword_listener()
+            self._host._request_connect()
+        else:
+            self._host.ui.set_state("STANDBY")
+            self._host._disconnect_live()
+        self._host._wake_control()
+
+    def should_standby(self) -> bool:
+        """True when the session loop must idle instead of holding a session."""
+        with self._host._control_lock:
+            if self._host._live_suspended:
+                return True
+            return self._host._live_mode == "on_call" and not self._host._manual_call_active
+
+    def request_connect(self):
+        """Wake the standby wait. Safe to call before run() has started."""
+        loop, event = self._host._ui_loop, self._host._connect_event
+        if loop is None or event is None:
+            return
+        try:
+            loop.call_soon_threadsafe(event.set)
+        except RuntimeError:
+            pass
+
+    def disconnect_live(self):
+        """Drop the live session. No-op when nothing is connected."""
+        loop, task = self._host._ui_loop, self._host._session_task
+        with self._host._control_lock:
+            self._host._disconnect_requested = True
+        if loop is None or task is None or task.done():
+            return
+        try:
+            loop.call_soon_threadsafe(task.cancel)
+        except RuntimeError:
+            pass
+
+    def wake_control(self):
+        """Abort an in-progress reconnect pause so a mode change is immediate."""
+        loop = getattr(self._host, "_ui_loop", None)
+        event = getattr(self._host, "_control_wake", None)
+        with self._host._control_lock:
+            self._host._control_seq = getattr(self._host, "_control_seq", 0) + 1
+        if loop is None or event is None:
+            return
+        try:
+            loop.call_soon_threadsafe(event.set)
+        except RuntimeError:
+            pass
+
+    def next_reconnect_delay(self) -> float:
+        """Exponential backoff for the reconnect pause: 2, 4, 8 ... capped at 30."""
+        self._host._reconnect_delay = (
+            2.0
+            if self._host._reconnect_delay <= 0.0
+            else min(self._host._reconnect_delay * 2.0, 30.0)
+        )
+        return self._host._reconnect_delay
+
+    def report_voice_status(self, live: bool, detail: str = ""):
+        """Tell the UI which voice backend is driving the session and its state."""
+        backend = self._host._voice_backend()
+        if backend == "local_loop":
+            label = "Local voice"
+        elif backend == "gemini_live":
+            label = "Gemini Live"
+        else:
+            label = backend.title()
+        try:
+            self._host.ui.set_voice_status(label, bool(live), detail)
+        except Exception:
+            pass
+
+    def session_task_guard(self, coro):
+        """Register the running local session so _disconnect_live() can cancel it."""
+        async def _runner():
+            try:
+                await coro
+            finally:
+                with self._host._control_lock:
+                    self._host._session_task = None
+
+        self._host._session_task = asyncio.ensure_future(_runner())
+        return self._host._session_task
+
+    def voice_backend(self) -> str:
+        """Which engine drives the voice session: 'gemini_live' or 'local_loop'."""
+        try:
+            cfg = config_manager.load_settings()
+        except Exception:
+            cfg = {}
+        if cfg.get("offline_mode_enabled", False):
+            return "local_loop"
+        provider = str(cfg.get("default_ai_provider", "") or "").strip().lower()
+        if provider in ("local", "custom", "openrouter"):
+            return "local_loop"
+        return "gemini_live"
+
+    def local_voice_turn(self, pcm_bytes: bytes, speaking: dict):
+        """One local voice turn: transcribe, answer, speak. Runs off-loop."""
+        try:
+            from core import speech_stt
+
+            text = speech_stt.transcribe_pcm(pcm_bytes, globals().get("SEND_SAMPLE_RATE", 16000))
+            if not text or len(text.strip()) <= 1:
+                return
+            print(f"[BRAHMA EVO] 🎙️ Heard: {text}")
+            wake_fn = globals().get("_wakeword_detected")
+            if self._host.ui.muted and callable(wake_fn) and wake_fn(text):
+                try:
+                    self._host.ui.set_muted_state(False, wakeword=True)
+                except Exception:
+                    pass
+            speaking["on"] = True
+            try:
+                self._host._on_text_command(text, source="mic")
+            finally:
+                speaking["on"] = False
+        except Exception as exc:
+            print(f"[BRAHMA EVO] ⚠️ Local voice turn failed: {exc}")
+
+    async def wait_for_connect_request(self):
+        """Idle in On Call standby until the button or the wake word asks."""
+        self._host._connect_event = asyncio.Event()
+        self._host.set_speaking(False)
+        self._host.ui.set_state("STANDBY")
+        self._host._start_wakeword_listener()
+        try:
+            if not self._host._should_standby():
+                return
+            self._host.ui.write_log("SYS: On Call standby - say 'Brahma Evo' or press Connect.")
+            await self._host._connect_event.wait()
+        finally:
+            self._host._connect_event = None
+            self._host._stop_wakeword_listener()
+
+    def start_wakeword_listener(self):
+        if self._host._wake_thread is not None and self._host._wake_thread.is_alive():
+            return
+        self._host._wake_stop = threading.Event()
+        self._host._wake_thread = threading.Thread(
+            target=self._host._wakeword_loop, daemon=True, name="oncall-wakeword"
+        )
+        self._host._wake_thread.start()
+
+    def stop_wakeword_listener(self):
+        stop = self._host._wake_stop
+        if stop is not None:
+            stop.set()
+
+    def set_push_to_talk(self, enabled: bool) -> str:
+        from core.hotkey import PushToTalk
+
+        self._host._ptt_enabled = bool(enabled)
+        self._host._ptt_held = False
+        if not enabled:
+            if self._host._ptt is not None:
+                self._host._ptt.stop()
+                self._host._ptt = None
+            return "off"
+        if self._host._ptt is None:
+            self._host._ptt = PushToTalk(self._host._on_ptt)
+        scope = self._host._ptt.start()
+        try:
+            self._host.ui.write_log(
+                f"SYS: Push-to-talk on — hold {self._host._ptt.label}"
+                + ("." if scope == "global" else " (works while window focused).")
+            )
+        except Exception:
+            pass
+        return scope
+
+    def set_speaking(self, value: bool):
+        with self._host._speaking_lock:
+            self._host._is_speaking = value
+        if value:
+            self._host.ui.set_state("SPEAKING")
+        elif not self._host.ui.muted:
+            self._host.ui.set_state("LISTENING")
+
+    def trigger_barge_in(self):
+        """Immediately interrupts AI speech playback and switches state to LISTENING."""
+        with self._host._speaking_lock:
+            if not self._host._is_speaking:
+                return
+            self._host._is_speaking = False
+
+        try:
+            from actions.attention_monitor import stop_native_speech
+
+            stop_native_speech()
+        except Exception:
+            pass
+
+        try:
+            if self._host.audio_in_queue:
+                while not self._host.audio_in_queue.empty():
+                    try:
+                        self._host.audio_in_queue.get_nowait()
+                    except Exception:
+                        break
+        except Exception:
+            pass
+
+        try:
+            from sound_manager import SoundManager
+
+            SoundManager.instance().play_listening_start()
+        except Exception:
+            pass
+
+        if hasattr(self._host, "ui") and self._host.ui and not self._host.ui.muted:
+            self._host.ui.set_state("LISTENING")

@@ -383,13 +383,7 @@ def test_the_migrated_branches_left_the_legacy_chain():
     elif_lines = [
         line for line in source.splitlines() if line.lstrip().startswith("elif ")
     ]
-    leftovers = [
-        line.strip()
-        for line in elif_lines
-        for name in (*desktop_tools.WAVE1, *desktop_tools.WAVE2)
-        if f'"{name}"' in line
-    ]
-    assert leftovers == [], leftovers
+    assert elif_lines == [], elif_lines
     assert 'if name == "save_memory":' not in source
     assert "desktop_host.present_start" in source
     assert "desktop_tools.attach_host" in source
@@ -590,3 +584,94 @@ def test_save_memory_is_silent_on_hud_and_function_response(
     assert host.ui.deliverables == []
     assert host.ui.states == ["LISTENING"]
     assert any(e.get("type") == "tool_end" and e.get("silent") is True for e in events)
+
+
+# --------------------------------------------------------------------------- #
+# Wave 3: full native catalogue, mixed-verb classifiers, workspace_* routing
+# --------------------------------------------------------------------------- #
+
+
+def test_wave3_completes_the_native_catalogue(registered):
+    from agent.spec import get as get_spec
+
+    declared = _declarations()
+    specs = {spec.name: spec for spec in desktop_tools.build_specs(declared)}
+
+    for name, (expected_class, needs_approval) in desktop_tools.WAVE3.items():
+        spec = specs[name]
+        assert spec.tool_class == expected_class, name
+        assert spec.requires_approval is needs_approval, name
+        assert desktop_tools.DESKTOP_TAG in spec.tags
+        assert "wave3" in spec.tags
+        assert spec.parameters.get("type") == "object", name
+
+    # Every single declaration in main.TOOL_DECLARATIONS is now a registered
+    # ToolSpec in agent.spec (waves 1-3 + load_project_skill).
+    missing = [item["name"] for item in declared if get_spec(item["name"]) is None]
+    assert missing == [], f"unregistered TOOL_DECLARATIONS: {missing}"
+
+
+def test_wave3_classifiers_and_retired_agent_task(registered, tmp_path):
+    from agent.spec import get as get_spec
+
+    assert get_spec("undo").class_for({"action": "list"}) == "read"
+    assert get_spec("undo").class_for({"action": "undo"}) == "write"
+
+    assert get_spec("manage_local_model").class_for({"action": "status"}) == "read"
+    assert get_spec("manage_local_model").class_for({"action": "pull"}) == "network"
+    assert get_spec("manage_local_model").class_for({"action": "set_active"}) == "write"
+
+    assert get_spec("system_manager").class_for({"action": "status"}) == "read"
+    assert get_spec("system_manager").class_for({"action": "kill"}) == "exec"
+
+    for cal in ("calendar_scheduler", "calendar", "schedule"):
+        assert get_spec(cal).class_for({"action": "list_events"}) == "read"
+        assert get_spec(cal).class_for({"action": "add_event"}) == "write"
+
+    assert get_spec("system_diagnostics").class_for({"action": "status"}) == "read"
+    assert get_spec("system_diagnostics").class_for({"action": "kill"}) == "exec"
+    assert get_spec("ram_hogs").class_for({}) == "read"
+    assert get_spec("kill_process").class_for({}) == "exec"
+    assert get_spec("brightness_control").class_for({}) == "read"
+    assert get_spec("brightness_control").class_for({"level": 60}) == "device"
+
+    assert get_spec("skill_forge").class_for({"action": "list"}) == "read"
+    assert get_spec("skill_forge").class_for({"action": "forge"}) == "write"
+    assert get_spec("dynamic_skill").class_for({"action": "list"}) == "read"
+    assert get_spec("dynamic_skill").class_for({"action": "run"}) == "exec"
+
+    pointer = _runtime(tmp_path).execute("agent_task", {"goal": "anything"})
+    assert "agent_task is retired" in pointer
+    assert "run_subagent" in pointer
+
+
+def test_workspace_prefix_routes_through_google_workspace_spec(
+    registered, tmp_path, monkeypatch
+):
+    import asyncio
+    import actions.google_workspace_mcp as gw_mod
+    from agent import runtime as agent_runtime
+    from core.tool_exec import ToolExecutor, _LocalFC
+
+    seen = {}
+    monkeypatch.setattr(
+        gw_mod,
+        "google_workspace",
+        lambda **kw: seen.update(kw) or "gw-unread-ok",
+    )
+
+    runtime = _runtime(tmp_path, network="allow")
+    prev = agent_runtime._current
+    agent_runtime._current = runtime
+    try:
+        ex = ToolExecutor(
+            _FakeLive(), ig_gemini_reply=lambda *a: "", tool_declarations=[]
+        )
+        fr = asyncio.run(ex.execute(_LocalFC("workspace_gmail_unread", {}, "c1")))
+    finally:
+        agent_runtime._current = prev
+
+    assert fr.name == "workspace_gmail_unread"
+    assert fr.response["result"] == "gw-unread-ok"
+    assert seen["parameters"]["service"] == "gmail"
+    assert seen["parameters"]["action"] == "unread"

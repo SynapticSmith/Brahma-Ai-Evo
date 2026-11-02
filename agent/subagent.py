@@ -139,7 +139,7 @@ def select_tools(
         if wanted:
             if name not in wanted:
                 continue
-        elif spec is None or spec.tool_class != "read":
+        elif spec is None or spec.tool_class != "read" or "desktop" in spec.tags:
             continue
         chosen.append(item)
         seen.add(name)

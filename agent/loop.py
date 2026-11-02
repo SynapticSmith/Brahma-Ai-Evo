@@ -223,7 +223,11 @@ class AgentLoop:
         allow_subagents: bool = True,
     ):
         self._complete = complete
-        self._tools: List[Any] = list(tools) if tools is not None else list(all_specs())
+        self._tools: List[Any] = (
+            list(tools)
+            if tools is not None
+            else [spec for spec in all_specs() if "desktop" not in spec.tags]
+        )
         self._native_dispatch = native_dispatch
         self._runtime = runtime or current_runtime()
         self._session = session

@@ -10,14 +10,12 @@ bootstrap()
 
 from core import audio_devices
 from core.echo import EchoGuard
-from core.hotkey import PushToTalk
 from core.provider_failover import ProviderFailover
 from memory import config_manager
 
 from core import boot_sentry
 boot_sentry.run()
 from core.sensorium import sensorium
-from core.local_brain import local_brain
 from core import desktop_tools
 import asyncio
 import threading
@@ -44,11 +42,10 @@ from memory.memory_manager import (
     update_memory, should_extract_memory, extract_memory, auto_learn_interaction
 )
 
-from actions.screen_processor  import screen_process
+from actions.screen_processor  import screen_process  # noqa: F401
 from actions.meeting_assistant import MeetingAssistant
-from actions.attention_monitor import AttentionMonitor, speak_native, stop_native_speech, set_speech_sink
+from actions.attention_monitor import AttentionMonitor, speak_native, stop_native_speech, set_speech_sink  # noqa: F401
 # from actions.daily_briefing import compile_daily_briefing
-from llm_client import client as openrouter_client
 from workspace_store import store as workspace_store
 from smart_home.service import SmartHomeService
 from plugin_manager import PluginManager
@@ -2184,7 +2181,10 @@ try:
             [
                 spec.name
                 for spec in _agent_specs()
-                if spec.name != _agent_subagent.SUBAGENT_TOOL
+                if (
+                    desktop_tools.DESKTOP_TAG not in spec.tags
+                    and spec.name != _agent_subagent.SUBAGENT_TOOL
+                )
             ]
         )
     )
@@ -2346,28 +2346,9 @@ class BrahmaLive:
     # ------------------------------------------------------------------
 
     def set_live_call(self, active: bool):
-        """Connect / Disconnect. Authoritative in BOTH modes."""
-        active = bool(active)
-        with self._control_lock:
-            self._manual_call_active = active
-            # Pressing Connect clears an earlier explicit Disconnect; pressing
-            # Disconnect latches it until Connect is pressed again.
-            self._live_suspended = not active
-        if active:
-            self._stop_wakeword_listener()
-            self._request_connect()
-        else:
-            self.ui.set_state("STANDBY")
-            self._disconnect_live()
-        # Abort any in-flight reconnect backoff so Connect/Disconnect is instant.
-        self._wake_control()
+        return self._session_lifecycle.set_live_call(active)
 
     def _provider_failover_or_default(self) -> ProviderFailover:
-        """Return the failover tracker, creating it if ``__init__`` was bypassed.
-
-        Test harnesses build instances by setting attributes rather than calling
-        ``__init__``, so the tracker may not exist yet.
-        """
         failover = getattr(self, "_provider_failover", None)
         if failover is None:
             failover = ProviderFailover()
@@ -2375,49 +2356,19 @@ class BrahmaLive:
         return failover
 
     def _prefer_openrouter(self) -> bool:
-        """True while a recent Gemini throttle should keep OpenRouter first."""
         return self._provider_failover_or_default().prefer_openrouter()
 
     def _throttled_to_openrouter(self, seconds: float = 300.0) -> None:
-        """Record a Gemini throttle and route to OpenRouter for a cooldown."""
         self._provider_failover_or_default().throttle_to_openrouter(seconds)
 
     def _should_standby(self) -> bool:
-        """True when the session loop must idle instead of holding a session.
-
-        Three independent inputs, deliberately separate:
-          _live_suspended   - an explicit Disconnect, honoured in any mode
-          _live_mode        - the Always On / On Call preference
-          _manual_call_active - a call placed through the Connect button
-        """
-        with self._control_lock:
-            if self._live_suspended:
-                return True
-            return self._live_mode == "on_call" and not self._manual_call_active
+        return self._session_lifecycle.should_standby()
 
     def _request_connect(self):
-        """Wake the standby wait. Safe to call before run() has started."""
-        loop, event = self._ui_loop, self._connect_event
-        if loop is None or event is None:
-            # run() has not reached the standby wait yet; it re-reads the
-            # flags on its next pass, so nothing is lost.
-            return
-        try:
-            loop.call_soon_threadsafe(event.set)
-        except RuntimeError:
-            pass  # loop already closed; nothing left to wake
+        return self._session_lifecycle.request_connect()
 
     def _disconnect_live(self):
-        """Drop the live session. No-op when nothing is connected."""
-        loop, task = self._ui_loop, self._session_task
-        with self._control_lock:
-            self._disconnect_requested = True
-        if loop is None or task is None or task.done():
-            return
-        try:
-            loop.call_soon_threadsafe(task.cancel)
-        except RuntimeError:
-            pass
+        return self._session_lifecycle.disconnect_live()
 
     def _clear_disconnect_request(self):
         with self._control_lock:
@@ -2429,167 +2380,34 @@ class BrahmaLive:
             return requested
 
     def _wake_control(self):
-        """Abort an in-progress reconnect pause so a mode change is immediate.
-
-        The session loop waits between reconnect attempts. That wait used to be a
-        bare ``asyncio.sleep``, so switching to On Call (or pressing Disconnect)
-        did nothing until the sleep expired -- up to the full backoff. Waking the
-        pause lets the loop re-read the control flags right away and park in
-        standby instead of retrying a socket the user no longer wants.
-        """
-        loop = getattr(self, "_ui_loop", None)
-        event = getattr(self, "_control_wake", None)
-        with self._control_lock:
-            self._control_seq = getattr(self, "_control_seq", 0) + 1
-        if loop is None or event is None:
-            # run() has not built the pause event yet; the sequence bump makes
-            # the next pause return immediately, so nothing is lost.
-            return
-        try:
-            loop.call_soon_threadsafe(event.set)
-        except RuntimeError:
-            pass  # loop already closed; nothing left to wake
+        return self._session_lifecycle.wake_control()
 
     def _next_reconnect_delay(self) -> float:
-        """Exponential backoff for the reconnect pause: 2, 4, 8 ... capped at 30.
-
-        ``_reconnect_delay`` is reset to 0 on every good connect, so the first
-        retry after a healthy session is always the fast one.
-        """
-        self._reconnect_delay = 2.0 if self._reconnect_delay <= 0.0 \
-            else min(self._reconnect_delay * 2.0, 30.0)
-        return self._reconnect_delay
+        return self._session_lifecycle.next_reconnect_delay()
 
     def _report_voice_status(self, live: bool, detail: str = ""):
-        """Tell the UI which voice backend is driving the session and its state.
-
-        The chat indicator previously only reflected the microphone, so a local
-        voice session, a Gemini socket and a custom endpoint were
-        indistinguishable. This is the single place that reports it, so both
-        backends cannot disagree.
-        """
-        backend = self._voice_backend()
-        if backend == "local_loop":
-            label = "Local voice"
-        elif backend == "gemini_live":
-            label = "Gemini Live"
-        else:
-            label = backend.title()
-        try:
-            self.ui.set_voice_status(label, bool(live), detail)
-        except Exception:
-            pass
+        return self._session_lifecycle.report_voice_status(live, detail)
 
     def _session_task_guard(self, coro):
-        """Register the running local session so _disconnect_live() can cancel it.
-
-        The Gemini path does this with asyncio.create_task for exactly this
-        reason: awaiting inline leaves no handle, and "Disconnect" would
-        silently do nothing. The local loop needs the same handle.
-        """
-        async def _runner():
-            try:
-                await coro
-            finally:
-                with self._control_lock:
-                    self._session_task = None
-
-        self._session_task = asyncio.ensure_future(_runner())
-        return self._session_task
+        return self._session_lifecycle.session_task_guard(coro)
 
     def _voice_backend(self) -> str:
-        """Which engine drives the voice session: "gemini_live" or "local_loop".
-
-        This used to be decided by skipping the whole loop when Local was
-        selected, so with a local model the socket never opened and the mic
-        handler that pipes whisper STT into the local model never ran. The
-        controls (Always On / On Call / Connect / Disconnect) are therefore
-        inert for local models. Backend choice is now an axis of the session,
-        not a way of bypassing it.
-        """
-        try:
-            cfg = config_manager.load_settings()
-        except Exception:
-            cfg = {}
-        if cfg.get("offline_mode_enabled", False):
-            return "local_loop"
-        provider = str(cfg.get("default_ai_provider", "") or "").strip().lower()
-        if provider == "local":
-            return "local_loop"
-        if provider == "custom":
-            return "local_loop"
-        if provider == "openrouter":
-            return "local_loop"
-        return "gemini_live"
+        return self._session_lifecycle.voice_backend()
 
     def _local_voice_turn(self, pcm_bytes: bytes, speaking: dict):
-        """One local voice turn: transcribe, answer, speak. Runs off-loop."""
-        try:
-            from core import speech_stt
-
-            text = speech_stt.transcribe_pcm(pcm_bytes, SEND_SAMPLE_RATE)
-            if not text or len(text.strip()) <= 1:
-                return
-            print(f"[BRAHMA EVO] 🎙️ Heard: {text}")
-            if self.ui.muted and _wakeword_detected(text):
-                try:
-                    self.ui.set_muted_state(False, wakeword=True)
-                except Exception:
-                    pass
-            speaking["on"] = True
-            try:
-                self._on_text_command(text, source="mic")
-            finally:
-                speaking["on"] = False
-        except Exception as exc:
-            print(f"[BRAHMA EVO] ⚠️ Local voice turn failed: {exc}")
+        return self._session_lifecycle.local_voice_turn(pcm_bytes, speaking)
 
     async def _wait_for_connect_request(self):
-        """Idle in On Call standby until the button or the wake word asks.
-
-        The Event is created here, on the loop that awaits it, so it is always
-        correctly bound. A request arriving between the caller reading the flag
-        and this Event existing would be lost, so the flags are re-checked right
-        after creation.
-        """
-        self._connect_event = asyncio.Event()
-        self.set_speaking(False)
-        self.ui.set_state("STANDBY")
-        self._start_wakeword_listener()
-        try:
-            if not self._should_standby():
-                return
-            self.ui.write_log("SYS: On Call standby - say 'Brahma Evo' or press Connect.")
-            await self._connect_event.wait()
-        finally:
-            self._connect_event = None
-            self._stop_wakeword_listener()
+        return await self._session_lifecycle.wait_for_connect_request()
 
     def _start_wakeword_listener(self):
-        if self._wake_thread is not None and self._wake_thread.is_alive():
-            return
-        self._wake_stop = threading.Event()
-        self._wake_thread = threading.Thread(
-            target=self._wakeword_loop, daemon=True, name="oncall-wakeword"
-        )
-        self._wake_thread.start()
+        return self._session_lifecycle.start_wakeword_listener()
 
     def _stop_wakeword_listener(self):
-        # Keep the thread reference until the worker actually exits. Nulling it
-        # here let a still-blocked listener (up to ~3s inside recognizer.listen)
-        # overlap with the next one, and the two then fought over the microphone.
-        # _start refuses to arm while the previous thread is still alive, and the
-        # worker clears its own slot in a finally once it is truly done.
-        stop = self._wake_stop
-        if stop is not None:
-            stop.set()
+        return self._session_lifecycle.stop_wakeword_listener()
 
     @staticmethod
     def _transcribe_wakeword(recognizer, audio) -> str:
-        # Capture comes from the caller (_wakeword_loop, via sounddevice); the
-        # audio arrives wrapped in an sr.AudioData purely so the transcription
-        # stays pluggable -- an offline machine can use faster-whisper for the
-        # wake word too.
         try:
             from core import speech_stt
 
@@ -2603,24 +2421,7 @@ class BrahmaLive:
                 return ""
 
     def set_push_to_talk(self, enabled: bool) -> str:
-        self._ptt_enabled = bool(enabled)
-        self._ptt_held = False
-        if not enabled:
-            if self._ptt is not None:
-                self._ptt.stop()
-                self._ptt = None
-            return "off"
-        if self._ptt is None:
-            self._ptt = PushToTalk(self._on_ptt)
-        scope = self._ptt.start()
-        try:
-            self.ui.write_log(
-                f"SYS: Push-to-talk on — hold {self._ptt.label}"
-                + ("." if scope == "global" else " (works while window focused).")
-            )
-        except Exception:
-            pass
-        return scope
+        return self._session_lifecycle.set_push_to_talk(enabled)
 
     def _on_ptt(self, held: bool) -> None:
         self._ptt_held = held
@@ -2629,17 +2430,9 @@ class BrahmaLive:
         self._last_activity = time.monotonic()
 
     def _should_announce_idle(self) -> bool:
-        if self.ui.muted:
+        if self.ui.muted or self._is_speaking or self._meeting_active or self._pending_attention:
             return False
-        if self._is_speaking:
-            return False
-        if self._meeting_active:
-            return False
-        if self._pending_attention:
-            return False
-        if time.monotonic() - self._last_activity < 240:
-            return False
-        return True
+        return time.monotonic() - self._last_activity >= 240
 
     def _make_remote_key(self):
         if self._dashboard is None:
@@ -2657,753 +2450,14 @@ class BrahmaLive:
             pass
 
     def _handle_agent_session_command(self, text: str) -> bool:
-        """Handle ``/sessions``, ``/resume`` and ``/new`` for the text path.
+        from core.text_turn_controller import TextTurnController
 
-        The GUI runs a turn on a worker thread, so the modal picker is
-        marshalled to the GUI thread by ``ui.choose_session`` instead of being
-        opened here. Returns True when the text was consumed.
-        """
-        parts = (text or "").strip().split()
-        if not parts:
-            return False
-        command = parts[0].lower()
-        if command not in ("/sessions", "/resume", "/new"):
-            return False
-
-        from agent import session_bridge as bridge
-        from agent.session import AgentSession, SessionNotFound
-
-        if command == "/new":
-            self._agent_session = None
-            self.ui.write_log("SYS: New agent session. The next message starts fresh.")
-            return True
-
-        if command == "/sessions":
-            records = AgentSession.recent(20)
-            if not records:
-                self.ui.write_log("SYS: No agent sessions yet.")
-                return True
-            self.ui.write_log("SYS: Recent agent sessions (resume with /resume <id>):")
-            for record in records:
-                self.ui.write_log(f"SYS: {bridge.session_summary(record)}")
-            return True
-
-        wanted = parts[1] if len(parts) > 1 else ""
-        if wanted and len(wanted) < 32:
-            # Accept a unique id prefix, the way a user copies one line out of
-            # /sessions without the whole uuid.
-            matches = [
-                record.id
-                for record in AgentSession.recent(200)
-                if record.id.startswith(wanted)
-            ]
-            if len(matches) == 1:
-                wanted = matches[0]
-            elif len(matches) > 1:
-                self.ui.write_log(
-                    f"ERR: session prefix '{wanted}' is ambiguous; use the full id."
-                )
-                return True
-        if not wanted:
-            records = AgentSession.recent(20)
-            if not records:
-                self.ui.write_log("SYS: No agent sessions to resume.")
-                return True
-            labels = [bridge.picker_label(record) for record in records]
-            index = -1
-            chooser = getattr(self.ui, "choose_session", None)
-            if callable(chooser):
-                try:
-                    index = int(chooser(labels))
-                except Exception:
-                    index = -1
-            if not (0 <= index < len(records)):
-                return True
-            wanted = records[index].id
-
-        try:
-            session = AgentSession.open(wanted)
-        except SessionNotFound as exc:
-            self.ui.write_log(f"ERR: {exc}")
-            return True
-
-        self._agent_session = session
-        replay = bridge.transcript(session.messages())
-        renderer = getattr(self.ui, "replay_agent_session", None)
-        if callable(renderer) and replay:
-            try:
-                renderer(replay)
-            except Exception:
-                pass
-        self.ui.write_log(
-            f"SYS: Resumed agent session {session.id} "
-            f"({bridge.title_for(session.title or 'untitled')})."
-        )
-        return True
+        return TextTurnController(self).handle_agent_session_command(text)
 
     def _on_text_command(self, text: str, source: str = "local"):
-        self._reset_idle_activity()
-        text = (text or "").strip()
-        if not text:
-            return
-        # Slash commands are control plane, not prompts: handle them before the
-        # memory hook, the reply-mode ladders and the provider routing so a
-        # "/sessions" can never be sent to a model.
-        if self._handle_agent_session_command(text):
-            return
-        if len(text) > 4:
-            threading.Thread(
-                target=_update_memory_async,
-                args=(text, ""),
-                daemon=True
-            ).start()
-        self.ui.set_state("THINKING")
-        try:
-            stop_native_speech()
-        except Exception:
-            pass
-        # allow plugins to handle the incoming text command first
-        try:
-            pm = getattr(self, "plugin_manager", None)
-            if pm is not None:
-                handled = pm.dispatch("on_text_command", text, source)
-                if handled:
-                    return
-        except Exception:
-            pass
-        if self._reply_mode:
-            if self._handle_pending_reply(text):
-                return
-            # Still in reply mode but no pending reply event means reset and continue
-            self._reply_mode = False
+        from core.text_turn_controller import TextTurnController
 
-        if getattr(self, "_ig_reply_mode", False):
-            if self._handle_ig_reply_flow(text):
-                return
-
-        if getattr(self, "_email_mode", False):
-            if self._handle_email_flow(text):
-                return
-
-        # Direct verbal toggle for Air-Gapped Offline Mode
-        lower = text.lower().strip()
-        if any(p in lower for p in ("switch to offline mode", "go offline", "turn on offline mode", "enable offline mode", "air gap mode")):
-            config_manager.set_setting("offline_mode_enabled", True)
-            config_manager.set_setting("default_ai_provider", "Local")
-            self.ui.write_log("🔒 SYSTEM: Air-Gapped Offline Mode ENGAGED. All operations running 100% locally.")
-            self.speak("Offline mode engaged, sir. Running 100 percent locally on your machine.", proactive=True)
-            return
-
-        if any(p in lower for p in ("switch to online mode", "go online", "turn off offline mode", "disable offline mode")):
-            config_manager.set_setting("offline_mode_enabled", False)
-            config_manager.set_setting("default_ai_provider", "Google Gemini")
-            self.ui.write_log("🌐 SYSTEM: Offline Mode DISENGAGED. Cloud connectivity restored.")
-            self.speak("Online mode restored, sir. Cloud connectivity is active.", proactive=True)
-            return
-
-        # Check for email command initiation
-        lower = text.lower()
-        skill_goal = _extract_skill_creation_goal(text)
-        if skill_goal is not None:
-            if not skill_goal:
-                prompt = "What should the new skill or feature do?"
-                self.ui.write_log(f"Brahma Evo: {prompt}")
-                self.speak(prompt)
-                return
-
-            try:
-                self.ui.begin_task_workspace(
-                    text,
-                    ["Generate the requested feature", "Validate it in the skill sandbox", "Register it for future use"],
-                    source=source or "local",
-                )
-            except Exception:
-                pass
-
-            self.speak("Starting feature creation now.")
-            threading.Thread(
-                target=self._forge_skill,
-                args=(skill_goal,),
-                daemon=True,
-                name="skill-forge",
-            ).start()
-            return
-
-        # Check for dynamic/evolved skill execution (e.g. "run the skill", "system status", "show cpu and ram")
-        try:
-            from core.dynamic_registry import DynamicToolRegistry
-            matched = DynamicToolRegistry.find_matching_skill(text)
-            if matched:
-                skill_name, skill_args = matched
-                self.speak(f"Running {skill_name.replace('_', ' ')}.")
-                def _run_dynamic_feature():
-                    try:
-                        res = DynamicToolRegistry.execute_sync(skill_name, skill_args or {})
-                        out_text = ""
-                        if isinstance(res, dict):
-                            out_text = str(res.get("summary") or res.get("output") or res.get("text") or res).strip()
-                        else:
-                            out_text = str(res).strip()
-                        self.ui.write_log(f"Brahma Evo [{skill_name}]:\n{out_text}")
-                        if hasattr(self.ui, "finish_task_workspace"):
-                            self.ui.finish_task_workspace(out_text, f"{skill_name} completed.", 100)
-                        if hasattr(self.ui, "show_hud_deliverable"):
-                            self.ui.show_hud_deliverable(
-                                title=f"{skill_name.upper()} DELIVERABLE",
-                                summary=out_text,
-                                kind=skill_name
-                            )
-                        # Speak first line as voice response
-                        first_line = out_text.strip().splitlines()[0] if out_text.strip() else "Task completed."
-                        if len(first_line) > 120:
-                            first_line = first_line[:115] + "..."
-                        self.speak(first_line)
-                    except Exception as err:
-                        self.ui.write_log(f"ERR: {skill_name} failed: {err}")
-                        self.speak(f"Error running {skill_name}: {err}")
-                threading.Thread(target=_run_dynamic_feature, daemon=True, name=f"skill-{skill_name}").start()
-                return
-        except Exception as e_dyn:
-            print(f"[Registry] Match error: {e_dyn}")
-
-        if lower.startswith("email ") or lower.startswith("mail ") or "send email" in lower or "write email" in lower or "compose email" in lower:
-            # Extract recipient
-            rem = text
-            for prefix in ("send email", "send an email", "write email", "write an email", "compose email", "compose an email", "email", "mail"):
-                if rem.lower().strip().startswith(prefix):
-                    rem = rem.strip()[len(prefix):].strip()
-                    break
-            
-            # Remove leading "to " if present
-            if rem.lower().startswith("to "):
-                rem = rem[3:].strip()
-                
-            recipient = rem.strip()
-            self._email_mode = True
-            self._email_recipient = recipient
-            
-            try:
-                self.ui.begin_task_workspace(
-                    text,
-                    [
-                        "Identify the recipient",
-                        "Select email application",
-                        "Collect message content",
-                        "Open application & compose",
-                    ],
-                    source=source or "local",
-                )
-            except Exception:
-                pass
-                
-            if not recipient:
-                self._email_step = 0
-                prompt = "Who would you like to send the email to?"
-                self.ui.write_log(f"Brahma Evo: {prompt}")
-                self.speak(prompt)
-                try:
-                    self.ui.update_task_workspace(
-                        status="Identifying recipient",
-                        output="Asking for email recipient...",
-                        percent=10,
-                    )
-                except Exception:
-                    pass
-            else:
-                self._email_step = 1
-                prompt = "Which email app would you like to use? (Gmail, default mail app, etc.)"
-                self.ui.write_log(f"Brahma Evo: {prompt}")
-                self.speak(prompt)
-                try:
-                    self.ui.update_task_workspace(
-                        status="Selecting email app",
-                        output=f"Recipient identified: {recipient}. Asking for email application...",
-                        percent=25,
-                    )
-                except Exception:
-                    pass
-            return
-
-        if _looks_like_daily_briefing_request(text):
-            try:
-                self.ui.begin_task_workspace(
-                    text,
-                    ["Collecting weather, schedule, inbox, and headlines", "Delivering your briefing"],
-                    source=source or "local",
-                )
-            except Exception:
-                pass
-            self.speak("Preparing your daily briefing.")
-
-            def _run_daily_briefing():
-                try:
-                    from actions.daily_briefing import daily_briefing
-                    daily_briefing(parameters={"category": "all"}, player=self.ui, speak=self.speak)
-                except Exception as exc:
-                    message = f"Daily briefing failed: {exc}"
-                    try:
-                        self.ui.write_log(f"ERR: {message}")
-                    except Exception:
-                        pass
-                    self.speak(message)
-
-            threading.Thread(
-                target=_run_daily_briefing,
-                daemon=True,
-                name="daily-briefing",
-            ).start()
-            return
-
-        try:
-            from smart_home.smart_device_manager import SmartDeviceManager
-            sd_mgr = SmartDeviceManager()
-            devices = self._smart_home.list_devices()
-            routed_text_home = sd_mgr.route_command(text, devices)
-            if routed_text_home != text:
-                print(f"[BRAHMA EVO] Redirection: '{text}' -> '{routed_text_home}'")
-                text = routed_text_home
-        except Exception as e:
-            print(f"[BRAHMA EVO] Redirection error: {e}")
-
-        developer_settings = self.ui._load_app_settings() if hasattr(self.ui, "_load_app_settings") else {}
-        developer_workspace = str(developer_settings.get("developer_mode_workspace", "")).strip()
-        if not developer_workspace:
-            developer_workspace = str(Path.home() / "Desktop" / "BrahmaProjects")
-            Path(developer_workspace).mkdir(parents=True, exist_ok=True)
-
-        presentation_request = _looks_like_presentation_request(text)
-        spreadsheet_request = _looks_like_spreadsheet_request(text)
-
-        if presentation_request:
-            self.speak("Designing your presentation slides...")
-            if hasattr(self.ui, "begin_task_workspace"):
-                self.ui.begin_task_workspace(
-                    text,
-                    ["Researching topic", "Outlining slides", "Applying typography & theme", "Generating PowerPoint deck"],
-                    source=source or "local"
-                )
-
-            def _run_presentation():
-                try:
-                    from actions.office_generator import generate_presentation_from_prompt
-                    res = generate_presentation_from_prompt(text, player=self.ui, speak=self.speak)
-                    self.ui.write_log(f"[BrahmaOffice] {res}")
-                    if hasattr(self.ui, "update_task_workspace"):
-                        self.ui.update_task_workspace(status="Presentation Completed", output=res, percent=100)
-                    self.speak("Your presentation has been created and saved to Desktop, sir.")
-                except Exception as exc:
-                    self.ui.write_log(f"ERR: Presentation generation failed: {exc}")
-                    if hasattr(self.ui, "update_task_workspace"):
-                        self.ui.update_task_workspace(status="Generation Failed", output=str(exc), percent=0)
-                    self.speak("There was an issue creating the presentation, sir. Please check the logs.")
-
-            threading.Thread(target=_run_presentation, daemon=True).start()
-            return
-
-        if spreadsheet_request:
-            self.speak("Building your spreadsheet workbook...")
-            if hasattr(self.ui, "begin_task_workspace"):
-                self.ui.begin_task_workspace(
-                    text,
-                    ["Analyzing data structure", "Defining headers & formulas", "Formatting workbook", "Saving Excel spreadsheet"],
-                    source=source or "local"
-                )
-
-            def _run_spreadsheet():
-                try:
-                    from actions.office_generator import generate_spreadsheet_from_prompt
-                    res = generate_spreadsheet_from_prompt(text, player=self.ui, speak=self.speak)
-                    self.ui.write_log(f"[BrahmaOffice] {res}")
-                    if hasattr(self.ui, "update_task_workspace"):
-                        self.ui.update_task_workspace(status="Spreadsheet Completed", output=res, percent=100)
-                    self.speak("Your spreadsheet workbook has been created and saved to Desktop, sir.")
-                except Exception as exc:
-                    self.ui.write_log(f"ERR: Spreadsheet generation failed: {exc}")
-                    if hasattr(self.ui, "update_task_workspace"):
-                        self.ui.update_task_workspace(status="Generation Failed", output=str(exc), percent=0)
-                    self.speak("There was an issue creating the spreadsheet, sir. Please check the logs.")
-
-            threading.Thread(target=_run_spreadsheet, daemon=True).start()
-            return
-
-        website_request = _looks_like_website_request(text)
-        code_request = (not presentation_request and not spreadsheet_request) and _looks_like_code_request(text) and any(w in text.lower() for w in ("app", "website", "web", "program", "script", "project", "game", "calc", "html", "react"))
-
-        if website_request or code_request:
-            self.speak("Working on your project with Brahma Dev...")
-            if hasattr(self.ui, "begin_task_workspace"):
-                self.ui.begin_task_workspace(text, ["Analyzing specifications", "Scaffolding files", "Writing code", "Verifying build"], source=source or "local")
-
-            def _run_brahma_dev():
-                try:
-                    import webbrowser
-                    from actions.brahma_dev_agent import run_dev_agent
-                    res = run_dev_agent({
-                        "description": text,
-                        "workspace_path": developer_workspace
-                    }, speak=self.speak)
-                    self.ui.write_log(f"[BrahmaDev] {res[:400]}")
-
-                    if "encountered an error during inference" in res or "LLM error:" in res:
-                        if hasattr(self.ui, "update_task_workspace"):
-                            self.ui.update_task_workspace(status="Build Error", output=res, percent=0)
-                        self.speak("There was an error building the project, sir. Please check the logs.")
-                        return
-
-                    if hasattr(self.ui, "update_task_workspace"):
-                        self.ui.update_task_workspace(status="Project Completed", output=res, percent=100)
-
-                    folder_display = developer_workspace
-                    try:
-                        folder_display = Path(developer_workspace).name or developer_workspace
-                    except Exception:
-                        pass
-
-                    self.speak(f"Your project has been completed and saved to {folder_display}, sir.")
-
-                    # Auto-open index.html in browser if created
-                    try:
-                        idx_path = Path(developer_workspace) / "index.html"
-                        if idx_path.exists():
-                            webbrowser.open(str(idx_path.resolve()))
-                    except Exception:
-                        pass
-                except Exception as exc:
-                    self.ui.write_log(f"ERR: Brahma Dev failed: {exc}")
-                    if hasattr(self.ui, "update_task_workspace"):
-                        self.ui.update_task_workspace(status="Build Failed", output=str(exc), percent=0)
-                    self.speak("There was an issue building the project, sir. Please check the logs.")
-
-            threading.Thread(target=_run_brahma_dev, daemon=True).start()
-            return
-
-        # Google Workspace Direct Command Handling (Gmail & Calendar checks)
-        lower_cmd = text.lower().strip()
-        is_email_check = any(phrase in lower_cmd for phrase in ("check email", "check my email", "unread email", "read email", "my inbox", "check inbox", "show emails"))
-        is_calendar_check = any(phrase in lower_cmd for phrase in ("my schedule", "what's on my calendar", "check calendar", "my meetings", "schedule today", "events today"))
-
-        if is_email_check:
-            self.speak("Checking your Gmail inbox, sir...")
-            if hasattr(self.ui, "begin_task_workspace"):
-                self.ui.begin_task_workspace(
-                    text,
-                    ["Connecting to Gmail", "Fetching unread messages", "Parsing headers & body", "Summarizing inbox"],
-                    source=source or "local"
-                )
-            def _run_gw_email():
-                try:
-                    from actions.google_workspace_mcp import google_workspace
-                    res = google_workspace({"service": "gmail", "action": "unread"}, player=self.ui, speak=self.speak)
-                    self.ui.write_log(f"[GoogleWorkspace] {res}")
-                    if hasattr(self.ui, "update_task_workspace"):
-                        self.ui.update_task_workspace(status="Email Check Completed", output=res, percent=100)
-                    self.speak("Here are your latest emails, sir.")
-                except Exception as exc:
-                    self.ui.write_log(f"ERR: Gmail check failed: {exc}")
-                    if hasattr(self.ui, "update_task_workspace"):
-                        self.ui.update_task_workspace(status="Email Check Failed", output=str(exc), percent=0)
-                    self.speak("Unable to check emails. Please ensure your credentials are set up in Settings.")
-            threading.Thread(target=_run_gw_email, daemon=True).start()
-            return
-
-        if is_calendar_check:
-            self.speak("Checking your calendar schedule...")
-            if hasattr(self.ui, "begin_task_workspace"):
-                self.ui.begin_task_workspace(
-                    text,
-                    ["Connecting to Calendar", "Retrieving scheduled events", "Formatting timeline"],
-                    source=source or "local"
-                )
-            def _run_gw_calendar():
-                try:
-                    from actions.google_workspace_mcp import google_workspace
-                    res = google_workspace({"service": "calendar", "action": "list"}, player=self.ui, speak=self.speak)
-                    self.ui.write_log(f"[GoogleWorkspace] {res}")
-                    if hasattr(self.ui, "update_task_workspace"):
-                        self.ui.update_task_workspace(status="Schedule Retrieved", output=res, percent=100)
-                    self.speak("Here is your schedule, sir.")
-                except Exception as exc:
-                    self.ui.write_log(f"ERR: Calendar check failed: {exc}")
-                    if hasattr(self.ui, "update_task_workspace"):
-                        self.ui.update_task_workspace(status="Schedule Check Failed", output=str(exc), percent=0)
-                    self.speak("There was an issue checking your schedule, sir.")
-            threading.Thread(target=_run_gw_calendar, daemon=True).start()
-            return
-
-        # OS Hardware & Diagnostics Direct Command Handling (0 background API credits)
-        is_ram_check = any(p in lower_cmd for p in ("eating my ram", "ram hogs", "memory hogs", "check ram", "ram usage", "memory usage", "who is using ram"))
-        is_battery_check = any(p in lower_cmd for p in ("battery health", "check battery", "battery status", "battery percentage", "is laptop charging", "how much battery"))
-        is_brightness_req = any(p in lower_cmd for p in ("dim screen", "dim monitor", "increase brightness", "lower brightness", "set brightness", "screen brightness"))
-        is_kill_req = (lower_cmd.startswith("kill ") or lower_cmd.startswith("terminate ") or lower_cmd.startswith("force kill ")) and len(lower_cmd.split()) <= 4
-        is_diag_req = any(p in lower_cmd for p in ("system status", "system diagnostics", "hardware status", "computer vitals", "pc diagnostics"))
-
-        if is_ram_check:
-            self.speak("Scanning memory consumers...")
-            def _run_ram():
-                from actions.system_diagnostics_mcp import system_diagnostics
-                res = system_diagnostics({"action": "ram_hogs"}, player=self.ui, speak=self.speak)
-                self.ui.write_log(f"[Diagnostics] {res}")
-                if hasattr(self.ui, "finish_task_workspace"):
-                    self.ui.finish_task_workspace(res, "Memory analysis complete.", 100)
-            threading.Thread(target=_run_ram, daemon=True).start()
-            return
-
-        if is_battery_check:
-            def _run_battery():
-                from actions.system_diagnostics_mcp import system_diagnostics
-                res = system_diagnostics({"action": "battery"}, player=self.ui, speak=self.speak)
-                self.ui.write_log(f"[Diagnostics] {res}")
-                if hasattr(self.ui, "finish_task_workspace"):
-                    self.ui.finish_task_workspace(res, "Battery check complete.", 100)
-            threading.Thread(target=_run_battery, daemon=True).start()
-            return
-
-        if is_brightness_req:
-            import re
-            m = re.search(r"(\d+)", lower_cmd)
-            lvl = int(m.group(1)) if m else None
-            rel = "dim" in lower_cmd or "lower" in lower_cmd or "increase" in lower_cmd or "boost" in lower_cmd
-            if rel and lvl is None:
-                lvl = -20 if ("dim" in lower_cmd or "lower" in lower_cmd) else 20
-            def _run_brightness():
-                from actions.system_diagnostics_mcp import system_diagnostics
-                p = {"action": "brightness"}
-                if lvl is not None:
-                    p["level"] = lvl
-                    p["relative"] = rel
-                res = system_diagnostics(p, player=self.ui, speak=self.speak)
-                self.ui.write_log(f"[Diagnostics] {res}")
-                if hasattr(self.ui, "finish_task_workspace"):
-                    self.ui.finish_task_workspace(res, "Brightness adjusted.", 100)
-            threading.Thread(target=_run_brightness, daemon=True).start()
-            return
-
-        if is_kill_req:
-            target_app = lower_cmd.split(None, 1)[1].strip()
-            def _run_kill():
-                from actions.system_diagnostics_mcp import system_diagnostics
-                res = system_diagnostics({"action": "kill", "target": target_app, "force": "force" in lower_cmd}, player=self.ui, speak=self.speak)
-                self.ui.write_log(f"[Diagnostics] {res}")
-                if hasattr(self.ui, "finish_task_workspace"):
-                    self.ui.finish_task_workspace(res, "Process management complete.", 100)
-            threading.Thread(target=_run_kill, daemon=True).start()
-            return
-
-        if is_diag_req:
-            self.speak("Retrieving system diagnostics report...")
-            def _run_diag():
-                from actions.system_diagnostics_mcp import system_diagnostics
-                res = system_diagnostics({"action": "status"}, player=self.ui, speak=self.speak)
-                self.ui.write_log(f"[Diagnostics] {res}")
-                if hasattr(self.ui, "finish_task_workspace"):
-                    self.ui.finish_task_workspace(res, "System report ready.", 100)
-            threading.Thread(target=_run_diag, daemon=True).start()
-            return
-
-        # Autonomous Self-Healing & Continuous Learning Fast-Path
-        is_trigger_bug = any(p in lower_cmd for p in ("trigger test bug", "simulate bug", "test bug", "create bug", "simulate error", "trigger error", "break test"))
-        is_heal_cmd = any(p in lower_cmd for p in ("fix that bug", "fix the bug", "heal yourself", "auto heal", "patch yourself", "fix error", "fix this error"))
-        is_rollback_cmd = any(p in lower_cmd for p in ("undo last patch", "rollback patch", "revert patch", "undo patch"))
-        is_patch_history = any(p in lower_cmd for p in ("patch history", "patch log", "show patches", "auto heal status"))
-        is_learn_rule = (
-            lower_cmd.startswith("remember to ") or 
-            lower_cmd.startswith("remember that ") or 
-            (lower_cmd.startswith("always ") and len(lower_cmd.split()) > 2 and not lower_cmd.startswith("always open")) or
-            (lower_cmd.startswith("never ") and len(lower_cmd.split()) > 2) or
-            "new rule:" in lower_cmd
-        )
-
-        if is_trigger_bug:
-            def _run_test_bug():
-                try:
-                    from actions.test_action import test_action
-                    res = test_action({}, player=self.ui, speak=self.speak)
-                    self.ui.write_log(f"[TestAction] {res}")
-                    self.speak(f"Test action succeeded with no errors: {res}. The bug appears already healed!")
-                except Exception as exc:
-                    import traceback
-                    from actions.auto_heal_engine import AutoHealEngine
-                    tb_str = traceback.format_exc()
-                    AutoHealEngine.record_last_error(tb_str)
-                    err_msg = f"Simulated bug triggered in test_action.py: {type(exc).__name__}. Traceback captured! You can now say 'Brahma, fix that bug'."
-                    self.speak(err_msg)
-                    self.ui.write_log(f"[AutoHeal Test] {err_msg}")
-                    if hasattr(self.ui, "finish_task_workspace"):
-                        self.ui.finish_task_workspace(tb_str, "Simulated bug captured.", 100)
-            threading.Thread(target=_run_test_bug, daemon=True).start()
-            return
-
-        if is_heal_cmd:
-            self.speak("Analyzing last captured traceback and synthesizing hotfix...")
-            def _run_heal():
-                from actions.auto_heal_engine import auto_heal
-                res = auto_heal({"action": "heal"}, player=self.ui, speak=self.speak)
-                self.ui.write_log(f"[AutoHeal] {res}")
-                if hasattr(self.ui, "finish_task_workspace"):
-                    self.ui.finish_task_workspace(res, "Self-patching complete.", 100)
-            threading.Thread(target=_run_heal, daemon=True).start()
-            return
-
-        if is_rollback_cmd:
-            def _run_rollback():
-                from actions.auto_heal_engine import auto_heal
-                res = auto_heal({"action": "rollback"}, player=self.ui, speak=self.speak)
-                self.ui.write_log(f"[AutoHeal] {res}")
-                if hasattr(self.ui, "finish_task_workspace"):
-                    self.ui.finish_task_workspace(res, "Rollback complete.", 100)
-            threading.Thread(target=_run_rollback, daemon=True).start()
-            return
-
-        if is_patch_history:
-            def _run_history():
-                from actions.auto_heal_engine import auto_heal
-                action_type = "status" if "status" in lower_cmd else "history"
-                res = auto_heal({"action": action_type}, player=self.ui, speak=self.speak)
-                self.ui.write_log(f"[AutoHeal] {res}")
-                if hasattr(self.ui, "finish_task_workspace"):
-                    self.ui.finish_task_workspace(res, "Auto-heal report ready.", 100)
-            threading.Thread(target=_run_history, daemon=True).start()
-            return
-
-        if is_learn_rule:
-            rule_raw = lower_cmd.replace("remember that ", "").replace("remember to ", "").replace("new rule: ", "").strip()
-            def _run_learn():
-                from core.learned_rules import LearnedRulesEngine
-                res = LearnedRulesEngine.add_rule(rule_raw, origin="voice_directive")
-                msg = res.get("message", f"Understood. I have committed '{rule_raw}' to my continuous memory.")
-                self.speak(msg)
-                self.ui.write_log(f"[LearnedRules] {msg}")
-                if hasattr(self.ui, "finish_task_workspace"):
-                    self.ui.finish_task_workspace(msg, "Rule learned.", 100)
-            threading.Thread(target=_run_learn, daemon=True).start()
-            return
-
-        # Local PC Volume Control (Speakers)
-        is_volume_cmd = any(p in lower_cmd for p in ("volume up", "volume down", "mute volume", "mute audio", "unmute", "set volume", "increase volume", "decrease volume", "lower volume")) or (lower_cmd in ("mute", "unmute", "volume max"))
-        if is_volume_cmd and not any(m in lower_cmd for m in ("phone", "mobile", "android", "tablet")):
-            def _run_volume():
-                from actions.computer_settings import volume_up, volume_down, volume_mute, volume_set
-                import re
-                if any(w in lower_cmd for w in ("up", "increase", "higher", "raise")):
-                    volume_up()
-                    self.speak("Volume increased.")
-                elif any(w in lower_cmd for w in ("down", "decrease", "lower")):
-                    volume_down()
-                    self.speak("Volume decreased.")
-                elif "unmute" in lower_cmd or "mute" in lower_cmd:
-                    volume_mute()
-                    self.speak("Audio toggled.")
-                else:
-                    m = re.search(r"(\d+)", lower_cmd)
-                    if m:
-                        val = int(m.group(1))
-                        volume_set(val)
-                        self.speak(f"Volume set to {val} percent.")
-                    else:
-                        volume_up()
-                        self.speak("Volume adjusted.")
-            threading.Thread(target=_run_volume, daemon=True).start()
-            return
-
-        # Local PC App Launcher (runs on computer unless explicitly targeted to phone)
-        has_mobile_target = any(m in lower_cmd for m in ("on phone", "on my phone", "on mobile", "on my mobile", "on android", "on tablet"))
-        is_open_app_cmd = any(lower_cmd.startswith(prefix) for prefix in ("open app ", "open ", "launch app ", "launch ", "start app ", "start ")) and not has_mobile_target and not any(p in lower_cmd for p in ("website", "url", "http", "presentation", "sheet", "spreadsheet", "project", "code", "game"))
-        if is_open_app_cmd:
-            from actions.open_app import open_app, _APP_ALIASES
-            clean_app_candidate = lower_cmd
-            for prefix in ("open app ", "open ", "launch app ", "launch ", "start app ", "start "):
-                if clean_app_candidate.startswith(prefix):
-                    clean_app_candidate = clean_app_candidate[len(prefix):].strip()
-                    break
-            if clean_app_candidate in _APP_ALIASES or any(clean_app_candidate in k for k in _APP_ALIASES):
-                def _run_open_local_app():
-                    open_app({"app_name": clean_app_candidate}, player=self.ui)
-                    self.speak(f"Opening {clean_app_candidate}, sir.")
-                threading.Thread(target=_run_open_local_app, daemon=True).start()
-                return
-
-        memory_ctx = _memory_context_for_request(text)
-        routed_text = f"{memory_ctx}\n\nCurrent User Request:\n{text}" if memory_ctx else text
-        if source == "instagram":
-            routed_text = f"Owner sent this via Instagram DM: {text}\n(SYSTEM: If this is an action like opening an app or running a command, you MUST execute it using your tools rather than just replying with text.)"
-        if text.lower() in {"stop meeting mode", "end meeting mode", "close meeting mode"}:
-            self._stop_meeting_mode("Meeting mode closed.")
-            return
-        if self._handle_attention_response(text):
-            return
-        try:
-            self.ui.begin_task_workspace(text, _build_task_plan(text), source=source or "local")
-        except Exception:
-            pass
-        if source != "instagram" and self._handle_brahma_connect_command(text, source=source or "local"):
-            return
-        if self._handle_smart_home_command(text, source=source or "local"):
-            return
-        if _looks_like_screen_request(text):
-            try:
-                self.ui.update_task_workspace(
-                    status="Scanning screen",
-                    output="Brahma Evo is inspecting the screen for what you asked about.",
-                    percent=40,
-                )
-            except Exception:
-                pass
-            print("[Main] Screen analysis request received")
-            img_bytes = None
-            if hasattr(self.ui, "capture_screen_bytes"):
-                print("[Main] Capturing screenshot from UI")
-                img_bytes = self.ui.capture_screen_bytes()
-                print(f"[Main] UI screenshot capture returned {len(img_bytes) if img_bytes is not None else 'None'} bytes")
-            else:
-                print("[Main] UI object has no capture_screen_bytes method")
-
-            def _run_screen_process():
-                print("[Main] Starting screen_process thread")
-                success = screen_process(
-                    parameters={"angle": "screen", "text": text},
-                    response=None,
-                    player=self.ui,
-                    session_memory=None,
-                    image_bytes=img_bytes,
-                )
-                print(f"[Main] screen_process finished: {success}")
-                if not success:
-                    try:
-                        self.ui.update_task_workspace(
-                            status="Screen analysis failed",
-                            output=(
-                                "Screen analysis could not complete. "
-                                "Check your internet connection, API key, or screen capture permissions."
-                            ),
-                            percent=0,
-                        )
-                    except Exception:
-                        pass
-
-            threading.Thread(target=_run_screen_process, daemon=True).start()
-            return
-        # Route directly to Local Brain if preferred by user in settings or in air-gapped offline mode
-        app_settings = config_manager.load_settings()
-        configured_provider = app_settings.get("default_ai_provider", "Gemini")
-        is_offline_mode = bool(app_settings.get("offline_mode_enabled", False))
-
-        # If offline mode or Local provider selected, route directly to Local Brain
-        if is_offline_mode or configured_provider == "Local":
-            is_local_preferred = True
-        else:
-            is_local_preferred = False
-
-        if is_local_preferred or self._prefer_openrouter() or not self._loop or not self.session or self._voice_backend() != "gemini_live":
-            threading.Thread(target=self._fallback_reply, args=(text, memory_ctx), daemon=True).start()
-            return
-        self.ui.set_state("THINKING")
-        asyncio.run_coroutine_threadsafe(
-            self.session.send_client_content(
-                turns={"parts": [{"text": routed_text}]},
-                turn_complete=True
-            ),
-            self._loop
-        )
+        return TextTurnController(self).on_text_command(text, source)
 
 
     @property
@@ -3598,485 +2652,70 @@ class BrahmaLive:
         return raw[end + 1:].strip(), tag.upper()
 
     def _deliver_avatar_emotion(self, emotion: str) -> None:
-        """Hand one already-stripped emotion tag to the UI and the avatar seam.
+        from core.text_turn_controller import TextTurnController
 
-        Shared by the fallback reply path and the live voice path. The live path
-        previously never parsed tags at all, so in the default voice mode a tag
-        the model emitted reached nothing: the reply path knows nothing about
-        which backend is selected, core.avatar_runtime decides whether the tag
-        reaches a renderer, and this never raises.
-        """
-        if not emotion:
-            return
-        print(f"[BRAHMA EVO] 🎭 Emotion tag: {emotion}")
-        try:
-            if hasattr(self.ui, "set_emotion_tag"):
-                self.ui.set_emotion_tag(emotion)
-        except Exception:
-            pass
-        try:
-            from core import avatar_runtime
-
-            record = avatar_runtime.handle_emotion_tag(emotion)
-            if record.get("delivered"):
-                print(f"[BRAHMA EVO] 🎭 Avatar: {record['tag']} -> "
-                      f"{record['backend']}")
-        except Exception:
-            pass
+        return TextTurnController(self).deliver_avatar_emotion(emotion)
 
     def _ensure_agent_session(self, request_text: str, model: str = ""):
-        """Return the durable GUI session, creating it on the first turn.
+        from core.text_turn_controller import TextTurnController
 
-        The GUI previously wrote no ``agent_*`` rows at all: every module start
-        rebuilt ``[system, user]`` and the transcript was lost. The row is
-        created against the agent runtime's workspace, not the process cwd,
-        because a shortcut launch starts in the install directory.
-        """
-        if self._agent_session is not None:
-            return self._agent_session
-        from agent import session_bridge as bridge
-        from agent.session import AgentSession
-
-        workspace = ""
-        try:
-            from agent.runtime import current as current_agent_runtime
-
-            workspace = str(current_agent_runtime().workspace)
-        except Exception:
-            workspace = ""
-        workspace = workspace or os.getcwd()
-        try:
-            self._agent_session = AgentSession.create(
-                workspace,
-                title=bridge.title_for(request_text),
-                model=model or "",
-            )
-        except Exception as exc:
-            # Persistence is a convenience, never a reason to fail the turn.
-            print(f"[BRAHMA EVO] \u26a0\ufe0f session persistence unavailable: {exc}")
-            self._agent_session = None
-        return self._agent_session
+        return TextTurnController(self).ensure_agent_session(request_text, model)
 
     def _record_voice_turn(self, user_text: str, assistant_text: str) -> None:
-        """Persist one completed Gemini Live turn into the current session.
+        from core.text_turn_controller import TextTurnController
 
-        The voice path never created an ``agent_*`` row: close the HUD and the
-        conversation was gone, and a text ``/resume`` could not show what was
-        said. This binds the first spoken turn to the same durable session the
-        text path uses, so both modalities share one transcript. Gemini still
-        owns the live context; nothing here is replayed into the socket.
-        """
-        if not (user_text or assistant_text):
-            return
-        from agent import session_bridge as bridge
-
-        session = self._ensure_agent_session(
-            user_text or "Voice session", bridge.VOICE_MODEL
-        )
-        if session is None:
-            return
-        written = bridge.record_voice_turn(session, user_text, assistant_text)
-        if written:
-            print(f"[BRAHMA EVO] \U0001f5c2\ufe0f voice turn persisted ({written} message(s))")
+        return TextTurnController(self).record_voice_turn(user_text, assistant_text)
 
     def _with_agent_mcp(self, tools: list) -> list:
-        """MCP tools merged into a model-facing tool list, started on first use.
+        from core.text_turn_controller import TextTurnController
 
-        The GUI has no per-command boundary, so one manager lives for the app's
-        life. It is intentionally lazy: a user who never configures a server
-        pays nothing, and a workspace or config change is picked up on the next
-        turn instead of needing a restart.
-        """
-        try:
-            from agent.mcp import with_mcp_tools
-            from agent.runtime import current as current_agent_runtime
-        except Exception as exc:
-            print(f"[BRAHMA EVO] \u26a0\ufe0f MCP unavailable: {exc}")
-            return list(tools or [])
-
-        manager = _harness_mcp_manager()
-        try:
-            workspace = current_agent_runtime().workspace
-            if not manager.ensure(workspace, on_event=self._agent_event):
-                return list(tools or [])
-            return with_mcp_tools(tools)
-        except Exception as exc:
-            # A broken config or a failing server must not take down the turn;
-            # the built-in tools still work and the event stream records why.
-            print(f"[BRAHMA EVO] \u26a0\ufe0f MCP unavailable: {exc}")
-            return list(tools or [])
+        return TextTurnController(self).with_agent_mcp(tools)
 
     def _local_brain_reply(self, request_text: str, local_model_target: str) -> str:
-        """One full Local Brain turn: bounded tools, execution, one follow-up.
+        from core.text_turn_controller import TextTurnController
 
-        Raises LocalBrainError (endpoint down, timeout, malformed body) so the
-        reply ladder records a real reason; returns "" only when the model
-        produced neither content nor tool calls, which the ladder counts as a
-        failed attempt instead of speaking a scripted non-answer.
-        """
-        self._ensure_agent_session(request_text, local_model_target)
-        messages = self._agentic_seed_messages(request_text)
-        local_tools, _skill_ctx = local_brain.resolve_tools(
-            request_text, TOOL_DECLARATIONS
-        )
-        local_tools = self._with_agent_mcp(local_tools)
-        print(
-            f"[BRAHMA EVO] \U0001f9f0 Local turn: prompt tier "
-            f"'{_prompt_tier()}', {len(messages[0]['content'])} chars, "
-            f"{len(local_tools)} tool(s) for {local_model_target}."
-        )
-        res = local_brain.chat_complete(
-            messages, model=local_model_target, tools=local_tools, focus_core=True
-        )
-        return self._finish_tool_turn(
-            res, messages, source="local", model_label=local_model_target,
-            tools=local_tools,
+        return TextTurnController(self).local_brain_reply(
+            request_text, local_model_target
         )
 
-    def _agentic_seed_messages(self, request_text: str, *, advertise_discovery: bool = True) -> list:
-        """The first messages of an agentic turn: system prompt + user request.
+    def _agentic_seed_messages(
+        self, request_text: str, *, advertise_discovery: bool = True
+    ) -> list:
+        from core.text_turn_controller import TextTurnController
 
-        The system prompt is the *tiered* one (see ``core/prompt_parts``):
-        resident behaviour plus, when the tier asks for it, the manual. The
-        discovery and Skills-Library rules are always resident; the per-domain
-        routing manual is one ``get_tool_surface`` call away. Every
-        OpenAI-compatible path (local, custom, and any future one) seeds from
-        here, so the agent brief cannot drift between providers.
-
-        ``advertise_discovery=False`` is for an endpoint known to reject tool
-        arrays: it drops the "call get_tool_surface" line, which without tools
-        would be an instruction the model can never follow.
-        """
-        core_prompt, manual = _prompt_core_and_manual()
-        if not core_prompt:
-            core_prompt = "You are Brahma Evo, the autonomous desktop operating system."
-        tier = _prompt_tier()
-        system_prompt = core_prompt
-        if manual and tier == "full":
-            system_prompt = f"{system_prompt}\n\n{manual}"
-
-        system_prompt = (
-            f"{system_prompt}\n\n"
-            "CRITICAL OPERATING SYSTEM DIRECTIVE:\n"
-            "- You have FULL DIRECT ACCESS and authority over this Windows PC via your tools.\n"
-            "- NEVER state that you are a text-based AI, that you cannot perform automations, or that you lack real-time access.\n"
-            "- Whenever the user requests an action (opening an app, changing volume, setting a reminder, running a protocol, organizing files, searching, etc.), ALWAYS call the corresponding tool.\n"
-            "- Keep responses concise, direct, and conversational."
+        return TextTurnController(self).agentic_seed_messages(
+            request_text, advertise_discovery=advertise_discovery
         )
 
-        # The held manual is one call away; say so once, but only when this
-        # endpoint actually has a tool surface.
-        if manual and tier != "full" and advertise_discovery:
-            system_prompt = (
-                f"{system_prompt}\n\n"
-                "The full per-domain tool manual is available on demand: get it "
-                "with the get_tool_surface tool (call it with no arguments) "
-                "whenever the right tool for a request is not obvious. "
-                "search_tools finds a tool by goal; call_tool runs the exact "
-                "name it returns. Never claim a capability is missing before "
-                "you have looked."
-            )
+    def _finish_tool_turn(
+        self,
+        res,
+        messages: list,
+        *,
+        source: str,
+        model_label: str,
+        tools: list | None = None,
+    ) -> str:
+        from core.text_turn_controller import TextTurnController
 
-        if advertise_discovery:
-            _tools, skill_ctx = local_brain.resolve_tools(
-                request_text, TOOL_DECLARATIONS
-            )
-            if skill_ctx:
-                system_prompt = f"{system_prompt}\n\n{skill_ctx}"
-
-        # Workspace-scoped harness prompt. The CLI and subagent loops get this
-        # from ``agent.prompts.build_system_prompt``; the HUD builds its own
-        # resident prompt, so without this block the text path never sees the
-        # repo's AGENTS.md/BRAHMA.md or the project-skills catalogue -- and it
-        # would advertise ``load_project_skill`` with no catalogue to load from.
-        # Appended before the instruction layers below, matching the CLI order:
-        # project rules outrank generic advice, host extras stay last.
-        try:
-            from agent.prompts import project_context
-            from agent.runtime import current as current_agent_runtime
-
-            project = project_context(current_agent_runtime().workspace)
-        except Exception:
-            project = ""
-        if project:
-            system_prompt = f"{system_prompt}\n\n{project}"
-
-        # Optional instruction blocks. The "local"/"custom" layers are
-        # separate by design; compose both so the custom endpoint is not the
-        # only OpenAI-compatible path that can be silenced.
-        try:
-            from core import instruction_injector
-
-            layers = ["custom", "local"] if advertise_discovery else ["local"]
-            for layer in layers:
-                try:
-                    injected = instruction_injector.compose(layer)
-                except Exception:
-                    injected = ""
-                if injected:
-                    system_prompt = f"{system_prompt}{injected}"
-        except Exception:
-            pass
-
-        # A resumed session contributes its stored turns between the freshly
-        # built system prompt and the new request. The system prompt is never
-        # persisted: it names the workspace, endpoint and instruction files of
-        # *this* run, and a stale copy would be worse than rebuilding it.
-        from agent import session_bridge as bridge
-
-        history = bridge.history(self._agent_session)
-        return [
-            {"role": "system", "content": system_prompt},
-            *history,
-            {"role": "user", "content": request_text},
-        ]
-
-    def _finish_tool_turn(self, res, messages: list, *, source: str,
-                          model_label: str, tools: list | None = None) -> str:
-        """Continue an OpenAI-protocol turn until the model stops calling tools.
-
-        This used to run every tool call once and take exactly ONE follow-up,
-        so the model could never react to a second observation: call a tool,
-        see the result, answer. The loop in ``agent.loop`` keeps going —
-        observe, act, observe — under a hard turn budget, repeat detection and
-        context compaction. ``res`` is the first response the caller already
-        paid for, so the loop is seeded with it rather than re-requesting.
-
-        ``tools`` is the surface the first call advertised. Reusing it matters:
-        the default would be only the six harness primitives, which silently
-        removes the native actions and the ``search_tools`` / ``call_tool``
-        meta-tools from every follow-up — and the resident prompt tells the
-        model to reach the catalogue through them. The harness primitives are
-        merged in so an unpinned one (glob/grep/write_file) stays callable even
-        when the resolver did not rank it for this request.
-
-        Raises LocalBrainError for the local ladder (the caller must see real
-        transport failures); the custom path owns its own call wrapper and
-        passes ``source="custom"``.
-        """
-        from agent import session_bridge as bridge
-        from agent.loop import AgentLoop
-        from agent.providers import custom_stream
-        from agent.runtime import current as current_agent_runtime
-        from agent.spec import all_specs
-        from agent.streaming import collect as collect_stream
-
-        surface: list = []
-        try:
-            # Idempotent: accepts Gemini declarations, OpenAI tools, or both.
-            surface = local_brain.format_tools_for_local(list(tools or []))
-        except Exception:
-            surface = []
-        known = {
-            entry["function"]["name"]
-            for entry in surface
-            if isinstance(entry, dict) and isinstance(entry.get("function"), dict)
-        }
-        for spec in all_specs():
-            if spec.name not in known:
-                surface.append(spec.openai())
-
-        if source == "local":
-            def _complete(msgs, tools):
-                return local_brain.chat_complete(
-                    msgs, model=model_label, tools=tools, focus_core=True
-                )
-
-            def _stream(msgs, tools, on_delta):
-                # Same transport, same schema formatting; only the delivery is
-                # incremental. `generate_chat_stream` owns the stream timeouts.
-                return collect_stream(
-                    local_brain.generate_chat_stream(msgs, model=model_label, tools=tools),
-                    on_delta,
-                )
-
-            _complete.stream = _stream
-        else:
-            def _complete(msgs, tools):
-                # Verbatim follow-up: `msgs` already carries the system
-                # prompt, the assistant tool-call turn and the tool results.
-                return openrouter_client.chat_as_completion(
-                    "custom", "", full_messages=msgs, tools=tools,
-                )
-
-            def _stream(msgs, tools, on_delta):
-                # The custom endpoint is OpenAI-compatible and the provider
-                # helper owns the URL normalisation, auth headers and payload,
-                # so the GUI path streams exactly like the CLI adapter.
-                return custom_stream(
-                    msgs, tools, on_delta, temperature=0.7, max_tokens=4096
-                )
-
-            _complete.stream = _stream
-
-        seeded = list(messages or [])
-        context = bridge.seed_context(seeded)
-
-        # Persist only what this turn added. The loop appends the assistant and
-        # tool messages itself; the seeded history is already in the row, so
-        # appending it again would duplicate every earlier turn on resume.
-        session = self._agent_session
-        if session is not None:
-            try:
-                pending = bridge.messages_after(bridge.history(session), context.messages)
-                for message in pending:
-                    session.append_message(message)
-            except Exception as exc:
-                print(f"[BRAHMA EVO] \u26a0\ufe0f session write failed: {exc}")
-
-        runtime = current_agent_runtime()
-        desktop_tools.attach_host(self)  # text turns need the host too (ADR-019)
-        runtime.reset_cancel()  # a previous Stop must not kill this new turn
-        loop = AgentLoop(
-            _complete,
-            tools=surface,
-            native_dispatch=self._execute_tool_sync,
-            runtime=runtime,
-            context=context,
-            session=session,
-            max_turns=AGENT_MAX_TURNS,
-            on_event=self._agent_event,
-            cancel=runtime.cancel_event,
-            stream=source in ("local", "custom"),
+        return TextTurnController(self).finish_tool_turn(
+            res, messages, source=source, model_label=model_label, tools=tools
         )
-        try:
-            result = loop.run(first_response=res)
-        except Exception as exc:
-            print(f"[BRAHMA EVO] \u26a0\ufe0f Agent loop failed: {exc}")
-            return f"The agent loop stopped unexpectedly: {exc}"
-
-        if result.text:
-            return result.text
-        if result.stop_reason != "completed":
-            return (f"I stopped after {result.turns} step(s) "
-                    f"({result.stop_reason.replace('_', ' ')}).")
-        return f"{model_label} returned no usable response."
 
     def _agent_event(self, event: dict) -> None:
-        """Mirror loop telemetry into the console and the task workspace."""
-        try:
-            kind = event.get("type")
-            # Streaming writes without a newline; close that line before any
-            # line-shaped event so the log does not glue two records together.
-            if getattr(self, "_agent_stream_open", False) and kind != "delta":
-                print()
-                self._agent_stream_open = False
-            if kind == "delta":
-                channel = event.get("kind")
-                if channel == "text":
-                    text = event.get("text") or ""
-                    if text:
-                        print(text, end="", flush=True)
-                        self._agent_stream_open = True
-                elif channel == "reset":
-                    print("\n[BRAHMA EVO] \u21ba partial response discarded, retrying")
-                return
-            if kind == "tool_call":
-                print(f"[BRAHMA EVO] \U0001f6e0 {event.get('name')} {event.get('arguments')}")
-            elif kind == "compaction":
-                print(f"[BRAHMA EVO] \U0001f5dc context compacted "
-                      f"({event.get('dropped')} message(s))")
-            elif kind == "permission":
-                print(f"[BRAHMA EVO] \U0001f510 {event.get('decision')}: "
-                      f"{event.get('name')} ({event.get('rule')})")
-            elif kind == "retry":
-                print(f"[BRAHMA EVO] \u21bb provider retry {event.get('attempt')} "
-                      f"in {event.get('delay_s')}s: {event.get('error')}")
-            elif kind == "instructions":
-                print(f"[BRAHMA EVO] \U0001f4c4 loaded instructions: "
-                      f"{', '.join(event.get('loaded') or [])}")
-            elif kind == "policy_reload":
-                state = "reloaded" if event.get("ok") else "reload failed (old rules kept)"
-                print(f"[BRAHMA EVO] \U0001f4dc policy {state}")
-            elif kind == "mcp":
-                if event.get("ok"):
-                    print(f"[BRAHMA EVO] \U0001f50c mcp {event.get('name')}: "
-                          f"{event.get('tools')} tool(s)")
-                else:
-                    print(f"[BRAHMA EVO] \u26a0\ufe0f mcp {event.get('name')}: "
-                          f"{event.get('error')}")
-            elif kind == "mcp_refresh":
-                state = "restarted" if event.get("restarted") else "re-listed"
-                print(f"[BRAHMA EVO] \U0001f504 mcp {event.get('server')} {state}: "
-                      f"{event.get('tools')} tool(s)")
-            elif kind == "error":
-                print(f"[BRAHMA EVO] \u26a0\ufe0f {event.get('error')}")
-            elif kind == "stream_fallback":
-                print(f"[BRAHMA EVO] streaming unavailable: {event.get('reason')}")
-            elif kind == "subagent_start":
-                print(f"[BRAHMA EVO] \U0001f9ed subagent {event.get('subagent')} "
-                      f"started ({', '.join(event.get('tools') or [])}): "
-                      f"{event.get('task')}")
-            elif kind == "subagent_end":
-                print(f"[BRAHMA EVO] \U0001f9ed subagent {event.get('subagent')} "
-                      f"{event.get('stop_reason')} after "
-                      f"{event.get('turns')} turn(s)")
-            elif kind == "subagent_event":
-                inner = event.get("event") or {}
-                if inner.get("type") == "tool_call":
-                    print(f"[BRAHMA EVO] \U0001f9ed {event.get('subagent')} "
-                          f"tool {inner.get('name')} {inner.get('arguments')}")
-            elif kind == "stop":
-                print(f"[BRAHMA EVO] \U0001f3c1 agent stopped: {event.get('reason')} "
-                      f"after {event.get('turns')} turn(s)")
-            if kind in ("tool_start", "stop"):
-                status = event.get("name") if kind == "tool_start" else f"Agent {event.get('reason')}"
-                self.ui.update_task_workspace(status=str(status or "Agent"), percent=90)
-        except Exception:
-            pass
+        from core.text_turn_controller import TextTurnController
 
+        return TextTurnController(self).agent_event(event)
 
-    def _custom_brain_turn(self, request_text: str, label: str = "Custom provider") -> str:
-        """One agentic turn against the user's custom OpenAI-compatible endpoint.
+    def _custom_brain_turn(
+        self, request_text: str, label: str = "Custom provider"
+    ) -> str:
+        from core.text_turn_controller import TextTurnController
 
-        The custom endpoint used to receive a two-line system prompt and no
-        tools at all, so it could not act — only chat. It now receives the
-        same tiered prompt and bounded tool surface as the local path, runs
-        its tool calls through the same executor, and degrades gracefully: if
-        the endpoint rejects the tool array outright the model is marked
-        tool-less for the session and the turn is retried as a plain reply,
-        because a tool-less server still answers but crashes on a tools array.
-        """
-        self._ensure_agent_session(request_text, label)
-        messages = self._agentic_seed_messages(
-            request_text, advertise_discovery=not self._custom_tools_broken
-        )
-        tools = []
-        if not self._custom_tools_broken:
-            tools, _skill_ctx = local_brain.resolve_tools(
-                request_text, TOOL_DECLARATIONS
-            )
-            tools = self._with_agent_mcp(tools)
-        try:
-            # The seed is the complete conversation (system + user), so it is
-            # sent verbatim: prepending `system` again and appending the prompt
-            # would double both.
-            msg = openrouter_client.chat_as_completion(
-                "custom", "", full_messages=messages, tools=tools,
-            )
-        except Exception as exc:
-            if not tools or "tool" not in str(exc).lower():
-                raise
-            self._custom_tools_broken = True
-            print(
-                f"[BRAHMA EVO] \u26a0\ufe0f {label} rejected the tool surface; "
-                "this endpoint will be treated as tool-less for the session."
-            )
-            msg = openrouter_client.chat_as_completion(
-                "custom", "", full_messages=messages,
-            )
-        return self._finish_tool_turn(
-            {"choices": [{"message": msg}]}, messages,
-            source="custom", model_label=label, tools=tools,
-        )
+        return TextTurnController(self).custom_brain_turn(request_text, label)
 
     @property
     def _custom_tools_broken(self) -> bool:
-        """True once this session's custom endpoint rejected the tool array.
-
-        Class-level default False, then set per turn by ``_fallback_reply``;
-        reading a missing attribute must never raise inside a provider loop.
-        """
         return bool(getattr(self, "_custom_tools_broken_", False))
 
     @_custom_tools_broken.setter
@@ -4084,205 +2723,15 @@ class BrahmaLive:
         self._custom_tools_broken_ = bool(value)
 
     def _fallback_reply(self, text: str, memory_ctx: str = ""):
-        try:
-            self.ui.set_state("THINKING")
-            try:
-                self.ui.update_task_workspace(
-                    status="Thinking",
-                    output="Brahma Evo is drafting a direct reply.",
-                    percent=35,
-                )
-            except Exception:
-                pass
-            reply = ""
-            request_text = f"{memory_ctx}\n\nCurrent User Request:\n{text}" if memory_ctx else text
+        from core.text_turn_controller import TextTurnController
 
-            app_settings = config_manager.load_settings()
-            configured_provider = app_settings.get("default_ai_provider", "Gemini")
-            local_model_target = app_settings.get("local_ai_model", "qwen2.5:3b")
-            is_offline_mode = app_settings.get("offline_mode_enabled", False)
-            selected = _provider_id_for_name(configured_provider)
-
-            # Vendor-agnostic failover order. provider_router.chain() returns
-            # only *enabled* providers, so a provider switched off in Settings
-            # is never called -- that is what stops a background thread from
-            # silently walking the OpenRouter free-model pool on a CPU already
-            # busy with a local model. Logged so the active chain is visible
-            # when it misbehaves.
-            active_chain = ["gemini", "openrouter", "local", "custom"]
-            disabled = []
-            try:
-                from core import provider_router
-
-                active_chain = provider_router.chain()
-                disabled = [p["id"] for p in provider_router.all_providers() if not p["enabled"]]
-                if disabled:
-                    print(
-                        f"[BRAHMA EVO] Provider chain: {provider_router.describe()} "
-                        f"(disabled: {', '.join(disabled)})"
-                    )
-            except Exception:
-                pass
-
-            # Attempt order: the provider the user selected goes first (its
-            # full-featured path runs), then every other *enabled* provider in
-            # router order as failover. Offline mode means "no cloud egress":
-            # it keeps local and the user-defined custom endpoint (often a LAN
-            # server) and drops the cloud links. A recent Gemini throttle puts
-            # OpenRouter ahead of Gemini for the cooldown window.
-            eligible = [
-                p for p in active_chain
-                if not (is_offline_mode and p in ("gemini", "openrouter"))
-            ]
-            order: list = []
-            if selected == "gemini" and self._prefer_openrouter() and "openrouter" in eligible:
-                order.append("openrouter")
-            if selected is not None and selected in eligible:
-                order.append(selected)
-            order.extend(p for p in eligible if p not in order)
-            # (provider label, reason) for every failed attempt; surfaced to
-            # the user verbatim when nothing answered.
-            attempt_errors: list = []
-            self._custom_tools_broken = False
-
-            # Attempt the chain: selected provider first, then failover.
-            # Every failure keeps its reason so an all-fail turn reports
-            # *why* instead of inventing a reply (the old ladder swallowed
-            # all of this and spoke a scripted acknowledgement).
-            plain_system = (
-                "You are Brahma Evo, a concise, helpful desktop assistant. "
-                "Reply naturally and briefly. Do not mention internal implementation details."
-                + _injected_instructions("fallback")
-            )
-            for pid in order:
-                label = PROVIDER_LABELS.get(pid, pid)
-                try:
-                    self.ui.update_task_workspace(
-                        status=f"Thinking ({label})",
-                        output=f"Processing on {label}...",
-                        percent=50,
-                    )
-                    if pid == "gemini":
-                        reply = _gemini_text_reply(request_text)
-                    elif pid == "openrouter":
-                        reply = openrouter_client.chat_as(
-                            "openrouter", request_text, system=plain_system
-                        )
-                    elif pid == "custom":
-                        reply = self._custom_brain_turn(request_text, label)
-                    elif pid == "local":
-                        reply = self._local_brain_reply(
-                            request_text, local_model_target
-                        )
-                    else:
-                        continue
-                except Exception as exc:
-                    reason = str(exc).strip() or exc.__class__.__name__
-                    attempt_errors.append((label, reason))
-                    print(f"[BRAHMA EVO] \u26a0\ufe0f {label} failed: {reason}")
-                    if pid == "gemini" and _is_gemini_limit_error(exc):
-                        self._throttled_to_openrouter()
-                    continue
-
-                reply = (reply or "").strip()
-                if reply:
-                    print(f"[BRAHMA EVO] \u2705 {label} answered successfully!")
-                    break
-                attempt_errors.append((label, "returned an empty response"))
-
-            reply = (reply or "").strip()
-            # An emotion tag is an instruction-layer artefact, not speech. Strip
-            # it before logging and before TTS so "[SMILE]" is never vocalised,
-            # then hand the tag to the shared delivery seam.
-            reply, emotion = self._split_emotion_tag(reply)
-            self._deliver_avatar_emotion(emotion)
-            provider_error = None
-            if not reply:
-                # Nothing answered: surface the real reasons. The old
-                # unconditional "I'm ready, sir." made every provider outage
-                # look like success and hid the cause entirely.
-                detail = "; ".join(
-                    f"{label}: {reason}" for label, reason in attempt_errors
-                )
-                if not detail:
-                    detail = (
-                        "no providers are enabled in Settings > AI Providers"
-                        if not order
-                        else "no provider was attempted"
-                    )
-                err = f"No reply from any provider -> {detail}"
-                print(f"[BRAHMA EVO] \u26a0\ufe0f {err}")
-                self.ui.write_log(f"ERR: {err}")
-                provider_error = detail
-                reply = (
-                    "No AI providers are enabled. Please enable one in Settings."
-                    if not order
-                    else
-                    "I could not reach any configured AI provider. Please check the provider settings."
-                )
-            self.ui.write_log(f"Brahma Evo: {reply}")
-            if not getattr(self.ui, "muted", False):
-                self.speak(reply, proactive=True)
-            try:
-                if provider_error is None:
-                    self.ui.finish_task_workspace(reply, "Reply delivered.", 100)
-                else:
-                    self.ui.finish_task_workspace(provider_error, "No provider replied.", 100)
-            except Exception:
-                pass
-
-            if not self.ui.muted:
-                self.ui.set_state("LISTENING")
-        except Exception as e:
-            msg = f"Fallback reply failed: {e}"
-            print(f"[BRAHMA EVO] ⚠️ {msg}")
-            self.ui.write_log(f"ERR: {msg}")
-            try:
-                self.ui.finish_task_workspace(msg, "Reply failed.", 100)
-            except Exception:
-                pass
-            if not self.ui.muted:
-                self.ui.set_state("LISTENING")
+        return TextTurnController(self).fallback_reply(text, memory_ctx)
 
     def set_speaking(self, value: bool):
-        with self._speaking_lock:
-            self._is_speaking = value
-        if value:
-            self.ui.set_state("SPEAKING")
-        elif not self.ui.muted:
-            self.ui.set_state("LISTENING")
+        return self._session_lifecycle.set_speaking(value)
 
     def trigger_barge_in(self):
-        """Immediately interrupts AI speech playback and switches state to LISTENING."""
-        with self._speaking_lock:
-            if not self._is_speaking:
-                return
-            self._is_speaking = False
-
-        try:
-            from actions.attention_monitor import stop_native_speech
-            stop_native_speech()
-        except Exception:
-            pass
-
-        try:
-            if self.audio_in_queue:
-                while not self.audio_in_queue.empty():
-                    try:
-                        self.audio_in_queue.get_nowait()
-                    except Exception:
-                        break
-        except Exception:
-            pass
-
-        try:
-            from sound_manager import SoundManager
-            SoundManager.instance().play_listening_start()
-        except Exception:
-            pass
-
-        if hasattr(self, "ui") and self.ui and not self.ui.muted:
-            self.ui.set_state("LISTENING")
+        return self._session_lifecycle.trigger_barge_in()
 
 
 

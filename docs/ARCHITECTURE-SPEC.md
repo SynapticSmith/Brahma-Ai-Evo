@@ -40,9 +40,8 @@ Brahma Evo is a **Windows-first, single-process PyQt6 desktop assistant** with f
 - a **Gemini Live voice session** (bidirectional audio),
 - a **GUI text path** through local / custom / OpenRouter models,
 - a **headless agent CLI** (`python -m agent`),
-- and a set of **~60 native desktop actions**, nine of which are now
-  `ToolSpec`s (ADR-019 wave 1) while the rest are still dispatched by the
-  legacy tool executor.
+- and a set of **~60 native desktop actions**, all of which are now
+  `ToolSpec`s (ADR-019 waves 1–3) dispatched behind `AgentRuntime.execute`.
 
 On top of that, 1.0.1 and the harness batches that followed added:
 
@@ -52,15 +51,10 @@ On top of that, 1.0.1 and the harness batches that followed added:
 - four interchangeable **avatar renderers** behind one three-method contract,
 - and an **agent harness**: bounded loop, permissions, approval banner, process containment, MCP client, sessions, subagents.
 
-The system is **functionally strong and structurally uneven**. Three facts dominate the current situation:
+The system is **functionally strong and structurally unified across tool dispatch**. Three facts dominate the current situation:
 
 1. **The harness is real and is the best-built part of the repo.** `agent/` is stdlib-only, tested by ~393 tests, and owns one dispatch boundary, one loop, and one policy engine.
-2. **The rest of the app is still mostly pre-harness.** Twenty-seven native
-   desktop specs across ADR-019 waves 1–2 (`exec`, `write`, per-action `read`/`write`, `device`, `network`, and silent `save_memory`) now dispatch as `ToolSpec`s behind `AgentRuntime`; the remaining native tools still go through the
-   `elif` chain in `core/tool_exec.py` (54 branches, 527 lines) with no policy check. The older
-   autonomous executor (`agent_task` → `TaskQueue` → `AgentExecutor`) was
-   retired and deleted in Q0-A; its remaining cost is the ungated `elif`
-   chain, not a second loop.
+2. **All native desktop actions now route through `AgentRuntime`.** Across ADR-019 waves 1–3, all 59 native declarations in `main.py:TOOL_DECLARATIONS` (plus 24 aliases and the retired `agent_task` pointer = 84 desktop specs in `core/desktop_tools.py`) dispatch as `ToolSpec`s behind `AgentRuntime.execute`, retiring the legacy `elif` chain in `core/tool_exec.py` (`147` lines, `0` `elif` branches). Extracting `core/text_turn_controller.py` and the remaining session/voice control methods into `core/session_lifecycle.py` also reduced `main.py` from `4,811` to `3,233` lines.
 3. **Four of the eight critical security findings from upstream issue #4 remain.** Q0-A closed the forge execution path, the TLS-bypass prompts, runtime `pip`, and the dead `confirmed` declaration. Q0-B closed self-update by deleting it outright and made the gateway loopback-only and off by default. Plugins, secrets at rest, the Crucible denylist, privilege separation, and gateway route authentication are still open. The security roadmap is `Proposed`, not implemented.
 
 The two large proposals are in different states and must not be conflated:
@@ -92,14 +86,14 @@ The two large proposals are in different states and must not be conflated:
 │                                                                          │
 │  Text:  provider chain ── core/provider_router.py / core/llm_gateway.py  │
 │    ├── Gemini / OpenRouter / local / custom                              │
-│    └── tool calls → _finish_tool_turn → agent/loop.py                    │
+│    └── tool calls → core/text_turn_controller.py → agent/loop.py         │
 │                                                                          │
 │  CLI:   python -m agent ── agent/__main__.py → agent/loop.py             │
 │                                                                          │
-│  Dispatch: core/tool_exec.py                                             │
-│    ├── registered harness tool? → AgentRuntime.execute  (policy)         │
-│    ├── wave-1/2 desktop tool?   → AgentRuntime.execute  (policy)         │
-│    └── else → legacy elif chain → actions/*.py        (no policy)         │
+│  Dispatch: core/tool_exec.py (147 lines, 0 elif branches)                │
+│    ├── core meta-tool?          → core/tool_bridge.py                    │
+│    ├── registered ToolSpec?     → AgentRuntime.execute  (policy)         │
+│    └── forged/dynamic skill?    → DynamicToolRegistry.execute_sync       │
 │                                                                          │
 │  Legacy autonomous path: retired in Q0-A (2026-11-01)                    │
 │    agent_task → TaskQueue → AgentExecutor → planner is deleted; calls    │
@@ -114,35 +108,32 @@ The two large proposals are in different states and must not be conflated:
 
 | Door | Entry point | Harness tools | Native tools | Policy |
 |---|---|---|---|---|
-| Voice | Gemini Live session | `AgentToolExecutor` → `AgentRuntime` | wave-1/2 desktop specs (27) via `AgentRuntime`; rest via legacy `elif` chain | policy for harness + wave-1/2 desktop tools; none for the remainder |
-| GUI text | `main.py:_finish_tool_turn` → `AgentLoop` | `AgentRuntime` | wave-1/2 desktop specs (27) via `AgentRuntime`; rest via legacy `elif` chain | policy for harness + wave-1/2 desktop tools; none for the remainder |
-| CLI | `python -m agent` | `AgentRuntime` | not advertised | policy |
+| Voice | Gemini Live session | `AgentToolExecutor` → `AgentRuntime` | 84 desktop specs (`core/desktop_tools.py`) via `AgentRuntime` | policy across all harness + native desktop tools |
+| GUI text | `core/text_turn_controller.py:finish_tool_turn` → `AgentLoop` | `AgentRuntime` | 84 desktop specs (`core/desktop_tools.py`) via `AgentRuntime` | policy across all harness + native desktop tools |
+| CLI | `python -m agent` | `AgentRuntime` | not advertised by default (`"desktop"` tag filtered) | policy |
 | ~~Legacy autonomous~~ | ~~`agent_task` tool~~ | — | — | **retired in Q0-A; files deleted** |
-
-The largest structural inconsistency left is the ungated remainder of the
-`elif` chain (O-6 wave 3), plus the turn controllers still inside `main.py`.
 
 ### 2.2 Directory map
 
 | Path | Contents | Notes |
 |---|---|---|
-| `main.py` | App entry, `BrahmaLive`, `TOOL_DECLARATIONS` (59 native tools), provider routing, GUI text loop wiring | 4,784 lines. Bridge-era guard was ≤3,903; already violated. Ratchet ceiling 4,784. |
+| `main.py` | App entry, `BrahmaLive`, `TOOL_DECLARATIONS` (59 native tools), provider routing, controller delegation | 3,233 lines (below the 3,903 bridge guard). Ratchet ceiling 3,233. |
 | `ui.py` | Thin `MainWindow` composition root over `core/ui_*` modules | 820 lines. Bridge-era guard was ≤692; already violated. Ratchet ceiling 827. |
-| `core/` | Cross-cutting seams: tool dispatch/index, provider chain, confirmation, sessions, skills, avatars, UI modules | ~96 modules. The de-facto architecture layer. |
-| `actions/` | One module per native capability (~51) | Legacy tool implementations; 27 specs are reached through `core/desktop_tools.py`, the rest by the `elif` chain. |
+| `core/` | Cross-cutting seams: tool dispatch/index, turn controllers, provider chain, confirmation, sessions, skills, avatars, UI modules | ~97 modules. The de-facto architecture layer. |
+| `actions/` | One module per native capability (~51) | Native tool implementations reached through `core/desktop_tools.py` `ToolSpec` adapters behind `AgentRuntime`. |
 | `agent/` | The stdlib-only agent harness (22 modules) | No pre-fork autonomous executor remains; `agent/__init__.py` is inert. |
 | `features/` | Forge output, hot-loaded at startup | Untrusted model-generated code; see §7. |
 | `brahma_connect/` | Phone/device gateway (HTTP + WebSocket + mDNS) | Defaults to `127.0.0.1`, disabled, no mDNS advertise; HTTP control routes still unauthenticated when enabled. |
-| `tests/` | Pytest suite; 796 passed / 1 skipped after the ADR-019 wave-2 batch | `test_agent_*` are display- and SDK-free. |
+| `tests/` | Pytest suite; 799 passed / 1 skipped after the ADR-019 wave-3 batch | `test_agent_*` are display- and SDK-free. |
 | `docs/` | Design records, build logs, proposals, ADRs | Twenty-three documents; see §3. |
 
 ### 2.3 Subsystem inventory
 
 | Subsystem | Primary modules | Status |
 |---|---|---|
-| App shell / HUD | `main.py`, `ui.py`, `core/ui_*` | Built-Partial (god-object guards already breached) |
+| App shell / HUD | `main.py`, `ui.py`, `core/ui_*`, `core/text_turn_controller.py` | Built (`main.py` decomposed to 3,233 lines) |
 | Provider chain | `core/provider_router.py`, `core/provider_failover.py`, `core/llm_gateway.py` | Built |
-| Tool surface | `core/tool_index.py`, `core/tool_bridge.py`, `core/dynamic_registry.py`, `core/tool_exec.py`, `core/desktop_tools.py`, `core/desktop_host.py` | Built-Partial (wave-1 desktop tools gated; the rest of the legacy dispatch is not) |
+| Tool surface | `core/tool_index.py`, `core/tool_bridge.py`, `core/dynamic_registry.py`, `core/tool_exec.py`, `core/desktop_tools.py`, `core/desktop_host.py` | Built (all 84 desktop specs gated by `AgentRuntime`; 0 `elif` branches in `core/tool_exec.py`) |
 | Agent harness | `agent/*` (harness subset) | Built |
 | Sessions | `agent/session.py`, `agent/session_bridge.py` | Built |
 | Project skills | `agent/skills.py`, `agent/prompts.py` | Built |
@@ -343,7 +334,7 @@ Each section states the contract and the one thing most likely to break.
 - **Why it exists:** Gemini Live rejects >128 declarations and cannot swap tools mid-session (I-19/I-20).
 - **Contract:** every tool is a `ToolSpec` with a canonical lowercase schema; `gemini()` converts up at the edge.
 - **Failure mode to respect:** description collisions are a data problem. Fix them in `%LOCALAPPDATA%\BrahmaAI\tool_routing.json`, not in the retriever.
-- **Known gaps:** (1) the legacy `elif` chain (`core/tool_exec.py`, 54 branches in a 527-line file after ADR-019 wave 2) is still the executor for the remaining native tools, so "one registry" is aspirational for that half; (2) the unbudgeted `mcp_Synapse`/`cdp` append is gone (ADR-021): intent hints now go through `resolve(pinned_extra=…)` and consume budget.
+- **Resolved gaps:** (1) the legacy `elif` chain in `core/tool_exec.py` has been completely retired across ADR-019 waves 1–3 (`147` lines, `0` `elif` branches; all 84 desktop specs register as `ToolSpec`s in `core/desktop_tools.py`); (2) the unbudgeted `mcp_Synapse`/`cdp` append is gone (ADR-021): intent hints now go through `resolve(pinned_extra=…)` and consume budget.
 
 ### 6.4 Agent harness
 
@@ -563,7 +554,7 @@ py -3.11 -m pytest tests -q -k agent
 py -3.11 -m agent run "say hello" --provider stub --json --no-session
 ```
 
-Baseline after the ADR-019 wave-2 batch: ruff clean; **796 passed, 1 skipped**; `-k agent` **393 passed, 1 skipped**; full suite ~2–5 min depending on host load. Python 3.11 is mandatory for the gates; the repo `.venv` and default `python` are 3.14 and lack the dev tools (`scripts/setup_dev.ps1 -Force` recreates it on 3.11).
+Baseline after the ADR-019 wave-3 batch: ruff clean; **799 passed, 1 skipped**; `-k agent` **393 passed, 1 skipped**; full suite ~2–5 min depending on host load. Python 3.11 is mandatory for the gates; the repo `.venv` and default `python` are 3.14 and lack the dev tools (`scripts/setup_dev.ps1 -Force` recreates it on 3.11).
 
 ### 10.3 Definition of done
 
@@ -617,7 +608,7 @@ Accepted 2026-10-17, but **acceptance is not authorization to build**: they were
 
 | ADR | Status | Decision | Gates | Document |
 | --- | --- | --- | --- | --- |
-| **ADR-019** | Accepted; **waves 1–2 landed** | Native actions get a narrow `HostServices` bundle through `ToolContext.extra["host"]`; adapters, not signature changes; HUD feedback moves to runtime events. Wave 1 = 4 `write` + 5 `exec` actions; Wave 2 = 18 specs (per-action `read`/`write` for `file_controller`/`smart_organizer`/`desktop_organizer`, silent `save_memory`, 7 `device`, 7 `network`), in `core/desktop_tools.py`. | O-6 waves 1–3 (B6/B7) | `docs/ADR-019-ACTION-HOST-INJECTION.md` |
+| **ADR-019** | **Landed (waves 1–3)** | Native actions get a narrow `HostServices` bundle through `ToolContext.extra["host"]`; adapters, not signature changes; HUD feedback moves to runtime events. All 84 desktop specs (`WAVE1` + `WAVE2` + `WAVE3`, covering all 59 native declarations in `main.py:TOOL_DECLARATIONS`, 24 aliases, and the retired `agent_task` pointer) register in `core/desktop_tools.py` behind `AgentRuntime.execute`; `core/tool_exec.py` has 0 `elif` branches (147 lines). | O-6 waves 1–3 (B6/B7) | `docs/ADR-019-ACTION-HOST-INJECTION.md` |
 | **ADR-020** | Accepted | `paths.trusted_roots` (human-authored, containment-only, secrets still protected) plus a `trusted_workspaces` store that gates repo-local MCP loading; trust gates execution, not reading. | O-1 trust item (B8), prompt fatigue in O-6 | `docs/ADR-020-TRUSTED-USER-ROOTS.md` |
 | **ADR-021** | **Landed** | `pinned_extra` consumes budget, ranks after global pins, drops oldest-first, and replaces the unbudgeted Synapse/cdp append. | O-8 layer 3 / the `1008` fix (Q1.3) | `docs/ADR-021-PINNED-EXTRA-SEMANTICS.md` |
 
@@ -664,7 +655,7 @@ Accepted 2026-10-17, but **acceptance is not authorization to build**: they were
 1. Record O-1/O-2 (N4/N5) in the harness status/tracker docs and write ADR-018 for the bridge boundary.
 2. ✅ (landed early as B4) Delete legacy autonomous files (`agent/planner.py`, `executor.py`, `task_queue.py`, `error_handler.py`) and land CI ratchet gates (`main.py`/`ui.py`/`core/tool_exec.py` line counts, `elif` count ratchet, `agent/` import canary) — `tests/test_architecture_invariants.py` + `tests/architecture_ratchet.json`.
 3. ✅ (landed 2026-11-01, ADR-021) Resolve the deferred-tool `1008` and I-19 violation (`O-8`): `call_tool` templates in `_handle_search`/`_handle_list_tools`, the `tool_bridge.py` promotion append deleted, and session-scoped `resolve(pinned_extra=...)` with budget accounting, oldest-first eviction, and a `pinned_extra_dropped` counter.
-4. Migrate native tools to `ToolSpec`s behind `AgentRuntime` by capability class (`exec`/`write` first, then `device`/`network`, then `read`), retiring the `elif` chain in `core/tool_exec.py` and extracting turn controllers from `main.py` (`O-6`). **ADR-019 wave 1 landed 2026-11-01** (9 tools: `pdf_document`, `word_document`, `presentation_builder`, `spreadsheet_builder`, `reminder`, `auto_heal`, `self_patch`, `rollback`, `shutdown_brahma`). **Wave 2 landed 2026-11-01** (18 specs: per-action `read`/`write` classifier on `file_controller`, `smart_organizer`, and alias `desktop_organizer`; `silent=True` on `save_memory`; `device` tools `unlock_device` and `connect_*`; `network` tools `send_message` and Instagram; `core/tool_exec.py` 716→527 lines, 70→54 `elif`s; `main.py` 4,811→4,784 lines). **Wave 3 remains:** the remaining ~32 native branches in `core/tool_exec.py` plus turn-controller extraction from `main.py`.
+4. ✅ (landed 2026-11-01, ADR-019 waves 1–3) Migrate native tools to `ToolSpec`s behind `AgentRuntime` by capability class (`exec`/`write` first, then `device`/`network`, then `read`), retiring the `elif` chain in `core/tool_exec.py` and extracting turn controllers from `main.py` (`O-6`). **Wave 1** migrated 9 `write`/`exec` tools; **Wave 2** migrated 18 specs (`file_controller`/`smart_organizer`/`desktop_organizer` per-action `read`/`write` classifiers, `silent=True` on `save_memory`, 7 `device`, 7 `network`); **Wave 3** migrated the remaining 57 specs (`read`, `device`, `network`, `write`, per-call classified tools, aliases, and the retired `agent_task` pointer = 84 desktop specs total in `core/desktop_tools.py`), retired the `elif` chain in `core/tool_exec.py` (`865→147` lines, `80→0` `elif`s), and extracted `core/text_turn_controller.py` plus the remaining session/voice control methods into `core/session_lifecycle.py` (`main.py` `4,811→3,233` lines).
 5. Add workspace trust fingerprinting (`trusted_workspaces`), verified container probe (`sandbox doctor` + `require_confined`, `O-1`), and read-only subagent fan-out (`run_subagent_batch`, `O-2`), one concern per batch. **ADR-020 accepted (workspace trust); `sandbox doctor` still needs its probe contract.**
 6. Keep the two MCP clients per I-18 (`agent/mcp.py` is stdio-only; `core/mcp_manager.py` owns HTTP/SSE + headers/auth); bring the voice MCP manager to refresh parity or scope HTTP/SSE parity explicitly.
 7. ✅ (landed 2026-11-01) Build reproducibility plumbing: `requirements-build.txt` pins PyInstaller + hooks, `scripts/setup_dev.ps1` builds a 3.11 `.venv` and refuses other interpreters, `build_all.ps1` invokes `python -m PyInstaller` and writes `dist\SHA256SUMS.txt`, and `.github/workflows/build.yml` runs a manual/tag build. No lockfile and no signing yet — that stays in WS-6/Q4.
