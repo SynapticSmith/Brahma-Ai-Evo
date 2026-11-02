@@ -164,6 +164,43 @@ def test_pinned_tools_are_always_advertised(index):
         assert {"undo", "recall_memory"} <= names, f"pins lost for query {query!r}"
 
 
+def test_pinned_extra_is_advertised_without_mutating_global_pins(index):
+    resolved = index.resolve("", budget=13, pinned_extra=["calyx_search"])
+    names = [d["name"] for d in resolved["declarations"]]
+
+    assert "calyx_search" in names
+    assert resolved["pinned_extra_dropped"] == 0
+    assert index.get("calyx_search").pinned is False, "resolve must not mutate the catalogue"
+
+    # Extras are per call: the next resolve has no reason to advertise it.
+    again = index.resolve("", budget=13)
+    assert again["pinned"] == {"undo", "recall_memory"}
+
+
+def test_pinned_extra_drops_oldest_first(index):
+    extras = ["calyx_search", "calyx_ingest", "calyx_traverse", "calyx_provenance"]
+    resolved = index.resolve("", budget=13, pinned_extra=extras)  # 2 pins + 3 slots + 8 meta
+    names = [d["name"] for d in resolved["declarations"]]
+
+    assert len(names) == 2 + 3
+    assert "calyx_search" not in names, "the oldest extra is evicted first"
+    assert {"calyx_ingest", "calyx_traverse", "calyx_provenance"} <= set(names)
+    assert resolved["pinned_extra_dropped"] == 1
+
+
+def test_pinned_extra_unknown_or_disabled_names_are_ignored(index):
+    index.set_disabled(["calyx_search"])
+    resolved = index.resolve(
+        "", budget=13, pinned_extra=["does_not_exist", "calyx_search", "calyx_ingest"]
+    )
+    names = {d["name"] for d in resolved["declarations"]}
+
+    assert "does_not_exist" not in names
+    assert "calyx_search" not in names
+    assert "calyx_ingest" in names
+    assert resolved["pinned_extra_dropped"] == 0
+
+
 def test_meta_tools_are_available_for_discovery(index):
     from core.tool_index import META_DECLARATIONS
 

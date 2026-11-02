@@ -55,7 +55,9 @@ def bridge(tmp_path, monkeypatch):
         return f"executed {name} with {args}"
 
     tool_bridge.configure(settings={"tool_index_enabled": True, "tool_index_budget": 20}, executor=_executor)
+    tool_bridge.reset_session_learning()
     yield idx, calls
+    tool_bridge.reset_session_learning()
     ti.reset_index()
 
 
@@ -362,6 +364,106 @@ def test_meta_tools_never_raise(bridge):
 def test_unknown_meta_tool_is_reported(bridge):
     out = asyncio.run(tool_bridge.execute_meta("not_a_meta_tool", {}))
     assert "unknown meta-tool" in out
+
+
+# --------------------------------------------------------------------------- #
+# Budgeted pins (ADR-021 / I-19)
+# --------------------------------------------------------------------------- #
+
+
+def test_browser_intent_is_budgeted_not_appended(bridge):
+    """The old promotion loop appended every Synapse/cdp tool past the budget."""
+    idx, _ = bridge
+    tool_bridge.sync_native(_native_declarations())
+    for i in range(12):
+        idx.upsert(ToolEntry(
+            name=f"mcp_Synapse_cdp_tab_{i:02d}",
+            description="Open and control a browser tab over CDP.",
+            source="mcp:Synapse",
+        ))
+    tool_bridge.configure(settings={"tool_index_budget": 24})
+
+    payload = tool_bridge.build_session_payload("open a new tab in chrome with cdp")
+    names = [d["name"] for d in payload["declarations"]]
+
+    assert len(names) <= tool_bridge.budget(), "I-19: the budget is a hard ceiling"
+    assert len(names) <= GEMINI_MAX_TOOLS
+    assert any(n.startswith("mcp_Synapse") for n in names), (
+        "the browser intent must still surface Synapse, just inside the budget"
+    )
+
+
+def test_intent_hints_are_capped(bridge):
+    idx, _ = bridge
+    for i in range(40):
+        idx.upsert(ToolEntry(
+            name=f"mcp_Synapse_cdp_{i:02d}",
+            description="Browser tab control.",
+            source="mcp:Synapse",
+        ))
+    pins = tool_bridge.intent_pins("navigate the browser", idx)
+    assert len(pins) == tool_bridge.INTENT_HINT_CAP
+    assert all(p.startswith("mcp_Synapse") for p in pins)
+    assert tool_bridge.intent_pins("send an email", idx) == []
+
+
+def test_learned_tools_are_readvertised_on_reconnect(bridge):
+    """A tool found via search_tools survives a 1008 reconnect, no turn replay."""
+    idx, _ = bridge
+    tool_bridge.sync_native(_native_declarations())
+    idx.upsert(ToolEntry(
+        name="mcp_Calyx_search",
+        description="Search a Calyx vault for grounded memories.",
+        parameters={"type": "OBJECT", "properties": {"query": {"type": "STRING"}},
+                    "required": ["query"]},
+        source="mcp:Calyx",
+    ))
+    asyncio.run(tool_bridge.execute_meta("search_tools", {"intent": "search my vault"}))
+    assert "mcp_Calyx_search" in tool_bridge.recent_learned()
+
+    # A reconnect carries no fresh intent; the learned name must still appear.
+    names = [d["name"] for d in tool_bridge.build_session_payload("")["declarations"]]
+    assert "mcp_Calyx_search" in names
+
+    # An explicit end of session forgets it again.
+    tool_bridge.reset_session_learning()
+    assert tool_bridge.recent_learned() == []
+    names = [d["name"] for d in tool_bridge.build_session_payload("")["declarations"]]
+    assert "mcp_Calyx_search" not in names
+
+
+def test_list_tools_also_records_what_it_taught(bridge):
+    idx, _ = bridge
+    idx.upsert(ToolEntry(name="calyx_ingest", description="Ingest a document.", source="mcp:Calyx"))
+    asyncio.run(tool_bridge.execute_meta("list_tools", {"source": "mcp:Calyx"}))
+    assert "calyx_ingest" in tool_bridge.recent_learned()
+
+
+def test_search_results_carry_a_copy_pasteable_call_template(bridge):
+    idx, _ = bridge
+    idx.upsert(ToolEntry(
+        name="mcp_Calyx_search",
+        description="Search a Calyx vault for grounded memories.",
+        parameters={"type": "OBJECT", "properties": {"query": {"type": "STRING"}},
+                    "required": ["query"]},
+        source="mcp:Calyx",
+    ))
+    out = asyncio.run(tool_bridge.execute_meta("search_tools", {"intent": "search my vault"}))
+    assert 'call: call_tool(tool_name="mcp_Calyx_search", arguments={"query": "<query>"})' in out
+
+    listed = asyncio.run(tool_bridge.execute_meta("list_tools", {"source": "mcp:Calyx"}))
+    assert 'call: call_tool(tool_name="mcp_Calyx_search"' in listed
+
+
+def test_session_payload_never_appends_after_resolve():
+    """ADR-021: extras are resolved inside the budget, never bolted on."""
+    src = (ROOT / "core" / "tool_bridge.py").read_text(encoding="utf-8")
+    body = src[src.index("def build_session_payload"):]
+    body = body[:body.index("\ndef _legacy_payload")]
+
+    assert "declarations.append" not in body
+    assert "_meta_declarations()" in body
+    assert "pinned_extra=extras" in body
 
 
 # --------------------------------------------------------------------------- #

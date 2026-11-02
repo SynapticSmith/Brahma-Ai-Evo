@@ -1,6 +1,6 @@
 # ADR-019 — Action host injection for the native-tool migration
 
-**Status:** Proposed (2026-11-01) · **Blocks:** O-6 waves 1–3 (B6/B7) · **Supersedes:** nothing
+**Status:** Accepted (ratified 2026-11-01) · **Gates:** O-6 waves 1–3 (B6/B7) · **Supersedes:** nothing
 **Related:** `AGENTIC-HARNESS.md` (ToolSpec/ToolContext), `ARCHITECTURE-SPEC.md` §2.2, §6.3, §12 Q1.4
 
 ## Context

@@ -1,6 +1,6 @@
 # ADR-021 — `pinned_extra` semantics for the deferred-tool budget
 
-**Status:** Proposed (2026-11-01) · **Blocks:** O-8 layer 3 / Q1.3 (the `1008` fix)
+**Status:** Accepted (ratified 2026-11-01) · **Landed:** 2026-11-01 (`voice:`) · **Closes:** O-8 layer 3 / Q1.3
 **Related:** `core/tool_index.py:1326` (`resolve`), `core/tool_bridge.py:362`
 (`build_session_payload`), `ARCHITECTURE-SPEC.md` I-19, §6.7, §12 Q1.3
 
@@ -114,3 +114,13 @@ budgeted hint:
 - With more extras than room, the newest survive and `pinned_extra_dropped`
   reports the count.
 - `core/tool_bridge.py` no longer contains an append after `resolve()`.
+
+## Implementation (landed 2026-11-01)
+
+| Piece | Location |
+| --- | --- |
+| Budgeted extras, global-pin-first ordering, oldest-first eviction, `pinned_extra_dropped` | `ToolIndex.resolve()` (`core/tool_index.py`) |
+| Intent-hint table, `INTENT_HINT_CAP = 6`, learned-name ring buffer (`LEARNED_BUFFER_MAX = 24`) | `core/tool_bridge.py` (`intent_pins`, `note_learned`, `recent_learned`, `reset_session_learning`) |
+| Literal `call_tool(...)` templates per hit | `_handle_search` / `_handle_list_tools` |
+| Reconnect pins, explicit-end reset | `build_session_payload` default + `SessionLifecycle.run` standby tail |
+| Guards | `tests/test_tool_index.py` (3), `tests/test_tool_bridge.py` (6, incl. the no-append static check) |

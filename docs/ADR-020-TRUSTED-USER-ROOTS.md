@@ -1,6 +1,6 @@
 # ADR-020 — Trusted user roots and trusted workspaces
 
-**Status:** Proposed (2026-11-01) · **Blocks:** O-1 input-trust item (B8), and the
+**Status:** Accepted (ratified 2026-11-01) · **Gates:** O-1 input-trust item (B8), and the
 prompt-fatigue part of the O-6 migration · **Supersedes:** nothing
 **Related:** `agent/permissions.py` (path scoping), `agent/prompts.py` (instruction
 discovery), `ARCHITECTURE-SPEC.md` §7.3 item 8, §12 Q1.5, §13 Q4

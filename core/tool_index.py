@@ -1327,6 +1327,7 @@ class ToolIndex:
         self,
         query: str = "",
         budget: int = DEFAULT_ADVERTISED_BUDGET,
+        pinned_extra: Sequence[str] = (),
     ) -> Dict[str, Any]:
         """Produce the connection payload: declarations + skill context.
 
@@ -1337,11 +1338,18 @@ class ToolIndex:
               "skill_context": str,     # JIT manual block for used skill groups
               "hits": [SearchHit, ...], # what retrieval chose, for diagnostics
               "deferred": int,          # tools NOT advertised this session
+              "pinned_extra_dropped": int, # extras evicted due to budget
             }
 
         ``budget`` counts *all* advertised declarations, pinned and meta
         included, and is clamped so the Gemini ceiling cannot be exceeded even
         if a caller passes something silly.
+
+        ``pinned_extra`` lists tool names that must be advertised if there is
+        room (e.g. tools the model learned via search_tools before a 1008
+        reconnect). Extras consume budget like everything else, rank after
+        global pinned tools but before retrieval hits, and are evicted oldest-
+        first when space is tight.
         """
         with self._lock:
             pinned_entries = sorted(
@@ -1352,24 +1360,60 @@ class ToolIndex:
                 ),
                 key=lambda e: self._order.index(e.name) if e.name in self._order else 0,
             )
+            all_entries_map = dict(self._entries)
 
         pinned_names = {e.name for e in pinned_entries}
-        room = max(0, int(budget) - len(pinned_names) - len(META_TOOLS))
-        room = min(room, GEMINI_MAX_TOOLS - len(pinned_names) - len(META_TOOLS))
+        meta_count = len(META_TOOLS)
+
+        # Resolve pinned extras in the order given, last occurrence winning.
+        extra_entries: List[ToolEntry] = []
+        ordered: List[str] = []
+        for name in reversed(list(pinned_extra or ())):
+            if not isinstance(name, str) or not name or name in ordered:
+                continue
+            if name in pinned_names or name in self._disabled:
+                continue
+            entry = all_entries_map.get(name)
+            if entry is not None:
+                ordered.append(name)
+                extra_entries.append(entry)
+        extra_entries.reverse()  # back to oldest-first as the caller gave them
+        extra_names = {e.name for e in extra_entries}
+
+        # Slots available to extras + retrieval. Global pins and meta-tools are
+        # never evicted; if the configuration alone exceeds the budget that is a
+        # startup diagnostic, not a per-turn surprise.
+        slots = int(budget) - len(pinned_names) - meta_count
+        slots = min(slots, GEMINI_MAX_TOOLS - len(pinned_names) - meta_count)
+        slots = max(0, slots)
+
+        pinned_extra_dropped = max(0, len(extra_entries) - slots)
+        if pinned_extra_dropped:
+            # Oldest first: a ring buffer keeps the newest names, and the model
+            # is most likely to still remember the tool it just used.
+            extra_entries = extra_entries[pinned_extra_dropped:]
+            extra_names = {e.name for e in extra_entries}
+
+        room = max(0, slots - len(extra_entries))
 
         hits: List[SearchHit] = []
         if room > 0:
             # Over-fetch so MMR has material to choose from.
             hits = self.search(query, k=max(room * 3, room))
-            hits = [h for h in hits if h.entry.name not in pinned_names]
+            hits = [h for h in hits if h.entry.name not in pinned_names and h.entry.name not in extra_names]
             # When there is no query yet (first connect), fall back to a stable,
             # useful ordering rather than an arbitrary one: broad-coverage
             # built-ins first, then everything else alphabetically.
-            if not query.strip() and len(self.entries()) > len(pinned_names):
-                hits = self._cold_start_order(room)
+            if not query.strip() and len(self.entries()) > len(pinned_names) + len(extra_names):
+                hits = self._cold_start_order(room + len(extra_names))
+                hits = [
+                    h
+                    for h in hits
+                    if h.entry.name not in pinned_names and h.entry.name not in extra_names
+                ]
             hits = hits[:room]
 
-        selected = list(pinned_entries) + [h.entry for h in hits]
+        selected = list(pinned_entries) + list(extra_entries) + [h.entry for h in hits]
         self._stats.advertised = len(selected)
         self._stats.total_tokens_estimate = _estimate_tokens(selected)
 
@@ -1382,6 +1426,7 @@ class ToolIndex:
             "hits": hits,
             "pinned": pinned_names,
             "deferred": max(0, total - len(selected)),
+            "pinned_extra_dropped": pinned_extra_dropped,
         }
 
     def _cold_start_order(self, room: int) -> List[SearchHit]:

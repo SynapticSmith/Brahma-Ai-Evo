@@ -756,6 +756,12 @@ class SessionLifecycle:
                 self._host._loop = None
             self._host.set_speaking(False)
             if self._host._should_standby():
+                # An explicit end of session (Disconnect / On Call parking)
+                # also forgets what search_tools taught. A 1008 reconnect does
+                # not pass through here, so it keeps its learned-tool pins.
+                from core import tool_bridge
+
+                tool_bridge.reset_session_learning()
                 # No reconnect delay, and never a LISTENING flash on a UI that
                 # is no longer listening -- that flash is what made the status
                 # indicator look stuck.

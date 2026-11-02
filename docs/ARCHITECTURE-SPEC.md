@@ -124,7 +124,7 @@ The fourth door is the single largest structural inconsistency in the repo. §6.
 | `agent/` | The stdlib-only agent harness (22 modules) | No pre-fork autonomous executor remains; `agent/__init__.py` is inert. |
 | `features/` | Forge output, hot-loaded at startup | Untrusted model-generated code; see §7. |
 | `brahma_connect/` | Phone/device gateway (HTTP + WebSocket + mDNS) | Defaults to `127.0.0.1`, disabled, no mDNS advertise; HTTP control routes still unauthenticated when enabled. |
-| `tests/` | Pytest suite; 766 passed / 1 skipped after the build-plumbing batch | `test_agent_*` are display- and SDK-free. |
+| `tests/` | Pytest suite; 775 passed / 1 skipped after the ADR-021 batch | `test_agent_*` are display- and SDK-free. |
 | `docs/` | Design records, build logs, proposals, ADRs | Twenty-three documents; see §3. |
 
 ### 2.3 Subsystem inventory
@@ -140,7 +140,7 @@ The fourth door is the single largest structural inconsistency in the repo. §6.
 | Skills Library | `core/skills_library.py`, `core/skill_discovery.py` | Built |
 | Skills Forge / Crucible | `core/skill_forge.py`, `core/skill_crucible.py`, `features/` | Built-Partial, **unsafe by design today** |
 | Plugins | `plugin_manager.py`, `plugins/` | Built, **untrusted auto-import** |
-| Voice | `core/session_lifecycle.py`, `core/mcp_manager.py` | Built-Partial (deferred-tool `1008`) |
+| Voice | `core/session_lifecycle.py`, `core/mcp_manager.py` | Built (deferred tools via `search_tools`/`call_tool`; `1008` reconnect pins) |
 | Avatars | `core/avatar_runtime.py`, `core/avatar_catalog.py`, `assets/avatar_*` | Built (4/4 renderers; Live2D runtime user-supplied) |
 | Gateway | `brahma_connect/gateway/*` | Built-Partial, **off by default; loopback bind; HTTP control routes unauthenticated when enabled** |
 | Updaters | *(none)* | Removed in Q0-B; no self-update until signed releases exist |
@@ -178,7 +178,7 @@ The `docs/` tree mixes five kinds of document. Treating them as one authority le
 | `SECURITY-ANALYSIS-ISSUE-4.md` | 2026-10-24 | Eight findings against this fork, with evidence | **Current and accurate** (re-verified 2026-11-01). |
 | `SECURITY-ARCHITECTURE-ROADMAP.md` | 2026-10-28 | WS-1…WS-10, SEC-01…SEC-18, Phase 0–3, target process model | **Proposed.** Use as the security plan; nothing is implemented. |
 | `UPSTREAM-INTEGRATION-PLAN.md` | 2026-10-28 | Hybrid selective port of 7 upstream commits | **Proposed/planning.** Commit list needs refreshing; strategy stands. |
-| `DEFERRED-TOOL-PROXY-MISSION.md` | 2026-10-29 | Gemini Live `1008` on undeclared tool calls | **Open investigation.** Prevention-via-prompting is the current recommendation, unproven. |
+| `DEFERRED-TOOL-PROXY-MISSION.md` | 2026-10-29 | Gemini Live `1008` on undeclared tool calls | **Superseded by ADR-021** (landed 2026-11-01): literal `call_tool` templates plus budgeted reconnect pins. |
 | `agent-orchestrator-bridge.md` | rev 3 + 2026-10-17 amendments | 87 KB "god orchestrator" design | **Aspirational.** §8 re-bases it. |
 | `AGENT-BRIDGE-BUILD-TODO.md` | 2026-10-17 | WBS with frozen contracts, phases 0–5 | **Aspirational.** ~3% built (ADRs only). Its guards are already violated. |
 | `AGENT-BRIDGE-ADR.md` | 2026-10-17 | ADR-001…017 | **Accepted decisions, but not yet architecture.** Several conflict with the harness; see §8.3. |
@@ -188,7 +188,7 @@ The `docs/` tree mixes five kinds of document. Treating them as one authority le
 | Claim in an older doc | Current reality |
 |---|---|
 | "Nothing has been committed" (`ONE-391-changes`) | 1.0.1 and 23+ harness batches are on `main`. |
-| Test counts 167 / 221 / 331 | 766 passed, 1 skipped after the build-plumbing batch. |
+| Test counts 167 / 221 / 331 | 775 passed, 1 skipped after the ADR-021 batch. |
 | `main.py` ≤ 3,903; `ui.py` ≤ 692 (bridge guards) | 4,833 / 827. |
 | "MCP is CLI-only" | GUI text path, voice manager, and CLI all use MCP. |
 | "Skills Library has two roots" | Three: project `.brahma/skills` is highest precedence (D42). |
@@ -280,7 +280,7 @@ These are the rules a change must not break. Each has an enforcement point and, 
 |---|---|
 | Native tool dispatch | No policy engine; only three destructive actions are confirm-gated. |
 | `agent_task` autonomous execution | Bypasses the harness entirely; planner is prompt-driven and unverified. |
-| Gemini Live + deferred tools | The model can call an unadvertised tool and the socket closes with `1008`. Mitigation is prompt-only today. |
+| Gemini Live + deferred tools | Budgeted `search_tools`/`call_tool` templates with session-scoped reconnect pins; no unbudgeted append (I-19). |
 | Voice MCP | Separate SDK manager; no turn-boundary refresh parity with the harness. |
 | Subagents | Sequential, same model, lossy report, no session row. |
 | Skills Forge | Writes and immediately executes model-generated code; no trust boundary, no review, runtime `pip`. |
@@ -334,7 +334,7 @@ Each section states the contract and the one thing most likely to break.
 - **Why it exists:** Gemini Live rejects >128 declarations and cannot swap tools mid-session (I-19/I-20).
 - **Contract:** every tool is a `ToolSpec` with a canonical lowercase schema; `gemini()` converts up at the edge.
 - **Failure mode to respect:** description collisions are a data problem. Fix them in `%LOCALAPPDATA%\BrahmaAI\tool_routing.json`, not in the retriever.
-- **Known gaps:** (1) the legacy `elif` chain (`core/tool_exec.py:203–791`, ~590 lines of an 868-line file) is still the executor for native tools, so "one registry" is aspirational for that half; (2) `core/tool_bridge.py:386–398` appends `mcp_Synapse`/`cdp` matches *after* `index.resolve(intent, budget=budget())`, clamped only at 128 — an active violation of I-19 that must be removed with O-8.
+- **Known gaps:** (1) the legacy `elif` chain (`core/tool_exec.py:203–791`, ~590 lines of an 868-line file) is still the executor for native tools, so "one registry" is aspirational for that half; (2) the unbudgeted `mcp_Synapse`/`cdp` append is gone (ADR-021): intent hints now go through `resolve(pinned_extra=…)` and consume budget.
 
 ### 6.4 Agent harness
 
@@ -375,7 +375,7 @@ The authoritative description is `AGENTIC-HARNESS.md`. This is the orientation:
 - **Setup:** one `BidiGenerateContentSetup` per session; tools fixed at connect time.
 - **Why deferred tools exist:** 173 tools exceed the 128 ceiling, so most are reachable only via `search_tools` → `call_tool`.
 - **The `1008` failure:** the model sometimes calls a discovered-but-unadvertised tool directly; Gemini closes the socket with `1008 (policy violation) Requested entity was not found`.
-- **Current mitigation:** prompt the model to call through `call_tool`; not proven. **No code fix is committed.**
+- **Mitigation (landed 2026-11-01, ADR-021):** `search_tools`/`list_tools` now return a literal `call_tool(tool_name="…", arguments={…})` line per hit, and keep a bounded ring buffer of what they taught. A `1008` reconnect re-advertises those names through `ToolIndex.resolve(pinned_extra=…)` — inside the budget, never appended after it. Intent hints (browser/Synapse/cdp, cap 6) use the same mechanism, replacing the old unbudgeted promotion loop that violated I-19. An explicit disconnect clears the buffer; a reconnect does not.
 - **Constraint for any future fix:** it must remain backend-agnostic (Gemini Live, local, custom) and must not create a second execution path.
 
 ### 6.8 Avatar backends
@@ -554,7 +554,7 @@ py -3.11 -m pytest tests -q -k agent
 py -3.11 -m agent run "say hello" --provider stub --json --no-session
 ```
 
-Baseline after the build-plumbing batch: ruff clean; **766 passed, 1 skipped**; `-k agent` **391 passed, 1 skipped**; full suite ~2–5 min depending on host load. Python 3.11 is mandatory for the gates; the repo `.venv` and default `python` are 3.14 and lack the dev tools (`scripts/setup_dev.ps1 -Force` recreates it on 3.11).
+Baseline after the ADR-021 batch: ruff clean; **775 passed, 1 skipped**; `-k agent` **391 passed, 1 skipped**; full suite ~2–5 min depending on host load. Python 3.11 is mandatory for the gates; the repo `.venv` and default `python` are 3.14 and lack the dev tools (`scripts/setup_dev.ps1 -Force` recreates it on 3.11).
 
 ### 10.3 Definition of done
 
@@ -604,13 +604,13 @@ A batch is done when:
 
 Accepted 2026-10-17, but **acceptance is not authorization to build**: they were accepted against a design that predates the harness. ADR-006 (MCP extraction) and ADR-011 (route through `core/confirm`) are the ones that conflict with §8.3 and must be superseded by ADR-018 before implementation. ADR-001's "no core growth" premise also needs revisiting, since both shell guards are already breached.
 
-**Proposed (2026-11-01), awaiting ratification — these gate the remaining Q1 work:**
+**Proposed (2026-11-01), ratified by the owner the same day. These gate the remaining Q1 work; ADR-021 has landed:**
 
-| ADR | Decision | Gates | Document |
-| --- | --- | --- | --- |
-| **ADR-019** | Native actions get a narrow `HostServices` bundle through `ToolContext.extra["host"]`; adapters, not signature changes; HUD feedback moves to runtime events. | O-6 waves 1–3 (B6/B7) | `docs/ADR-019-ACTION-HOST-INJECTION.md` |
-| **ADR-020** | `paths.trusted_roots` (human-authored, containment-only, secrets still protected) plus a `trusted_workspaces` store that gates repo-local MCP loading; trust gates execution, not reading. | O-1 trust item (B8), prompt fatigue in O-6 | `docs/ADR-020-TRUSTED-USER-ROOTS.md` |
-| **ADR-021** | `pinned_extra` consumes budget, ranks after global pins, drops oldest-first, and replaces the unbudgeted Synapse/cdp append. | O-8 layer 3 / the `1008` fix (Q1.3) | `docs/ADR-021-PINNED-EXTRA-SEMANTICS.md` |
+| ADR | Status | Decision | Gates | Document |
+| --- | --- | --- | --- | --- |
+| **ADR-019** | Accepted | Native actions get a narrow `HostServices` bundle through `ToolContext.extra["host"]`; adapters, not signature changes; HUD feedback moves to runtime events. | O-6 waves 1–3 (B6/B7) | `docs/ADR-019-ACTION-HOST-INJECTION.md` |
+| **ADR-020** | Accepted | `paths.trusted_roots` (human-authored, containment-only, secrets still protected) plus a `trusted_workspaces` store that gates repo-local MCP loading; trust gates execution, not reading. | O-1 trust item (B8), prompt fatigue in O-6 | `docs/ADR-020-TRUSTED-USER-ROOTS.md` |
+| **ADR-021** | **Landed** | `pinned_extra` consumes budget, ranks after global pins, drops oldest-first, and replaces the unbudgeted Synapse/cdp append. | O-8 layer 3 / the `1008` fix (Q1.3) | `docs/ADR-021-PINNED-EXTRA-SEMANTICS.md` |
 
 
 ### 11.3 Owner decisions (ratified & amended 2026-11-01; see `ARCHITECTURE-RECOMMENDATIONS.md`)
@@ -624,7 +624,7 @@ Accepted 2026-10-17, but **acceptance is not authorization to build**: they were
 | **O-5** | Upstream timing | port now / after Phase 0 | **After Q0-A and Q0-B**, and never merge `9dd02cf` wholesale. |
 | **O-6** | Native-tool policy | leave `elif` chain / migrate incrementally | **Migrate by capability class** using existing `TOOL_CLASSES` (`exec` → `write` → `network`/`device` → `read`), wrapping each in a `ToolSpec` behind `AgentRuntime` (no `is_async`/`ui_feedback` needed) and retiring the `core/tool_exec.py` `elif` chain. |
 | **O-7** | `agent_task` | keep / disable / re-implement | **Disable now in Q0-A**, delete `agent/planner.py`, `executor.py`, `task_queue.py`, and `error_handler.py` in Q1, and rely on `AgentLoop`/`run_subagent`. |
-| **O-8** | Deferred-tool `1008` | prompt-only / template output + session-scoped pin | **Three-part fix:** (1) format `_handle_search`/`_handle_list_tools` hits as literal `call_tool(tool_name="...", arguments={...})` templates; (2) add session-scoped `pinned_extra` to `ToolIndex.resolve()` and `build_session_payload()` for `1008` reconnects without replaying the turn; (3) delete the unbudgeted `mcp_Synapse`/`cdp` promotion block in `core/tool_bridge.py:386–398` (restoring I-19). |
+| **O-8** | Deferred-tool `1008` | prompt-only / template output + session-scoped pin | **Landed 2026-11-01 (ADR-021):** literal `call_tool(tool_name="...", arguments={...})` templates in `_handle_search`/`_handle_list_tools`; session-scoped `pinned_extra` in `ToolIndex.resolve()`/`build_session_payload()` for `1008` reconnects; the unbudgeted `mcp_Synapse`/`cdp` append deleted (I-19 restored). |
 
 ---
 
@@ -654,9 +654,9 @@ Accepted 2026-10-17, but **acceptance is not authorization to build**: they were
 
 1. Record O-1/O-2 (N4/N5) in the harness status/tracker docs and write ADR-018 for the bridge boundary.
 2. ✅ (landed early as B4) Delete legacy autonomous files (`agent/planner.py`, `executor.py`, `task_queue.py`, `error_handler.py`) and land CI ratchet gates (`main.py`/`ui.py`/`core/tool_exec.py` line counts, `elif` count ratchet, `agent/` import canary) — `tests/test_architecture_invariants.py` + `tests/architecture_ratchet.json`.
-3. Resolve the deferred-tool `1008` and I-19 violation (`O-8`: `call_tool` template formatting in `_handle_search`, remove `tool_bridge.py:386–398` promotion loop, add session-scoped `resolve(pinned_extra=...)`). **Blocked on ADR-021 ratification** (budget accounting, precedence, eviction order are now specified).
-4. Migrate native tools to `ToolSpec`s behind `AgentRuntime` by capability class (`exec`/`write` first, then `device`/`network`, then `read`), retiring the `elif` chain in `core/tool_exec.py` and extracting turn controllers from `main.py` (`O-6`). **Blocked on ADR-019 ratification** (host injection shape).
-5. Add workspace trust fingerprinting (`trusted_workspaces`), verified container probe (`sandbox doctor` + `require_confined`, `O-1`), and read-only subagent fan-out (`run_subagent_batch`, `O-2`), one concern per batch. **Workspace trust is specified in ADR-020; `sandbox doctor` still needs its probe contract.**
+3. ✅ (landed 2026-11-01, ADR-021) Resolve the deferred-tool `1008` and I-19 violation (`O-8`): `call_tool` templates in `_handle_search`/`_handle_list_tools`, the `tool_bridge.py` promotion append deleted, and session-scoped `resolve(pinned_extra=...)` with budget accounting, oldest-first eviction, and a `pinned_extra_dropped` counter.
+4. Migrate native tools to `ToolSpec`s behind `AgentRuntime` by capability class (`exec`/`write` first, then `device`/`network`, then `read`), retiring the `elif` chain in `core/tool_exec.py` and extracting turn controllers from `main.py` (`O-6`). **ADR-019 accepted 2026-11-01; wave 1 is the next batch.**
+5. Add workspace trust fingerprinting (`trusted_workspaces`), verified container probe (`sandbox doctor` + `require_confined`, `O-1`), and read-only subagent fan-out (`run_subagent_batch`, `O-2`), one concern per batch. **ADR-020 accepted (workspace trust); `sandbox doctor` still needs its probe contract.**
 6. Keep the two MCP clients per I-18 (`agent/mcp.py` is stdio-only; `core/mcp_manager.py` owns HTTP/SSE + headers/auth); bring the voice MCP manager to refresh parity or scope HTTP/SSE parity explicitly.
 7. ✅ (landed 2026-11-01) Build reproducibility plumbing: `requirements-build.txt` pins PyInstaller + hooks, `scripts/setup_dev.ps1` builds a 3.11 `.venv` and refuses other interpreters, `build_all.ps1` invokes `python -m PyInstaller` and writes `dist\SHA256SUMS.txt`, and `.github/workflows/build.yml` runs a manual/tag build. No lockfile and no signing yet — that stays in WS-6/Q4.
 8. Correct any remaining doc drift (counts, guards, roots).

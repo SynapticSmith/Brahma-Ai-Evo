@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import threading
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from core import tool_index as ti
@@ -78,6 +79,31 @@ _settings: Dict[str, Any] = {}
 #: Ceiling on a single ``search_skills`` call. Skills are metadata, not tool
 #: declarations, so this is a library-side cap rather than a budget one.
 SKILLS_SEARCH_MAX = 25
+
+#: Hard cap on intent-derived pins (ADR-021). Small enough to leave retrieval
+#: room on the default 24-tool budget and predictable across users.
+INTENT_HINT_CAP = 6
+
+#: Intent keyword -> tool-name prefixes worth advertising even when retrieval
+#: under-ranks them. This replaces the old unbudgeted append in
+#: ``build_session_payload``; pins now compete for slots like everything else.
+INTENT_HINTS: Tuple[Dict[str, Tuple[str, ...]], ...] = (
+    {
+        "keywords": ("chrome", "browser", "synapse", "cdp", "open tab", "navigate"),
+        "prefixes": ("mcp_Synapse", "cdp"),
+        "contains": ("cdp",),
+    },
+)
+
+#: How many recently learned tool names to remember for a Live connection.
+#: Bounded by the default budget: a session cannot productively use more.
+LEARNED_BUFFER_MAX = 24
+
+#: Names the model discovered through ``search_tools`` / ``list_tools`` this
+#: Live connection. A 1008 reconnect re-advertises them via ``pinned_extra``
+#: without replaying the user turn. Reset when the user ends the session.
+_learned_names: List[str] = []
+_learned_lock = threading.Lock()
 
 
 # --------------------------------------------------------------------------- #
@@ -163,6 +189,76 @@ def search_limit_cap() -> int:
 
 def enabled() -> bool:
     return get_index().enabled and _truthy(_settings.get("tool_index_enabled", True), True)
+
+
+# --------------------------------------------------------------------------- #
+# Session-scoped pins (ADR-021)
+# --------------------------------------------------------------------------- #
+
+
+def note_learned(names: Iterable[str]) -> None:
+    """Remember tools the model just discovered in this Live connection.
+
+    Called by ``search_tools`` and ``list_tools``. The buffer is a ring: the
+    newest name wins a tight budget, which is why the list is ordered oldest
+    first and trimmed from the front.
+    """
+    with _learned_lock:
+        for name in names:
+            if not name:
+                continue
+            if name in _learned_names:
+                _learned_names.remove(name)
+            _learned_names.append(name)
+        del _learned_names[:-LEARNED_BUFFER_MAX]
+
+
+def recent_learned() -> List[str]:
+    """The learned-name buffer, oldest first (a copy; callers may mutate it)."""
+    with _learned_lock:
+        return list(_learned_names)
+
+
+def reset_session_learning() -> None:
+    """Forget what this Live connection learned (explicit end of session)."""
+    with _learned_lock:
+        _learned_names.clear()
+
+
+def intent_pins(intent: str, index: Any = None) -> List[str]:
+    """Tool names worth pinning for a known-broad intent.
+
+    Bounded by :data:`INTENT_HINT_CAP`; the result still competes for budget
+    slots in :meth:`ToolIndex.resolve`, so it can never breach the ceiling.
+    """
+    text = (intent or "").strip().lower()
+    if not text:
+        return []
+
+    prefixes: List[str] = []
+    contains: List[str] = []
+    for group in INTENT_HINTS:
+        if any(keyword in text for keyword in group["keywords"]):
+            prefixes.extend(group["prefixes"])
+            contains.extend(group["contains"])
+    if not prefixes and not contains:
+        return []
+
+    catalogue = (index or get_index()).entries()
+    names: List[str] = []
+    for entry in catalogue:
+        name = entry.name or ""
+        lowered = name.lower()
+        if any(name.startswith(prefix) for prefix in prefixes) or any(
+            needle in lowered for needle in contains
+        ):
+            names.append(name)
+    return names[:INTENT_HINT_CAP]
+
+
+# --------------------------------------------------------------------------- #
+# Advertised surface
+# --------------------------------------------------------------------------- #
 
 
 def _meta_declarations() -> List[Dict[str, Any]]:
@@ -359,7 +455,10 @@ def sync_skills(registry: Any = None) -> Dict[str, int]:
 # --------------------------------------------------------------------------- #
 
 
-def build_session_payload(intent: str = "") -> Dict[str, Any]:
+def build_session_payload(
+    intent: str = "",
+    pinned_extra: Optional[Sequence[str]] = None,
+) -> Dict[str, Any]:
     """Produces the advertised declarations plus the JIT skill context block.
 
     Returns a dict with ``declarations`` (provider-ready), ``skill_context``
@@ -367,6 +466,12 @@ def build_session_payload(intent: str = "") -> Dict[str, Any]:
     a failure here would be indistinguishable from the handshake bug we are
     fixing, so the worst case is "advertise everything", which is what happens
     if the index itself is broken.
+
+    ``pinned_extra`` defaults to the intent hints plus this connection's
+    recently learned tools. Both are passed to :meth:`ToolIndex.resolve`, which
+    makes them consume budget like any other declaration — nothing is appended
+    after resolution, so the advertised count can never exceed ``budget()``
+    (ADR-021 / I-19).
     """
     index = get_index()
 
@@ -378,31 +483,28 @@ def build_session_payload(intent: str = "") -> Dict[str, Any]:
 
     try:
         index.rebuild()
-        resolved = index.resolve(intent, budget=budget())
+        if pinned_extra is None:
+            # Intent hints first; the newest learned tool last, so it wins the
+            # final slot under a tight budget. Computed after rebuild so the
+            # first connect sees the full catalogue. dict.fromkeys keeps order
+            # and deduplicates.
+            extras = list(dict.fromkeys(intent_pins(intent, index) + recent_learned()))
+        else:
+            extras = list(pinned_extra)
+        resolved = index.resolve(intent, budget=budget(), pinned_extra=extras)
     except Exception as exc:
         logger.error("[ToolBridge] Index resolution failed (%s); falling back to legacy payload.", exc)
         return _legacy_payload()
 
-    declarations = list(resolved["declarations"])
-    # Aggressively promote MCP tools that match common intents to avoid 1008
-    try:
-        intent_lower = (intent or "").lower()
-        if any(k in intent_lower for k in ["chrome", "browser", "synapse", "cdp", "open tab", "navigate"]):
-            for entry in index.entries():
-                name = entry.name or ""
-                if name.startswith("mcp_Synapse") or "cdp" in name.lower():
-                    if entry.declaration not in declarations:
-                        declarations.append(entry.declaration)
-    except Exception:
-        pass
-    declarations = declarations + _meta_declarations()
+    declarations = list(resolved["declarations"]) + _meta_declarations()
     if len(declarations) > GEMINI_MAX_TOOLS:  # belt and braces
         declarations = declarations[:GEMINI_MAX_TOOLS]
 
     logger.info(
-        "[ToolBridge] session payload: %d advertised, %d deferred (~%d tokens), intent=%r",
+        "[ToolBridge] session payload: %d advertised, %d deferred (~%d tokens), "
+        "intent=%r, extras=%d dropped=%d",
         len(declarations), resolved["deferred"], index.stats().total_tokens_estimate,
-        (intent or "")[:60],
+        (intent or "")[:60], len(extras), resolved.get("pinned_extra_dropped", 0),
     )
     return {
         "declarations": declarations,
@@ -576,6 +678,23 @@ async def execute_meta(name: str, args: Dict[str, Any]) -> str:
     return f"Error: unknown meta-tool '{name}'."
 
 
+def _call_template(entry: ToolEntry) -> str:
+    """A copy-pasteable ``call_tool(...)`` invocation for a catalogued tool.
+
+    The model cannot call a deferred tool directly; ``1008`` is what that looks
+    like. Handing it the literal call shape (rather than a name it has to wrap
+    itself) removes the most common way that instruction gets misread.
+    """
+    schema = entry.parameters or {}
+    props = schema.get("properties") if isinstance(schema, dict) else None
+    required = schema.get("required") if isinstance(schema, dict) else None
+    keys = [k for k in (required or []) if isinstance(k, str)]
+    if not keys and isinstance(props, dict):
+        keys = sorted(props.keys())[:3]
+    pairs = ", ".join(f'"{k}": "<{k}>"' for k in keys)
+    return f'call_tool(tool_name="{entry.name}", arguments={{{pairs}}})'
+
+
 def _handle_search(args: Dict[str, Any]) -> str:
     intent = str(args.get("intent") or args.get("query") or "").strip()
     if not intent:
@@ -597,6 +716,8 @@ def _handle_search(args: Dict[str, Any]) -> str:
             "Try different wording, or handle this yourself."
         )
 
+    note_learned(h.entry.name for h in hits)
+
     lines = [f"Found {len(hits)} tool(s) for {intent!r}:"]
     for rank, hit in enumerate(hits, start=1):
         entry = hit.entry
@@ -610,6 +731,7 @@ def _handle_search(args: Dict[str, Any]) -> str:
             f"\n   group: {entry.skill_id}"
             f"\n   does: {entry.short_description(300)}"
             f"\n   arguments: {argspec}{req}"
+            f"\n   call: {_call_template(entry)}"
         )
         if entry.skill_id and index.manual(entry.skill_id) is not None:
             lines.append(f"   manual: call get_skill_manual with skill_id='{entry.skill_id}'")
@@ -617,8 +739,8 @@ def _handle_search(args: Dict[str, Any]) -> str:
     lines.append(
         "\n🚨 ABSOLUTELY CRITICAL: THESE TOOLS ARE NOT IN YOUR DECLARED FUNCTION LIST. "
         "YOU CANNOT CALL THEM DIRECTLY. IF YOU CALL THEM DIRECTLY, THE SESSION WILL CRASH IMMEDIATELY. "
-        "YOU MUST USE: call_tool(tool_name=\"<exact name from above>\", arguments={<args from schema>}) "
-        "FOR EVERY TOOL LISTED ABOVE. DO NOT CALL THEM BY THEIR NAMES DIRECTLY."
+        "COPY THE `call:` LINE VERBATIM, filling in each <placeholder>. "
+        "DO NOT CALL THEM BY THEIR NAMES DIRECTLY."
     )
     return "\n".join(lines)
 
@@ -679,6 +801,7 @@ def _handle_list_tools(args: Dict[str, Any]) -> str:
         )
 
     scope = f" matching source/group {source!r}" if source else ""
+    note_learned(e.name for e in page)
     lines = [f"Listing {len(page)} of {len(entries)} tool(s){scope} "
              f"— positions {offset + 1}-{offset + len(page)}:"]
     for position, entry in enumerate(page, start=offset + 1):
@@ -688,6 +811,7 @@ def _handle_list_tools(args: Dict[str, Any]) -> str:
         lines.append(
             f"{position}. {entry.name} [{entry.skill_id or entry.source}] — "
             f"{entry.short_description(160)} (args: {argspec})"
+            f"\n   call: {_call_template(entry)}"
         )
 
     next_offset = offset + len(page)
@@ -697,8 +821,9 @@ def _handle_list_tools(args: Dict[str, Any]) -> str:
             f"list_tools(offset={next_offset})."
         )
     lines.append(
-        "⚠️ CRITICAL: Tools not in your declared function list MUST be called via call_tool(tool_name=<exact name>, arguments={...}). "
-        "Do NOT call them directly or the session will crash. Or use search_tools(intent=...) to rank the catalogue against a specific goal."
+        "⚠️ CRITICAL: Tools not in your declared function list MUST be called via the `call:` "
+        "line shown for each entry. Do NOT call them directly or the session will crash. "
+        "Or use search_tools(intent=...) to rank the catalogue against a specific goal."
     )
     return "\n".join(lines)
 
