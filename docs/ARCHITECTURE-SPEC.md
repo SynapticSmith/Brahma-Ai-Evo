@@ -52,9 +52,9 @@ On top of that, 1.0.1 and the harness batches that followed added:
 
 The system is **functionally strong and structurally uneven**. Three facts dominate the current situation:
 
-1. **The harness is real and is the best-built part of the repo.** `agent/` is stdlib-only, tested by ~387 tests, and owns one dispatch boundary, one loop, and one policy engine.
-2. **The rest of the app is still pre-harness.** Native tools are dispatched by an `elif` chain in `core/tool_exec.py` with no policy check, and a second, older autonomous executor (`agent_task` → `TaskQueue` → `AgentExecutor`) still bypasses the runtime entirely.
-3. **All eight critical security findings from upstream issue #4 are still present**, verified on the baseline. The security roadmap is `Proposed`, not implemented. Two of the ten roadmap workstreams overlap the harness directly.
+1. **The harness is real and is the best-built part of the repo.** `agent/` is stdlib-only, tested by ~391 tests, and owns one dispatch boundary, one loop, and one policy engine.
+2. **The rest of the app is still pre-harness.** Native tools are dispatched by an `elif` chain in `core/tool_exec.py` with no policy check. The older autonomous executor (`agent_task` → `TaskQueue` → `AgentExecutor`) was retired and deleted in Q0-A; its remaining cost is the ungated `elif` chain, not a second loop.
+3. **Five of the eight critical security findings from upstream issue #4 remain.** Q0-A closed the forge execution path, the TLS-bypass prompts, runtime `pip`, and the dead `confirmed` declaration; plugins, updates, secrets, the Crucible denylist, privilege separation, and the LAN gateway are still open. The security roadmap is `Proposed`, not implemented.
 
 The two large proposals are in different states and must not be conflated:
 
@@ -93,23 +93,23 @@ The two large proposals are in different states and must not be conflated:
 │    ├── registered harness tool? → AgentRuntime.execute  (policy)         │
 │    └── else → legacy elif chain → actions/*.py        (no policy)         │
 │                                                                          │
-│  Legacy autonomous path: agent_task tool → agent/task_queue.py           │
-│    └── AgentExecutor → agent/planner.py → direct action calls            │
-│        (bypasses both AgentRuntime and the legacy executor)              │
+│  Legacy autonomous path: retired in Q0-A (2026-11-01)                    │
+│    agent_task → TaskQueue → AgentExecutor → planner is deleted; calls    │
+│    use the harness (AgentLoop / run_subagent) instead                     │
 │                                                                          │
 │  Side systems: Skills Library, Skills Forge/Crucible, plugins,           │
 │                gateway (brahma_connect), updaters, avatars, smart home   │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-**There are three supported doors and one unsupported door.**
+**There are three supported doors. The fourth was retired in Q0-A.**
 
 | Door | Entry point | Harness tools | Native tools | Policy |
 |---|---|---|---|---|
 | Voice | Gemini Live session | `AgentToolExecutor` → `AgentRuntime` | legacy `elif` chain | policy for harness tools only |
 | GUI text | `main.py:_finish_tool_turn` → `AgentLoop` | `AgentRuntime` | legacy `elif` chain | policy for harness tools only |
 | CLI | `python -m agent` | `AgentRuntime` | not advertised | policy |
-| **Legacy autonomous** | `agent_task` tool | **none** | direct calls / `DynamicToolRegistry` | **none** |
+| ~~Legacy autonomous~~ | ~~`agent_task` tool~~ | — | — | **retired in Q0-A; files deleted** |
 
 The fourth door is the single largest structural inconsistency in the repo. §6.10 specifies it and §13 proposes its retirement.
 
@@ -117,14 +117,14 @@ The fourth door is the single largest structural inconsistency in the repo. §6.
 
 | Path | Contents | Notes |
 |---|---|---|
-| `main.py` | App entry, `BrahmaLive`, `TOOL_DECLARATIONS` (60 native tools), provider routing, GUI text loop wiring | 4,833 lines. Bridge-era guard was ≤3,903; already violated. |
+| `main.py` | App entry, `BrahmaLive`, `TOOL_DECLARATIONS` (59 native tools), provider routing, GUI text loop wiring | 4,811 lines. Bridge-era guard was ≤3,903; already violated. |
 | `ui.py` | Thin `MainWindow` composition root over `core/ui_*` modules | 827 lines. Bridge-era guard was ≤692; already violated. |
 | `core/` | Cross-cutting seams: tool dispatch/index, provider chain, confirmation, sessions, skills, avatars, UI modules | ~90 modules. The de-facto architecture layer. |
 | `actions/` | One module per native capability (~48) | Legacy tool implementations, called by the `elif` chain. |
-| `agent/` | **Two things:** the stdlib-only agent harness (20 modules) **and** the pre-fork autonomous executor (4 modules) | Names collide conceptually; see §6.10. |
+| `agent/` | The stdlib-only agent harness (22 modules) | No pre-fork autonomous executor remains; `agent/__init__.py` is inert. |
 | `features/` | Forge output, hot-loaded at startup | Untrusted model-generated code; see §7. |
 | `brahma_connect/` | Phone/device gateway (HTTP + WebSocket + mDNS) | Binds `0.0.0.0`; HTTP control routes unauthenticated. |
-| `tests/` | Pytest suite; 744 passed / 1 skipped at baseline | `test_agent_*` are display- and SDK-free. |
+| `tests/` | Pytest suite; 752 passed / 1 skipped after Q0-A | `test_agent_*` are display- and SDK-free. |
 | `docs/` | Design records, build logs, proposals | Eighteen documents; see §3. |
 
 ### 2.3 Subsystem inventory
@@ -188,7 +188,7 @@ The `docs/` tree mixes five kinds of document. Treating them as one authority le
 | Claim in an older doc | Current reality |
 |---|---|
 | "Nothing has been committed" (`ONE-391-changes`) | 1.0.1 and 23+ harness batches are on `main`. |
-| Test counts 167 / 221 / 331 | 744 passed, 1 skipped at baseline. |
+| Test counts 167 / 221 / 331 | 752 passed, 1 skipped after Q0-A. |
 | `main.py` ≤ 3,903; `ui.py` ≤ 692 (bridge guards) | 4,833 / 827. |
 | "MCP is CLI-only" | GUI text path, voice manager, and CLI all use MCP. |
 | "Skills Library has two roots" | Three: project `.brahma/skills` is highest precedence (D42). |
@@ -392,15 +392,17 @@ The authoritative description is `AGENTIC-HARNESS.md`. This is the orientation:
 - **Egress:** `core/llm_gateway.py` is the single choke point for auxiliary model calls; provider kill switches apply.
 - **Rule:** the gateway must default to loopback and every control route must require a paired device before it is considered safe.
 
-### 6.10 Legacy autonomous executor (architectural debt)
+### 6.10 Legacy autonomous executor (retired 2026-11-01)
 
-This is the part the harness docs do not describe, and it matters.
+The pre-fork autonomous stack — `agent/planner.py`, `agent/executor.py`, `agent/task_queue.py`, `agent/error_handler.py` — was deleted in batch B4. What it was, and why it is not coming back:
 
-- **Files:** `agent/planner.py`, `agent/executor.py`, `agent/task_queue.py`, `agent/error_handler.py`. They are from the pre-fork/upstream line (initial commit), not the harness.
-- **Entry point:** the `agent_task` native tool (`main.py` declaration; `core/tool_exec.py` handler) submits a goal to a `TaskQueue`, which runs `AgentExecutor`.
-- **Behavior:** `create_plan()` asks a model for up to five steps; `_call_tool()` dispatches directly to `actions/*`; `analyze_error()` replans; `_run_skill_forge()` can forge and immediately execute a new feature.
-- **Why it is debt:** it bypasses `AgentRuntime`, the policy, the approval banner, process containment, sessions, and the event stream. It is a fourth door with no gate.
-- **Recommendation:** disable `agent_task` in the advertised surface now, then either delete the path or re-implement it as a harness workflow (`run_subagent` + planner schema) behind the same runtime. Do not port it forward as-is.
+- **Entry point (removed):** the `agent_task` native tool submitted a goal to a `TaskQueue`, which ran `AgentExecutor`.
+- **Behavior (removed):** `create_plan()` asked a model for up to five steps; `_call_tool()` dispatched directly to `actions/*`; `analyze_error()` replanned; `_run_skill_forge()` forged and immediately executed a new feature.
+- **Why it was debt:** it bypassed `AgentRuntime`, the policy, the approval banner, process containment, sessions, and the event stream — a fourth door with no gate.
+- **Replacement:** `AgentLoop` with `run_subagent` (and, once O-6 lands, migrated `ToolSpec`s). `core/tool_exec.py` answers a stale `agent_task` call with a pointer at the harness rather than dispatching it.
+- **Guards:** `tests/test_architecture_invariants.py` fails if any of the four files reappear; `tests/test_security_phase0.py` fails if a model-facing `agent_task` declaration returns.
+
+`agent/` is now the stdlib-only harness plus an inert `__init__.py`.
 
 ---
 
@@ -410,18 +412,19 @@ This is the part the harness docs do not describe, and it matters.
 
 | # | Finding | Status | Evidence in the current tree |
 |---|---|---|---|
-| 1 | Forge writes and executes model code with no trust boundary | **Open** | `core/skill_forge.py` writes `features/`; `main.py:_forge_skill` calls `DynamicToolRegistry.execute_sync` immediately. |
+| 1 | Forge writes and executes model code with no trust boundary | **Mitigated (Q0-A)** | `core/skill_forge.py` stages into `%LOCALAPPDATA%\BrahmaAI\staged_skills\<name>\` and never imports or registers the draft; `main.py:_forge_skill` no longer calls `execute_sync`. Promotion UX is still undefined (WS-1). |
 | 2 | Any `.py` in `plugins/` is imported at startup | **Open** | `plugin_manager.py:14` `load_plugins`, `:26` `exec_module`; no signature/allowlist. |
 | 3 | Unsigned self-update / hard reset | **Open** | `updater.py:11` hardcoded `Brahma---personal`; `core/updater.py` `git reset --hard`. |
-| 4 | Forge prompt instructs TLS bypass | **Open** | `core/skill_forge.py:255`, `:380` (`verify=False`, `_create_unverified_context`). |
-| 5 | Unpinned runtime `pip install` | **Open** | `core/skill_crucible.py:191` (`pip install`), `:189` uninstall/reinstall. |
+| 4 | Forge prompt instructs TLS bypass | **Closed (Q0-A)** | The prompt now requires verified TLS; `tests/test_security_phase0.py` fails on `verify=False`, `_create_unverified_context`, `CERT_NONE`, or a disabled hostname check anywhere in `core/skill_forge.py`. |
+| 5 | Unpinned runtime `pip install` | **Closed (Q0-A)** | `SkillCrucible.resolve_dependencies()` only calls `importlib.util.find_spec` and returns a manual `pip install` plan; it spawns no subprocess. |
 | 6 | Secrets recoverable (Fernet key beside DB; plaintext API keys) | **Open** | `smart_home/storage.py`; `config/api_keys.json`. |
 | 7 | Crucible validation is a denylist, not a sandbox | **Open** | 12 string checks + same-user subprocess + timeout. |
 | 8 | High-risk automation without privilege separation | **Open** | One process, one token, all tools in-process. |
 | + | Gateway `0.0.0.0`, unauthenticated HTTP control routes | **Open** | `server.py:33` default host; routes at `:358–407` have no auth dependency. |
-| + | Dead model-facing `confirmed` parameter (not a live bypass) | **Open (hygiene)** | `main.py:1237` still advertises it on `computer_settings`, but the handler no longer reads it (`actions/computer_settings.py` uses the `_IRREVERSIBLE` HUD gate) and `core/confirm.py:7` is docstring text describing the old bug. Removing it is schema cleanup, not a security fix. |
+| + | Dead model-facing `confirmed` parameter (not a live bypass) | **Closed (Q0-A)** | Declaration removed from `main.py`; a schema test asserts no declaration advertises `confirmed`. The handler already ignored it and the `_IRREVERSIBLE` HUD gate already held. |
+| + | Legacy `agent_task` autonomous door | **Closed (Q0-A)** | Declaration and handler removed; `agent/planner.py`, `executor.py`, `task_queue.py`, `error_handler.py` deleted; invariant tests prevent their return (§6.10). |
 
-**Conclusion:** the fork's security posture is still upstream's. The 1.0.1 work improved providers, tests, and decomposition, not trust boundaries.
+**Conclusion:** Q0-A closed the code-execution half (forge draft-only, verified TLS prompts, no runtime `pip`, no `agent_task`, no dead `confirmed`). The network/storage/supply-chain half is still upstream's posture.
 
 ### 7.2 The target model
 
@@ -435,18 +438,18 @@ WS-1 skill lifecycle · WS-2 SkillHost sandbox · WS-3 dependency supply chain �
 
 **Phase 0 is the only part that can land without a new architecture, and it is the highest value per line of code:**
 
-1. `_forge_skill` returns a draft; never `execute_sync`.
+1. ✅ **Q0-A** — `_forge_skill` returns a draft; never `execute_sync`; the skill is staged, not registered.
 2. `DynamicToolRegistry.initialize()` loads `features/*.py` only from a signed/approved index.
 3. Crucible executes module-level code only in a subprocess with a timeout.
-4. `resolve_dependencies()` returns a plan; never calls `pip`.
-5. Remove `verify=False` / `_create_unverified_context` from the forge prompts.
+4. ✅ **Q0-A** — `resolve_dependencies()` returns a plan; never calls `pip`.
+5. ✅ **Q0-A** — no TLS-bypass instructions remain in either forge prompt.
 6. Gateway binds `127.0.0.1`, disabled by default; HTTP control routes require a paired device.
 7. Disable startup updates for clones; delete the hardcoded upstream and default-Yes `reset --hard`.
 8. Move `api_keys.json` and `smart_home.key` behind DPAPI (minimal migration, one release of read-only fallback).
-9. Delete the dead model-facing `confirmed` parameter at `main.py:1237` and correct its finding status; the handler already ignores it and the HUD gate already holds.
-10. Disable `agent_task` until it is re-based (§6.10).
+9. ✅ **Q0-A** — dead model-facing `confirmed` declaration removed; the handler already ignored it and the HUD gate already holds.
+10. ✅ **Q0-A** — `agent_task` disabled and its legacy files deleted (§6.10).
 
-**Exit criteria:** a forged skill does not execute automatically; no runtime `pip`; no plaintext keys; no unauthenticated gateway on the LAN; no silent startup pull; no ungated autonomous door.
+**Exit criteria:** forged skills do not execute automatically and are staged for review; no runtime `pip`; `agent_task` is retired; no model-facing `confirmed`; the Q0-B network/storage/supply-chain items remain open.
 
 ### 7.4 How security intersects the harness
 
@@ -551,7 +554,7 @@ py -3.11 -m pytest tests -q -k agent
 py -3.11 -m agent run "say hello" --provider stub --json --no-session
 ```
 
-Baseline: ruff clean; **744 passed, 1 skipped**; `-k agent` **387 passed, 1 skipped**; full suite ~110 s. Python 3.11 is mandatory for the gates; the repo `.venv` and default `python` are 3.14 and lack dev tools.
+Baseline after Q0-A: ruff clean; **752 passed, 1 skipped**; `-k agent` **391 passed, 1 skipped**; full suite ~113 s. Python 3.11 is mandatory for the gates; the repo `.venv` and default `python` are 3.14 and lack dev tools.
 
 ### 10.3 Definition of done
 
@@ -610,11 +613,13 @@ Accepted 2026-10-17, but **acceptance is not authorization to build**: they were
 
 ### Q0-A — Stop the bleeding: Execution & code (days; no new architecture)
 
-1. Forge draft-only: remove `execute_sync` from `main.py:_forge_skill` and `agent/executor._run_skill_forge`.
-2. Remove TLS-bypass instructions (`verify=False`, `_create_unverified_context`) from both forge prompts, guarded by a string assertion test.
-3. `resolve_dependencies()` returns a plan; never calls `pip`.
-4. Delete the dead model-facing `confirmed` declaration (`main.py:1237`) and update the finding status; the handler no longer reads it.
-5. Disable the `agent_task` declaration and its handler.
+**Status: landed 2026-11-01 (batch B1) — all five items below are done.**
+
+1. ✅ Forge draft-only: `_forge_skill` stages under `staged_skills/`; no `execute_sync`; the legacy `_run_skill_forge` was deleted with the executor.
+2. ✅ TLS-bypass instructions removed from both forge prompts, guarded by a string assertion test (`tests/test_security_phase0.py`).
+3. ✅ `resolve_dependencies()` returns a plan; never calls `pip`.
+4. ✅ Dead model-facing `confirmed` declaration removed and the finding status corrected.
+5. ✅ `agent_task` declaration and handler disabled; the legacy files are gone (§6.10).
 
 ### Q0-B — Stop the bleeding: Network, secrets & supply chain (days; no new architecture)
 
@@ -627,7 +632,7 @@ Accepted 2026-10-17, but **acceptance is not authorization to build**: they were
 ### Q1 — Boundary and harness correctness (1–2 weeks)
 
 1. Record O-1/O-2 (N4/N5) in the harness status/tracker docs and write ADR-018 for the bridge boundary.
-2. Delete legacy autonomous files (`agent/planner.py`, `executor.py`, `task_queue.py`, `error_handler.py`) and land CI ratchet gates (`main.py`/`ui.py`/`core/tool_exec.py` line counts, `elif` count ratchet, `agent/` import canary).
+2. ✅ (landed early as B4) Delete legacy autonomous files (`agent/planner.py`, `executor.py`, `task_queue.py`, `error_handler.py`) and land CI ratchet gates (`main.py`/`ui.py`/`core/tool_exec.py` line counts, `elif` count ratchet, `agent/` import canary) — `tests/test_architecture_invariants.py` + `tests/architecture_ratchet.json`.
 3. Resolve the deferred-tool `1008` and I-19 violation (`O-8`: `call_tool` template formatting in `_handle_search`, remove `tool_bridge.py:386–398` promotion loop, add session-scoped `resolve(pinned_extra=...)`).
 4. Migrate native tools to `ToolSpec`s behind `AgentRuntime` by capability class (`exec`/`write` first, then `device`/`network`, then `read`), retiring the `elif` chain in `core/tool_exec.py` and extracting turn controllers from `main.py` (`O-6`).
 5. Add workspace trust fingerprinting (`trusted_workspaces`), verified container probe (`sandbox doctor` + `require_confined`, `O-1`), and read-only subagent fan-out (`run_subagent_batch`, `O-2`), one concern per batch.

@@ -33,9 +33,6 @@ MIGRATED = (
     "actions.docx_tools",
     "actions.mobile_autopilot",
     "actions.pdf_tools",
-    "agent.executor",
-    "agent.error_handler",
-    "agent.planner",
 )
 
 

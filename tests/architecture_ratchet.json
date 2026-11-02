@@ -1,0 +1,11 @@
+{
+  "_comment": "Ceilings, not targets. Lower a number when a file shrinks. Raising one needs an ADR, because these gates exist to stop main.py and the native dispatch chain from growing (ARCHITECTURE-SPEC §12 Q1).",
+  "lines": {
+    "main.py": 4811,
+    "ui.py": 827,
+    "core/tool_exec.py": 865
+  },
+  "elif_branches": {
+    "core/tool_exec.py": 80
+  }
+}
