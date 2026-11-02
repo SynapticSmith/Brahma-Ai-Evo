@@ -51,7 +51,6 @@ from llm_client import client as openrouter_client
 from workspace_store import store as workspace_store
 from smart_home.service import SmartHomeService
 from plugin_manager import PluginManager
-from updater import restart_application, update_from_github
 
 try:
     from dashboard.server import DashboardServer
@@ -4403,13 +4402,9 @@ class BrahmaLive:
 
 def main():
     _startup_log("main entered")
-    try:
-        if update_from_github(BASE_DIR):
-            _startup_log("updated from GitHub; restarting")
-            restart_application(BASE_DIR)
-            return
-    except Exception as exc:
-        _startup_log(f"GitHub update skipped: {exc}")
+    # No startup self-update: the old path pulled from a hardcoded upstream and
+    # restarted on any fast-forward. Signed releases are WS-6 work; until then
+    # the app does not mutate its own install.
     _ensure_desktop_shortcut()
 
     # Boot user-configured custom MCP servers in the background. Never fatal: a

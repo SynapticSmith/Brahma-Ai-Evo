@@ -30,10 +30,14 @@ def _default_registry_path(base_dir: Path) -> Path:
 
 @dataclass(slots=True)
 class BrahmaGatewayConfig:
-    host: str = "0.0.0.0"
+    # Safe defaults: loopback only, and off until the user turns it on. A LAN
+    # listener needs an explicit `host` (e.g. "0.0.0.0") *and* `enabled: true`
+    # in config/brahma_connect.json. Route authentication is still pending
+    # (ARCHITECTURE-SPEC §7.3 Q0-B).
+    host: str = "127.0.0.1"
     port: int = 8765
-    enabled: bool = True
-    advertise: bool = True
+    enabled: bool = False
+    advertise: bool = False
     service_name: str = "_BRAHMA._tcp.local."
     pairing_ttl_seconds: int = 300
     request_timeout_seconds: int = 30
@@ -44,10 +48,10 @@ class BrahmaGatewayConfig:
     def load(cls, base_dir: Path, override: dict[str, Any] | None = None) -> "BrahmaGatewayConfig":
         base_dir = Path(base_dir)
         data: dict[str, Any] = {
-            "host": "0.0.0.0",
+            "host": "127.0.0.1",
             "port": 8765,
-            "enabled": True,
-            "advertise": True,
+            "enabled": False,
+            "advertise": False,
             "service_name": "_BRAHMA._tcp.local.",
             "pairing_ttl_seconds": 300,
             "request_timeout_seconds": 30,
@@ -61,10 +65,10 @@ class BrahmaGatewayConfig:
         if override:
             data.update({k: v for k, v in override.items() if v is not None})
         return cls(
-            host=str(data.get("host", "0.0.0.0")),
+            host=str(data.get("host", "127.0.0.1")),
             port=int(data.get("port", 8765)),
-            enabled=bool(data.get("enabled", True)),
-            advertise=bool(data.get("advertise", True)),
+            enabled=bool(data.get("enabled", False)),
+            advertise=bool(data.get("advertise", False)),
             service_name=str(data.get("service_name", "_BRAHMA._tcp.local.")),
             pairing_ttl_seconds=int(data.get("pairing_ttl_seconds", 300)),
             request_timeout_seconds=int(data.get("request_timeout_seconds", 30)),

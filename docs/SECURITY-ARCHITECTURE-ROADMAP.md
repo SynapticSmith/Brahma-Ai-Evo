@@ -38,7 +38,7 @@ A forged skill can read only the folders the user approved, reach only the hosts
 |---|---|---|---|
 | 1 | Forge writes and executes model-generated code with no trust boundary | Present. `SkillForge.forge_skill()` writes `features/<name>.py`, mutates `features/__init__.py`, and `main.py::_forge_skill` calls `DynamicToolRegistry.execute_sync` immediately. | WS-1, WS-2 |
 | 2 | Any `.py` in `plugins/` is imported at startup | Present. `plugin_manager.py::load_plugins()` uses `exec_module` with no signature or allowlist. | WS-4 |
-| 3 | Unsigned self-update; default-Yes hard reset | Present. `updater.py` runs `git pull` before the UI; `core/updater.py` points at `Brahma---personal` and offers `reset --hard`. | WS-6 |
+| 3 | Unsigned self-update; default-Yes hard reset | **Closed (Q0-B, 2026-11-01).** `updater.py`, `core/updater.py`, and `core/updater_ota.py` are deleted along with the startup call and prompt UI; there is no self-update path until a signed one exists. | WS-6 |
 | 4 | Generation prompt tells skills to disable TLS verification | Present. `core/skill_forge.py` recommends `verify=False` and `ssl._create_unverified_context()`. | WS-1 |
 | 5 | Unpinned `pip install` of model-chosen names | Present. `SkillCrucible.resolve_dependencies()` runs `pip install <name> --quiet`. | WS-3 |
 | 6 | Secrets recoverable: Fernet key beside DB; plaintext `api_keys.json` | Present. `smart_home/storage.py::CredentialVault`; `config/api_keys.json`. | WS-7 |
@@ -500,7 +500,7 @@ The signature covers the canonical manifest and every payload hash. The app embe
 
 ### WS-6 — Signed, staged, reversible updates
 
-**Current.** `updater.py::update_from_github()` runs before the UI, does `git fetch origin main` + `git pull --ff-only`, then `execv`s the app. `BRAHMA_SKIP_UPDATE=1` is the only opt-out. `core/updater.py` hardcodes `Brahma---personal`, compares it to local `HEAD`, and shows a default-Yes dialog whose Yes runs `git reset --hard origin/main`. The installer is unsigned (`codesign_identity=None`, no `signtool` step) and `uac_admin=True`.
+**Current.** *(Updated 2026-11-01, Q0-B.)* All three updater modules are deleted: `updater.py` (startup `git pull` + `execv`), `core/updater.py` (`UpdateChecker` with a default-Yes `git reset --hard`), and `core/updater_ota.py` (unused GitHub-release `.exe` download). Nothing runs at startup and no UI can trigger an update. The installer remains unsigned (`codesign_identity=None`, no `signtool` step) and `uac_admin=True`, so the app has **no** update path until WS-6 is built.
 
 **Target.** A signed release manifest and atomic version directories.
 
@@ -975,13 +975,13 @@ Goal: remove the worst paths with small diffs; no new architecture required.
 - [ ] `_forge_skill` no longer calls `execute_sync`; returns a draft.
 - [ ] `DynamicToolRegistry.initialize()` does not load `features/*.py` unless a signed index marks them installed.
 - [ ] `SkillCrucible` does not execute module-level code; `execute()` only in a subprocess with a timeout.
-- [ ] `resolve_dependencies()` returns a plan; never calls `pip`.
-- [ ] Remove `verify=False` / `_create_unverified_context()` from the forge prompt.
-- [ ] Gateway binds `127.0.0.1`; disabled by default.
+- [x] `resolve_dependencies()` returns a plan; never calls `pip`.
+- [x] Remove `verify=False` / `_create_unverified_context()` from the forge prompt.
+- [x] Gateway binds `127.0.0.1`; disabled by default.
 - [ ] Restore human pairing; remove auto-approve if the upstream code is integrated.
-- [ ] Disable startup updates for clones; remove the hardcoded `Brahma---personal` repo and default-Yes `reset --hard`.
+- [x] Disable startup updates for clones; remove the hardcoded `Brahma---personal` repo and default-Yes `reset --hard`.
 - [ ] Move `api_keys.json` and `smart_home.key` behind DPAPI (minimal).
-- [ ] Delete the model-facing `confirmed` parameter; keep the HUD gate.
+- [x] Delete the model-facing `confirmed` parameter; keep the HUD gate.
 
 **Exit criteria:** a forged skill does not execute automatically; no runtime `pip`; no plaintext keys; no unauthenticated gateway on the LAN; no silent startup pull.
 

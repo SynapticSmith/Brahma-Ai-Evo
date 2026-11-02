@@ -54,7 +54,7 @@ The system is **functionally strong and structurally uneven**. Three facts domin
 
 1. **The harness is real and is the best-built part of the repo.** `agent/` is stdlib-only, tested by ~391 tests, and owns one dispatch boundary, one loop, and one policy engine.
 2. **The rest of the app is still pre-harness.** Native tools are dispatched by an `elif` chain in `core/tool_exec.py` with no policy check. The older autonomous executor (`agent_task` → `TaskQueue` → `AgentExecutor`) was retired and deleted in Q0-A; its remaining cost is the ungated `elif` chain, not a second loop.
-3. **Five of the eight critical security findings from upstream issue #4 remain.** Q0-A closed the forge execution path, the TLS-bypass prompts, runtime `pip`, and the dead `confirmed` declaration; plugins, updates, secrets, the Crucible denylist, privilege separation, and the LAN gateway are still open. The security roadmap is `Proposed`, not implemented.
+3. **Four of the eight critical security findings from upstream issue #4 remain.** Q0-A closed the forge execution path, the TLS-bypass prompts, runtime `pip`, and the dead `confirmed` declaration. Q0-B closed self-update by deleting it outright and made the gateway loopback-only and off by default. Plugins, secrets at rest, the Crucible denylist, privilege separation, and gateway route authentication are still open. The security roadmap is `Proposed`, not implemented.
 
 The two large proposals are in different states and must not be conflated:
 
@@ -117,14 +117,14 @@ The fourth door is the single largest structural inconsistency in the repo. §6.
 
 | Path | Contents | Notes |
 |---|---|---|
-| `main.py` | App entry, `BrahmaLive`, `TOOL_DECLARATIONS` (59 native tools), provider routing, GUI text loop wiring | 4,811 lines. Bridge-era guard was ≤3,903; already violated. |
-| `ui.py` | Thin `MainWindow` composition root over `core/ui_*` modules | 827 lines. Bridge-era guard was ≤692; already violated. |
+| `main.py` | App entry, `BrahmaLive`, `TOOL_DECLARATIONS` (59 native tools), provider routing, GUI text loop wiring | 4,806 lines. Bridge-era guard was ≤3,903; already violated. Ratchet ceiling 4,811. |
+| `ui.py` | Thin `MainWindow` composition root over `core/ui_*` modules | 820 lines. Bridge-era guard was ≤692; already violated. Ratchet ceiling 827. |
 | `core/` | Cross-cutting seams: tool dispatch/index, provider chain, confirmation, sessions, skills, avatars, UI modules | ~90 modules. The de-facto architecture layer. |
 | `actions/` | One module per native capability (~48) | Legacy tool implementations, called by the `elif` chain. |
 | `agent/` | The stdlib-only agent harness (22 modules) | No pre-fork autonomous executor remains; `agent/__init__.py` is inert. |
 | `features/` | Forge output, hot-loaded at startup | Untrusted model-generated code; see §7. |
-| `brahma_connect/` | Phone/device gateway (HTTP + WebSocket + mDNS) | Binds `0.0.0.0`; HTTP control routes unauthenticated. |
-| `tests/` | Pytest suite; 752 passed / 1 skipped after Q0-A | `test_agent_*` are display- and SDK-free. |
+| `brahma_connect/` | Phone/device gateway (HTTP + WebSocket + mDNS) | Defaults to `127.0.0.1`, disabled, no mDNS advertise; HTTP control routes still unauthenticated when enabled. |
+| `tests/` | Pytest suite; 758 passed / 1 skipped after Q0-B | `test_agent_*` are display- and SDK-free. |
 | `docs/` | Design records, build logs, proposals | Eighteen documents; see §3. |
 
 ### 2.3 Subsystem inventory
@@ -142,8 +142,8 @@ The fourth door is the single largest structural inconsistency in the repo. §6.
 | Plugins | `plugin_manager.py`, `plugins/` | Built, **untrusted auto-import** |
 | Voice | `core/session_lifecycle.py`, `core/mcp_manager.py` | Built-Partial (deferred-tool `1008`) |
 | Avatars | `core/avatar_runtime.py`, `core/avatar_catalog.py`, `assets/avatar_*` | Built (4/4 renderers; Live2D runtime user-supplied) |
-| Gateway | `brahma_connect/gateway/*` | Built-Partial, **unauthenticated HTTP, LAN bind** |
-| Updaters | `updater.py`, `core/updater.py` | Built, **unsigned, hardcoded remote** |
+| Gateway | `brahma_connect/gateway/*` | Built-Partial, **off by default; loopback bind; HTTP control routes unauthenticated when enabled** |
+| Updaters | *(none)* | Removed in Q0-B; no self-update until signed releases exist |
 | Secrets | `smart_home/storage.py`, `config/api_keys.json` | Built, **recoverable local keys** |
 
 ---
@@ -188,7 +188,7 @@ The `docs/` tree mixes five kinds of document. Treating them as one authority le
 | Claim in an older doc | Current reality |
 |---|---|
 | "Nothing has been committed" (`ONE-391-changes`) | 1.0.1 and 23+ harness batches are on `main`. |
-| Test counts 167 / 221 / 331 | 752 passed, 1 skipped after Q0-A. |
+| Test counts 167 / 221 / 331 | 758 passed, 1 skipped after Q0-B. |
 | `main.py` ≤ 3,903; `ui.py` ≤ 692 (bridge guards) | 4,833 / 827. |
 | "MCP is CLI-only" | GUI text path, voice manager, and CLI all use MCP. |
 | "Skills Library has two roots" | Three: project `.brahma/skills` is highest precedence (D42). |
@@ -388,7 +388,7 @@ The authoritative description is `AGENTIC-HARNESS.md`. This is the orientation:
 
 ### 6.9 Gateway and egress
 
-- **Gateway:** FastAPI + WebSocket + mDNS in `brahma_connect/gateway/`. WebSocket connections authenticate a paired device. **HTTP control routes do not** (`/gateway/info`, `/pair`, `/devices`, `/logs`, `/pending`, approve/reject), and the default host is `0.0.0.0`.
+- **Gateway:** FastAPI + WebSocket + mDNS in `brahma_connect/gateway/`. WebSocket connections authenticate a paired device. **HTTP control routes do not** (`/gateway/info`, `/pair`, `/devices`, `/logs`, `/pending`, approve/reject), and by default the config is disabled on `127.0.0.1` (LAN bind requires explicit opt-in). Route authentication remains a required hardening item.
 - **Egress:** `core/llm_gateway.py` is the single choke point for auxiliary model calls; provider kill switches apply.
 - **Rule:** the gateway must default to loopback and every control route must require a paired device before it is considered safe.
 
@@ -414,17 +414,17 @@ The pre-fork autonomous stack — `agent/planner.py`, `agent/executor.py`, `agen
 |---|---|---|---|
 | 1 | Forge writes and executes model code with no trust boundary | **Mitigated (Q0-A)** | `core/skill_forge.py` stages into `%LOCALAPPDATA%\BrahmaAI\staged_skills\<name>\` and never imports or registers the draft; `main.py:_forge_skill` no longer calls `execute_sync`. Promotion UX is still undefined (WS-1). |
 | 2 | Any `.py` in `plugins/` is imported at startup | **Open** | `plugin_manager.py:14` `load_plugins`, `:26` `exec_module`; no signature/allowlist. |
-| 3 | Unsigned self-update / hard reset | **Open** | `updater.py:11` hardcoded `Brahma---personal`; `core/updater.py` `git reset --hard`. |
+| 3 | Unsigned self-update / hard reset | **Closed (Q0-B)** | Deleted `updater.py`, `core/updater.py`, `core/updater_ota.py`, the startup call in `main.py`, and the `UpdateChecker`/prompt UI. No self-update path exists; signed releases are WS-6. |
 | 4 | Forge prompt instructs TLS bypass | **Closed (Q0-A)** | The prompt now requires verified TLS; `tests/test_security_phase0.py` fails on `verify=False`, `_create_unverified_context`, `CERT_NONE`, or a disabled hostname check anywhere in `core/skill_forge.py`. |
 | 5 | Unpinned runtime `pip install` | **Closed (Q0-A)** | `SkillCrucible.resolve_dependencies()` only calls `importlib.util.find_spec` and returns a manual `pip install` plan; it spawns no subprocess. |
 | 6 | Secrets recoverable (Fernet key beside DB; plaintext API keys) | **Open** | `smart_home/storage.py`; `config/api_keys.json`. |
 | 7 | Crucible validation is a denylist, not a sandbox | **Open** | 12 string checks + same-user subprocess + timeout. |
 | 8 | High-risk automation without privilege separation | **Open** | One process, one token, all tools in-process. |
-| + | Gateway `0.0.0.0`, unauthenticated HTTP control routes | **Open** | `server.py:33` default host; routes at `:358–407` have no auth dependency. |
+| + | Gateway `0.0.0.0`, unauthenticated HTTP control routes | **Mitigated (Q0-B), route auth open** | `server.py` now defaults to `host="127.0.0.1"`, `enabled=False`, `advertise=False`; a LAN bind requires explicit config. Routes at `:358–407` still have no auth dependency. |
 | + | Dead model-facing `confirmed` parameter (not a live bypass) | **Closed (Q0-A)** | Declaration removed from `main.py`; a schema test asserts no declaration advertises `confirmed`. The handler already ignored it and the `_IRREVERSIBLE` HUD gate already held. |
 | + | Legacy `agent_task` autonomous door | **Closed (Q0-A)** | Declaration and handler removed; `agent/planner.py`, `executor.py`, `task_queue.py`, `error_handler.py` deleted; invariant tests prevent their return (§6.10). |
 
-**Conclusion:** Q0-A closed the code-execution half (forge draft-only, verified TLS prompts, no runtime `pip`, no `agent_task`, no dead `confirmed`). The network/storage/supply-chain half is still upstream's posture.
+**Conclusion:** Q0-A closed the code-execution half (forge draft-only, verified TLS prompts, no runtime `pip`, no `agent_task`, no dead `confirmed`). Q0-B closed self-update by deleting every updater path and made the gateway loopback-only and off by default. Storage (DPAPI), plugin trust, the Crucible denylist, privilege separation, and gateway route authentication are still upstream's posture.
 
 ### 7.2 The target model
 
@@ -443,13 +443,13 @@ WS-1 skill lifecycle · WS-2 SkillHost sandbox · WS-3 dependency supply chain �
 3. Crucible executes module-level code only in a subprocess with a timeout.
 4. ✅ **Q0-A** — `resolve_dependencies()` returns a plan; never calls `pip`.
 5. ✅ **Q0-A** — no TLS-bypass instructions remain in either forge prompt.
-6. Gateway binds `127.0.0.1`, disabled by default; HTTP control routes require a paired device.
-7. Disable startup updates for clones; delete the hardcoded upstream and default-Yes `reset --hard`.
+6. ◐ **Q0-B (partial)** — gateway now defaults to `127.0.0.1`, disabled, no mDNS advertise; HTTP control routes still need a paired-device dependency.
+7. ✅ **Q0-B** — startup self-update deleted (`updater.py`, `core/updater.py`, `core/updater_ota.py`); no hardcoded upstream, no `git reset --hard`, no default-Yes prompt.
 8. Move `api_keys.json` and `smart_home.key` behind DPAPI (minimal migration, one release of read-only fallback).
 9. ✅ **Q0-A** — dead model-facing `confirmed` declaration removed; the handler already ignored it and the HUD gate already holds.
 10. ✅ **Q0-A** — `agent_task` disabled and its legacy files deleted (§6.10).
 
-**Exit criteria:** forged skills do not execute automatically and are staged for review; no runtime `pip`; `agent_task` is retired; no model-facing `confirmed`; the Q0-B network/storage/supply-chain items remain open.
+**Exit criteria:** forged skills do not execute automatically and are staged for review; no runtime `pip`; `agent_task` is retired; no model-facing `confirmed`; gateway is loopback/off by default with no self-update path. Route auth, DPAPI, and plugin allowlisting remain open.
 
 ### 7.4 How security intersects the harness
 
@@ -554,7 +554,7 @@ py -3.11 -m pytest tests -q -k agent
 py -3.11 -m agent run "say hello" --provider stub --json --no-session
 ```
 
-Baseline after Q0-A: ruff clean; **752 passed, 1 skipped**; `-k agent` **391 passed, 1 skipped**; full suite ~113 s. Python 3.11 is mandatory for the gates; the repo `.venv` and default `python` are 3.14 and lack dev tools.
+Baseline after Q0-B: ruff clean; **758 passed, 1 skipped**; `-k agent` **391 passed, 1 skipped**; full suite ~111 s. Python 3.11 is mandatory for the gates; the repo `.venv` and default `python` are 3.14 and lack dev tools.
 
 ### 10.3 Definition of done
 
@@ -623,11 +623,13 @@ Accepted 2026-10-17, but **acceptance is not authorization to build**: they were
 
 ### Q0-B — Stop the bleeding: Network, secrets & supply chain (days; no new architecture)
 
-1. Gateway: bind `127.0.0.1`, default off, authenticate all HTTP control routes.
-2. Disable startup updates for clones; remove the hardcoded remote and the unconditional `git reset --hard` (the UI applies it without a confirmation step).
-3. Plugin loading: opt-in allowlist; do not import unsigned `.py` from a writable directory.
-4. Secrets: DPAPI for `api_keys.json` and `smart_home.key`; one release of read-only fallback.
-5. Update `SECURITY-ARCHITECTURE-ROADMAP.md` checkboxes and this document's status table.
+**Status: partially landed 2026-11-01 (batch Q0-B mechanical slice) — items 2 and 5 done; item 1 defaults done, route auth open; items 3 and 4 open.**
+
+1. ◐ Gateway: default `host="127.0.0.1"`, `enabled=False`, `advertise=False`; a LAN bind requires explicit config. HTTP control routes still need a paired-device dependency (WS-8).
+2. ✅ Startup self-update deleted: `updater.py`, `core/updater.py`, `core/updater_ota.py`, the `main()` call, and the `UpdateChecker`/prompt UI. No hardcoded remote, no `git reset --hard`, no default-Yes dialog. Signed releases are WS-6.
+3. ⬜ Plugin loading: opt-in allowlist; do not import unsigned `.py` from a writable directory.
+4. ⬜ Secrets: DPAPI for `api_keys.json` and `smart_home.key`; one release of read-only fallback.
+5. ✅ `SECURITY-ARCHITECTURE-ROADMAP.md` checkbox for the updater is ticked; this document's status tables are updated. Guarded by `tests/test_security_q0b.py` (defaults, opt-in override, disabled-never-starts, no updater modules, no hardcoded upstream/`--hard`, no startup updater call).
 
 ### Q1 — Boundary and harness correctness (1–2 weeks)
 

@@ -42,22 +42,6 @@ class _ShellActionsMixin:
     def _toggle_mute(self):
         self._win._toggle_mute()
 
-    def _show_update_prompt(self, remote_hash: str):
-        from PyQt6.QtWidgets import QMessageBox
-        reply = QMessageBox.question(
-            self._win,
-            "Update Detected!",
-            "A new update is available on GitHub!\n\nDo you want to apply the update and restart the app?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            from core.updater import apply_update_and_restart
-            # Show a simple overlay while updating
-            self._win._set_status("Applying update from GitHub...")
-            import threading
-            threading.Thread(target=apply_update_and_restart, daemon=True).start()
-
     def _on_chat_event(self, event: dict):
         try:
             self._discord_service.mirror_chat_event(event or {})

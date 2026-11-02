@@ -741,13 +741,6 @@ class BrahmaUI(_ShellWindowMixin, _ShellDelegatesMixin, _ShellActionsMixin, _She
             pass
         self._win = MainWindow(face_path)
         try:
-            from core.updater import UpdateChecker
-            self._updater = UpdateChecker()
-            self._updater.update_available_sig.connect(self._show_update_prompt)
-            self._updater.start()
-        except Exception as e:
-            print(f"Failed to start updater: {e}")
-        try:
             self._win._startup_enabled()
         except Exception:
             pass
