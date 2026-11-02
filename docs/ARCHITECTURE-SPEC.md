@@ -177,7 +177,7 @@ The `docs/` tree mixes five kinds of document. Treating them as one authority le
 | `AGENTIC-HARNESS-NEXT.md` | 2026-10-31 | N1–N8 tracker; N1/N2/N3/N8 landed | **Authoritative** for what is left. |
 | `SECURITY-ANALYSIS-ISSUE-4.md` | 2026-10-24 | Eight findings against this fork, with evidence | **Current and accurate** (re-verified 2026-11-01). |
 | `SECURITY-ARCHITECTURE-ROADMAP.md` | 2026-10-28 | WS-1…WS-10, SEC-01…SEC-18, Phase 0–3, target process model | **Proposed.** Use as the security plan; nothing is implemented. |
-| `UPSTREAM-INTEGRATION-PLAN.md` | 2026-10-28 | Hybrid selective port of 7 upstream commits | **Proposed/planning.** Commit list needs refreshing; strategy stands. |
+| `UPSTREAM-INTEGRATION-PLAN.md` | 2026-11-02 | Hybrid selective port of all 7 upstream commits (114 files) | **Authoritative plan.** Commit list refreshed & mapped; awaiting execution by downstream agent. |
 | `DEFERRED-TOOL-PROXY-MISSION.md` | 2026-10-29 | Gemini Live `1008` on undeclared tool calls | **Superseded by ADR-021** (landed 2026-11-01): literal `call_tool` templates plus budgeted reconnect pins. |
 | `agent-orchestrator-bridge.md` | rev 3 + 2026-10-17 amendments | 87 KB "god orchestrator" design | **Aspirational.** §8 re-bases it. |
 | `AGENT-BRIDGE-BUILD-TODO.md` | 2026-10-17 | WBS with frozen contracts, phases 0–5 | **Aspirational.** ~3% built (ADRs only). Its guards are already violated. |
@@ -708,7 +708,7 @@ These are the cross-cutting questions raised by the synthesis, paired with their
 | `skills-library-jit-on-demand-skills.md` | 263 | 1 | Authoritative, root count stale |
 | `SECURITY-ANALYSIS-ISSUE-4.md` | 173 | 2 | Current findings |
 | `SECURITY-ARCHITECTURE-ROADMAP.md` | 1,190 | 2 | Proposed |
-| `UPSTREAM-INTEGRATION-PLAN.md` | 777 | 2 | Planning; commit list stale |
+| `UPSTREAM-INTEGRATION-PLAN.md` | 441 | 2 | Authoritative plan; all 7 commits mapped |
 | `DEFERRED-TOOL-PROXY-MISSION.md` | 110 | 2 | Open investigation |
 | `CODE-REVIEW-TODO.md` | 899 | 3 | Historical rules |
 | `VERSION-1.0.1-LOG.md` | 1,287 | 3 | Historical |
