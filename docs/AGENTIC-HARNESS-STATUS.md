@@ -33,6 +33,7 @@ database migration is required; the new tables are additive.
 | Bounded subagent delegation (`run_subagent`) | Done |
 | Whole-tree command termination on timeout | Done |
 | Policy `exec.sandbox`: credential scrubbing, trusted prefix, resource limits | Done |
+| Verified container confinement (`sandbox doctor` probe + `require_confined`) | Done |
 | MCP servers over stdio (tools only), CLI + GUI text path | Done |
 | MCP in-place refresh (`tools/list_changed`, dead server) | Done |
 | TTY colour for the approval diff (opt-out, pipe-safe) | Done |
@@ -900,6 +901,29 @@ things), sharing the `load_skill` name (shadowing, not unification), and
 executing project skill code (a second boundary by the back door). The shared
 contract is deliberately the *project*, where a repository has one obvious
 answer.
+
+### D43 — Verified container confinement is a behavioural probe, not a prefix label (O-1 / N4)
+
+`exec.sandbox.prefix` lets a deployment wrap `run_command` in Docker, `bwrap`,
+or another launcher, but a prefix name alone is not proof of isolation — notably,
+plain `wsl` mounts host drives under `/mnt/c` and shares host networking by
+default. `agent/sandbox.py:probe_confinement` therefore verifies a configured
+prefix behaviourally before trusting it for unattended execution:
+
+1. Rejects empty prefixes and known unconfined launchers (`wsl`, `cmd`,
+   `powershell`, `pwsh`, `sh`, `bash`, `zsh`) outright via
+   `is_known_unconfined_prefix`.
+2. Runs three active probes inside the prefix: `write_outside` (attempts to
+   write a sibling file outside the workspace mount), `network_egress`
+   (attempts to connect to an ephemeral loopback listener on the host), and
+   `uid_isolation` (checks that the child is not running as unrestricted UID 0
+   and cannot see a host-only sentinel file outside the workspace).
+3. `python -m agent sandbox doctor` runs the probe and reports `CONFINED` /
+   `UNCONFINED` (or `--json`) without ever writing or mutating policy on disk.
+4. `exec.sandbox.require_confined` defaults to `False`. When enabled in policy
+   (or when `--yolo` is passed on the CLI), `PermissionPolicy.evaluate` calls
+   the cached `check_confinement` and denies `exec` tools with
+   `rule="exec.sandbox.require_confined"` unless all three checks pass.
 
 ### D20 — Parallel dispatch is whole-turn and read-only (superseded by D30, then D32)
 

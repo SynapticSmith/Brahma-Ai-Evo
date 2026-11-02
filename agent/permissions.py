@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
-from .sandbox import SandboxError, parse_sandbox
+from .sandbox import SandboxError, check_confinement, parse_sandbox
 
 ALLOW = "allow"
 ASK = "ask"
@@ -106,6 +106,7 @@ DEFAULT_POLICY: Dict[str, Any] = {
         # API keys should not be visible to a command it runs.
         "sandbox": {
             "prefix": [],
+            "require_confined": False,
             "env_scrub": True,
             "env_keep": [],
             "max_memory_mb": 0,
@@ -398,7 +399,7 @@ class PermissionPolicy:
                 return PolicyResult(DENY, f"{detail} No approver is available.", f"tools.{tool_name}")
             return PolicyResult(decision, detail, f"tools.{tool_name}")
 
-        # 2. hard deny on catastrophic commands
+        # 2. hard deny on catastrophic commands and required sandbox confinement
         if tool_class == "exec":
             denied_by = self._exec_denied(args)
             if denied_by:
@@ -407,6 +408,17 @@ class PermissionPolicy:
                     "the command matches a catastrophic-command rule.",
                     f"exec.deny_patterns[{denied_by}]",
                 )
+            sandbox_cfg = parse_sandbox((self.data.get("exec") or {}).get("sandbox"))
+            if sandbox_cfg.require_confined:
+                report = check_confinement(
+                    sandbox_cfg, context_workspace or Path.cwd()
+                )
+                if not report.confined:
+                    return PolicyResult(
+                        DENY,
+                        f"exec.sandbox.require_confined is enabled and the sandbox failed verification ({report.summary()}).",
+                        "exec.sandbox.require_confined",
+                    )
 
         # 3. path scoping
         if context_workspace is not None:

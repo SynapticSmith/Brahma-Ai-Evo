@@ -42,6 +42,7 @@
     "allow_patterns": [],
     "sandbox": {
       "prefix": [],
+      "require_confined": false,
       "env_scrub": true,
       "env_keep": [],
       "max_memory_mb": 0,

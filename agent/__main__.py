@@ -188,6 +188,11 @@ def _build_policy(args: argparse.Namespace) -> PermissionPolicy:
             "protected": "allow",
             "trusted_roots": existing_roots,
         }
+        exec_cfg = dict(policy.data.get("exec") or {})
+        sandbox_cfg = dict(exec_cfg.get("sandbox") or {})
+        sandbox_cfg["require_confined"] = True
+        exec_cfg["sandbox"] = sandbox_cfg
+        policy.data["exec"] = exec_cfg
 
     for name in (args.allow or []):
         for item in name.split(","):
@@ -584,6 +589,31 @@ def _cmd_permissions(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_sandbox(args: argparse.Namespace) -> int:
+    from .sandbox import SandboxConfig, parse_sandbox, probe_confinement
+
+    workspace = Path(args.cwd or os.getcwd()).expanduser().resolve()
+    policy = PermissionPolicy.load(args.permissions)
+    sandbox_raw = dict(((policy.data.get("exec") or {}).get("sandbox")) or {})
+    if args.prefix:
+        sandbox_raw["prefix"] = list(args.prefix)
+    sandbox_cfg: SandboxConfig = parse_sandbox(sandbox_raw)
+    report = probe_confinement(sandbox_cfg, workspace, timeout=args.timeout)
+    if args.json:
+        sys.stdout.write(json.dumps(report.to_dict(), ensure_ascii=False, indent=2) + "\n")
+    else:
+        status = "CONFINED" if report.confined else "UNCONFINED"
+        sys.stdout.write(f"sandbox status: {status}\n")
+        sys.stdout.write(f"workspace:      {report.workspace}\n")
+        sys.stdout.write(f"prefix:         {' '.join(report.prefix) if report.prefix else '(none)'}\n")
+        if report.error:
+            sys.stdout.write(f"error:          {report.error}\n")
+        for check in report.checks:
+            mark = "PASS" if check.passed else "FAIL"
+            sys.stdout.write(f"  [{mark}] {check.name}: {check.detail}\n")
+    return EXIT_OK if report.confined else EXIT_ERROR
+
+
 # --------------------------------------------------------------------------- #
 # Parser
 # --------------------------------------------------------------------------- #
@@ -666,6 +696,18 @@ def build_parser() -> argparse.ArgumentParser:
     # `show` already prints JSON; accepted so scripts can pass it uniformly.
     perms.add_argument("--json", action="store_true", help=argparse.SUPPRESS)
 
+    sandbox = sub.add_parser("sandbox", help="Verify exec.sandbox confinement")
+    sandbox.add_argument("action", nargs="?", choices=("doctor",), default="doctor")
+    sandbox.add_argument("--cwd", help="Workspace root used for probe mounts")
+    sandbox.add_argument("--permissions", help="Policy file to read exec.sandbox from")
+    sandbox.add_argument(
+        "--prefix",
+        nargs="+",
+        help="Override exec.sandbox.prefix for this probe without writing policy",
+    )
+    sandbox.add_argument("--timeout", type=float, default=15.0, help="Per-probe timeout in seconds")
+    sandbox.add_argument("--json", action="store_true", help="Emit JSON report")
+
     return parser
 
 
@@ -675,7 +717,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # `python -m agent "do the thing"` -> treat the first bare word as a run.
     known = {
-        "run", "resume", "sessions", "tools", "skills", "mcp", "permissions",
+        "run", "resume", "sessions", "tools", "skills", "mcp", "permissions", "sandbox",
         "-h", "--help",
     }
     if argv and argv[0] not in known:
@@ -701,6 +743,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             return _cmd_mcp(args)
         if args.command == "permissions":
             return _cmd_permissions(args)
+        if args.command == "sandbox":
+            return _cmd_sandbox(args)
     except KeyboardInterrupt:
         sys.stderr.write("\n[interrupted]\n")
         return EXIT_INTERRUPTED

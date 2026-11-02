@@ -45,7 +45,7 @@ deliberately deferred, or rejected, so the next batch starts with N4 or N5.
 | N1 | Give the GUI text and voice paths the project prompt | High | S–M | Done (D40) |
 | N2 | Consume MCP `tools/list_changed` and revive a dead server | Medium | M | Done (D41) |
 | N3 | Correct the stale claims in the two harness docs | Low | S | Done (with N1) |
-| N4 | Filesystem/network confinement for `run_command` | High (design) | XL | Blocked on decision |
+| N4 | Filesystem/network confinement for `run_command` | High (design) | XL | Done (D43 / O-1) |
 | N5 | Parallel / model-selecting subagents | Medium (design) | L | Blocked on decision |
 | N6 | MCP resources, prompts, sampling | Low | M | Deliberately deferred |
 | N7 | Executable skills / `allowed-tools` enforcement | Low | M | Rejected (would be a second boundary) |
@@ -265,11 +265,16 @@ N8 was decided and is kept below as the record of the disagreement it resolved.
 
 ### N4 — Filesystem/network confinement
 
-Windows has no portable stdlib sandbox. AppContainer silently fails against a
-normal user install, and a wrapper that only looks enforcing is worse than none
-(D36). `exec.sandbox.prefix` is the supported escape hatch for a container.
-**Decision needed:** container-first vs AppContainer-first vs "prefix is
-enough".
+**Landed (D43 / O-1).** `agent/sandbox.py` implements active behavioural
+confinement probing (`probe_confinement`, `check_confinement`) and the
+`python -m agent sandbox doctor` CLI subcommand. Plain host shells and WSL2
+launchers are rejected up front (`is_known_unconfined_prefix`), and the probe
+actively tests (1) writing outside the workspace mount (`write_outside`),
+(2) loopback network egress (`network_egress`), and (3) UID / host-namespace
+isolation (`uid_isolation`). `exec.sandbox.require_confined` defaults to `False`
+(the doctor reports only and never writes policy); when `require_confined` is
+`True` (or `--yolo` is passed), `PermissionPolicy.evaluate` denies `exec` calls
+with `rule="exec.sandbox.require_confined"` unless `check_confinement` passes.
 
 ### N5 — Parallel / model-selecting subagents
 
@@ -325,4 +330,5 @@ legacy tool because the harness branch in `core/tool_exec.py` runs first.
 | --- | --- | --- |
 | N1 + N3 | `f42f4b2` | `agent.prompts.project_context()`; wired into the HUD text seed and the Live `_build_config`; docs corrected (D40). |
 | N2 | `4f81a65` | `MCPSession.needs_refresh`/`refresh`; `WorkspaceMCP.ensure` re-lists or restarts a stale server on the unchanged-fingerprint path; `mcp_refresh` event (D41). |
-| N8 | _(this commit)_ | `agent.skills.project_roots()`; `SkillsLibrary` scans workspace `.brahma/skills` as the last, instructional-only source; `configure_library(project_workspace=...)` wired at startup (D42). |
+| N8 | `531b961` | `agent.skills.project_roots()`; `SkillsLibrary` scans workspace `.brahma/skills` as the last, instructional-only source; `configure_library(project_workspace=...)` wired at startup (D42). |
+| N4 (O-1) | _(this commit)_ | `probe_confinement`/`check_confinement` active behavioural probe (write-outside, network egress, UID/namespace isolation), `python -m agent sandbox doctor`, and `exec.sandbox.require_confined` policy gate (D43). |
