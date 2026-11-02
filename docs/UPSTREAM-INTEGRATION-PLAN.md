@@ -1,50 +1,70 @@
-# Brahma-Ai-Evo: Upstream Integration Plan (Rev 2)
+# Brahma-Ai-Evo: Upstream Integration Plan & Architectural Divergence Analysis (Rev 3)
 
 **Target:** Integrate upstream changes from [titechprabhasolutions/Brahma-Ai-Evo:main](https://github.com/titechprabhasolutions/Brahma-Ai-Evo) (**7 commits**, **+34,763 / -3,390 lines**, **114 files**) into our refactored, hardened architecture while strictly preserving our security, line-count, and single-runtime invariants.
 
-**Status:** Planning & Mapping Document (Updated for all 7 upstream commits)  
+**Status:** Authoritative Planning & Architecture Harmonization Document  
 **Created:** 2025-10-24 · **Amended:** 2026-11-02 (Post-Bridge v2 / Post-Security Phase 0 reconciliation)  
 **Merge-Base:** `e0bd3c5a3a258cc1cf35014ae0a35c7b6b9db87f`  
-**Our HEAD:** `4bcbc6b docs: reconcile doc drift across architecture, harness status, security roadmap, and bridge design records`  
+**Our HEAD:** `0c11a04 docs: reconcile upstream plan metadata in architecture spec`  
 **Upstream HEAD:** `bfb2868 Add public Privacy Policy for Google Play Store compliance`  
-**Verified Test Baseline:** 888 passed / 1 skipped (offscreen); 460 passed / 1 skipped (`-k agent`)
+**Verified Test Baseline:** 888 passed / 1 skipped (offscreen); 460 passed / 1 skipped (`-k agent`); 102 passed (`-k skill`)
 
 ---
 
 ## Table of Contents
 
-1. [Executive Summary](#1-executive-summary)
+1. [Executive Summary & Core Divergence](#1-executive-summary--core-divergence)
 2. [Current State Analysis (All 7 Upstream Commits)](#2-current-state-analysis-all-7-upstream-commits)
 3. [Architectural Invariants & Non-Negotiable Gates](#3-architectural-invariants--non-negotiable-gates)
-4. [Integration Strategy & Decision Matrix](#4-integration-strategy--decision-matrix)
-5. [Pre-Integration Checklist](#5-pre-integration-checklist)
-6. [Phase 0: Preparation & Branch Setup](#6-phase-0-preparation--branch-setup)
-7. [Phase 1: Low-Conflict Standalone Additions (Copy & Adapt)](#7-phase-1-low-conflict-standalone-additions-copy--adapt)
-8. [Phase 2: Capability Ports Requiring Architecture Adaptation](#8-phase-2-capability-ports-requiring-architecture-adaptation)
-9. [Phase 3: Surgical Fixes & Patches to Shared Seams](#9-phase-3-surgical-fixes--patches-to-shared-seams)
-10. [Phase 4: Upstream Items Explicitly Rejected or Replaced](#10-phase-4-upstream-items-explicitly-rejected-or-replaced)
-11. [Phase 5: Validation & Gate Verification](#11-phase-5-validation--gate-verification)
-12. [Rollback Plan](#12-rollback-plan)
-13. [Complete 114-File Tracking Matrix](#13-complete-114-file-tracking-matrix)
-14. [Decision Log](#14-decision-log)
+4. [In-Depth Architectural Divergence Analysis](#4-in-depth-architectural-divergence-analysis)
+   - 4.1 [The Skills Architecture Consolidation & Harmonization](#41-the-skills-architecture-consolidation--harmonization)
+   - 4.2 [Coding Agent Tools: Claude Tools vs. Hardened Stdlib Harness](#42-coding-agent-tools-claude-tools-vs-hardened-stdlib-harness)
+   - 4.3 [Subagent Swarms: Uncontained Threads vs. Bounded AgentLoop](#43-subagent-swarms-uncontained-threads-vs-bounded-agentloop)
+   - 4.4 [Real-Time Voice Pipeline: Audio Stutter Fixes & Echo Barge-In](#44-real-time-voice-pipeline-audio-stutter-fixes--echo-barge-in)
+   - 4.5 [OpenRouter Model Fallback & Key Reloading under DPAPI](#45-openrouter-model-fallback--key-reloading-under-dpapi)
+   - 4.6 [UI Monolithic Regrowth vs. Decomposed Composition Root](#46-ui-monolithic-regrowth-vs-decomposed-composition-root)
+5. [Integration Strategy & Decision Matrix](#5-integration-strategy--decision-matrix)
+6. [Pre-Integration Checklist](#6-pre-integration-checklist)
+7. [Five-Stage Phased Porting Blueprint](#7-five-stage-phased-porting-blueprint)
+8. [Phase 0: Preparation & Branch Setup](#8-phase-0-preparation--branch-setup)
+9. [Phase 1: Low-Conflict Standalone Additions (Copy & Adapt)](#9-phase-1-low-conflict-standalone-additions-copy--adapt)
+10. [Phase 2: Capability Ports Requiring Architecture Adaptation](#10-phase-2-capability-ports-requiring-architecture-adaptation)
+11. [Phase 3: Surgical Fixes & Patches to Shared Seams](#11-phase-3-surgical-fixes--patches-to-shared-seams)
+12. [Phase 4: Upstream Items Explicitly Rejected or Replaced](#12-phase-4-upstream-items-explicitly-rejected-or-replaced)
+13. [Phase 5: Validation & Gate Verification](#13-phase-5-validation--gate-verification)
+14. [Rollback Plan](#14-rollback-plan)
+15. [Complete 114-File Tracking Matrix](#15-complete-114-file-tracking-matrix)
+16. [Decision Log](#16-decision-log)
 
 ---
 
-## 1. Executive Summary
+## 1. Executive Summary & Core Divergence
 
 ### The Verdict: Selective Surgical Porting Only — Zero Wholesale Merge
 
 Upstream has advanced across **7 commits** (+34,763 / -3,390 lines across 114 files). Concurrently, our repository has undergone foundational architectural evolution:
-- **Security Phase 0 (100% Landed):** Uncontained SkillForge `execute_sync` removed; runtime `pip` removed; Gateway locked to `127.0.0.1` with paired-device bearer auth; plugins restricted to an opt-in allowlist; secrets moved behind Windows DPAPI (`core/secret_store.py`); insecure startup updaters deleted.
+- **Security Phase 0 (100% Landed):** Uncontained SkillForge `execute_sync` removed; runtime `pip` removed; Gateway locked to `127.0.0.1` with paired-device bearer auth (`WS-8`); plugins restricted to an opt-in allowlist; secrets moved behind Windows DPAPI (`core/secret_store.py`); insecure startup updaters deleted.
 - **Harness & Boundary Correctness (Queue 1, 100% Landed):** 84 native actions migrated to canonical `ToolSpec`s in `core/desktop_tools.py` behind `AgentRuntime.execute`; `core/tool_exec.py` reduced to 147 lines with **0 `elif` branches**; `main.py` line ceiling ratcheted to **3,230 lines**; container behavioral confinement probe (`sandbox doctor`); read-only subagent fan-out (`run_subagent_batch`).
 - **Bridge v2 (Queue 2, 100% Landed):** Greenfield `core/agent_bridge/` package implementing side-effect-free detectors, thread-safe atomic registry, adapters (MCP, local model, CLI agent with process-tree containment), durable artifact storage (`core/agent_bridge/artifacts.py`), and unified `AgentBridge` facade.
 
 A blind `git merge upstream/main` would completely destroy these architectural boundaries: it would re-introduce unauthenticated LAN gateway routes, resurrect uncontained execution engines, overwrite DPAPI secrets storage, and explode the `main.py` line count by 2,300+ lines.
 
-**Every upstream commit must be filtered through our ratified architecture:**
-1. High-value isolated features (installer uninstaller, neural image generator, REA web cloner, audio stutter fixes, 12 project skill playbooks, privacy policy) are extracted and ported.
-2. Capability tools must become canonical `ToolSpec`s registered in `core/desktop_tools.py` gated by `AgentRuntime.execute`.
-3. Uncontained parallel runners (`core/subagent_orchestrator.py`) and unauthenticated gateway auto-pairing in `9dd02cf` are **explicitly rejected**.
+```text
+Upstream: Monolithic In-Process Aggregation
+  ├── main.py (+2,300 lines) ── Giant elif dispatch ladder & inline TOOL_DECLARATIONS
+  ├── ui.py (+1,600 lines)   ── Giant inline HUD/window implementations in MainWindow
+  ├── core/claude_tools.py   ── Raw uncontained subprocess.run(shell=False) with open stdin
+  ├── core/subagent_*.py     ── Spawns threads running raw bash commands with no LLM loop
+  └── core/skills_engine.py  ── UniversalSkillsEngine injecting unbudgeted markdown bodies into prompt
+
+Our Fork: Hardened Progressive-Disclosure & Single Policy Boundary
+  ├── main.py (≤ 3,230 lines) ── Ratchet-locked; delegates to controllers & desktop_tools
+  ├── ui.py (≤ 827 lines)     ── Ratchet-locked; decomposed into modular core/ui_* widgets
+  ├── agent/ (pure stdlib)    ── Windows Job Object containment, closed stdin, clamped timeouts
+  ├── AgentRuntime.execute    ── Single permission, audit, and approval gate for Voice, Text & CLI
+  ├── core/secret_store.py    ── User-scoped Windows DPAPI encryption for API & vault keys
+  └── agent.skills / library  ── Progressive disclosure: bounded resident prefix; bodies loaded on-demand
+```
 
 ---
 
@@ -54,7 +74,7 @@ A blind `git merge upstream/main` would completely destroy these architectural b
 ```text
 Base Commit:   e0bd3c5a3a258cc1cf35014ae0a35c7b6b9db87f (merge-base)
 Upstream HEAD: bfb2868074c3fac1cbebf00e4d2318c926fa86d2 (2026-10-27)
-Our HEAD:      4bcbc6b (2026-11-02, Queue 1 and Queue 2 complete)
+Our HEAD:      0c11a04 (2026-11-02, Queue 1 and Queue 2 complete)
 ```
 
 ### Cumulative Diff Statistics (`e0bd3c5..upstream/main`)
@@ -99,26 +119,144 @@ Any porting batch must respect the following invariants ratified in `docs/ARCHIT
 
 ---
 
-## 4. Integration Strategy & Decision Matrix
+## 4. In-Depth Architectural Divergence Analysis
+
+### 4.1 The Skills Architecture Consolidation & Harmonization
+
+#### Upstream Design
+In commit `9dd02cf`, upstream introduced a markdown skills concept:
+- Added 12 Markdown skill playbooks in `skills/<skill_name>/SKILL.md` at repository root.
+- Created `core/skills_engine.py` (208 lines) with a singleton `UniversalSkillsEngine` that reads `skills/` and `%LOCALAPPDATA%/community_skills`.
+- Added tools `skill_execute`, `skill_install`, and `skill_list` to `TOOL_DECLARATIONS` in `main.py`.
+- In `main.py`'s tool dispatcher, added an `elif` branch calling `UniversalSkillsEngine.get_instance().execute_skill(...)`, which dumps the entire unbudgeted markdown body of the skill directly into the model's turn context.
+
+#### Our Fork's Architecture
+Our fork previously solved this via a dual-door system:
+- **`agent/skills.py` (Project Skills):** Discovers `SKILL.md` definitions in `.brahma/skills/` across workspace parent hierarchies. Employs **progressive disclosure**: only frontmatter (`name` and short `description`) enters the resident prompt block, strictly budgeted to $\le 24$ skills and $\le 4,000$ characters. The full instructional body is never resident; it is loaded on-demand by `load_project_skill`.
+- **`core/skills_library.py` (Skills Library):** Provides `search_skills` and `load_skill` for the Gemini Live voice session, sharing the same discovered project roots via Decision `D42`.
+
+#### The Wisest Porting Strategy
+1. **Reject `core/skills_engine.py` and the `main.py` Dispatch Ladder:** Merging upstream's engine would create a redundant third skills system, violate `I-01` by bypassing `AgentRuntime`, and violate `test_line_count_ratchet`.
+2. **Enhance Root Discovery in `agent/skills.py`:** Update `project_roots()` in `agent/skills.py` so that it searches both `.brahma/skills` and `skills/`:
+   ```python
+   roots.append(directory / ".brahma" / "skills")
+   roots.append(directory / "skills")
+   ```
+3. **Import Upstream's 12 Skill Playbooks into `skills/`:** Place the 12 folders directly into `skills/` at repo root.
+4. **Outcome:**
+   - Zero lines added to `main.py`.
+   - The 12 skill playbooks are instantly available to **both** the voice session (via `search_skills` / `load_skill`) and the CLI/GUI agent harness (via `load_project_skill`).
+   - Upstream's `build_all.ps1` installer bundling for `skills/` works without modification.
+
+---
+
+### 4.2 Coding Agent Tools: Claude Tools vs. Hardened Stdlib Harness
+
+#### Upstream Design
+In commit `9dd02cf`, upstream created `core/claude_tools.py` (638 lines) offering `bash`, `file_read`, `file_edit`, `file_write`, `glob`, `grep`, `python_repl`, `git_manager`, and `todo_write`.
+- `bash` executes `subprocess.run(shell_cmd, cwd=work_dir, capture_output=True, text=True, timeout=timeout, shell=False)`.
+- It leaves `stdin` open, does not terminate child processes or grandchildren on Windows (leaking background processes), does not scrub sensitive environment variables, and bypasses user approval gates.
+
+#### Our Fork's Architecture
+- [`agent/tools_exec.py`](file:///C:/Users/Admin/Brahma-Ai-Evo/agent/tools_exec.py) provides `run_command` using `agent.process.run_captured`: closes `stdin` so commands cannot hang on interactive prompts, terminates the entire process tree via Windows Job Objects, enforces clamped timeouts (1 to 1800s), scrubs environment variables, and requires user approval (`tool_class="exec"`).
+- [`agent/tools_file.py`](file:///C:/Users/Admin/Brahma-Ai-Evo/agent/tools_file.py) and [`agent/tools_search.py`](file:///C:/Users/Admin/Brahma-Ai-Evo/agent/tools_search.py) implement paginated reading, atomic writing, surgical editing with uniqueness checks, and regex grepping.
+- [`core/agent_bridge/adapters/cli_agent.py`](file:///C:/Users/Admin/Brahma-Ai-Evo/core/agent_bridge/adapters/cli_agent.py) wraps real CLI coding agents (Claude Code, OpenAI Codex, Aider) under strict containment.
+
+#### The Wisest Porting Strategy
+- **Reject `core/claude_tools.py` in `main.py`.**
+- If the Gemini Live voice session requires file or command execution tools, publish our existing harness tools through `core/desktop_tools.py` into `AgentRuntime.execute` and index them in `core/tool_index.py`.
+
+---
+
+### 4.3 Subagent Swarms: Uncontained Threads vs. Bounded AgentLoop
+
+#### Upstream Design
+In `9dd02cf`, upstream introduced `core/subagent_orchestrator.py` (200 lines). Subagents are spawned in threads:
+- A "coder" subagent literally does: `cmd = self.task.prompt; res = ClaudeCodeTools.bash(cmd)`. There is no LLM reasoning loop, no turn budget, no policy check, and no approval gate.
+
+#### Our Fork's Architecture
+- [`agent/subagent.py`](file:///C:/Users/Admin/Brahma-Ai-Evo/agent/subagent.py) provides `run_subagent` and `run_subagent_batch`.
+- Each child runs an isolated `AgentLoop` with model completions, policy inheritance, clamped 12-turn budgets, cancellation propagation, and returns structured reports. Read-only subagents run in parallel safely without mutation races.
+
+#### The Wisest Porting Strategy
+- **Completely reject `core/subagent_orchestrator.py`.** It violates architectural invariants `I-08` and `C-3`.
+
+---
+
+### 4.4 Real-Time Voice Pipeline: Audio Stutter Fixes & Echo Barge-In
+
+#### Upstream Improvements (`9dd02cf`)
+Upstream resolved severe voice stuttering and audio feedback loops with four surgical edits:
+1. **Dynamic Audio Buffer Sizing (`blocksize=0`):** In `main.py`, changed PortAudio's `RawOutputStream` from `blocksize=CHUNK_SIZE` to `blocksize=0`. This lets PortAudio size audio buffers dynamically, eliminating micro-stutter loops caused by buffer underruns.
+2. **Acoustic Energy Run Gating in `core/echo.py`:** `EchoGuard` previously returned `True` immediately on new audible sound. Upstream updated it to require sustained energy blocks (`self._run += 1; return self._run >= self.required_blocks`), preventing single-frame acoustic spikes or speaker output onset from falsely cutting off the bot.
+3. **Interrupted Turn Audio Discard:** Added `self._discard_server_audio = True` upon turn completion or interruption, cleanly dropping residual server audio packets in the queue.
+4. **Live Subtitle Token Accumulation:** Streamlined subtitle token concatenation to eliminate duplicated visual words.
+
+#### The Wisest Porting Strategy
+- **Surgically port all 4 audio fixes.** These provide immediate audio stability improvements with fewer than ~25 lines of diff across `core/echo.py` and `main.py`.
+- Keep `core/live_voice_engine.py` (656 lines) and `dashboard/static/voice.html` (932 lines) as optional modular web-voice services; do not embed them inline in `main.py`.
+
+---
+
+### 4.5 OpenRouter Model Fallback & Key Reloading under DPAPI
+
+#### Upstream Improvements (`62b1591`)
+In `or_client.py`:
+- Added dynamic key reload check (`_ensure_api_key`) before every call.
+- Reduced request timeout from 60s to 20s.
+- Reduced retry delay from 2s to 1s.
+- Added a model fallback list (`openrouter/auto`, `llama-3.3-70b`, `mistral-small`, `deepseek-chat`). When a model returns 400, 404, or 429, it automatically tries the next model in the pool.
+- *Flaw:* Upstream implemented key loading by reading `config/api_keys.json` directly as plaintext JSON.
+
+#### Our Fork's Architecture
+- `core/secret_store.py` encrypts `api_keys.json` with user-scoped Windows DPAPI. Direct JSON reading fails on encrypted keys.
+
+#### The Wisest Porting Strategy
+- Port the model fallback pool, 20s timeouts, and retry logic into `or_client.py` and `llm_client.py`.
+- Replace the raw file read with `core.secret_store.load_api_keys()`:
+  ```python
+  from core.secret_store import load_api_keys
+  keys = load_api_keys()
+  return (keys.get("openrouter_api_key") or "").strip()
+  ```
+
+---
+
+### 4.6 UI Monolithic Regrowth vs. Decomposed Composition Root
+
+#### Upstream Changes (`987f47d`, `9dd02cf`)
+Upstream added 1,600+ lines directly into `MainWindow` in `ui.py` for radar displays, space cleaner widgets, and HUD screens.
+
+#### Our Fork's Architecture
+Our fork decomposed `ui.py` into modular widgets (`core/ui_circuit_hud.py`, `core/ui_status.py`, `core/ui_deliverables.py`, `core/ui_theme.py`), keeping `ui.py` strictly at $\le 827$ lines (currently 820 lines).
+
+#### The Wisest Porting Strategy
+- **Do not merge UI code into `ui.py`.**
+- Create decomposed peer modules: `core/ui_radar_hud.py`, `core/ui_space_cleaner.py`.
+- Import Three.js HTML assets (`assets/radar/index.html`, `assets/space_cleaner/index.html`) directly without code changes.
+
+---
+
+## 5. Integration Strategy & Decision Matrix
 
 | Upstream Feature Area | Primary Commits | Verdict | Porting / Adaptation Strategy |
 |---|---|---|---|
 | **Privacy Policy** | `bfb2868` | **ACCEPT (Direct Copy)** | Copy `PRIVACY_POLICY.md` into repository root. Zero conflict. |
-| **Installer Uninstaller & Shell Scripts** | `c5e8162`, `c8d9c0f`, `b3c4160` | **ACCEPT (Selective Port)** | Port `Uninstall.spec`, `uninstall.cmd`, `install.sh`, `uninstall.sh`. Adapt `build_all.ps1` without breaking `requirements-build.txt` reproducibility. |
-| **Neural Image Generation** | `987f47d` | **ADAPT (ToolSpec)** | Port `actions/image_generator.py` into a canonical `ToolSpec` (`tool_class="network"`, `requires_approval=False`) registered in `core/desktop_tools.py`. Route via `core/llm_gateway.py`. |
-| **REA Web Cloning & Reverse Engineering** | `987f47d` | **ADAPT (ToolSpec)** | Port `actions/rea_mcp_client.py` and `actions/reverse_engineer.py` as `ToolSpec`s (`tool_class="network"` or `"write"`). |
-| **Project Skill Playbooks (12 Skills)** | `9dd02cf` | **ACCEPT (Skills Library)** | Upstream added 12 `skills/*/SKILL.md` files. Drop into project skills `.brahma/skills/` or Skills Library under Decision `D42`. Instructional-only, fully compatible. |
-| **Audio Pipeline & Echo Barge-In Fixes** | `9dd02cf` | **ADAPT (Surgical Patch)** | Port PortAudio `RawOutputStream(blocksize=0)` dynamic chunk sizing, barge-in gating in `core/echo.py`, and interrupted turn suppression into `main.py` / `core/session_lifecycle.py` without blowing line ratchets. |
-| **OpenRouter Dynamic Key & Fallback** | `62b1591` | **ADAPT (DPAPI Aware)** | Port model fallback pool and retry logic into `or_client.py`. Ensure keys are loaded dynamically via `core/secret_store.py:load_api_keys()` (DPAPI). |
-| **Sentinels & Cleaners (Game, Net, Space, Study)** | `987f47d` | **ADAPT (Component Modules)** | Copy `core/game_sentinel.py`, `core/net_sentinel.py`, `core/space_cleaner.py`, `core/study_guard.py` and their HTML assets. Wrap entry points in `ToolSpec`s. |
-| **Autonomous Evolution & Reflection** | `987f47d` | **SELECTIVE (Audit First)** | Review `core/execution_reflection.py` and `core/mem_reduct.py`. Reject monolithic state replacers (`core/omni_planner.py`). |
-| **Upstream Subagent Orchestrator** | `9dd02cf` | **REJECT** | `core/subagent_orchestrator.py` introduces a redundant, unconfined subagent execution loop that bypasses `AgentRuntime` and violates `I-08`. |
-| **Gateway Auto-Pairing Bypass** | `9dd02cf` | **REJECT** | Upstream disabled pairing validation in `gateway/server.py`. Conflicts directly with `WS-8` security hardening. |
-| **Monolithic `main.py` & `ui.py` Regrowth** | `987f47d`, `9dd02cf` | **REJECT (Wholesale Merge)** | Upstream injects thousands of lines into monolithic `main.py` and `ui.py`. Adapt all UI hooks into decomposed `core/ui_*` modules. |
+| **Installer Uninstaller & Shell Scripts** | `c5e8162`, `c8d9c0f`, `b3c4160` | **ACCEPT (Selective Port)** | Port `Uninstall.spec`, `uninstall.cmd`, `install.sh`, `uninstall.sh`. Adapt `build_all.ps1`. |
+| **Project Skill Playbooks (12 Skills)** | `9dd02cf` | **ACCEPT (Direct Copy)** | Copy 12 `skills/<name>/SKILL.md` folders into `skills/`. Enhance `agent/skills.py:project_roots()` to scan `skills/`. |
+| **Audio Pipeline & Echo Barge-In Fixes** | `9dd02cf` | **ACCEPT (Surgical Patch)** | Port `RawOutputStream(blocksize=0)`, barge-in gating in `core/echo.py`, and interrupted turn suppression into `main.py`. |
+| **OpenRouter Dynamic Key & Fallback** | `62b1591` | **ADAPT (DPAPI Aware)** | Port model fallback pool and 20s timeouts into `or_client.py`. Load keys via `core/secret_store.py:load_api_keys()`. |
+| **Neural Image Generation** | `987f47d` | **ADAPT (ToolSpec)** | Port `actions/image_generator.py` into a canonical `ToolSpec` in `core/desktop_tools.py`. |
+| **REA Web Cloning & Reverse Engineering** | `987f47d` | **ADAPT (ToolSpec)** | Port `actions/rea_mcp_client.py` and `actions/reverse_engineer.py` as `ToolSpec`s in `core/desktop_tools.py`. |
+| **Sentinels & Cleaners (Game, Net, Space, Study)** | `987f47d` | **ADAPT (Component Modules)** | Copy service modules and HTML assets. Wire UI into `core/ui_*` component modules. |
+| **Coding Agent Tools (`claude_tools.py`)** | `9dd02cf` | **REJECT** | Uncontained `subprocess.run` with open stdin. Replaced by stdlib harness tools (`agent/tools_*.py`). |
+| **Upstream Subagent Orchestrator** | `9dd02cf` | **REJECT** | Uncontained thread execution. Replaced by `agent/subagent.py` (`run_subagent_batch`). |
+| **Gateway Auto-Pairing Bypass** | `9dd02cf` | **REJECT** | Disabled device verification in `gateway/server.py`. Violates `WS-8` security hardening. |
+| **Monolithic `main.py` & `ui.py` Regrowth** | `987f47d`, `9dd02cf` | **REJECT (Wholesale Merge)** | Directly violates CI line ratchets (`main.py` $\le 3,230$; `ui.py` $\le 827$). |
 
 ---
 
-## 5. Pre-Integration Checklist
+## 6. Pre-Integration Checklist
 
 Before executing any porting batch:
 - [x] **Working tree clean**: On `main` branch, `git status` clean.
@@ -127,13 +265,53 @@ Before executing any porting batch:
   - `py -3.11 -m ruff check .` → Clean.
   - `$env:QT_QPA_PLATFORM="offscreen"; py -3.11 -m pytest tests -q` → **888 passed, 1 skipped**.
   - `py -3.11 -m pytest tests -q -k agent` → **460 passed, 1 skipped**.
+  - `py -3.11 -m pytest tests -q -k skill` → **102 passed**.
   - `py -3.11 -m pytest tests/test_architecture_invariants.py -v` → **5 passed** (`main.py` 3,230 lines $\le$ 3,230 ceiling; 0 `elif`s).
 - [ ] **Isolated integration branch created**: `git checkout -b integration/upstream-phase1`.
 - [ ] **Backup tag created**: `git tag backup/pre-upstream-integration-$(date +%Y%m%d)`.
 
 ---
 
-## 6. Phase 0: Preparation & Branch Setup
+## 7. Five-Stage Phased Porting Blueprint
+
+```mermaid
+flowchart TD
+    subgraph Batch 1: Zero-Conflict Standalone
+        B1_1["Copy PRIVACY_POLICY.md (bfb2868)"]
+        B1_2["Copy Uninstaller & Shell Scripts (c5e8162, c8d9c0f)"]
+        B1_3["Copy 12 Skill Playbooks to skills/ (9dd02cf)"]
+        B1_4["Copy Three.js / HTML Assets (987f47d, 9dd02cf)"]
+    end
+
+    subgraph Batch 2: Skills Integration & Parity
+        B2_1["Add directory / 'skills' to agent/skills.py:project_roots()"]
+        B2_2["Verify both agent.skills and core.skills_library discover the 12 playbooks"]
+        B2_3["Adapt build_all.ps1 to bundle skills/ directory (b3c4160)"]
+    end
+
+    subgraph Batch 3: Real-Time Audio Fixes
+        B3_1["Port blocksize=0 to RawOutputStream in main.py"]
+        B3_2["Port acoustic energy run gating to core/echo.py"]
+        B3_3["Port interrupted turn packet discard & subtitle token fix"]
+    end
+
+    subgraph Batch 4: Provider & Key Hardening
+        B4_1["Port OpenRouter model fallback pool & 20s timeouts to or_client.py"]
+        B4_2["Wire dynamic key reload to core.secret_store.load_api_keys() (DPAPI)"]
+    end
+
+    subgraph Batch 5: Capability Tools & Sentinels
+        B5_1["Port actions/image_generator.py & actions/reverse_engineer.py"]
+        B5_2["Register ToolSpecs in core/desktop_tools.py behind AgentRuntime"]
+        B5_3["Port core/game_sentinel.py, space_cleaner.py, study_guard.py"]
+    end
+
+    Batch 1 --> Batch 2 --> Batch 3 --> Batch 4 --> Batch 5
+```
+
+---
+
+## 8. Phase 0: Preparation & Branch Setup
 
 ```powershell
 # 1. Ensure latest upstream commits are present in object store
@@ -148,9 +326,7 @@ git tag backup/pre-upstream-port-20261102
 
 ---
 
-## 7. Phase 1: Low-Conflict Standalone Additions (Copy & Adapt)
-
-**Objective:** Import self-contained files that require zero or minimal architecture adaptation.
+## 9. Phase 1: Low-Conflict Standalone Additions (Copy & Adapt)
 
 ### Batch 1.1: Documentation & Compliance (Commit `bfb2868`)
 - Copy `PRIVACY_POLICY.md` into repository root.
@@ -168,7 +344,7 @@ git tag backup/pre-upstream-port-20261102
   - In `build_all.ps1`: Integrate uninstaller compilation (`Uninstall.exe`) while preserving Python 3.11 requirement and SHA-256 manifest generation (`dist/SHA256SUMS.txt`).
 
 ### Batch 1.3: Project Skills Library Playbooks (Commit `9dd02cf`)
-- **12 New Skill Folders to Copy into `skills/` (and `.brahma/skills/`):**
+- **12 New Skill Folders to Copy into `skills/`:**
   - `skills/api-mock-engine/SKILL.md`
   - `skills/browser-automation/SKILL.md`
   - `skills/code-review/SKILL.md`
@@ -181,7 +357,7 @@ git tag backup/pre-upstream-port-20261102
   - `skills/security-auditor/SKILL.md`
   - `skills/test-driven-development/SKILL.md`
   - `skills/web-scraper-stealth/SKILL.md`
-- **Validation:** Verify skills parse cleanly via `agent.skills` parser without schema violations.
+- **Validation:** Add `roots.append(directory / "skills")` to `agent/skills.py:project_roots()`. Run `py -3.11 -m pytest tests -k skill` to verify all 12 skills parse without error.
 
 ### Batch 1.4: Standalone HTML / Three.js Visual Assets (Commit `987f47d`)
 - `assets/radar/index.html` (NEW)
@@ -190,9 +366,7 @@ git tag backup/pre-upstream-port-20261102
 
 ---
 
-## 8. Phase 2: Capability Ports Requiring Architecture Adaptation
-
-**Objective:** Port external actions and sentinels, adapting them into canonical `ToolSpec`s registered in `core/desktop_tools.py` behind `AgentRuntime.execute`.
+## 10. Phase 2: Capability Ports Requiring Architecture Adaptation
 
 ### Batch 2.1: Neural Image Generator (Commit `987f47d`)
 - **Source:** `actions/image_generator.py`, `tests/test_image_generator.py`.
@@ -204,22 +378,25 @@ git tag backup/pre-upstream-port-20261102
 ### Batch 2.2: REA Web Cloning & Reverse Engineering (Commit `987f47d`)
 - **Source:** `actions/rea_mcp_client.py`, `actions/reverse_engineer.py`, `tests/test_reverse_engineer.py`.
 - **Adaptation Requirements:**
+  - Patch `_get_api_key()` to use `core.secret_store.load_api_keys()`.
   - Wrap in `ToolSpec`s with appropriate risk classes (`"network"` for reading/fetching, `"write"` for saving extracted code/assets).
   - Enforce path resolution inside `runtime.workspace` to prevent workspace breakout.
 
 ### Batch 2.3: Audio Pipeline Stutter Fixes & Echo Barge-In Gating (Commit `9dd02cf`)
 - **Source:** Modifications in `core/echo.py` and voice loop in `main.py`.
 - **Fixes to Extract:**
-  - PortAudio `RawOutputStream(blocksize=0)`: Allows dynamic audio buffer chunk sizing to prevent buffer underrun micro-loops.
-  - Barge-in gating in `core/echo.py`: Gate acoustic energy detection while TTS speaker is active to prevent self-interruption loops.
+  - PortAudio `RawOutputStream(blocksize=0)`: Dynamic audio buffer chunk sizing.
+  - Barge-in gating in `core/echo.py`: Gate acoustic energy detection while TTS speaker is active.
   - Interrupted turn suppression flag: Drop residual audio frames from previous turn after interruption.
-- **Line Count Guard:** Apply surgical edits to `core/session_lifecycle.py` and `core/echo.py` rather than inflating `main.py`.
+  - Subtitle token accumulation: Prevent duplicate subtitle tokens.
+- **Line Count Guard:** Apply surgical edits to `core/session_lifecycle.py`, `core/echo.py`, and `main.py` (less than 25 lines diff).
 
 ### Batch 2.4: OpenRouter Dynamic Key Reload & Model Pool Fallback (Commit `62b1591`)
 - **Source:** `or_client.py`, `llm_client.py`.
 - **Adaptation Requirements:**
   - Adopt dynamic key reloading using `core/secret_store.py:load_api_keys()` (DPAPI-protected).
   - Adopt model pool fallback hierarchy (e.g. falling back to secondary fast models on 429/500 errors).
+  - Set request timeout to 20s and retry delay to 1s.
   - Respect `core/provider_router.py` kill switches.
 
 ### Batch 2.5: Sentinel Modules (Commit `987f47d`)
@@ -230,40 +407,40 @@ git tag backup/pre-upstream-port-20261102
 
 ---
 
-## 9. Phase 3: Surgical Fixes & Patches to Shared Seams
+## 11. Phase 3: Surgical Fixes & Patches to Shared Seams
 
-**Priority:** CRITICAL | **Risk:** VERY HIGH | **Rule:** Single-file targeted edits only.
-
-### 3.1 `core/prompt.txt`
+### 11.1 `core/prompt.txt`
 - Semantically merge upstream's prompt guidance for Reverse Engineering and Image Generation into our structured prompt brief.
 - Preserve all existing guidance on tool discovery, memory, safety, and local models.
 
-### 3.2 `config/app_settings.json`
+### 11.2 `config/app_settings.json`
 - Merge new default configuration keys introduced by upstream (e.g. image generation model defaults, sentinel thresholds).
 - Preserve existing keys: gateway loopback defaults, DPAPI settings, trusted workspaces.
 
-### 3.3 `core/dynamic_registry.py` & `core/learned_rules.py`
+### 11.3 `core/dynamic_registry.py` & `core/learned_rules.py`
 - Extract `detect_and_learn_conversational_rule()` from upstream `core/learned_rules.py`.
 - In `core/dynamic_registry.py`: Review stem expansion improvements without degrading the strict `1008` Gemini Live tool budget.
 
 ---
 
-## 10. Phase 4: Upstream Items Explicitly Rejected or Replaced
-
-To protect the architecture, the following upstream additions are **permanently rejected** from being merged:
+## 12. Phase 4: Upstream Items Explicitly Rejected or Replaced
 
 1. **`core/subagent_orchestrator.py` (`9dd02cf`):**
    - *Why rejected:* Spawns arbitrary subprocesses and uncontained agent loops. Replaced by ratified `run_subagent` (sequential mutation) and `run_subagent_batch` (read-only parallel fan-out under `AgentRuntime`).
-2. **Gateway Auto-Pairing Bypass (`9dd02cf`):**
+2. **`core/claude_tools.py` (`9dd02cf`):**
+   - *Why rejected:* Uses raw, uncontained `subprocess.run` with open stdin, no process-tree termination on Windows, and bypasses `AgentRuntime` policy. Replaced by `agent/tools_*.py` and `core/agent_bridge/`.
+3. **`core/skills_engine.py` (`9dd02cf`):**
+   - *Why rejected:* Injects raw unbudgeted markdown bodies into prompt context; duplicates `agent.skills` and `core.skills_library`. Replaced by dual-root discovery in `agent/skills.py`.
+4. **Gateway Auto-Pairing Bypass (`9dd02cf`):**
    - *Why rejected:* Upstream commented out device verification in `gateway/server.py`. Replaced by `WS-8` paired-device authentication.
-3. **Monolithic `main.py` & `ui.py` Regrowth (`987f47d`, `9dd02cf`):**
-   - *Why rejected:* Upstream merged 2,300 lines directly into `main.py` and 1,700 lines into `ui.py`. Directly violates CI ratchets (`main.py` $\le$ 3,230 lines; `core/tool_exec.py` 0 `elif` branches).
-4. **Uncontained Code Execution via `agent_task` / `executor.py` (`987f47d`):**
+5. **Monolithic `main.py` & `ui.py` Regrowth (`987f47d`, `9dd02cf`):**
+   - *Why rejected:* Upstream merged 2,300 lines directly into `main.py` and 1,700 lines into `ui.py`. Directly violates CI ratchets (`main.py` $\le$ 3,230 lines; `core/tool_exec.py` 0 `elif` branches; `ui.py` $\le 827$ lines).
+6. **Uncontained Code Execution via `agent_task` / `executor.py` (`987f47d`):**
    - *Why rejected:* Legacy autonomous files were deleted in Batch B4. Any autonomous capability must route through `AgentLoop`.
 
 ---
 
-## 11. Phase 5: Validation & Gate Verification
+## 13. Phase 5: Validation & Gate Verification
 
 Every porting batch must pass all repository verification gates:
 
@@ -277,13 +454,16 @@ py -3.11 -m pytest tests/test_architecture_invariants.py -v
 # 3. Agentic harness & bridge regression suite
 py -3.11 -m pytest tests -q -k agent
 
-# 4. Full offscreen desktop test suite
+# 4. Skills regression suite
+py -3.11 -m pytest tests -q -k skill
+
+# 5. Full offscreen desktop test suite
 $env:QT_QPA_PLATFORM="offscreen"; py -3.11 -m pytest tests -q
 ```
 
 ---
 
-## 12. Rollback Plan
+## 14. Rollback Plan
 
 If any porting batch introduces regressions:
 1. `git checkout main && git branch -D integration/upstream-phaseX`
@@ -292,11 +472,11 @@ If any porting batch introduces regressions:
 
 ---
 
-## 13. Complete 114-File Tracking Matrix
+## 15. Complete 114-File Tracking Matrix
 
 Status values: `PENDING` · `PORTED` · `ADAPTED` · `REJECTED` · `SUPERSEDED`
 
-### 13.1 Added Files in Upstream (`A`, 71 Files)
+### 15.1 Added Files in Upstream (`A`, 71 Files)
 
 | # | File | Upstream Commit | Component | Strategy | Status | Notes |
 |---|---|---|---|---|---|---|
@@ -313,12 +493,12 @@ Status values: `PENDING` · `PORTED` · `ADAPTED` · `REJECTED` · `SUPERSEDED`
 | 11 | `brahma_connect/gateway/mobile_portal.py` | `987f47d` | Gateway | ADAPT | PENDING | Ensure route auth (`WS-8`) is applied |
 | 12 | `config/mcp_servers.json` | `9dd02cf` | MCP Config | EVALUATE | PENDING | Check vs `app_settings.json` and ADR-020 |
 | 13 | `core/anticipatory_watcher.py` | `987f47d` | Evolution | ADAPT | PENDING | Background observer |
-| 14 | `core/claude_tools.py` | `9dd02cf` | Tools | ADAPT | PENDING | Integrate into `desktop_tools.py` |
+| 14 | `core/claude_tools.py` | `9dd02cf` | Tools | REJECT | REJECT | Replaced by `agent/tools_*.py` and `cli_agent.py` |
 | 15 | `core/execution_reflection.py` | `987f47d` | Evolution | ADAPT | PENDING | High-value self-critique module |
 | 16 | `core/flowstate.py` | `987f47d` | Feature | ADAPT | PENDING | Productivity monitor |
 | 17 | `core/game_sentinel.py` | `987f47d` | Sentinel | ADAPT | PENDING | Service module |
 | 18 | `core/intent_dispatcher.py` | `987f47d` | Routing | EVALUATE | PENDING | Compare with `provider_router.py` |
-| 19 | `core/live_voice_engine.py` | `9dd02cf` | Voice | ADAPT | PENDING | Extract streaming fixes |
+| 19 | `core/live_voice_engine.py` | `9dd02cf` | Voice | ADAPT | PENDING | Standalone web voice service |
 | 20 | `core/mcp_manager.py` | `9dd02cf` | MCP | SUPERSEDED | SUPERSEDED | We implemented `core/mcp_manager.py` + refresh (B22) |
 | 21 | `core/mem_reduct.py` | `987f47d` | Evolution | ADAPT | PENDING | Memory reduction utility |
 | 22 | `core/memory_cortex.py` | `987f47d` | Memory | EVALUATE | PENDING | Compare with `agent/session.py` |
@@ -326,7 +506,7 @@ Status values: `PENDING` · `PORTED` · `ADAPTED` · `REJECTED` · `SUPERSEDED`
 | 24 | `core/omni_planner.py` | `987f47d` | Planning | REJECT | REJECT | Conflicts with `AgentLoop` |
 | 25 | `core/radar_hud.py` | `987f47d` | HUD | ADAPT | PENDING | Adapt into `core/ui_*` overlay |
 | 26 | `core/shopping_agent.py` | `987f47d` | Feature | ADAPT | PENDING | Wrap as `ToolSpec` |
-| 27 | `core/skills_engine.py` | `9dd02cf` | Skills | SUPERSEDED | SUPERSEDED | Replaced by `agent.skills` / Skills Library (D42) |
+| 27 | `core/skills_engine.py` | `9dd02cf` | Skills | REJECT | REJECT | Replaced by `agent.skills` / Skills Library (D42) |
 | 28 | `core/space_cleaner.py` | `987f47d` | Feature | ADAPT | PENDING | Disk cleanup helper |
 | 29 | `core/space_cleaner_hud.py` | `987f47d` | HUD | ADAPT | PENDING | Adapt into `core/ui_*` overlay |
 | 30 | `core/study_guard.py` | `987f47d` | Feature | ADAPT | PENDING | Focus monitor |
@@ -374,7 +554,7 @@ Status values: `PENDING` · `PORTED` · `ADAPTED` · `REJECTED` · `SUPERSEDED`
 
 ---
 
-### 13.2 Modified Files in Upstream (`M`, 42 Files)
+### 15.2 Modified Files in Upstream (`M`, 42 Files)
 
 | # | File | Upstream Commit(s) | Impact / Conflict Risk | Strategy | Notes |
 |---|---|---|---|---|---|
@@ -421,7 +601,9 @@ Status values: `PENDING` · `PORTED` · `ADAPTED` · `REJECTED` · `SUPERSEDED`
 | 41 | `tests/test_daily_briefing.py` | `987f47d` | Low | REVIEW | Test tweak |
 | 42 | `ui.py` | `987f47d`, `9dd02cf` | CRITICAL | ADAPT TO SEAMS | Do NOT merge into `ui.py`. Adapt to `core/ui_*` |
 
-### 13.3 Deleted Files in Upstream (`D`, 1 File)
+---
+
+### 15.3 Deleted Files in Upstream (`D`, 1 File)
 
 | # | File | Upstream Commit | Strategy | Notes |
 |---|---|---|---|---|
@@ -429,7 +611,7 @@ Status values: `PENDING` · `PORTED` · `ADAPTED` · `REJECTED` · `SUPERSEDED`
 
 ---
 
-## 14. Decision Log
+## 16. Decision Log
 
 - **DEC-UP-001 (2026-11-02): Full Scope Expansion to 7 Commits.**  
   Updated integration plan from 3 commits (81 files) to all 7 commits (114 files, `e0bd3c5..bfb2868`).
@@ -439,3 +621,9 @@ Status values: `PENDING` · `PORTED` · `ADAPTED` · `REJECTED` · `SUPERSEDED`
   Upstream's massive additions to `main.py` (+2,300 lines) and `ui.py` (+1,700 lines) must never be merged into those files. All new tool declarations must be added as `ToolSpec`s in `core/desktop_tools.py`, and UI additions must go into decomposed `core/ui_*` modules.
 - **DEC-UP-004 (2026-11-02): OpenRouter Fallback Adaptation with DPAPI.**  
   Upstream's dynamic key reloading in `62b1591` is adapted to load keys through `core/secret_store.py:load_api_keys()`, maintaining Windows DPAPI encryption at rest.
+- **DEC-UP-005 (2026-11-02): Dual-Root Project Skills Discovery.**  
+  Harmonize upstream's `skills/` directory with our harness by expanding `agent/skills.py:project_roots()` to search both `.brahma/skills` and `skills/`. This eliminates the need for `core/skills_engine.py` while supporting all 12 upstream skill playbooks across both voice and text surfaces.
+- **DEC-UP-006 (2026-11-02): Rejection of `core/claude_tools.py` and `main.py` Tool Dispatch Ladder.**  
+  Upstream's `core/claude_tools.py` uses uncontained `subprocess.run` with open stdin. Rejected in favor of our existing stdlib harness tools (`agent/tools_*.py`) and `AgentBridge` adapters (`core/agent_bridge/adapters/cli_agent.py`).
+- **DEC-UP-007 (2026-11-02): Surgical Porting of Real-Time Audio Fixes.**  
+  Port `RawOutputStream(blocksize=0)`, `EchoGuard` energy run gating, interrupted turn packet discard, and subtitle token de-duplication directly into `main.py` and `core/echo.py`.

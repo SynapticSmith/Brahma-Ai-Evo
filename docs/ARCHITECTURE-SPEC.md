@@ -708,7 +708,7 @@ These are the cross-cutting questions raised by the synthesis, paired with their
 | `skills-library-jit-on-demand-skills.md` | 263 | 1 | Authoritative, root count stale |
 | `SECURITY-ANALYSIS-ISSUE-4.md` | 173 | 2 | Current findings |
 | `SECURITY-ARCHITECTURE-ROADMAP.md` | 1,190 | 2 | Proposed |
-| `UPSTREAM-INTEGRATION-PLAN.md` | 441 | 2 | Authoritative plan; all 7 commits mapped |
+| `UPSTREAM-INTEGRATION-PLAN.md` | 629 | 2 | Authoritative plan & architectural divergence analysis |
 | `DEFERRED-TOOL-PROXY-MISSION.md` | 110 | 2 | Open investigation |
 | `CODE-REVIEW-TODO.md` | 899 | 3 | Historical rules |
 | `VERSION-1.0.1-LOG.md` | 1,287 | 3 | Historical |
