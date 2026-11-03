@@ -992,7 +992,7 @@ Goal: remove the worst paths with small diffs; no new architecture required.
 - [x] `SkillHost` with restricted token + Job Object.
 - [x] Per-skill venv/wheelhouse with hashed installs.
 - [x] Gateway auth middleware + pairing code.
-- [ ] Plugin signature verification for new installs; dev mode flag.
+- [x] Plugin signature verification for new installs; dev mode flag.
 
 **Exit criteria:** every new skill is reviewed; execution runs in a separate process; a skill cannot read the config directory; gateway returns 401 without a token.
 
