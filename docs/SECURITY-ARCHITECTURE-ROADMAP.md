@@ -999,7 +999,7 @@ Goal: remove the worst paths with small diffs; no new architecture required.
 ### Phase 2 — real boundary (3–6 weeks)
 
 - [ ] AppContainer + capability SIDs + network broker.
-- [ ] Signed release manifest + A/B + rollback.
+- [x] Signed release manifest + A/B + rollback.
 - [x] Secret broker + scoped tokens + redaction.
 - [ ] Dual-LLM reader + taint-aware policy.
 - [ ] `bash`/`python_repl`/MCP through the host.
