@@ -12,17 +12,21 @@
 # Usage:
 #   .\build_all.ps1
 #   .\build_all.ps1 -Clean
+#   .\build_all.ps1 -DryRun
 #
 # Outputs:
 #   dist\BrahmaEvo\BrahmaEvo.exe        onedir application payload
 #   dist\BrahmaEvo_Setup.exe            onefile setup wizard
 #   dist\SHA256SUMS.txt                 sha256 of both, for release notes
+#   dist\release.json                   signed Ed25519 release manifest
 
 param(
     [switch]$Clean,
+    [switch]$DryRun,
     [string]$Version = "1.1.0",
     [string]$Channel = "stable",
-    [string]$SignKey
+    [string]$SignKey,
+    [string]$PythonExe
 )
 
 $ErrorActionPreference = "Stop"
@@ -36,29 +40,141 @@ function Stop-WithError([string]$Message) {
     exit 1
 }
 
-$VenvPy = Join-Path $RepoRoot ".venv\Scripts\python.exe"
+$VenvPy = if ($PythonExe) {
+    $PythonExe
+} else {
+    $defaultVenv = Join-Path $RepoRoot ".venv\Scripts\python.exe"
+    $candidate = $null
+    if (Test-Path $defaultVenv) {
+        $v = (& $defaultVenv -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null)
+        if ($v -and $v.Trim() -eq "3.11") {
+            $candidate = $defaultVenv
+        }
+    }
+    if (-not $candidate) {
+        $sysPy = (py -3.11 -c "import sys; print(sys.executable)" 2>$null)
+        if ($sysPy) {
+            $candidate = $sysPy.Trim()
+        }
+    }
+    if (-not $candidate) {
+        $candidate = $defaultVenv
+    }
+    $candidate
+}
+
 if (-not (Test-Path $VenvPy)) {
-    Stop-WithError "No .venv interpreter at $VenvPy. Run .\scripts\setup_dev.ps1 first."
+    Stop-WithError "No Python interpreter found at $VenvPy. Specify -PythonExe or run .\scripts\setup_dev.ps1."
 }
 
 $VenvVersion = (& $VenvPy -c "import sys; print('%d.%d' % sys.version_info[:2])").Trim()
 if ($VenvVersion -ne "3.11") {
-    Stop-WithError ".venv runs Python $VenvVersion but packaging requires 3.11. Run .\scripts\setup_dev.ps1 -Force to recreate it."
+    Stop-WithError "Packaging interpreter runs Python $VenvVersion but packaging requires 3.11. Specify -PythonExe pointing to Python 3.11."
 }
-
-& $VenvPy -m PyInstaller --version *> $null
-if ($LASTEXITCODE -ne 0) {
-    Stop-WithError "PyInstaller is not installed in .venv. Run: .\.venv\Scripts\python.exe -m pip install -r requirements-build.txt"
-}
-
-$PyiVersion = (& $VenvPy -m PyInstaller --version).Trim()
-Write-Host "Building with PyInstaller $PyiVersion ($VenvPy)" -ForegroundColor Cyan
 
 $Specs = @(
     @{ Spec = "installer\Uninstall.spec";       Label = "uninstaller";       Artifact = "dist\Uninstall.exe" },
     @{ Spec = "installer\BrahmaEvo.spec";       Label = "main application"; Artifact = "dist\BrahmaEvo\BrahmaEvo.exe" },
     @{ Spec = "installer\BrahmaEvo_Setup.spec"; Label = "setup wizard";      Artifact = "dist\BrahmaEvo_Setup.exe" }
 )
+
+# --- DRY RUN MODE (WS-6 & SEC-11 Verification) ------------------------------
+if ($DryRun) {
+    Write-Host "=== Brahma Evo Release Packaging DRY-RUN ===" -ForegroundColor Magenta
+    Write-Host "Interpreter: $VenvPy (Python $VenvVersion)" -ForegroundColor Cyan
+
+    # 1. Spec files validation
+    Write-Host "`n1. Validating PyInstaller spec files..." -ForegroundColor Cyan
+    foreach ($entry in $Specs) {
+        if (-not (Test-Path $entry.Spec)) { Stop-WithError "Missing spec file: $($entry.Spec)" }
+        Write-Host "  OK $($entry.Spec)" -ForegroundColor Green
+    }
+
+    # 2. SBOM Verification
+    Write-Host "`n2. Verifying Software Bill of Materials (SBOM)..." -ForegroundColor Cyan
+    & $VenvPy scripts/generate_sbom.py --verify
+    if ($LASTEXITCODE -ne 0) { Stop-WithError "SBOM generation/verification failed." }
+
+    # 3. Mock artifact staging for pipeline verification
+    Write-Host "`n3. Staging mock artifacts for manifest & signature testing..." -ForegroundColor Cyan
+    New-Item -ItemType Directory -Path "dist\BrahmaEvo" -Force | Out-Null
+    Set-Content -Path "dist\Uninstall.exe" -Value "MZ_MOCK_UNINSTALL" -Encoding ascii
+    Set-Content -Path "dist\BrahmaEvo\BrahmaEvo.exe" -Value "MZ_MOCK_BRAHMA_EVO" -Encoding ascii
+    Set-Content -Path "dist\BrahmaEvo_Setup.exe" -Value "MZ_MOCK_SETUP" -Encoding ascii
+
+    # 4. Generate SHA256SUMS
+    $Artifacts = $Specs | ForEach-Object { $_.Artifact }
+    $ShaFile = Join-Path $RepoRoot "dist\SHA256SUMS.txt"
+    $Lines = foreach ($artifact in $Artifacts) {
+        $hash = ([BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash([System.IO.File]::ReadAllBytes((Resolve-Path $artifact)))) -replace "-", "").ToLower()
+        "$hash  $(Split-Path -Leaf $artifact)"
+    }
+    Set-Content -Path $ShaFile -Value $Lines -Encoding ascii
+    Write-Host "OK $ShaFile" -ForegroundColor Green
+
+    # 5. Build Release Manifest
+    Write-Host "`n4. Generating canonical release manifest..." -ForegroundColor Cyan
+    $ReleaseJson = Join-Path $RepoRoot "dist\release.json"
+    $BuildReleaseScript = Join-Path $RepoRoot "tools\build_release.py"
+    $BuildArgs = @(
+        $BuildReleaseScript,
+        "--version", $Version,
+        "--channel", $Channel,
+        "--output", $ReleaseJson
+    )
+    foreach ($a in $Artifacts) {
+        if (Test-Path $a) {
+            $BuildArgs += @("--artifact", $a)
+        }
+    }
+    & $VenvPy @BuildArgs
+    if ($LASTEXITCODE -ne 0 -or (-not (Test-Path $ReleaseJson))) {
+        Stop-WithError "Failed to generate release manifest."
+    }
+    Write-Host "OK $ReleaseJson" -ForegroundColor Green
+
+    # 6. Ed25519 Signing Drill
+    Write-Host "`n5. Signing release manifest with Ed25519 drill key..." -ForegroundColor Cyan
+    $SignReleaseScript = Join-Path $RepoRoot "tools\sign_release.py"
+    $KeyOutput = (& $VenvPy $SignReleaseScript --generate-key)
+    $KeyText = ($KeyOutput -join "`n")
+    $PrivKey = [regex]::Match($KeyText, "Private Key.*?([0-9a-f]{64})").Groups[1].Value
+    $PubKey = [regex]::Match($KeyText, "Public Key.*?([0-9a-f]{64})").Groups[1].Value
+
+    & $VenvPy $SignReleaseScript --manifest $ReleaseJson --key $PrivKey
+    if ($LASTEXITCODE -ne 0) { Stop-WithError "Failed to sign manifest." }
+    Write-Host "OK ${ReleaseJson}.sig" -ForegroundColor Green
+
+    # 7. Signature verification test
+    Write-Host "`n6. Verifying cryptographic signature..." -ForegroundColor Cyan
+    $VerifyScript = @"
+import json
+from pathlib import Path
+from core.release_manager import canonical_json_bytes, verify_signature
+
+manifest = json.loads(Path('dist/release.json').read_text(encoding='utf-8'))
+raw = canonical_json_bytes(manifest)
+sig = Path('dist/release.json.sig').read_text(encoding='utf-8').strip()
+ok = verify_signature('$PubKey', sig, raw)
+assert ok, 'Ed25519 signature verification failed'
+print('Cryptographic signature verification OK')
+"@
+    & $VenvPy -c $VerifyScript
+    if ($LASTEXITCODE -ne 0) { Stop-WithError "Signature verification failed." }
+
+    Write-Host ""
+    Write-Host "=== Dry-Run Packaging & Cryptographic Provenance Passed ===" -ForegroundColor Green
+    exit 0
+}
+
+# --- FULL BUILD MODE --------------------------------------------------------
+& $VenvPy -m PyInstaller --version *> $null
+if ($LASTEXITCODE -ne 0) {
+    Stop-WithError "PyInstaller is not installed in packaging Python. Run: $VenvPy -m pip install -r requirements-build.txt"
+}
+
+$PyiVersion = (& $VenvPy -m PyInstaller --version).Trim()
+Write-Host "Building with PyInstaller $PyiVersion ($VenvPy)" -ForegroundColor Cyan
 
 foreach ($entry in $Specs) {
     if (-not (Test-Path $entry.Spec)) { Stop-WithError "missing spec file: $($entry.Spec)" }
@@ -93,7 +209,7 @@ foreach ($entry in $Specs) {
 $Artifacts = $Specs | ForEach-Object { $_.Artifact }
 $ShaFile = Join-Path $RepoRoot "dist\SHA256SUMS.txt"
 $Lines = foreach ($artifact in $Artifacts) {
-    $hash = (Get-FileHash -Algorithm SHA256 -Path $artifact).Hash.ToLower()
+    $hash = ([BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash([System.IO.File]::ReadAllBytes((Resolve-Path $artifact)))) -replace "-", "").ToLower()
     "$hash  $(Split-Path -Leaf $artifact)"
 }
 Set-Content -Path $ShaFile -Value $Lines -Encoding ascii

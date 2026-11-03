@@ -45,7 +45,7 @@ def main() -> int:
     parser.add_argument("--artifact", action="append", default=[], help="Path to artifact file (can repeat)")
     parser.add_argument("--sbom", default=None, help="Path to SBOM file (e.g. sbom.cdx.json)")
     parser.add_argument("--notes", default=None, help="URL to release notes")
-    parser.add_argument("--cohort", default="100%", help="Rollout cohort (e.g. 10%, 25%, 100%)")
+    parser.add_argument("--cohort", default="100%", help="Rollout cohort (e.g. 10%%, 25%%, 100%%)")
     parser.add_argument("--output", default="release.json", help="Output path for manifest")
 
     args = parser.parse_args()
