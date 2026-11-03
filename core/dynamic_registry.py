@@ -322,6 +322,43 @@ class DynamicToolRegistry:
         return count
 
     @classmethod
+    def register_installed_artifact(cls, artifact_hash: str, store: Optional[Any] = None) -> bool:
+        """Registers a freshly approved and installed skill artifact into the active registry."""
+        if not cls._initialized:
+            cls.initialize()
+        try:
+            from core.skill_store import SkillStore, STATE_INSTALLED
+            store = store or SkillStore()
+            artifact = store.get_artifact(artifact_hash)
+            if not artifact:
+                logger.warning(f"[Registry] Cannot register artifact {artifact_hash}: not found in store")
+                return False
+            if artifact.state != STATE_INSTALLED:
+                logger.warning(
+                    f"[Registry] Cannot register artifact {artifact_hash}: state is '{artifact.state}', expected '{STATE_INSTALLED}'"
+                )
+                return False
+            ok, _, reason = store.verify_installed_artifact(artifact.name)
+            if not ok:
+                logger.warning(f"[Registry] Skipping unverified installed skill '{artifact.name}': {reason}")
+                return False
+            skill_path = store.store_dir / artifact.artifact_hash
+            manifest_with_grant = {
+                **artifact.manifest,
+                "is_synthetic": True,
+                "grant": artifact.grant,
+            }
+            skill = DynamicSkill(skill_path, manifest_with_grant)
+            cls._skills[artifact.name] = skill
+            for alias in artifact.manifest.get("aliases", []):
+                cls._skills[alias] = skill
+            logger.info(f"[Registry] Live registered installed skill '{artifact.name}' ({artifact.artifact_hash[:12]})")
+            return True
+        except Exception as e:
+            logger.warning(f"[Registry] Failed to register installed artifact {artifact_hash}: {e}")
+            return False
+
+    @classmethod
     def get_tool_declarations(cls) -> List[Dict[str, Any]]:
         """Returns Gemini-compatible tool declarations for all active skills."""
         if not cls._initialized:

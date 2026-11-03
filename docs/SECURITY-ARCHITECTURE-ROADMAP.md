@@ -988,7 +988,7 @@ Goal: remove the worst paths with small diffs; no new architecture required.
 ### Phase 1 — review pipeline (1–2 weeks)
 
 - [x] Artifact store + hashes + `draft → approved → installed`.
-- [ ] Review UI (code, capabilities, deps, tests).
+- [x] Review UI (code, capabilities, deps, tests).
 - [x] `SkillHost` with restricted token + Job Object.
 - [ ] Per-skill venv/wheelhouse with hashed installs.
 - [ ] Gateway auth middleware + pairing code.
