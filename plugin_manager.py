@@ -15,7 +15,8 @@ class PluginManager:
     (Finding #2 / WS-4 / ARCHITECTURE-SPEC §7.3).
     """
 
-    def __init__(self, base_dir: Path, allowlist: Iterable[str] | None = None, dev_mode: bool = False):
+    def __init__(self, base_dir: Path, allowlist: Iterable[str] | None = None, dev_mode: bool = False, store: Any | None = None):
+        self.store = store
         self.base_dir = Path(base_dir)
         self.plugins_dir = self.base_dir / "plugins"
         self.plugins: list[Any] = []
