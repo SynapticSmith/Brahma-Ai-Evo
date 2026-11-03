@@ -199,6 +199,21 @@ class SkillForge:
                 encoding="utf-8",
             )
 
+            artifact_hash = skill_sha256
+            try:
+                from core.skill_store import SkillStore
+                store = SkillStore()
+                artifact = store.put_draft(
+                    name=actual_name,
+                    code=feature_code,
+                    manifest=manifest,
+                    test_cases=test_cases,
+                    telemetry=locals().get("test_telemetry"),
+                )
+                artifact_hash = artifact.artifact_hash
+            except Exception as store_err:
+                logger.warning(f"[Forge] Failed to register draft in SkillStore: {store_err}")
+
             return {
                 "success": True,
                 "staged": True,
@@ -208,6 +223,7 @@ class SkillForge:
                 "skill_path": str(skill_file),
                 "staged_path": str(staged_dir),
                 "sha256": skill_sha256,
+                "artifact_hash": artifact_hash,
                 "message": (
                     f"Drafted '{actual_name}' and verified it in the Crucible sandbox. "
                     f"It is staged at {staged_dir} and is NOT active until it is reviewed "

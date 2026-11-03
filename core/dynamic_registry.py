@@ -264,16 +264,35 @@ class DynamicToolRegistry:
                     except Exception as e:
                         logger.warning(f"[Registry] Failed to load feature package '{item.name}': {e}")
 
-        # 2. Check legacy AppData skills vault for backward compatibility
+        # 2. Check SkillStore for verified, installed synthetic skills
+        try:
+            from core.skill_store import SkillStore, STATE_INSTALLED
+            store = SkillStore()
+            for artifact in store.list_artifacts(state=STATE_INSTALLED):
+                if artifact.name not in cls._skills:
+                    ok, _, reason = store.verify_installed_artifact(artifact.name)
+                    if ok:
+                        skill_path = store.store_dir / artifact.artifact_hash
+                        skill = DynamicSkill(skill_path, artifact.manifest)
+                        cls._skills[artifact.name] = skill
+                        count += 1
+                    else:
+                        logger.warning(f"[Registry] Skipping unverified installed skill '{artifact.name}': {reason}")
+        except Exception as e:
+            logger.debug(f"[Registry] SkillStore integration notice: {e}")
+
+        # 3. Check legacy AppData skills vault for backward compatibility
         if APPDATA_SKILLS_DIR.exists():
             for item in APPDATA_SKILLS_DIR.iterdir():
-                if item.is_dir() and item.name not in cls._skills:
+                if item.is_dir() and item.name not in cls._skills and item.name not in ("store", "logs"):
                     manifest_file = item / "manifest.json"
                     code_file = item / "skill.py"
                     if manifest_file.exists() and code_file.exists():
                         try:
                             with open(manifest_file, "r", encoding="utf-8") as f:
                                 manifest = json.load(f)
+                            if not manifest.get("active", True):
+                                continue
                             skill = DynamicSkill(item, manifest)
                             cls._skills[skill.name] = skill
                             count += 1
