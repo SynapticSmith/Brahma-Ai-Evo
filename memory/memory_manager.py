@@ -447,8 +447,23 @@ def search_memory(query: str, limit: int = 8) -> str:
 
     An empty query is treated as "show me everything you know", capped - the
     model asks that when the user says "what do you remember about me?"."""
+    try:
+        from memory.connectors import get_active_backend_name, get_memory_connector
+        active = get_active_backend_name()
+        if active != "local":
+            conn = get_memory_connector(active)
+            if conn.is_available():
+                entries = conn.recall(query, limit=limit)
+                if entries:
+                    lines = [f"{e.category}/{_pretty(e.key)}: {e.value}" for e in entries]
+                    head = (f"Stored facts matching '{query}' ({active.upper()}):" if query
+                            else f"Everything currently stored ({active.upper()}):")
+                    return head + "\n" + "\n".join(lines)
+    except Exception:
+        pass
+
     memory = load_memory()
-    words  = [w for w in re.split(r"[^\w]+", (query or "").lower()) if len(w) > 1]
+    words = [w for w in re.split(r"[^a-zA-Z0-9]+", (query or "").lower()) if len(w) > 1]
 
     rows: list[tuple[int, str, str, str]] = []
     for cat, items in memory.items():
@@ -501,10 +516,28 @@ def remember(key: str, value: str, category: str = "notes") -> str:
     if category not in valid:
         category = "notes"
     update_memory({category: {key: {"value": value}}})
+    try:
+        from memory.connectors import get_active_backend_name, get_memory_connector
+        active = get_active_backend_name()
+        if active != "local":
+            conn = get_memory_connector(active)
+            if conn.is_available():
+                conn.store(key, value, category=category)
+    except Exception:
+        pass
     return f"Remembered: {category}/{key} = {value}"
 
 
 def forget(key: str, category: str = "notes") -> str:
+    try:
+        from memory.connectors import get_active_backend_name, get_memory_connector
+        active = get_active_backend_name()
+        if active != "local":
+            conn = get_memory_connector(active)
+            if conn.is_available():
+                conn.delete(key, category=category)
+    except Exception:
+        pass
     memory = load_memory()
     cat    = memory.get(category, {})
     if key in cat:

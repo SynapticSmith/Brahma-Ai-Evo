@@ -1202,6 +1202,115 @@ class SystemConnectivityPage(QWidget):
         return card
 
     # ------------------------------------------------------------------
+    # Memory System & Modular Connectors
+    # ------------------------------------------------------------------
+    def _build_memory_connector_card(self):
+        """Card for configuring local and external memory backends (Mem0, Letta, Local)."""
+        card = self._card(
+            "Memory System & Connectors",
+            "Configure long-term memory engine: Built-in Local (SQLite/JSON), Mem0 Hybrid Vector, or Letta Tiered Archival."
+        )
+        lay = card.layout()
+
+        row = QHBoxLayout()
+        row.setSpacing(10)
+        lbl = QLabel("Active Engine:")
+        lbl.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        lbl.setStyleSheet(f"color: {C.WHITE};")
+        row.addWidget(lbl)
+
+        combo = QComboBox()
+        combo.addItem("Local Storage (Built-in SQLite / JSON)", "local")
+        combo.addItem("Mem0 Hybrid Vector Memory", "mem0")
+        combo.addItem("Letta / MemGPT Tiered Memory", "letta")
+        combo.setStyleSheet(
+            f"background: {C.PANEL2}; color: {C.WHITE}; border: 1px solid {C.BORDER}; "
+            f"border-radius: 6px; padding: 4px 8px; font-size: 11px;"
+        )
+
+        try:
+            from memory.connectors import get_active_backend_name
+            current_backend = get_active_backend_name()
+            idx = {"local": 0, "mem0": 1, "letta": 2}.get(current_backend, 0)
+            combo.setCurrentIndex(idx)
+        except Exception:
+            pass
+
+        row.addWidget(combo, 1)
+        lay.addLayout(row)
+
+        status_lbl = QLabel()
+        status_lbl.setWordWrap(True)
+        status_lbl.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px; padding: 4px 0;")
+
+        def _update_status():
+            selected = combo.currentData()
+            try:
+                from memory.connectors import get_memory_connector
+                conn = get_memory_connector(selected)
+                stat = conn.status()
+                avail = stat.get("available", False)
+                backend = stat.get("backend", selected)
+                entries_cnt = stat.get("entries_count", 0)
+                icon = "🟢" if avail else "🟡"
+                status_lbl.setText(
+                    f"{icon} <b>Backend:</b> {backend.upper()} | <b>Available:</b> {avail} | "
+                    f"<b>Entries:</b> {entries_cnt}<br>"
+                    f"<span style='color: {C.TEXT_DIM};'>{stat.get('message', '')}</span>"
+                )
+            except Exception as e:
+                status_lbl.setText(f"⚠️ Status check failed: {e}")
+
+        _update_status()
+
+        def _on_backend_changed(index):
+            selected = combo.currentData()
+            try:
+                from memory.connectors import set_active_connector
+                set_active_connector(selected)
+            except Exception:
+                pass
+            _update_status()
+
+        combo.currentIndexChanged.connect(_on_backend_changed)
+        lay.addWidget(status_lbl)
+
+        btn_row = QHBoxLayout()
+        test_btn = QPushButton("🔍 Test Memory Recall")
+        test_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        test_btn.setStyleSheet(
+            f"background: {C.PANEL2}; color: {C.PRI}; border: 1px solid {C.BORDER}; "
+            f"border-radius: 6px; padding: 6px 12px; font-weight: bold; font-size: 11px;"
+        )
+
+        def _on_test():
+            selected = combo.currentData()
+            try:
+                from memory.connectors import get_memory_connector
+                conn = get_memory_connector(selected)
+                res = conn.recall("test", limit=3)
+                status_lbl.setText(
+                    f"✅ <b>Recall Test Succeeded:</b> Found {len(res)} matches using {selected.upper()} backend."
+                )
+            except Exception as e:
+                status_lbl.setText(f"❌ <b>Recall Test Failed:</b> {e}")
+
+        test_btn.clicked.connect(_on_test)
+        btn_row.addWidget(test_btn)
+        btn_row.addStretch(1)
+        lay.addLayout(btn_row)
+
+        desc = QLabel(
+            "💡 <b>Hybrid Architecture:</b> Brahma stores all memories locally as an immutable "
+            "offline anchor while synchronizing with Mem0 or Letta for advanced vector search and agent state."
+        )
+        desc.setWordWrap(True)
+        desc.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 10px; margin-top: 4px;")
+        lay.addWidget(desc)
+
+        return card
+
+    # ------------------------------------------------------------------
     # Speech engines (core/speech_stt.py, core/speech_tts.py)
     # ------------------------------------------------------------------
     def _build_speech_card(self):
@@ -2649,6 +2758,9 @@ class SystemConnectivityPage(QWidget):
         # Skills Library: the on-demand playbook layer, next to the tool list so
         # the two "what the agent can reach" surfaces read together.
         lay.addWidget(self._build_skills_library_card())
+
+        # Memory System & Connectors: local SQLite/JSON + Mem0 + Letta
+        lay.addWidget(self._build_memory_connector_card())
 
         # Speech Engines — sits next to the tool index because both describe how
         # a request reaches the model and how the answer gets back out.

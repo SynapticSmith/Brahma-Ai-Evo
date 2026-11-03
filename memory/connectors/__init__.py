@@ -11,7 +11,12 @@ Provides pluggable memory backends:
 from __future__ import annotations
 
 from .base import BaseMemoryConnector, MemoryEntry
-from .factory import get_memory_connector, list_available_backends
+from .factory import (
+    get_active_backend_name,
+    get_memory_connector,
+    list_available_backends,
+    set_active_connector,
+)
 from .local import LocalMemoryConnector
 from .mem0 import Mem0MemoryConnector
 from .letta import LettaMemoryConnector
@@ -22,6 +27,8 @@ __all__ = [
     "LocalMemoryConnector",
     "Mem0MemoryConnector",
     "LettaMemoryConnector",
+    "get_active_backend_name",
     "get_memory_connector",
     "list_available_backends",
+    "set_active_connector",
 ]

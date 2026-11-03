@@ -16,6 +16,7 @@ from .letta import LettaMemoryConnector
 logger = logging.getLogger("MemoryConnectorFactory")
 
 _INSTANCES: Dict[str, BaseMemoryConnector] = {}
+_active_backend: Optional[str] = None
 
 
 def list_available_backends() -> List[Dict[str, str]]:
@@ -39,16 +40,43 @@ def list_available_backends() -> List[Dict[str, str]]:
     ]
 
 
+def get_active_backend_name() -> str:
+    """Retrieve the currently active memory backend name."""
+    global _active_backend
+    if _active_backend:
+        return _active_backend
+    try:
+        from memory import config_manager
+
+        val = str(config_manager.get_setting("memory_backend", "local") or "local").strip().lower()
+        if val in ("local", "mem0", "letta"):
+            _active_backend = val
+            return val
+    except Exception:
+        pass
+    _active_backend = "local"
+    return "local"
+
+
+def set_active_connector(backend_name: str) -> BaseMemoryConnector:
+    """Set and persist the active memory backend connector."""
+    global _active_backend
+    name = backend_name.strip().lower()
+    if name not in ("local", "mem0", "letta"):
+        name = "local"
+    _active_backend = name
+    try:
+        from memory import config_manager
+
+        config_manager.set_setting("memory_backend", name)
+    except Exception:
+        pass
+    return get_memory_connector(name)
+
+
 def get_memory_connector(backend_name: Optional[str] = None) -> BaseMemoryConnector:
     """Retrieve or create the process-wide memory backend connector."""
-    selected = backend_name
-    if not selected:
-        try:
-            from memory import config_manager
-            selected = str(config_manager.get_setting("memory_backend", "local") or "local").strip().lower()
-        except Exception:
-            selected = "local"
-
+    selected = backend_name or get_active_backend_name()
     if selected not in ("local", "mem0", "letta"):
         selected = "local"
 

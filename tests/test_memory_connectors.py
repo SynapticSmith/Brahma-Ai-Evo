@@ -114,3 +114,41 @@ def test_factory_resolver(monkeypatch):
 
     conn_letta = get_memory_connector("letta")
     assert isinstance(conn_letta, LettaMemoryConnector)
+
+
+def test_set_active_connector_and_memory_manager_integration(tmp_path, monkeypatch):
+    from memory.connectors.factory import set_active_connector, get_active_backend_name
+    from memory.connectors.base import MemoryEntry
+    from memory import memory_manager
+
+    mem_file = tmp_path / "long_term.json"
+    monkeypatch.setattr("memory.memory_manager.MEMORY_PATH", mem_file)
+
+    # Test setting active backend
+    set_active_connector("local")
+    assert get_active_backend_name() == "local"
+
+    # Remember into local
+    res = memory_manager.remember("favorite_food", "Sushi", category="preferences")
+    assert "Remembered: preferences/favorite_food = Sushi" in res
+    assert "Sushi" in memory_manager.search_memory("favorite_food")
+
+    # Mock external connector active
+    mock_conn = MagicMock()
+    mock_conn.backend_name = "mem0"
+    mock_conn.is_available.return_value = True
+    mock_conn.recall.return_value = [
+        MemoryEntry(key="hobby", value="Astronomy", category="preferences", score=0.9)
+    ]
+    monkeypatch.setattr("memory.connectors.get_memory_connector", lambda *args, **kwargs: mock_conn)
+    monkeypatch.setattr("memory.connectors.get_active_backend_name", lambda: "mem0")
+
+    # Recall should route through mem0
+    recalled = memory_manager.search_memory("hobby")
+    assert "MEM0" in recalled
+    assert "Astronomy" in recalled
+    mock_conn.recall.assert_called_once()
+
+    # Remember should synchronize to mem0
+    memory_manager.remember("target_city", "Tokyo", category="preferences")
+    mock_conn.store.assert_called_once_with("target_city", "Tokyo", category="preferences")

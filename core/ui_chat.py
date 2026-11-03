@@ -332,29 +332,57 @@ def _fmt_time_stamp(value: int | float | None = None) -> str:
         return ""
 
 
-def _markdown_to_html(text: str, role: str = "assistant") -> str:
-    safe = html_lib.escape(text or "")
-    safe = safe.replace("\r\n", "\n").replace("\r", "\n")
+def _markdown_to_html(text: str, role: str = "assistant", streaming: bool = False) -> str:
+    work = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    if streaming and work.count("```") % 2 == 1:
+        work += "\n```"
 
-    def _code_block(match):
-        code = html_lib.escape(match.group(1).rstrip("\n"))
-        return (
-            '<pre style="margin:10px 0; padding:10px 12px; border-radius:10px; '
-            'background:rgba(0,0,0,0.35); color:#f4f6f8; border:1px solid rgba(255,255,255,0.10);">'
-            f'<code>{code}</code></pre>'
-        )
+    code_blocks: list[str] = []
+    def _save_block(match: re.Match) -> str:
+        code_blocks.append(match.group(1).rstrip("\n"))
+        return f"__BRAHMA_CODE_BLOCK_{len(code_blocks)-1}__"
 
-    safe = re.sub(r"```(?:[\w+-]+\n)?(.*?)```", _code_block, safe, flags=re.S)
-    safe = re.sub(
-        r"`([^`]+)`",
-        r'<code style="padding:1px 5px; border-radius:5px; background:rgba(255,255,255,0.08); color:#fff;">\1</code>',
-        safe,
-    )
-    safe = re.sub(r"(?m)^### (.+)$", r'<h3 style="margin:10px 0 6px 0; font-size:13px;">\1</h3>', safe)
-    safe = re.sub(r"(?m)^## (.+)$", r'<h2 style="margin:10px 0 8px 0; font-size:15px;">\1</h2>', safe)
-    safe = re.sub(r"(?m)^# (.+)$", r'<h1 style="margin:10px 0 8px 0; font-size:17px;">\1</h1>', safe)
+    work = re.sub(r"```(?:[\w+-]+\n)?(.*?)```", _save_block, work, flags=re.S)
+
+    inline_codes: list[str] = []
+    def _save_inline(match: re.Match) -> str:
+        inline_codes.append(match.group(1))
+        return f"__BRAHMA_INLINE_CODE_{len(inline_codes)-1}__"
+
+    work = re.sub(r"`([^`\n]+)`", _save_inline, work)
+
+    safe = html_lib.escape(work)
+    safe = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", safe)
+    safe = re.sub(r"(?<!\*)\*([^*]+?)\*(?!\*)", r"<i>\1</i>", safe)
+    safe = re.sub(r"(?m)^### (.+)$", r'<h3 style="margin:8px 0 4px 0; font-size:13px; color:#00e5ff;">\1</h3>', safe)
+    safe = re.sub(r"(?m)^## (.+)$", r'<h2 style="margin:10px 0 6px 0; font-size:14px; color:#00e5ff;">\1</h2>', safe)
+    safe = re.sub(r"(?m)^# (.+)$", r'<h1 style="margin:12px 0 8px 0; font-size:16px; color:#00e5ff;">\1</h1>', safe)
     safe = safe.replace("\n", "<br>")
-    accent = C.WHITE if role == "assistant" else C.TEXT
+
+    for idx, inline in enumerate(inline_codes):
+        esc = html_lib.escape(inline)
+        tag = (
+            f'<code style="padding:1px 5px; border-radius:4px; '
+            f'background:rgba(255,255,255,0.08); color:#00e5ff; font-family:Consolas, monospace;">{esc}</code>'
+        )
+        safe = safe.replace(f"__BRAHMA_INLINE_CODE_{idx}__", tag)
+
+    for idx, code in enumerate(code_blocks):
+        esc = html_lib.escape(code)
+        tag = (
+            '<pre style="margin:8px 0; padding:10px 12px; border-radius:8px; '
+            'background:rgba(0,0,0,0.45); color:#f4f6f8; border:1px solid rgba(0,229,255,0.20); '
+            'font-family:Consolas, monospace; font-size:11px; overflow-x:auto;">'
+            f'<code>{esc}</code></pre>'
+        )
+        safe = safe.replace(f"__BRAHMA_CODE_BLOCK_{idx}__", tag)
+
+    if streaming:
+        safe += ' <span style="color:#00e5ff; font-weight:bold;">▋</span>'
+
+    c_white = getattr(globals().get("C"), "WHITE", "#ffffff") if globals().get("C") else "#ffffff"
+    c_text = getattr(globals().get("C"), "TEXT", "#f4f6f8") if globals().get("C") else "#f4f6f8"
+    accent = c_white if role == "assistant" else c_text
     return (
         f'<div style="color:{accent}; font-size:12px; line-height:1.45; white-space:normal;">'
         f"{safe}"
@@ -607,7 +635,7 @@ class ChatBubble(QFrame):
             self._start_typing_animation()
 
     def _render_text(self, text: str, final: bool = True):
-        self._browser.setText(_markdown_to_html(text or "", self._role))
+        self._browser.setText(_markdown_to_html(text or "", self._role, streaming=not final))
 
     def _start_typing_animation(self):
         self._typing_timer = QTimer(self)
@@ -620,6 +648,9 @@ class ChatBubble(QFrame):
         self._typing_index = min(len(self._full_text), self._typing_index + step)
         snippet = self._full_text[:self._typing_index]
         self._render_text(snippet, final=False)
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "scroll_to_bottom"):
+            parent.scroll_to_bottom()
         if self._typing_index >= len(self._full_text):
             self._finish_typing()
 
@@ -632,6 +663,20 @@ class ChatBubble(QFrame):
             self._typing_timer = None
         self._typing_index = len(self._full_text)
         self._render_text(self._full_text, final=True)
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "scroll_to_bottom"):
+            parent.scroll_to_bottom()
+
+    def update_stream_text(self, text: str):
+        self._full_text = text
+        self._typing_index = len(text)
+        self._render_text(text, final=False)
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "scroll_to_bottom"):
+            parent.scroll_to_bottom()
+
+    def finish_streaming(self):
+        self._finish_typing()
 
     def mousePressEvent(self, event):
         self._finish_typing()
@@ -803,6 +848,12 @@ class ConversationFeed(QScrollArea):
         self._message_count = 0
 
     def add_message(self, role: str, name: str, text: str, stamp: str, attachments: list[dict] | None = None, animate: bool = False, event_type: str | None = None):
+        if hasattr(self, "_layout") and self._layout is not None:
+            for i in range(self._layout.count()):
+                item = self._layout.itemAt(i)
+                widget = item.widget() if item else None
+                if isinstance(widget, ChatBubble) and getattr(widget, "_typing_timer", None) is not None:
+                    widget._finish_typing()
         vw = self.viewport().width()
         if hasattr(self, "_content") and self._content is not None and vw > 20:
             self._content.setFixedWidth(vw)
