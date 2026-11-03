@@ -42,23 +42,40 @@ class CredentialVault:
     def __init__(self, key_file: Path = KEY_FILE):
         _ensure_dir()
         self._key_file = key_file
-        self._fernet = Fernet(self._load_or_create_key())
+        key = self._load_or_create_key()
+        try:
+            self._fernet = Fernet(key)
+        except Exception:
+            key = Fernet.generate_key()
+            if is_dpapi_available():
+                try:
+                    enc = dpapi_protect(key)
+                    self._key_file.write_bytes(DPAPI_BINARY_PREFIX + enc)
+                except Exception:
+                    self._key_file.write_bytes(key)
+            else:
+                self._key_file.write_bytes(key)
+            self._fernet = Fernet(key)
 
     def _load_or_create_key(self) -> bytes:
         if self._key_file.exists():
             raw = self._key_file.read_bytes().strip()
             if raw.startswith(DPAPI_BINARY_PREFIX):
                 cipher = raw[len(DPAPI_BINARY_PREFIX):]
-                return dpapi_unprotect(cipher)
-            # Legacy plaintext Fernet key (1-release read-only fallback).
-            # Transparently migrate to DPAPI if available.
-            if is_dpapi_available():
                 try:
-                    enc = dpapi_protect(raw)
-                    self._key_file.write_bytes(DPAPI_BINARY_PREFIX + enc)
+                    return dpapi_unprotect(cipher)
                 except Exception:
                     pass
-            return raw
+            elif len(raw) == 44:
+                # Legacy plaintext Fernet key (1-release read-only fallback).
+                # Transparently migrate to DPAPI if available.
+                if is_dpapi_available():
+                    try:
+                        enc = dpapi_protect(raw)
+                        self._key_file.write_bytes(DPAPI_BINARY_PREFIX + enc)
+                    except Exception:
+                        pass
+                return raw
 
         key = Fernet.generate_key()
         if is_dpapi_available():

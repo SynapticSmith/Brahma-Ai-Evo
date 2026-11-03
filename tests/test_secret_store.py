@@ -196,3 +196,18 @@ def test_main_get_api_key_missing_raises_runtime_error(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError) as exc_info:
         main._get_api_key()
     assert "Missing" in str(exc_info.value)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows DPAPI requires win32")
+def test_credential_vault_recovers_from_corrupt_key(tmp_path):
+    key_file = tmp_path / "smart_home.key"
+    key_file.write_bytes(b"corrupted_non_base64_data_that_fails_padding")
+
+    # Vault must not crash; it recovers with a fresh valid key
+    vault = CredentialVault(key_file=key_file)
+    assert vault._fernet is not None
+
+    payload = {"status": "recovered"}
+    enc = vault.encrypt_json(payload)
+    dec = vault.decrypt_json(enc)
+    assert dec == payload

@@ -2729,9 +2729,6 @@ class BrahmaLive:
 
     def trigger_barge_in(self):
         return self._session_lifecycle.trigger_barge_in()
-
-
-
     def _forge_skill(self, goal: str, skill_name: str | None = None) -> str:
         from core.skill_forge import SkillForge
 
@@ -3225,6 +3222,9 @@ if __name__ == "__main__":
     try:
         main()
     except Exception:
-        with open("FATAL_CRASH.log", "w") as f:
-            traceback.print_exc(file=f)
+        try:
+            with open("FATAL_CRASH.log", "w") as f:
+                traceback.print_exc(file=f)
+        except Exception:
+            pass
         raise
