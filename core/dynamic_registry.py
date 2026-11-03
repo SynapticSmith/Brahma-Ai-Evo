@@ -48,6 +48,8 @@ class DynamicSkill:
         self.created_at: float = manifest.get("created_at", time.time())
         self.invocations: int = manifest.get("invocations", 0)
         self.last_error: Optional[str] = manifest.get("last_error", None)
+        self.is_synthetic: bool = bool(manifest.get("is_synthetic", False) or manifest.get("source") == "synthetic")
+        self.grant: Optional[Dict[str, Any]] = manifest.get("grant")
 
     def _load_module(self) -> Any:
         if self.module is None:
@@ -72,6 +74,14 @@ class DynamicSkill:
 
     def execute_sync(self, **kwargs) -> Any:
         """Executes the skill synchronously (safe for worker threads)."""
+        if self.is_synthetic and self.module is None:
+            from core.skill_host import execute_in_skill_host
+            code_path = self.skill_path / "code.py" if (self.skill_path / "code.py").exists() else (
+                self.skill_path / "skill.py" if self.skill_path.is_dir() else self.skill_path
+            )
+            self.invocations += 1
+            return execute_in_skill_host(code_path, kwargs, grant=self.grant)
+
         module = self._load_module()
         if not hasattr(module, "execute"):
             raise AttributeError(f"Feature '{self.name}' has no 'execute' function.")
@@ -83,6 +93,9 @@ class DynamicSkill:
 
     async def execute_async(self, **kwargs) -> Any:
         """Executes the skill asynchronously without thread-pool registration conflicts."""
+        if self.is_synthetic and self.module is None:
+            return await asyncio.to_thread(self.execute_sync, **kwargs)
+
         module = self._load_module()
         if not hasattr(module, "execute"):
             raise AttributeError(f"Feature '{self.name}' has no 'execute' function.")
@@ -273,7 +286,12 @@ class DynamicToolRegistry:
                     ok, _, reason = store.verify_installed_artifact(artifact.name)
                     if ok:
                         skill_path = store.store_dir / artifact.artifact_hash
-                        skill = DynamicSkill(skill_path, artifact.manifest)
+                        manifest_with_grant = {
+                            **artifact.manifest,
+                            "is_synthetic": True,
+                            "grant": artifact.grant,
+                        }
+                        skill = DynamicSkill(skill_path, manifest_with_grant)
                         cls._skills[artifact.name] = skill
                         count += 1
                     else:
