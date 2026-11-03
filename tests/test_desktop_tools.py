@@ -687,6 +687,8 @@ def test_ported_capability_specs(registered, tmp_path):
         "study_guard",
         "net_sentinel",
         "space_cleaner",
+        "flowstate",
+        "shopping_agent",
     ):
         spec = get_spec(name)
         assert spec is not None, f"Spec missing for {name}"
@@ -714,3 +716,7 @@ def test_ported_capability_specs(registered, tmp_path):
     sg_spec = get_spec("study_guard")
     assert sg_spec.class_for({"action": "status"}) == "read"
     assert sg_spec.class_for({"action": "start"}) == "device"
+
+    fs_spec = get_spec("flowstate")
+    assert fs_spec.class_for({"action": "list"}) == "read"
+    assert fs_spec.class_for({"action": "snapshot"}) == "device"

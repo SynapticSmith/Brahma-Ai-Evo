@@ -5,8 +5,21 @@ Description: Retrieves the current stock price and historical data for a given s
 
 FEATURE_METADATA = {
     "name": "check_current_stock_prices",
-    "description": "Retrieves the current stock price and historical data for a given stock symbol, then generates a dark-themed graph card showing price trends. Defaults to BMW.DE stock.",
-    "parameters": {"type": "OBJECT", "properties": {"symbol": {"type": "STRING", "description": "The stock ticker symbol (e.g., 'AAPL' for Apple, 'BMW.DE' for BMW on XETRA, 'TSLA' for Tesla). Defaults to 'BMW.DE'."}, "period": {"type": "STRING", "description": "The historical period for the graph (e.g., '1mo' for 1 month, '3mo' for 3 months, '1y' for 1 year). Defaults to '1mo'."}}, "required": []},
+    "description": "Retrieves the current stock market price and historical chart for a specific stock ticker symbol (e.g. AAPL, TSLA, NVDA). Only call this tool when the user explicitly asks for stock prices, equity shares, or financial ticker data.",
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "symbol": {
+                "type": "STRING",
+                "description": "The stock ticker symbol (e.g. 'AAPL' for Apple, 'TSLA' for Tesla, 'NVDA' for NVIDIA)."
+            },
+            "period": {
+                "type": "STRING",
+                "description": "The historical period for the graph (e.g., '1mo' for 1 month, '3mo' for 3 months, '1y' for 1 year). Defaults to '1mo'."
+            }
+        },
+        "required": ["symbol"]
+    },
     "version": "1.0.0",
     "active": True
 }
@@ -20,7 +33,10 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 def execute(**kwargs):
-    symbol = kwargs.get('symbol', 'BMW.DE')
+    symbol = kwargs.get('symbol')
+    if not symbol or not str(symbol).strip():
+        return {"error": "No stock ticker symbol provided. Please specify a ticker like AAPL, TSLA, or MSFT."}
+    symbol = str(symbol).strip().upper()
     period = kwargs.get('period', '1mo')
     
     # Validate period to prevent arbitrary string injection into URL

@@ -149,6 +149,8 @@ WAVE3: Dict[str, Tuple[str, bool]] = {
     "study_guard": ("device", False),
     "net_sentinel": ("network", False),
     "space_cleaner": ("write", False),
+    "flowstate": ("device", False),
+    "shopping_agent": ("network", False),
 }
 
 #: Names the model may use that are not their own declaration. ``rollback``
@@ -371,6 +373,14 @@ def _classify_study_guard(args: Mapping[str, Any]) -> str:
         return "read"
     return "device"
 
+
+
+def _classify_flowstate(args: Mapping[str, Any]) -> str:
+    action = str((args or {}).get("action") or "list").strip().lower()
+    if action in ("list", "status"):
+        return "read"
+    return "device"
+
 CLASSIFIERS: Dict[str, Callable[[Mapping[str, Any]], str]] = {
     "file_controller": _classify_file_controller,
     "smart_organizer": _classify_smart_organizer,
@@ -395,6 +405,7 @@ CLASSIFIERS: Dict[str, Callable[[Mapping[str, Any]], str]] = {
     "game_sentinel": _classify_game_sentinel,
     "net_sentinel": _classify_net_sentinel,
     "study_guard": _classify_study_guard,
+    "flowstate": _classify_flowstate,
 }
 
 SILENT_TOOLS = frozenset({"save_memory"})
@@ -1384,6 +1395,25 @@ def _space_cleaner(args: Dict[str, Any], context: Any) -> str:
         res = cleaner.scan_all()
         return f"Scan complete. Found {res.total_reclaimable_mb} MB reclaimable across {len(res.categories)} categories."
 
+
+
+def _flowstate(args: Dict[str, Any], context: Any) -> str:
+    host = _host_for(context)
+    if host is None:
+        return desktop_host.MISSING_HOST
+    from features.flowstate import execute
+    res = execute(**args)
+    return str(res.get("summary") or res.get("message") or res)
+
+
+def _shopping_agent(args: Dict[str, Any], context: Any) -> str:
+    host = _host_for(context)
+    if host is None:
+        return desktop_host.MISSING_HOST
+    from features.shopping_agent import execute
+    res = execute(**args)
+    return str(res.get("summary") or res.get("message") or res)
+
 HANDLERS = {
     "pdf_document": _pdf_document,
     "word_document": _word_document,
@@ -1480,6 +1510,8 @@ HANDLERS = {
     "study_guard": _study_guard,
     "net_sentinel": _net_sentinel,
     "space_cleaner": _space_cleaner,
+    "flowstate": _flowstate,
+    "shopping_agent": _shopping_agent,
 }
 
 
@@ -1500,6 +1532,8 @@ def _get_fallback_declaration(name: str) -> Optional[Dict[str, Any]]:
             ("actions.game_sentinel", "PLUGIN"),
             ("actions.study_guard", "PLUGIN"),
             ("actions.net_sentinel", "PLUGIN"),
+            ("features.flowstate", "FEATURE_METADATA"),
+            ("features.shopping_agent", "FEATURE_METADATA"),
         ):
             try:
                 mod = __import__(mod_name, fromlist=[plugin_attr])

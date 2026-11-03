@@ -335,7 +335,7 @@ class DynamicToolRegistry:
             "skill", "skills", "feature", "features", "tool", "tools", "test", "tests", "testing",
             "made", "make", "using", "u", "ur", "your", "created", "create", "built", "build",
             "forged", "forge", "just", "recently", "newly", "new", "latest", "now", "already",
-            "one", "did", "have"
+            "one", "did", "have", "current", "currently", "present", "status", "view", "info", "data", "details", "as", "like"
         }
 
         def stem(w: str) -> str:
@@ -425,7 +425,7 @@ class DynamicToolRegistry:
                 if len(word) >= 2 and word in skill.name.lower().split("_"):
                     score += 25
 
-            if score > best_score and score >= 35:
+            if score > best_score and score >= 70:
                 best_score = score
                 best_skill = skill
 
@@ -467,6 +467,13 @@ class DynamicToolRegistry:
                 m_num = re.search(r"\b(\d+)\s*(?:seconds?|sec|mins?|points?|hours?|kline|bars?|times?)\b", q_lower)
                 if m_num:
                     args[p_name] = int(m_num.group(1))
+
+        # 4. Strict validation: If the skill requires parameters, they MUST be extracted!
+        required = best_skill.parameters.get("required", [])
+        for req in required:
+            if req not in args or not args[req]:
+                logger.debug(f"[Registry] Match rejected for '{best_skill.name}': missing required argument '{req}'")
+                return None
 
         return best_skill.name, args
 

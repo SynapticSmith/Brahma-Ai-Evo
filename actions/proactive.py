@@ -49,13 +49,14 @@ class ProactiveEngine:
 
     def build_prompt(
         self,
-        memory:       dict,
-        monitors:     list[str] | None = None,
-        recent_turns: list[str] | None = None,
+        memory:          dict,
+        monitors:        list[str] | None = None,
+        recent_turns:    list[str] | None = None,
+        sensor_snapshot: dict | None = None,
     ) -> str:
         """
         Build a context snapshot for Gemini.
-        Rotates through three focus areas so proactive messages don't repeat.
+        Rotates through four focus areas including live workspace context.
         """
         from memory.memory_manager import format_memory_for_prompt
 
@@ -71,8 +72,25 @@ class ProactiveEngine:
 
         mem_str = format_memory_for_prompt(memory) or "(no stored user data)"
 
-        # Rotating context focus (cycles every trigger)
-        focus_index = self._rotation % 3
+        # Live sensorium telemetry snapshot if available
+        if sensor_snapshot is None:
+            try:
+                from core.sensorium import get_sensorium
+                sensor_snapshot = get_sensorium().get_snapshot()
+            except Exception:
+                sensor_snapshot = None
+
+        sensor_ctx = ""
+        if sensor_snapshot:
+            curr_win = sensor_snapshot.get("current_window", {})
+            title = curr_win.get("title", "")
+            proc = sensor_snapshot.get("current_process", "")
+            dwell = round(sensor_snapshot.get("dwell_seconds", 0) / 60.0, 1)
+            if title or proc:
+                sensor_ctx = f"\nUser's current screen context: Working in '{title}' ({proc}) for {dwell} minutes."
+
+        # Rotating context focus (cycles every trigger across 4 areas)
+        focus_index = self._rotation % 4
         if focus_index == 0:
             focus = (
                 "Focus on the user's active projects or goals if any are stored. "
@@ -82,6 +100,11 @@ class ProactiveEngine:
             focus = (
                 "Focus on the time of day and the user's wellbeing. "
                 "A warm check-in, a reminder to take a break, or something timely."
+            )
+        elif focus_index == 2:
+            focus = (
+                "Focus on the user's current task or active window context if available. "
+                "Offer relevant technical assistance, shortcut suggestions, or helpful insights."
             )
         else:
             focus = (
@@ -109,6 +132,7 @@ class ProactiveEngine:
             "",
             "Context about this person:",
             mem_str,
+            sensor_ctx,
             monitor_ctx,
             recent_ctx,
             "",

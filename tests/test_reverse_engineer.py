@@ -158,9 +158,13 @@ try:
 except ImportError:
     IntentDispatcher = None
 
-@pytest.mark.skipif(IntentDispatcher is None, reason="IntentDispatcher / OmniPlanner not installed")
-def test_user_prompt_intent_routing_no_memory_purge():
+try:
     from core.omni_planner import OmniPlanner
+except ImportError:
+    OmniPlanner = None
+
+@pytest.mark.skipif(OmniPlanner is None, reason="OmniPlanner rejected in favor of AgentLoop")
+def test_user_prompt_intent_routing_no_memory_purge():
     from core.intent_dispatcher import IntentDispatcher
 
     prompt = "https://news.ycombinator.com and remake a clean modern version of it in my workspace."

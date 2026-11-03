@@ -53,6 +53,14 @@ class ClipboardSentry:
         if re.search(r"^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\s+", text, re.IGNORECASE):
             return "sql_query"
 
+        # Check for YouTube URL
+        if re.search(r"(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/)[a-zA-Z0-9_-]+", text):
+            return "youtube_url"
+
+        # Check for GitHub repository URL
+        if re.search(r"(https?://)?(www\.)?github\.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+", text):
+            return "github_url"
+
         # Check for code blocks
         if any(keyword in text for keyword in ["def ", "class ", "function ", "import ", "const ", "let ", "var "]) and "\n" in text:
             return "code_snippet"

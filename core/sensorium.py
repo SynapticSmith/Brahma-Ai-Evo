@@ -11,6 +11,7 @@ import threading
 import ctypes
 from ctypes import wintypes
 from typing import Dict, Any, List, Optional, Callable
+from datetime import datetime
 import psutil
 
 from core.window_context import get_foreground_window_info
@@ -56,6 +57,13 @@ class PassiveSensorium:
         self.ram_percent: float = 0.0
         self.battery_percent: Optional[float] = None
         self.power_plugged: Optional[bool] = None
+        self._prev_power_plugged: Optional[bool] = None
+
+        # Proactive Workflow & Rhythm Tracking
+        self._in_meeting_mode: bool = False
+        self._last_morning_briefing_date: str = ""
+        self._last_dev_project: str = ""
+        self._was_away: bool = False
 
         # Observers & Interjection Callbacks
         self._interjection_callbacks: List[Callable[[str, Dict[str, Any]], None]] = []
@@ -157,17 +165,115 @@ class PassiveSensorium:
                     },
                 )
 
-        # Alert: Battery Low (< 15% unplugged)
-        if self.battery_percent is not None and not self.power_plugged and self.battery_percent < 15.0:
-            if now - self._last_alert_time.get("battery_critical", 0) > 600:  # 10 min cooldown
-                self._last_alert_time["battery_critical"] = now
+        # Alert: Power Connected / Disconnected State Transitions
+        if self.power_plugged is not None and self._prev_power_plugged is not None:
+            if self._prev_power_plugged is False and self.power_plugged is True:
+                pct = int(self.battery_percent) if self.battery_percent is not None else 100
                 self._emit_alert(
-                    "battery_critical",
+                    "power_connected",
                     {
-                        "message": f"Battery critically low at {self.battery_percent}%.",
-                        "speech": f"Sir, your battery is down to {int(self.battery_percent)} percent. Please connect a power source.",
-                        "battery_percent": self.battery_percent,
+                        "message": f"AC power connected. Charging at {pct}%.",
+                        "speech": f"Power connected, sir. Charging at {pct} percent.",
+                        "battery_percent": pct,
                     },
+                )
+            elif self._prev_power_plugged is True and self.power_plugged is False:
+                pct = int(self.battery_percent) if self.battery_percent is not None else 100
+                self._emit_alert(
+                    "power_disconnected",
+                    {
+                        "message": f"AC power disconnected. Running on battery ({pct}%).",
+                        "speech": f"Power disconnected, sir. Running on battery at {pct} percent.",
+                        "battery_percent": pct,
+                    },
+                )
+        self._prev_power_plugged = self.power_plugged
+
+        # Alert: Battery Low (< 20% on battery)
+        if self.battery_percent is not None and not self.power_plugged:
+            if self.battery_percent <= 10.0:
+                if now - self._last_alert_time.get("battery_critical", 0) > 240:
+                    self._last_alert_time["battery_critical"] = now
+                    self._emit_alert(
+                        "battery_critical",
+                        {
+                            "message": f"Critical battery warning: {int(self.battery_percent)}% remaining.",
+                            "speech": f"Critical warning, sir: battery has dropped to {int(self.battery_percent)} percent. Please connect the charger immediately.",
+                            "battery_percent": self.battery_percent,
+                        },
+                    )
+            elif self.battery_percent <= 20.0:
+                if now - self._last_alert_time.get("battery_low", 0) > 600:
+                    self._last_alert_time["battery_low"] = now
+                    self._emit_alert(
+                        "battery_low",
+                        {
+                            "message": f"Battery low: {int(self.battery_percent)}% remaining.",
+                            "speech": f"Sir, your battery is at {int(self.battery_percent)} percent on battery power. I recommend plugging in soon.",
+                            "battery_percent": self.battery_percent,
+                        },
+                    )
+
+        # Proactive: Meeting Mode Detection (Zoom, Teams, Webex, Google Meet)
+        proc_lower = self.current_process_name.lower()
+        title_lower = (self.current_window.get("title") or "").lower()
+        is_meeting = any(p in proc_lower for p in ("zoom.exe", "teams.exe", "webex.exe")) or "meet.google.com" in title_lower
+
+        if is_meeting and not self._in_meeting_mode:
+            self._in_meeting_mode = True
+            self._emit_alert(
+                "meeting_mode_enter",
+                {
+                    "message": f"Meeting application detected ({self.current_process_name}). Auto-engaged Meeting Mode.",
+                    "speech": "Meeting detected, sir. Silencing background media and optimizing audio.",
+                    "action": "meeting_mode_start"
+                }
+            )
+        elif not is_meeting and self._in_meeting_mode:
+            self._in_meeting_mode = False
+            self._emit_alert(
+                "meeting_mode_exit",
+                {
+                    "message": "Meeting concluded. Normal audio levels restored.",
+                    "speech": "Meeting concluded, sir. Audio restored to normal.",
+                    "action": "meeting_mode_stop"
+                }
+            )
+
+        # Proactive: Development / Coding Session Detection
+        is_dev = any(p in proc_lower for p in ("code.exe", "cursor.exe", "pycharm64.exe", "idea64.exe", "devenv.exe"))
+        if is_dev:
+            # Extract project name from editor title e.g. "main.py - brahma - Visual Studio Code"
+            raw_title = self.current_window.get("title", "")
+            project = ""
+            if " - " in raw_title:
+                parts = [p.strip() for p in raw_title.split(" - ")]
+                project = parts[-2] if len(parts) >= 2 else parts[0]
+            if project and project != self._last_dev_project and (now - self._last_alert_time.get("dev_session", 0) > 2700):
+                self._last_alert_time["dev_session"] = now
+                self._last_dev_project = project
+                self._emit_alert(
+                    "dev_session",
+                    {
+                        "message": f"Development workspace active: {project}",
+                        "speech": f"I see you opened project {project}, sir. Git tracking and dev sentinels are standing by.",
+                        "project": project
+                    }
+                )
+
+        # Proactive: First Morning Interaction & Briefing Prompt
+        now_dt = datetime.now()
+        if 6 <= now_dt.hour <= 11:
+            today_str = now_dt.strftime("%Y-%m-%d")
+            if today_str != self._last_morning_briefing_date and self.user_idle_seconds < 3.0:
+                self._last_morning_briefing_date = today_str
+                self._emit_alert(
+                    "morning_greeting",
+                    {
+                        "message": f"Good morning! First morning interaction detected ({now_dt.strftime('%A')}).",
+                        "speech": f"Good morning, sir. Today is {now_dt.strftime('%A')}. Systems are fully online and standing by.",
+                        "action": "daily_briefing"
+                    }
                 )
 
         # Alert: Deep Work Strain (Continuous active work on single task > 90 mins)

@@ -14,6 +14,39 @@
         "LOG_LEVEL": "info"
       },
       "timeout": 120
+    },
+    "fetch": {
+      "command": "uvx",
+      "args": ["mcp-server-fetch"],
+      "enabled": false,
+      "description": "Fetches and transforms web content for agents with markdown conversion."
+    },
+    "git": {
+      "command": "uvx",
+      "args": ["mcp-server-git"],
+      "enabled": false,
+      "description": "Full Git version control MCP integration."
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "YOUR_GITHUB_TOKEN_HERE"
+      },
+      "enabled": false,
+      "description": "GitHub issues, PRs, file contents, and repo search."
+    },
+    "postgres": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres", "postgresql://localhost/mydb"],
+      "enabled": false,
+      "description": "Read and query relational PostgreSQL databases safely."
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@executeautomation/playwright-mcp-server"],
+      "enabled": false,
+      "description": "Headless and interactive browser automation via Playwright."
     }
   }
 }
