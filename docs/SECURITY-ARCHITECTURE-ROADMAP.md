@@ -1002,7 +1002,7 @@ Goal: remove the worst paths with small diffs; no new architecture required.
 - [x] Signed release manifest + A/B + rollback.
 - [x] Secret broker + scoped tokens + redaction.
 - [x] Dual-LLM reader + taint-aware policy.
-- [ ] `bash`/`python_repl`/MCP through the host.
+- [x] `bash`/`python_repl`/MCP through the host.
 - [x] Signed plugin bundles + trust store + revocation.
 
 **Exit criteria:** a skill has no ambient authority; updates verify before apply; no secret reaches a model or a child env; a tainted state change requires approval.
