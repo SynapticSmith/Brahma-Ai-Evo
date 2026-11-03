@@ -12,7 +12,10 @@ import ctypes
 from ctypes import wintypes
 from typing import Dict, Any, List, Optional, Callable
 from datetime import datetime
-import psutil
+try:
+    import psutil
+except ImportError:
+    psutil = None
 
 from core.window_context import get_foreground_window_info
 
@@ -119,11 +122,11 @@ class PassiveSensorium:
         title = win_info.get("title", "")
 
         proc_name = "Unknown"
-        if pid:
+        if pid and psutil is not None:
             try:
                 proc = psutil.Process(pid)
                 proc_name = proc.name()
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
+            except Exception:
                 pass
 
         # Dwell time tracking
@@ -139,13 +142,25 @@ class PassiveSensorium:
         self.user_idle_seconds = get_idle_time_seconds()
 
         # 3. System Vitals
-        self.cpu_percent = psutil.cpu_percent(interval=None)
-        self.ram_percent = psutil.virtual_memory().percent
-        battery = psutil.sensors_battery()
-        if battery:
-            self.battery_percent = battery.percent
-            self.power_plugged = battery.power_plugged
+        if psutil is not None:
+            try:
+                self.cpu_percent = psutil.cpu_percent(interval=None)
+                self.ram_percent = psutil.virtual_memory().percent
+                battery = psutil.sensors_battery()
+                if battery:
+                    self.battery_percent = battery.percent
+                    self.power_plugged = battery.power_plugged
+                else:
+                    self.battery_percent = None
+                    self.power_plugged = None
+            except Exception:
+                self.cpu_percent = 0.0
+                self.ram_percent = 0.0
+                self.battery_percent = None
+                self.power_plugged = None
         else:
+            self.cpu_percent = 0.0
+            self.ram_percent = 0.0
             self.battery_percent = None
             self.power_plugged = None
 

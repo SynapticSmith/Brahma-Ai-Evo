@@ -11,6 +11,8 @@ has no side effects of its own.
 from __future__ import annotations
 
 import os
+import sys
+import warnings
 from typing import Final
 
 # Hardware acceleration & WebGL flags for smooth 180fps+ rendering in Chromium.
@@ -20,6 +22,84 @@ QT_WEBENGINE_CHROMIUM_FLAGS: Final[str] = (
     "--disable-frame-rate-limit --disable-gpu-vsync --num-raster-threads=4 "
     "--use-angle=d3d11 --disable-gpu-driver-bug-workarounds"
 )
+
+
+def ensure_supported_environment() -> None:
+    """Validate that the active Python interpreter has required GUI/system
+    dependencies. If running under an incompatible runtime (such as Python 3.14
+    preview without installed packages) while a supported Python (3.11/3.12) is
+    available on the machine, transparently relaunch using that runtime."""
+    if os.environ.get("BRAHMA_NO_RELAUNCH"):
+        return
+
+    # Bypass relaunch check during unit tests or non-script execution
+    if "pytest" in sys.modules or (sys.argv and "pytest" in sys.argv[0]):
+        return
+    if not sys.argv or sys.argv[0] == "-c":
+        return
+
+    try:
+        import PyQt6  # noqa: F401
+        return
+    except ImportError:
+        pass
+
+    import subprocess
+    from pathlib import Path
+
+    workspace_root = Path(__file__).resolve().parent.parent
+    venv_py = workspace_root / ".venv" / "Scripts" / "python.exe"
+
+    candidates: list[list[str]] = []
+    if venv_py.exists():
+        candidates.append([str(venv_py)])
+    if sys.platform == "win32":
+        candidates.extend([["py", "-3.11"], ["py", "-3.12"], ["py", "-3"]])
+    else:
+        candidates.extend([["python3.11"], ["python3.12"], ["python3"]])
+
+    for cmd in candidates:
+        try:
+            probe = subprocess.run(
+                [*cmd, "-c", "import PyQt6"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if probe.returncode == 0:
+                print(
+                    f"[Brahma AI] Incompatible Python runtime (Python {sys.version.split()[0]} at {sys.executable}).",
+                    file=sys.stderr,
+                )
+                print(
+                    f"[Brahma AI] Forwarding launch to compatible Python runtime: {' '.join(cmd)}...",
+                    file=sys.stderr,
+                )
+                full_cmd = [*cmd, *sys.argv]
+                rc = subprocess.call(full_cmd)
+                sys.exit(rc)
+        except Exception:
+            continue
+
+    print(
+        f"[Brahma AI] Error: Python runtime ({sys.executable}) is missing required dependencies (PyQt6).\n"
+        "No compatible Python 3.11 or 3.12 interpreter with PyQt6 was found.\n"
+        "Please install dependencies or launch via:\n"
+        "    py -3.11 main.py\n"
+        "or:\n"
+        "    .\\EVO.bat",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+def configure_warning_filters() -> None:
+    """Silence benign third-party library warnings on startup."""
+    warnings.filterwarnings(
+        "ignore",
+        message=".*Revert to STA COM threading mode.*",
+        category=UserWarning,
+    )
 
 
 def configure_qt_environment() -> None:
@@ -84,7 +164,9 @@ def configure_qt_attributes() -> None:
 
 
 def bootstrap() -> None:
-    """Apply every Qt runtime setting. Idempotent, so any entry point may call it."""
+    """Apply runtime settings and environment validation. Idempotent."""
+    ensure_supported_environment()
+    configure_warning_filters()
     configure_qt_environment()
     configure_dpi_awareness()
     configure_qt_attributes()

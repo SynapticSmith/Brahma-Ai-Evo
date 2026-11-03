@@ -24,7 +24,15 @@ except Exception:  # pragma: no cover
     psutil = None
 
 try:
-    from pywinauto import Desktop
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=".*Revert to STA COM threading mode.*",
+            category=UserWarning,
+        )
+        from pywinauto import Desktop
 except Exception:  # pragma: no cover
     Desktop = None
 
