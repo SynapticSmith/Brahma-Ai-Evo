@@ -20,6 +20,7 @@ a = Analysis(
         (os.path.join(cwd, 'plugins'), 'plugins'),
         (os.path.join(cwd, 'features'), 'features'),
         (os.path.join(cwd, 'skills'), 'skills'),
+        (os.path.join(cwd, 'skills_library'), 'skills_library'),
         (os.path.join(cwd, 'installer', 'uninstall.cmd'), '.'),
         (os.path.join(cwd, 'workspace_store.py'), '.'),
         (os.path.join(cwd, 'README.md'), '.'),

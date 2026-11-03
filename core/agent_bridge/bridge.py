@@ -128,10 +128,21 @@ class AgentBridge:
             adapter = self._adapters.get(agent_id)
             if adapter is None:
                 return None
-            res = adapter.probe()
-            adapter.record.status = "connected" if res.ok else "degraded"
-            self.registry.save(adapter.record)
-            return res
+            try:
+                res = adapter.probe()
+                adapter.record.status = "connected" if res.ok else "degraded"
+                self.registry.save(adapter.record)
+                return res
+            except Exception as exc:
+                logger.warning("Probe exception on adapter %s: %s", agent_id, exc)
+                err_res = ProbeResult(
+                    ok=False,
+                    stage="liveness",
+                    detail=f"Probe failed with exception: {exc}",
+                )
+                adapter.record.status = "error"
+                self.registry.save(adapter.record)
+                return err_res
 
     def publish_tools(self) -> List[str]:
         """Publish canonical ToolSpecs from all active adapters into agent.spec.

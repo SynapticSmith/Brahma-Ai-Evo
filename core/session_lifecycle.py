@@ -1,3 +1,5 @@
+
+
 """Session state machine and lifecycle for BrahmaLive (P4-19 seam B).
 
 Extracted verbatim from main.py's BrahmaLive class. The host owns all state
@@ -11,6 +13,15 @@ originals apart from the documented rewrite that rebinds every self.NAME
 attribute reference (except the nine methods moved here) to the host.
 """
 from __future__ import annotations
+
+def _get_live_voice_name() -> str:
+    try:
+        from memory import config_manager
+        val = str(config_manager.get_setting("gemini_live_voice", "Charon") or "Charon").strip()
+        return val if val in ("Charon", "Puck", "Aoede", "Fenrir", "Kore") else "Charon"
+    except Exception:
+        return "Charon"
+
 
 import asyncio
 import threading
@@ -511,7 +522,7 @@ class SessionLifecycle:
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                        voice_name="Charon"
+                        voice_name=_get_live_voice_name()
                     )
                 )
             ),

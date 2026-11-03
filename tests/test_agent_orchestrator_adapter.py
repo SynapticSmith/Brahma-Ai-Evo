@@ -359,3 +359,51 @@ def test_bridge_discover_and_publish_orchestrator(tmp_path, monkeypatch):
         assert get_spec("agent_orchestrator_paperclip_list_agents") is None
     finally:
         server.shutdown()
+
+
+def test_orca_probe_and_call_resilience(tmp_path, monkeypatch):
+    from agent.process import ProcessResult
+
+    rec = AgentRecord(
+        id="orchestrator_orca",
+        display_name="Orca ADE",
+        kind="orchestrator",
+        orchestrator={"connector": "orca", "executable": "orca"},
+    )
+    adapter = OrchestratorAdapter(rec)
+
+    # Mock run_captured to return success
+    calls = []
+
+    def mock_run_captured(cmd, *, cwd, timeout, sandbox=None):
+        calls.append((cmd, cwd, timeout))
+        assert isinstance(cmd, str)
+        assert cwd is not None
+        if "--version" in cmd:
+            return ProcessResult(returncode=0, stdout="orca 1.4.2\n", stderr="")
+        elif "worktrees" in cmd:
+            return ProcessResult(returncode=0, stdout='[{"branch": "feat-a"}]', stderr="")
+        elif "assign" in cmd:
+            return ProcessResult(returncode=0, stdout="Goal assigned: id-123", stderr="")
+        return ProcessResult(returncode=1, stdout="", stderr="Unknown command")
+
+    monkeypatch.setattr("core.agent_bridge.adapters.orchestrator.run_captured", mock_run_captured)
+    monkeypatch.setattr("shutil.which", lambda _exe: "/usr/bin/orca")
+    monkeypatch.setattr("pathlib.Path.exists", lambda _self: True)
+
+    probe_res = adapter.probe()
+    assert probe_res.ok is True
+    assert "1.4.2" in probe_res.detail
+
+    adapter.connect()
+    specs = adapter.to_tool_specs()
+    assert len(specs) == 2  # list_worktrees (read), assign_goal (write)
+
+    res_worktrees = adapter.call("list_worktrees", {})
+    assert res_worktrees.ok is True
+    assert "feat-a" in res_worktrees.output
+
+    res_goal = adapter.call("assign_goal", {"goal": "Optimize pipeline", "worktree": "wt-1"})
+    assert res_goal.ok is True
+    assert "Goal assigned" in res_goal.output
+

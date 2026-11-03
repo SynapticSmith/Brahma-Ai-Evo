@@ -8,6 +8,31 @@ def get_base_dir() -> Path:
         return Path(sys.executable).parent
     return Path(__file__).resolve().parent.parent
 
+
+BEHAVIOR_DIRECTIVES: Dict[str, str] = {
+    "professional": (
+        "Maintain an executive, structured, objective, and polished tone. "
+        "Provide concise, high-precision answers with structured bullet points. "
+        "Avoid informal slang or unnecessary conversational filler."
+    ),
+    "casual": (
+        "Be friendly, conversational, empathetic, and natural. "
+        "Use warm, approachable language while staying helpful, accurate, and supportive."
+    ),
+    "technical": (
+        "Adopt an in-depth engineering and architectural perspective. "
+        "Provide exact technical terminology, code snippets, root-cause diagnostics, and structural explanations."
+    ),
+    "minimal": (
+        "Be extremely concise, direct, and terse. "
+        "Answer questions with maximum brevity; omit pleasantries, conversational preambles, and filler."
+    ),
+    "proactive": (
+        "Anticipate the user's next logical steps, suggest performance or workflow optimizations, "
+        "surface potential risks unprompted, and recommend actionable follow-up tasks."
+    ),
+}
+
 class IdentityService:
     def __init__(self):
         self.config_file = get_base_dir() / "config" / "identity.json"
@@ -137,6 +162,14 @@ class IdentityService:
     def set_behavior_mode(self, mode: str):
         self.data["behavior"]["mode"] = mode
         self.save()
+
+    def get_behavior_directive(self, mode: str | None = None) -> str:
+        target_mode = (mode or self.get_behavior_mode()).lower()
+        return BEHAVIOR_DIRECTIVES.get(target_mode, BEHAVIOR_DIRECTIVES["professional"])
+
+    @staticmethod
+    def get_behavior_descriptions() -> Dict[str, str]:
+        return dict(BEHAVIOR_DIRECTIVES)
 
     def get_custom_instructions(self) -> str:
         val = self.data["behavior"].get("custom_instructions", "")

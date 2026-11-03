@@ -41,6 +41,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPlainTextEdit,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -1235,6 +1236,44 @@ class SystemConnectivityPage(QWidget):
             return card
 
         # --- speech to text ---------------------------------------------- #
+        # --- Gemini Live voice picker ---
+        live_voice_title = QLabel("Assistant Live Voice (Gemini Live)")
+        live_voice_title.setStyleSheet(f"color: {C.TEXT}; font-size: 12px; font-weight: 600;")
+        lay.addWidget(live_voice_title)
+
+        live_voice_box = QComboBox()
+        voices = [
+            ("Charon (Default — Deep & Authoritative)", "Charon"),
+            ("Puck (Energetic & Dynamic)", "Puck"),
+            ("Aoede (Warm & Melodic)", "Aoede"),
+            ("Fenrir (Grounded & Direct)", "Fenrir"),
+            ("Kore (Calm & Gentle)", "Kore"),
+        ]
+        for label, vid in voices:
+            live_voice_box.addItem(label, vid)
+        
+        current_voice = str(settings.get("gemini_live_voice", "Charon") or "Charon")
+        idx_voice = live_voice_box.findData(current_voice)
+        live_voice_box.setCurrentIndex(idx_voice if idx_voice >= 0 else 0)
+
+        def _on_live_voice_changed(_idx: int):
+            sel = live_voice_box.currentData() or "Charon"
+            merged = self._load_app_settings()
+            merged["gemini_live_voice"] = sel
+            self._replace_app_settings(merged)
+            try:
+                from memory import config_manager
+                config_manager.set_setting("gemini_live_voice", sel)
+            except Exception:
+                pass
+
+        live_voice_box.currentIndexChanged.connect(_on_live_voice_changed)
+        lay.addWidget(live_voice_box)
+
+        live_voice_hint = QLabel("Select the voice persona Brahma uses during live Gemini voice conversations.")
+        live_voice_hint.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px; margin-bottom: 8px;")
+        lay.addWidget(live_voice_hint)
+
         stt_title = QLabel("Transcription (speech → text)")
         stt_title.setStyleSheet(f"color: {C.TEXT}; font-size: 12px; font-weight: 600;")
         lay.addWidget(stt_title)
@@ -2667,9 +2706,31 @@ class SystemConnectivityPage(QWidget):
         self._set_beh_mode = QComboBox()
         self._set_beh_mode.addItems(["professional", "casual", "technical", "minimal", "proactive"])
         self._set_beh_mode.setCurrentText(identity.get_behavior_mode())
-        self._set_beh_mode.currentTextChanged.connect(lambda t: identity.set_behavior_mode(t))
         beh_row.addWidget(self._set_beh_mode)
         ilay.addLayout(beh_row)
+
+        self._beh_desc = QLabel(identity.get_behavior_directive(identity.get_behavior_mode()))
+        self._beh_desc.setWordWrap(True)
+        self._beh_desc.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px; margin-bottom: 6px;")
+        ilay.addWidget(self._beh_desc)
+
+        def _on_beh_mode_changed(t: str):
+            identity.set_behavior_mode(t)
+            self._beh_desc.setText(identity.get_behavior_directive(t))
+
+        self._set_beh_mode.currentTextChanged.connect(_on_beh_mode_changed)
+
+        ci_label = QLabel("Custom Instructions (Persistent)")
+        ci_label.setStyleSheet(f"color: {C.WHITE}; font-size: 11px; font-weight: bold; margin-top: 6px;")
+        ilay.addWidget(ci_label)
+
+        self._set_custom_instr = QPlainTextEdit()
+        self._set_custom_instr.setPlaceholderText("Enter custom instructions, behavioral rules, or preferences you want Brahma to always follow...")
+        self._set_custom_instr.setPlainText(identity.get_custom_instructions())
+        self._set_custom_instr.setMaximumHeight(75)
+        self._set_custom_instr.setStyleSheet(f"QPlainTextEdit {{ background: {C.PANEL2}; color: {C.TEXT}; border: 1px solid {C.BORDER}; border-radius: 6px; font-size: 11px; padding: 4px; }}")
+        self._set_custom_instr.textChanged.connect(lambda: identity.set_custom_instructions(self._set_custom_instr.toPlainText().strip()))
+        ilay.addWidget(self._set_custom_instr)
 
         lay.addWidget(identity_card)
 

@@ -1,3 +1,5 @@
+
+
 """
 core/live_voice_engine.py
 Ultra-low-latency real-time live voice engine for Brahma.
@@ -12,6 +14,15 @@ Key capabilities:
 """
 
 from __future__ import annotations
+
+def _get_live_voice_name() -> str:
+    try:
+        from memory import config_manager
+        val = str(config_manager.get_setting("gemini_live_voice", "Charon") or "Charon").strip()
+        return val if val in ("Charon", "Puck", "Aoede", "Fenrir", "Kore") else "Charon"
+    except Exception:
+        return "Charon"
+
 
 import asyncio
 import collections
@@ -360,7 +371,7 @@ class LiveVoiceEngine:
             thinking_config=types.ThinkingConfig(thinking_budget=0),  # Zero latency thinking budget
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Charon")
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=_get_live_voice_name())
                 )
             ),
         )

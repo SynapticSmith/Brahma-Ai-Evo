@@ -107,27 +107,35 @@ class OrchestratorAdapter(AgentAdapter):
                 )
 
         elif self._connector == "orca":
-            resolved = shutil.which(self._executable) or self._executable
-            if not Path(resolved).exists() and not shutil.which(resolved):
+            try:
+                resolved = shutil.which(self._executable) or self._executable
+                if not Path(resolved).exists() and not shutil.which(resolved):
+                    return ProbeResult(
+                        ok=False,
+                        stage="liveness",
+                        detail=f"Orca binary not found: {self._executable}",
+                    )
+                cmd_str = f'"{resolved}" --version'
+                res = run_captured(cmd_str, cwd=Path.cwd(), timeout=4.0)
+                if res.returncode == 0:
+                    ver = res.stdout.strip().splitlines()[0] if res.stdout else "unknown"
+                    return ProbeResult(
+                        ok=True,
+                        stage="capability",
+                        detail=f"Orca ADE responsive ({ver})",
+                        version=ver,
+                    )
+                return ProbeResult(
+                    ok=False,
+                    stage="protocol",
+                    detail=f"Orca --version returned non-zero ({res.returncode}): {res.stderr[:200]}",
+                )
+            except Exception as exc:
                 return ProbeResult(
                     ok=False,
                     stage="liveness",
-                    detail=f"Orca binary not found: {self._executable}",
+                    detail=f"Orca probe error: {exc}",
                 )
-            res = run_captured([resolved, "--version"], timeout=4.0)
-            if res.code == 0:
-                ver = res.stdout.strip().splitlines()[0] if res.stdout else "unknown"
-                return ProbeResult(
-                    ok=True,
-                    stage="capability",
-                    detail=f"Orca ADE responsive ({ver})",
-                    version=ver,
-                )
-            return ProbeResult(
-                ok=False,
-                stage="protocol",
-                detail=f"Orca --version returned non-zero ({res.code}): {res.stderr[:200]}",
-            )
 
         return ProbeResult(ok=False, stage="liveness", detail=f"Unknown orchestrator connector: {self._connector}")
 
@@ -248,23 +256,26 @@ class OrchestratorAdapter(AgentAdapter):
             elif self._connector == "orca":
                 resolved = shutil.which(self._executable) or self._executable
                 if verb == "list_worktrees":
-                    res = run_captured([resolved, "worktrees", "--json"], timeout=15.0)
+                    cmd_str = f'"{resolved}" worktrees --json'
+                    res = run_captured(cmd_str, cwd=Path.cwd(), timeout=15.0)
                     return AgentCallResult(
-                        ok=res.code == 0,
-                        output=res.stdout if res.code == 0 else "",
-                        error=res.stderr if res.code != 0 else None,
+                        ok=res.returncode == 0,
+                        output=res.stdout if res.returncode == 0 else "",
+                        error=res.stderr if res.returncode != 0 else None,
                         bytes_total=len(res.stdout),
                     )
                 elif verb == "assign_goal":
+                    import shlex
                     goal = str(args.get("goal") or "")
-                    cmd = [resolved, "assign", "--goal", goal]
+                    parts = [f'"{resolved}"', "assign", f"--goal {shlex.quote(goal)}"]
                     if args.get("worktree"):
-                        cmd.extend(["--worktree", str(args["worktree"])])
-                    res = run_captured(cmd, timeout=30.0)
+                        parts.append(f"--worktree {shlex.quote(str(args['worktree']))}")
+                    cmd_str = " ".join(parts)
+                    res = run_captured(cmd_str, cwd=Path.cwd(), timeout=30.0)
                     return AgentCallResult(
-                        ok=res.code == 0,
-                        output=res.stdout if res.code == 0 else "",
-                        error=res.stderr if res.code != 0 else None,
+                        ok=res.returncode == 0,
+                        output=res.stdout if res.returncode == 0 else "",
+                        error=res.stderr if res.returncode != 0 else None,
                         bytes_total=len(res.stdout),
                     )
                 else:

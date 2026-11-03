@@ -56,6 +56,12 @@ class InstallThread(QThread):
 
             self.progress.emit(80)
             self.status.emit("Creating shortcuts...")
+            # Ensure user data skills directory exists
+            try:
+                user_skills = os.path.join(os.environ.get("LOCALAPPDATA", os.environ.get("USERPROFILE", "")), "BrahmaAI", "skills_library")
+                os.makedirs(user_skills, exist_ok=True)
+            except Exception:
+                pass
             
             # Create Desktop Shortcut
             exe_path = os.path.join(self.target_dir, 'BrahmaEvo.exe')

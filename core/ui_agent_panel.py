@@ -40,13 +40,21 @@ class _AsyncBridgeWorker(QThread):
         self.agent_id = agent_id
 
     def run(self):
-        bridge = get_agent_bridge()
-        if self.action == "scan":
-            records = bridge.discover()
-            self.finished_scan.emit(records)
-        elif self.action == "probe" and self.agent_id:
-            probe_res = bridge.probe(self.agent_id)
-            self.finished_probe.emit(self.agent_id, probe_res)
+        try:
+            bridge = get_agent_bridge()
+            if self.action == "scan":
+                records = bridge.discover()
+                self.finished_scan.emit(records)
+            elif self.action == "probe" and self.agent_id:
+                probe_res = bridge.probe(self.agent_id)
+                self.finished_probe.emit(self.agent_id, probe_res)
+        except Exception as exc:
+            logger.exception("Async bridge worker error (%s): %s", self.action, exc)
+            if self.action == "probe" and self.agent_id:
+                err_res = ProbeResult(ok=False, stage="liveness", detail=f"Worker exception: {exc}")
+                self.finished_probe.emit(self.agent_id, err_res)
+            elif self.action == "scan":
+                self.finished_scan.emit([])
 
 
 class AgentBridgeCard(QFrame):

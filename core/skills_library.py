@@ -80,10 +80,20 @@ from core.user_paths import get_user_data_dir
 
 logger = logging.getLogger("SkillsLibrary")
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+def _get_project_root() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+    return Path(__file__).resolve().parent.parent
+
+
+PROJECT_ROOT = _get_project_root()
 
 #: Built-in skills that ship with the codebase.
 BUILTIN_SKILLS_DIR = PROJECT_ROOT / "skills_library"
+
+#: Built-in harness skills that ship with the agent framework.
+HARNESS_SKILLS_DIR = PROJECT_ROOT / "skills"
 
 #: Recognised skill-definition filenames inside a skill directory, in priority order.
 SKILL_FILENAMES: Tuple[str, ...] = ("skill.yaml", "skill.yml", "skill.json", "SKILL.md", "skill.md")
@@ -563,6 +573,9 @@ class SkillsLibrary:
             ("builtin", self.builtin_dir),
             ("user", self.user_dir),
         ]
+        if self.builtin_dir == BUILTIN_SKILLS_DIR and HARNESS_SKILLS_DIR.is_dir():
+            if HARNESS_SKILLS_DIR not in [r[1] for r in roots]:
+                roots.append((PROJECT_SOURCE, HARNESS_SKILLS_DIR))
         roots.extend((PROJECT_SOURCE, path) for path in self._project_dirs)
         return roots
 

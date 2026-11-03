@@ -1,6 +1,6 @@
 please note.
 
-- when agent &amp; Orchestrator Bridge, click probe on Orca ADE Orchestrator - the app crashes
+- when agent &amp; Orchestrator Bridge, click probe on Orca ADE Orchestrator - the app crashes. the other probes return green nd work
 - in tools &amp; MCP Access when unclicking a tool such as clipboard_processor. the assistant still gives feedback when i copy something, please investigate
 - after fresh install using the Brahma_setup.exe the Skills Library section (in the settings) is not showing any skills, including the 3 default ones from before (Reasoning Rigor, Web Research, Word Count), nor any of the ones we made in the agent harness.
 - the model setup, for the voice models, and the avatar models is not very streamlined and easy to do for someone who doesn't have developer knowledge, or who has installed only the .exe

@@ -60,12 +60,33 @@
 
 ### 8. ⚙️ Centralized API Setup Hub
 - Complete Settings UI featuring dedicated cards for every connected service:
-  - Google Gemini API (Live Voice & Vision)
+  - Google Gemini API (Live Voice & Vision with 5 selectable persona voices: Charon, Puck, Aoede, Fenrir, Kore)
   - Spotify MCP (Client ID & Client Secret)
   - OpenRouter / Anthropic
   - Weather & Radar APIs
   - Instagram & Smart Home
   - Instant live test-connection buttons.
+
+### 9. 🌉 Multi-Tier Agent & Orchestrator Bridge
+- Conductor architecture for external multi-agent systems and local servers:
+  - **Tier 1 (Local Model Servers)**: Ollama, LM Studio, vLLM, and text-generation-webui auto-detection and execution.
+  - **Tier 2 (Orchestrators)**: Orca ADE and Paperclip issue/worktree orchestrator adapters with strict approval fences.
+  - **Tier 3 (Remote Agents)**: A2A REST endpoints (LangGraph, CrewAI) guarded by SSRF defenses and Windows DPAPI credential vaults.
+  - Built-in artifact reader tool (`read_agent_artifact`) for multi-agent output inspections.
+
+### 10. 📚 On-Demand Skills Library (15 Playbooks)
+- Zero-prompt-overhead task playbooks loaded strictly when requested:
+  - Reasoning Rigor, Web Research, Word Count, Code Review, Browser Automation, API Mock Engine, Database Architect, Docker DevOps, Fullstack Scaffolder, Git Workflow, GitHub Automation, Performance Profiler, Security Auditor, Test-Driven Development, and Stealth Web Scraper.
+
+### 11. 🧠 Modular Pluggable Memory
+- Unified memory architecture supporting:
+  - Built-in offline SQLite & JSON semantic facts.
+  - Plug-and-play connector hooks for **Mem0** (vector/graph) and **Letta / MemGPT** (tiered REST archival memory).
+
+---
+
+> [!TIP]
+> For a non-technical walkthrough on setup, voices, avatar styles, and custom instructions, see the **[User & Operations Guide](docs/USER-GUIDE.md)**.
 
 ---
 

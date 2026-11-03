@@ -105,7 +105,7 @@ class _MuteSendMixin:
                     pass
         if hasattr(self, "_result_card") and low.startswith("brahma evo:"):
             reply = raw.split(":", 1)[1].strip()
-            self._result_card.set_body(reply[:80] + ("…" if len(reply) > 80 else ""))
+            self._result_card.set_body(reply)
             self._result_card.hide()
             self._restart_card_hide_timer()
             source = self._chat_source_queue[0] if self._chat_source_queue else "local"

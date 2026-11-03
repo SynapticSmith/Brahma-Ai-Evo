@@ -266,7 +266,8 @@ def _load_system_prompt() -> str:
         else:
             identity_str += ".\n"
             
-        identity_str += f"Your current behavior mode is: {mode}.\n"
+        directive = identity.get_behavior_directive(mode)
+        identity_str += f"Your current behavior mode is: {mode}. Directive: {directive}\n"
         
         custom = identity.get_custom_instructions()
         if custom:
@@ -2456,7 +2457,6 @@ class BrahmaLive:
 
         return TextTurnController(self).on_text_command(text, source)
 
-
     @property
     def _device_flow(self):
         """Lazily build the device-routing flows (P4-19 seam; see core.device_flow)."""
@@ -2817,7 +2817,6 @@ class BrahmaLive:
     async def _send_realtime(self):
         return await self._realtime_flow.send_realtime()
 
-
 def main():
     _startup_log("main entered")
     # No startup self-update: the old path pulled from a hardcoded upstream and
@@ -3011,7 +3010,6 @@ def main():
             threading.Thread(target=_start_brahma_connect_server, daemon=True).start()
 
 
-
     ui.show_main()
     _startup_log("ui shown")
 
@@ -3147,10 +3145,12 @@ def main():
                 last_clip = pyperclip.paste()
             except Exception:
                 last_clip = ""
-                
             while True:
                 time.sleep(1.0)
                 try:
+                    from core.tool_index import get_index
+                    if get_index().is_disabled("clipboard_processor"):
+                        continue
                     curr_clip = pyperclip.paste()
                     if curr_clip != last_clip:
                         last_clip = curr_clip

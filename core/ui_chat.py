@@ -616,15 +616,26 @@ class ChatBubble(QFrame):
         self._typing_timer.start()
 
     def _tick_typing(self):
-        self._typing_index = min(len(self._full_text), self._typing_index + 3)
+        step = max(8, len(self._full_text) // 25)
+        self._typing_index = min(len(self._full_text), self._typing_index + step)
         snippet = self._full_text[:self._typing_index]
         self._render_text(snippet, final=False)
         if self._typing_index >= len(self._full_text):
+            self._finish_typing()
+
+    def _finish_typing(self):
+        if self._typing_timer:
             try:
                 self._typing_timer.stop()
             except Exception:
                 pass
-            self._render_text(self._full_text, final=True)
+            self._typing_timer = None
+        self._typing_index = len(self._full_text)
+        self._render_text(self._full_text, final=True)
+
+    def mousePressEvent(self, event):
+        self._finish_typing()
+        super().mousePressEvent(event)
 
 
 class HistoryConversationItem(QFrame):

@@ -754,17 +754,45 @@ ightarrow$ 10 min lockout), and replay-protected nonces enforced across all HTTP
 
 | Check | Result |
 |---|---|
-| `git log -1` | `87b82f3 test(assurance): add red-team security test suite and consolidate tool process isolation` (2026-11-03) |
+| `git log -1` | `58a773d docs: record production release 1.1.0 report and update architecture spec` (2026-11-03) |
 | Working tree | clean; `main` ahead of `origin/main` |
 | `ruff check .` | clean |
-| `pytest tests -q` (offscreen) | 996 passed, 5 skipped |
-| `pytest tests -q -k agent` | 460 passed, 1 skipped |
-| Focused skills tests | 84 passed |
-| Red-team security suite | 17 passed (`tests/test_redteam.py`) |
-| `upstream/main` | Fully integrated (all 71 files categorized, 0 pending) |
-| Security findings | Phase 0 complete (metadata gating, closed stdin crucible, single-use token); Q4 red-team assurance test suite landed |
-| Bridge implementation | Landed (Q2 complete; `core/agent_bridge/` with detectors, registry, 3 adapters, artifacts, facade) |
-| Legacy executor | Deleted (`agent/planner.py`, `executor.py`, `task_queue.py`, `error_handler.py` removed) |
+| `pytest tests -q` (offscreen) | 1,020 passed, 5 skipped |
+| `pytest tests -q -k agent` | 470 passed, 1 skipped |
+| Agent Bridge suite | 38 passed (Tiers 1, 2, 3 + Bridge Facade + Red Team) |
+| Modular Memory suite | 5 passed (`tests/test_memory_connectors.py`) |
+| Auto-Heal & Rules suite | 4 passed (`tests/test_auto_heal_engine.py`) |
+| Packaging & Reproducibility | 25 passed (Release Packaging E2E + Ed25519 + SBOM) |
+| Upstream integration | Complete (0 pending) |
+| Bridge implementation | Landed (Tiers 1, 2, 3 complete & hardened in `core/agent_bridge/`) |
+| Skills Library | Landed (15 skills catalogue, frozen runtime discovery) |
+
+## Appendix D — System Hardening & Release 1.1.1 Engineering Ledger
+
+### D.1 Agent & Orchestrator Bridge Hardening (User Notes 1 & 2)
+- **Orca ADE Adapter:** Repaired `run_captured` invocation from list to string command with mandatory keyword argument `cwd=Path.cwd()`, inspecting `res.returncode == 0`.
+- **Exception Containment:** Wrapped `bridge.probe()` and `_AsyncBridgeWorker.run()` in robust `try...except` blocks, preventing unhandled background thread exceptions from crashing Qt.
+- **Clipboard Monitor Governance:** Connected `_clipboard_monitor` daemon in `main.py` to `tool_index.get_index().is_disabled("clipboard_processor")` so disabling the tool halts clipboard audio feedback.
+
+### D.2 Skills Library & Packaging Alignment (User Note 3)
+- **Asset Completeness:** Added `skills_library` to `installer/BrahmaEvo.spec` `datas`.
+- **Multi-Root Catalogue Discovery:** Extended `SkillsLibrary.roots()` to include `HARNESS_SKILLS_DIR` (`skills/`), bringing all 12 project skills (`code-review`, `browser-automation`, etc.) into the catalogue alongside the 3 core playbooks (`reasoning-rigor`, `web-research`, `word-count`).
+- **Frozen Runtime Resolution:** Implemented `_get_project_root()` respecting `sys.frozen` and `sys._MEIPASS`.
+
+### D.3 Identity Presets, Voice & Avatar Streamlining (User Notes 4 & 5)
+- **Behavior Mode Directives:** Defined explicit behavioral prompt directives in `core/identity.py` for all 5 presets (`professional`, `casual`, `technical`, `minimal`, `proactive`).
+- **Persistent Custom Instructions:** Added `QPlainTextEdit` in Settings Hub allowing custom instructions to be edited at any time post-setup.
+- **Dynamic Voice Selector:** Exposed Gemini Live voice persona picker (`Charon`, `Puck`, `Aoede`, `Fenrir`, `Kore`) in Settings Hub and bound dynamically to session connect frames.
+
+### D.4 Chat GUI Truncation & Streaming Latency (User Note 6)
+- **Removed 80-Char Truncation:** Unclamped `_result_card.set_body()` in `core/ui_mute_send.py`.
+- **Adaptive Typing Animation:** Replaced rigid 3 chars/14ms throttling with an adaptive rate (`len // 25`), bounding long text reveals to <= 350ms.
+- **Instant Click-to-Reveal:** Added `mousePressEvent` on `ChatBubble` to immediately finish streaming on click.
+
+### D.5 Modular Memory Subsystem (User Note 8)
+- **Connector Interface:** Established `BaseMemoryConnector` protocol in `memory/connectors/base.py`.
+- **Local Engine:** Hardened `LocalMemoryConnector` backed by SQLite and semantic JSON facts.
+- **External Hooks:** Implemented `Mem0MemoryConnector` (vector/graph) and `LettaMemoryConnector` (tiered REST archival memory) with factory resolution.
 
 ---
 
