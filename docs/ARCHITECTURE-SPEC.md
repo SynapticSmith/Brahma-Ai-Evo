@@ -696,8 +696,10 @@ Accepted 2026-10-17, but **acceptance is not authorization to build**: they were
 These cross-cutting questions raised by the architectural synthesis are now fully ratified, implemented, and verified in CI:
 
 1. ✅ **One unified `ToolSpec` registry (ADR-019 Waves 1–4):** 105 canonical `ToolSpec`s registered under standard `TOOL_CLASSES` (`read`, `write`, `exec`, `network`, `device`) behind `AgentRuntime.execute`. The dual-dispatch legacy path in `core/tool_exec.py` is retired (0 `elif` branches). Guarded by `tests/test_unified_tool_registry.py`.
-2. ✅ **Secure Gateway Companion (WS-8, SEC-14):** Loopback (`127.0.0.1`) and disabled by default; SAS 6-digit PIN pairing, brute-force lockout rate limiting (3 failed attempts $ightarrow$ 10 min lockout), and replay-protected nonces enforced across all HTTP/WebSocket endpoints (`core/gateway_auth.py`). Guarded by `tests/test_gateway_security.py` and `tests/test_redteam.py`.
-3. ✅ **Strict 1-Hop Supervisor Hierarchy (ADR-013, ADR-018):** Supervisor $ightarrow$ leaf worker hierarchy with loopback self-target refusal in Bridge v2 adapters (`core/agent_bridge/`).
+2. ✅ **Secure Gateway Companion (WS-8, SEC-14):** Loopback (`127.0.0.1`) and disabled by default; SAS 6-digit PIN pairing, brute-force lockout rate limiting (3 failed attempts $
+ightarrow$ 10 min lockout), and replay-protected nonces enforced across all HTTP/WebSocket endpoints (`core/gateway_auth.py`). Guarded by `tests/test_gateway_security.py` and `tests/test_redteam.py`.
+3. ✅ **Strict 1-Hop Supervisor Hierarchy (ADR-013, ADR-018):** Supervisor $
+ightarrow$ leaf worker hierarchy with loopback self-target refusal in Bridge v2 adapters (`core/agent_bridge/`).
 4. ✅ **Workspace Trust Fingerprinting (ADR-020, Q4):** Workspace trust tracking (`trusted_workspaces`) gating repo-local `.mcp.json` auto-spawning, wrapping untrusted instructions in `<untrusted-instructions>`, and policy gating state-changing write/exec tools in untrusted workspaces (`agent/permissions.py`, `agent/prompts.py`, `agent/skills.py`). Guarded by `tests/test_workspace_trust.py`.
 5. ✅ **Quarantined Draft Studio Only (SEC-01–07, WS-1, WS-2):** Model synthesis writes to staging only (`core/skill_store.py`), AppContainer sandbox validation (`core/skill_host.py`, `sandbox/launcher_win.py`), and human-in-the-loop review dialog (`core/ui_skill_review.py`) generating cryptographic capability grants (`core/grants.py`).
 6. ✅ **Signed Release Artifacts & Rollback (WS-6, SEC-11):** Ed25519 signed release manifests, SHA-256 artifact verification, CycloneDX SBOM generation, A/B staging, and automated rollback upon health failure (`core/release_manager.py`, `tools/build_release.py`, `tools/sign_release.py`). Guarded by `tests/test_release_manager.py` and `tests/test_release_packaging_e2e.py`.
@@ -710,10 +712,10 @@ These cross-cutting questions raised by the architectural synthesis are now full
 | File | Lines | Tier | Status |
 |---|---:|---|---|
 | `ARCHITECTURE-SPEC.md` | this | 1 | Living map |
-| `ARCHITECTURE-RECOMMENDATIONS.md` | 152 | 1 | Reviewed annex & batch blueprint (merged into §11–§13) |
+| `ARCHITECTURE-RECOMMENDATIONS.md` | 195 | 1 | Reviewed annex & batch blueprint (merged into §11–§13) |
 | `AGENTIC-HARNESS.md` | 1,166 | 1 | Authoritative |
-| `AGENTIC-HARNESS-STATUS.md` | 1,197 | 1 | Authoritative decisions |
-| `AGENTIC-HARNESS-NEXT.md` | 328 | 1 | Authoritative tracker |
+| `AGENTIC-HARNESS-STATUS.md` | 1,260 | 1 | Authoritative decisions |
+| `AGENTIC-HARNESS-NEXT.md` | 304 | 1 | Authoritative tracker |
 | `ONE-391-tool-index.md` | 182 | 1 | Authoritative design |
 | `ONE-391-avatar-backends.md` | 448 | 1 | Authoritative design |
 | `skills-library-jit-on-demand-skills.md` | 263 | 1 | Authoritative, root count stale |

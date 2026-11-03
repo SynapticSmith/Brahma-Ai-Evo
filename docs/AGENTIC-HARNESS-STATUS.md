@@ -955,6 +955,20 @@ approvals allow it), `run_subagent_batch` enforces a five-part contract across
    `AgentRuntime` instance and `cancel_event`, and are omitted from the voice
    socket (`main.py`) alongside `run_subagent`.
 
+### D45 — Python runtime auto-forwarding, graceful sensorium fallbacks, and live session reconnect resilience
+
+On developer machines with mixed Python versions (e.g. default Windows `python.exe` pointing to a preview version like Python 3.14 without packages, while project dependencies live in Python 3.11/3.12), launching directly via `python main.py` previously failed at module scope (`ModuleNotFoundError: No module named 'psutil'`).
+
+Three coordinated mechanisms ensure boot resilience and clean console operation:
+
+1. **Transparent Python runtime auto-forwarding (`core/qt_bootstrap.py`):** Before heavy imports execute, `ensure_supported_environment()` verifies if `PyQt6` is importable. If invoked under an unconfigured Python interpreter, it probes candidate runtimes (`py -3.11`, `py -3.12`, or `.venv`), logs a clear notice to `stderr`, and seamlessly forwards execution with all arguments preserved. Under `pytest` or non-script contexts, it returns immediately.
+2. **Graceful Sensorium fallbacks (`core/sensorium.py`):** `psutil` is guarded with `try...except ImportError: psutil = None`. If missing, telemetry methods provide safe fallback metrics (`cpu_percent=0.0`, `ram_percent=0.0`, `battery_percent=None`) so the perception engine never crashes on boot.
+3. **Clean Live session reconnect & warning suppression (`core/audio_io.py`, `core/qt_bootstrap.py`, `main.py`):**
+   - Normal Gemini Live server session rotations (`server GoAway (time_left=50s)`) are recognized as expected control-flow transitions; `_LiveReconnect` is re-raised cleanly without printing unhandled tracebacks.
+   - `_live_error_reason` in `main.py` unwraps `ExceptionGroup` to report the underlying disconnect reason.
+   - Non-critical SDK warnings (`Revert to STA COM threading mode`, `Direct use of automatic function calling`, `there are non-data parts in the response`) are suppressed during startup via `configure_warning_filters()`.
+   - `actions/weather_report.py` gains resilient dual-provider telemetry (wttr.in with Open-Meteo fallback).
+
 ### D20 — Parallel dispatch is whole-turn and read-only (superseded by D30, then D32)
 
 Model turns often contain several `read_file`/`glob_files`/`grep_files` calls,
