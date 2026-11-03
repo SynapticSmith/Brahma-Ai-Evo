@@ -8,7 +8,7 @@ pillow==12.3.0
 requests==2.34.2
 python-kasa==0.11.0.1
 beautifulsoup4==4.15.0
-duckduckgo-search==8.1.1
+ddgs==9.16.1
 playwright==1.63.0
 pyautogui==0.9.54
 pyperclip==1.11.0
