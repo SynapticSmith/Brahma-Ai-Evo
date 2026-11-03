@@ -102,11 +102,6 @@ def validate_request(request: ChatRequest, *, tools_enabled: bool) -> List[str]:
             "stop sequences are not supported; the agent decides when to stop.",
             param="stop",
         )
-    if request.stream:
-        raise invalid(
-            "streaming is not enabled in this build; send stream=false.",
-            param="stream",
-        )
     if request.tools:
         if not tools_enabled:
             raise invalid(

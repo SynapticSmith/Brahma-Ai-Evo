@@ -65,7 +65,7 @@ The two large proposals are in different states and must not be conflated:
 | **Agent & orchestrator bridge** | Aspirational; no code; ADRs accepted 2026-10-17; built against a pre-harness tree | Do **not** implement as written. Re-base onto the harness first. |
 | **Upstream integration** | Planning only; upstream now 7 commits ahead | Port after the fork's security and boundary work, selectively, never wholesale. |
 | **Security roadmap** | Proposed; 8 findings open | Phase 0 is small, independent, and should be the next engineering batch. |
-| **OpenAI-compatible port** | Phase 0 built (uncommitted); ADR-022 proposed | Phase 1+ only if a client needs it; see `OPENAI-COMPATIBLE-API-DESIGN.md`. |
+| **OpenAI-compatible port** | Phase 1 built; ADR-022 proposed | Phase 2+ only if a client needs it; see `OPENAI-COMPATIBLE-API-DESIGN.md`. |
 
 ---
 
@@ -125,7 +125,7 @@ The two large proposals are in different states and must not be conflated:
 | `agent/` | The stdlib-only agent harness (22 modules) | No pre-fork autonomous executor remains; `agent/__init__.py` is inert. |
 | `features/` | Forge output, hot-loaded at startup | Untrusted model-generated code; see §7. |
 | `brahma_connect/` | Phone/device gateway (HTTP + WebSocket + mDNS) | Defaults to `127.0.0.1`, disabled, no mDNS advertise; HTTP control routes still unauthenticated when enabled. |
-| `brahma_api/` | OpenAI-compatible loopback port (Phase 0) | `GET /v1/models` and non-streaming `POST /v1/chat/completions`; disabled by default; hash-only tokens; the port never executes a tool itself. |
+| `brahma_api/` | OpenAI-compatible loopback port (Phase 1) | `GET /v1/models`, `POST /v1/chat/completions` (+SSE), diagnostics; disabled by default; hash-only tokens; the port never executes a tool itself. |
 | `tests/` | Pytest suite; 996 passed / 5 skipped after the Q4 Assurance & Red-Team batch | `test_agent_*` are display- and SDK-free. |
 | `docs/` | Design records, build logs, proposals, ADRs | Twenty-three documents; see §3. |
 
@@ -145,7 +145,7 @@ The two large proposals are in different states and must not be conflated:
 | Voice | `core/session_lifecycle.py`, `core/mcp_manager.py` | Built (deferred tools via `search_tools`/`call_tool`; `1008` reconnect pins) |
 | Avatars | `core/avatar_runtime.py`, `core/avatar_catalog.py`, `assets/avatar_*` | Built (4/4 renderers; Live2D runtime user-supplied) |
 | Gateway | `brahma_connect/gateway/*` | Built-Partial, **off by default; loopback bind; HTTP control routes unauthenticated when enabled** |
-| OpenAI-compatible port | `brahma_api/*` | Phase 0 built; off by default; loopback; per-key presets; streaming absent |
+| OpenAI-compatible port | `brahma_api/*` | Phase 1 built; off by default; loopback; per-key presets; SSE streaming + diagnostics |
 | Updaters | *(none)* | Removed in Q0-B; no self-update until signed releases exist |
 | Secrets | `smart_home/storage.py`, `config/api_keys.json` | Built, **recoverable local keys** |
 
@@ -181,7 +181,7 @@ The `docs/` tree mixes five kinds of document. Treating them as one authority le
 | `SECURITY-ANALYSIS-ISSUE-4.md` | 2026-10-24 | Eight findings against this fork, with evidence | **Current and accurate** (re-verified 2026-11-01). |
 | `SECURITY-ARCHITECTURE-ROADMAP.md` | 2026-10-28 | WS-1…WS-10, SEC-01…SEC-18, Phase 0–3, target process model | **Proposed.** Use as the security plan; nothing is implemented. |
 | `UPSTREAM-INTEGRATION-PLAN.md` | 2026-11-02 | Hybrid selective port of all 7 upstream commits (114 files) | **Authoritative plan.** Commit list refreshed & mapped; awaiting execution by downstream agent. |
-| `OPENAI-COMPATIBLE-API-DESIGN.md` | 2026-11-03 | Research + design for a `brahma_api/` OpenAI-compatible port: `GET /v1/models`, `POST /v1/chat/completions` (+SSE), port 8010, loopback, per-key capability presets (`chat`/`reader`/`worker`/`operator`), three lanes | **Proposed design; Phase 0 implemented (uncommitted).** Proposes ADR-022 ("the port is a transport, not a door"), not ratified. Phases 1–3 remain gated; do not implement past Phase 0 without an owner decision. |
+| `OPENAI-COMPATIBLE-API-DESIGN.md` | 2026-11-03 | Research + design for a `brahma_api/` OpenAI-compatible port: `GET /v1/models`, `POST /v1/chat/completions` (+SSE), port 8010, loopback, per-key capability presets (`chat`/`reader`/`worker`/`operator`), three lanes | **Proposed design; Phase 0+1 implemented.** Proposes ADR-022 ("the port is a transport, not a door"). Phases 2–3 remain gated. |
 | `DEFERRED-TOOL-PROXY-MISSION.md` | 2026-10-29 | Gemini Live `1008` on undeclared tool calls | **Superseded by ADR-021** (landed 2026-11-01): literal `call_tool` templates plus budgeted reconnect pins. |
 | `agent-orchestrator-bridge.md` | rev 3 + 2026-10-17 amendments | 87 KB "god orchestrator" design | **Aspirational.** §8 re-bases it. |
 | `AGENT-BRIDGE-BUILD-TODO.md` | 2026-10-17 | WBS with frozen contracts, phases 0–5 | **Aspirational.** ~3% built (ADRs only). Its guards are already violated. |

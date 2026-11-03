@@ -54,9 +54,11 @@ def test_no_tool_shaped_route():
     assert [path for path in paths if "/tools/" in path] == []
     assert "/v1/chat/completions" in paths
     assert "/v1/models" in paths
+    assert "/v1/brahma/whoami" in paths
+    assert "/v1/brahma/runs/{run_id}" in paths
 
 
-def test_main_py_does_not_own_a_second_port_yet():
-    """Phase 0 runs standalone; a GUI lifecycle belongs in Phase 1's finally."""
+def test_main_py_lifecycle_closes_api_server_in_finally():
+    """Phase 1 GUI lifecycle: if main.py hosts brahma_api, it must shut down in finally."""
     text = (ROOT / "main.py").read_text(encoding="utf-8")
-    assert "brahma_api" not in text
+    assert "brahma_api_server.should_exit = True" in text

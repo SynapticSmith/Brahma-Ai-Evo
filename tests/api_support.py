@@ -20,7 +20,7 @@ from brahma_api.server import create_app
 def make_config(tmp_path: Path, **overrides: Any) -> BrahmaApiConfig:
     """A config whose single workspace alias is ``test``."""
     workspace = tmp_path / "workspace"
-    workspace.mkdir(exist_ok=True)
+    workspace.mkdir(parents=True, exist_ok=True)
     values: Dict[str, Any] = {
         "base_dir": tmp_path,
         "enabled": True,

@@ -3009,6 +3009,35 @@ def main():
 
             threading.Thread(target=_start_brahma_connect_server, daemon=True).start()
 
+    # Start OpenAI-compatible API port if enabled (Phase 1)
+    brahma_api_server = None
+    try:
+        from brahma_api.config import BrahmaApiConfig
+        from brahma_api.server import serve as serve_brahma_api
+
+        api_config = BrahmaApiConfig.load(BASE_DIR)
+        if api_config.enabled:
+            api_port = api_config.port
+            if _is_port_in_use(api_port):
+                _startup_log(f"brahma_api disabled: port {api_port} already in use")
+                try:
+                    ui.write_log(f"SYS: Brahma API is already running on port {api_port}.")
+                except Exception:
+                    pass
+            else:
+                brahma_api_server = serve_brahma_api(api_config)
+
+                def _start_api_server():
+                    try:
+                        _startup_log("brahma_api thread started")
+                        brahma_api_server.run()
+                    except Exception as exc:
+                        _startup_log(f"brahma_api thread error: {exc}")
+
+                threading.Thread(target=_start_api_server, daemon=True, name="brahma-api-server").start()
+    except Exception as exc:
+        _startup_log(f"brahma_api startup failed: {exc}")
+
 
     ui.show_main()
     _startup_log("ui shown")
@@ -3189,6 +3218,11 @@ def main():
                 harness_mcp.close()
         except Exception as exc:
             _startup_log(f"harness MCP shutdown skipped: {exc}")
+        try:
+            if brahma_api_server is not None:
+                brahma_api_server.should_exit = True
+        except Exception as exc:
+            _startup_log(f"brahma_api shutdown skipped: {exc}")
 
 
 if __name__ == "__main__":

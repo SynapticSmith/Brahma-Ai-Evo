@@ -144,7 +144,7 @@ def build_seed(messages: List[ChatMessage], *, max_messages: int) -> Seed:
     return Seed(history=history, prompt=prompt, directives=directives)
 
 
-def _usage(result_usage: Dict[str, Any]) -> Optional[Dict[str, int]]:
+def extract_usage(result_usage: Dict[str, Any]) -> Optional[Dict[str, int]]:
     """`null` when the provider did not report counts. I-22: never zero for unknown."""
     if not result_usage.get("tokens_reported"):
         return None
@@ -153,6 +153,9 @@ def _usage(result_usage: Dict[str, Any]) -> Optional[Dict[str, int]]:
         "completion_tokens": int(result_usage.get("completion_tokens") or 0),
         "total_tokens": int(result_usage.get("total_tokens") or 0),
     }
+
+
+_usage = extract_usage
 
 
 def completion_body(

@@ -86,7 +86,6 @@ def test_unfakeable_parameters_are_refused(tmp_path):
         ({"n": 2}, "n"),
         ({"logprobs": True}, "logprobs"),
         ({"stop": ["\n"]}, "stop"),
-        ({"stream": True}, "stream"),
         ({"response_format": {"type": "json_object"}}, "response_format"),
         ({"tools": [{"type": "function", "function": {"name": "x"}}]}, "tools"),
     ]

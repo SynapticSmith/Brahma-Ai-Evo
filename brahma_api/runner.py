@@ -52,6 +52,21 @@ class AgentRunner:
         self.config = config
         self._factory: CompleterFactory = completer_factory or build_completer
         self._audit = audit
+        self._runs: Dict[str, Dict[str, Any]] = {}
+        self._runs_lock = threading.Lock()
+
+    def get_run(self, run_id: str) -> Optional[Dict[str, Any]]:
+        with self._runs_lock:
+            run = self._runs.get(run_id)
+            return dict(run) if run else None
+
+    def _record_run(self, run_id: str, data: Dict[str, Any]) -> None:
+        with self._runs_lock:
+            # Bound memory to last 200 runs
+            if len(self._runs) > 200:
+                oldest = next(iter(self._runs))
+                del self._runs[oldest]
+            self._runs[run_id] = data
 
     # -- public ------------------------------------------------------------
 
@@ -63,16 +78,42 @@ class AgentRunner:
         *,
         temperature: Optional[float] = None,
         cancel: Optional[threading.Event] = None,
+        sink_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+        run_id: Optional[str] = None,
     ) -> RunOutcome:
         started = time.monotonic()
         policy = profile_policy(resolved.profile)
         workspace = resolved.workspace or Path(self.config.base_dir)
         events: List[Dict[str, Any]] = []
 
+        if run_id:
+            self._record_run(
+                run_id,
+                {
+                    "run_id": run_id,
+                    "token_id": principal.token.id,
+                    "model": resolved.model_id,
+                    "lane": resolved.lane,
+                    "profile": resolved.profile,
+                    "status": "running",
+                    "stop_reason": None,
+                    "turns": 0,
+                    "tool_calls": 0,
+                    "elapsed_s": 0.0,
+                    "created_at": time.time(),
+                    "events": [],
+                },
+            )
+
         def sink(event: Dict[str, Any]) -> None:
             record = dict(event)
             record["_at"] = time.monotonic()
             events.append(record)
+            if sink_callback:
+                try:
+                    sink_callback(record)
+                except Exception:
+                    pass
 
         runtime = AgentRuntime(
             workspace=workspace,
@@ -135,6 +176,27 @@ class AgentRunner:
         result.usage["elapsed_s"] = elapsed
         fingerprint = policy_fingerprint(policy)
         self._audit_run(principal, resolved, result, events, elapsed, provider, upstream_model)
+
+        if run_id:
+            tool_rows = _tool_rows(events)
+            self._record_run(
+                run_id,
+                {
+                    "run_id": run_id,
+                    "token_id": principal.token.id,
+                    "model": resolved.model_id,
+                    "lane": resolved.lane,
+                    "profile": resolved.profile,
+                    "status": "completed" if result.stop_reason != "error" else "failed",
+                    "stop_reason": result.stop_reason,
+                    "turns": result.turns,
+                    "tool_calls": int(result.usage.get("tool_calls") or 0),
+                    "elapsed_s": elapsed,
+                    "created_at": time.time(),
+                    "events": tool_rows,
+                },
+            )
+
         return RunOutcome(
             result=result,
             provider=provider,
@@ -145,6 +207,27 @@ class AgentRunner:
         )
 
     # -- audit -------------------------------------------------------------
+
+    def audit_cancelled(
+        self,
+        principal: Principal,
+        resolved: ResolvedModel,
+        reason: str,
+    ) -> None:
+        if self._audit is None:
+            return
+        try:
+            self._audit.log(
+                "API_CANCELLED",
+                "brahma_api",
+                token_id=principal.token.id,
+                profile=resolved.profile,
+                model=resolved.model_id,
+                lane=resolved.lane,
+                reason=reason,
+            )
+        except Exception:
+            pass
 
     def _audit_run(
         self,

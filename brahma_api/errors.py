@@ -71,6 +71,25 @@ def too_large(message: str) -> ApiError:
     return ApiError(413, message, "invalid_request_error", None, "payload_too_large")
 
 
+def conflict(message: str, *, code: str = "session_busy") -> ApiError:
+    return ApiError(409, message, "invalid_request_error", None, code)
+
+
+def rate_limited(message: str = "Rate limit exceeded.", *, retry_after: int = 5) -> ApiError:
+    return ApiError(
+        429,
+        message,
+        "rate_limit_error",
+        None,
+        "rate_limit_exceeded",
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
+def server_error(message: str = "Internal server error.", *, code: str = "internal_error") -> ApiError:
+    return ApiError(500, message, "server_error", None, code)
+
+
 def unavailable(message: str) -> ApiError:
     return ApiError(503, message, "server_error", None, "provider_unavailable")
 

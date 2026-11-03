@@ -8,3 +8,4 @@
 #   py -3.11 -m pytest tests -q
 ruff==0.17.1
 pytest==9.1.1
+openai>=1.0.0
