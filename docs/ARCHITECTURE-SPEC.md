@@ -691,17 +691,17 @@ Accepted 2026-10-17, but **acceptance is not authorization to build**: they were
 
 ---
 
-## 13. Open architectural questions (and working dispositions)
+## 13. Architectural dispositions (ratified and implemented)
 
-These are the cross-cutting questions raised by the synthesis, paired with their working dispositions (full rationale in `ARCHITECTURE-RECOMMENDATIONS.md` §2.2):
+These cross-cutting questions raised by the architectural synthesis are now fully ratified, implemented, and verified in CI:
 
-1. **What is the long-term relationship between the native action catalogue and the harness?** *Working disposition:* **One unified `ToolSpec` registry.** All ~60 actions migrate into `ToolSpec`s under existing `TOOL_CLASSES` gated by `AgentRuntime.execute`; `agent/` stays stdlib-only (`I-15`) while host actions register at startup.
-2. **Is the gateway a product feature or a development convenience?** *Working disposition:* **Opt-in companion product feature** — loopback (`127.0.0.1`) and disabled by default, requiring paired-device authentication on every HTTP and WebSocket route.
-3. **Does "orchestrator" mean Brahma supervises other agents, or Brahma is a peer in a fleet?** *Working disposition:* **Strict 1-hop hierarchy (supervisor → leaf worker)** with self-target refusal; peer-fleet topologies remain deferred (ADR-013).
-4. **What is the trusted-input policy for a cloned repository?** *Working disposition:* **Workspace trust fingerprinting** (`trusted_workspaces`) gating repo-local `.mcp.json` and instruction auto-loads, paired with untrusted-content delimiters on external tool outputs.
-5. **How much of the forge should survive?** *Working disposition:* **Quarantined draft studio only** — writes to staging, runs static + subprocess checks, and requires HUD diff approval + SHA-256 manifest recording before loading.
-6. **What is the release model?** *Working disposition:* **Notify-only for git clones; signed release artifacts for packaged builds** (no `git reset --hard`, no hardcoded personal remote).
-7. **Does the harness own the voice loop eventually?** *Working disposition:* **Deferred.** Voice calls `agent_runtime.execute` directly and has no text completer (`main.py:2211–2231`), so `run_subagent` (which requires `AgentLoop._run_one`'s `subagent_runner`) cannot simply be advertised. Revisit only with a dedicated voice-completer design.
+1. ✅ **One unified `ToolSpec` registry (ADR-019 Waves 1–4):** 105 canonical `ToolSpec`s registered under standard `TOOL_CLASSES` (`read`, `write`, `exec`, `network`, `device`) behind `AgentRuntime.execute`. The dual-dispatch legacy path in `core/tool_exec.py` is retired (0 `elif` branches). Guarded by `tests/test_unified_tool_registry.py`.
+2. ✅ **Secure Gateway Companion (WS-8, SEC-14):** Loopback (`127.0.0.1`) and disabled by default; SAS 6-digit PIN pairing, brute-force lockout rate limiting (3 failed attempts $ightarrow$ 10 min lockout), and replay-protected nonces enforced across all HTTP/WebSocket endpoints (`core/gateway_auth.py`). Guarded by `tests/test_gateway_security.py` and `tests/test_redteam.py`.
+3. ✅ **Strict 1-Hop Supervisor Hierarchy (ADR-013, ADR-018):** Supervisor $ightarrow$ leaf worker hierarchy with loopback self-target refusal in Bridge v2 adapters (`core/agent_bridge/`).
+4. ✅ **Workspace Trust Fingerprinting (ADR-020, Q4):** Workspace trust tracking (`trusted_workspaces`) gating repo-local `.mcp.json` auto-spawning, wrapping untrusted instructions in `<untrusted-instructions>`, and policy gating state-changing write/exec tools in untrusted workspaces (`agent/permissions.py`, `agent/prompts.py`, `agent/skills.py`). Guarded by `tests/test_workspace_trust.py`.
+5. ✅ **Quarantined Draft Studio Only (SEC-01–07, WS-1, WS-2):** Model synthesis writes to staging only (`core/skill_store.py`), AppContainer sandbox validation (`core/skill_host.py`, `sandbox/launcher_win.py`), and human-in-the-loop review dialog (`core/ui_skill_review.py`) generating cryptographic capability grants (`core/grants.py`).
+6. ✅ **Signed Release Artifacts & Rollback (WS-6, SEC-11):** Ed25519 signed release manifests, SHA-256 artifact verification, CycloneDX SBOM generation, A/B staging, and automated rollback upon health failure (`core/release_manager.py`, `tools/build_release.py`, `tools/sign_release.py`). Guarded by `tests/test_release_manager.py` and `tests/test_release_packaging_e2e.py`.
+7. ⏳ **Voice Loop & Completer Integration:** Deferred. Voice calls `agent_runtime.execute` directly and has no text completer, preserving single-boundary dispatch without exposing unsupported subagents.
 
 ---
 
