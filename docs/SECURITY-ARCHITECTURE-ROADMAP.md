@@ -1001,7 +1001,7 @@ Goal: remove the worst paths with small diffs; no new architecture required.
 - [ ] AppContainer + capability SIDs + network broker.
 - [x] Signed release manifest + A/B + rollback.
 - [x] Secret broker + scoped tokens + redaction.
-- [ ] Dual-LLM reader + taint-aware policy.
+- [x] Dual-LLM reader + taint-aware policy.
 - [ ] `bash`/`python_repl`/MCP through the host.
 - [x] Signed plugin bundles + trust store + revocation.
 
