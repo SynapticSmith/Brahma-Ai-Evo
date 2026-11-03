@@ -1608,11 +1608,19 @@ def build_specs(
 
 
 def register(declarations: Iterable[Mapping[str, Any]] = ()) -> List[str]:
-    """Publish desktop waves in the process-wide registry. Idempotent."""
+    """Publish desktop waves and delegation tools in the process-wide registry. Idempotent."""
     specs = build_specs(declarations)
     for spec in specs:
         register_spec(spec, replace=True)
-    return [spec.name for spec in specs]
+    from core.agent_delegation import get_delegation_declarations, register_delegation_tools
+
+    delegation_specs = register_delegation_tools()
+    if isinstance(declarations, list):
+        declared_names = {d.get("name") for d in declarations if isinstance(d, dict)}
+        for decl in get_delegation_declarations():
+            if decl.get("name") not in declared_names:
+                declarations.append(decl)
+    return [spec.name for spec in specs] + [s.name for s in delegation_specs]
 
 
 def desktop_names() -> frozenset:
