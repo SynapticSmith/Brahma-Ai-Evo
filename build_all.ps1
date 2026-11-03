@@ -69,7 +69,7 @@ if (-not (Test-Path $VenvPy)) {
 
 $VenvVersion = (& $VenvPy -c "import sys; print('%d.%d' % sys.version_info[:2])").Trim()
 if ($VenvVersion -ne "3.11") {
-    Stop-WithError "Packaging interpreter runs Python $VenvVersion but packaging requires 3.11. Specify -PythonExe pointing to Python 3.11."
+    Stop-WithError ".venv runs Python $VenvVersion but packaging requires 3.11. Run .\scripts\setup_dev.ps1 -Force to recreate it."
 }
 
 $Specs = @(
@@ -106,7 +106,11 @@ if ($DryRun) {
     $Artifacts = $Specs | ForEach-Object { $_.Artifact }
     $ShaFile = Join-Path $RepoRoot "dist\SHA256SUMS.txt"
     $Lines = foreach ($artifact in $Artifacts) {
-        $hash = ([BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash([System.IO.File]::ReadAllBytes((Resolve-Path $artifact)))) -replace "-", "").ToLower()
+        $hash = if (Get-Command Get-FileHash -ErrorAction SilentlyContinue) {
+            (Get-FileHash -Algorithm SHA256 -Path $artifact).Hash.ToLower()
+        } else {
+            ([BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash([System.IO.File]::ReadAllBytes((Resolve-Path $artifact)))) -replace "-", "").ToLower()
+        }
         "$hash  $(Split-Path -Leaf $artifact)"
     }
     Set-Content -Path $ShaFile -Value $Lines -Encoding ascii
@@ -209,7 +213,11 @@ foreach ($entry in $Specs) {
 $Artifacts = $Specs | ForEach-Object { $_.Artifact }
 $ShaFile = Join-Path $RepoRoot "dist\SHA256SUMS.txt"
 $Lines = foreach ($artifact in $Artifacts) {
-    $hash = ([BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash([System.IO.File]::ReadAllBytes((Resolve-Path $artifact)))) -replace "-", "").ToLower()
+    $hash = if (Get-Command Get-FileHash -ErrorAction SilentlyContinue) {
+        (Get-FileHash -Algorithm SHA256 -Path $artifact).Hash.ToLower()
+    } else {
+        ([BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash([System.IO.File]::ReadAllBytes((Resolve-Path $artifact)))) -replace "-", "").ToLower()
+    }
     "$hash  $(Split-Path -Leaf $artifact)"
 }
 Set-Content -Path $ShaFile -Value $Lines -Encoding ascii
