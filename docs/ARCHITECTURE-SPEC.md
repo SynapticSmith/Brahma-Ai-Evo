@@ -124,7 +124,7 @@ The two large proposals are in different states and must not be conflated:
 | `agent/` | The stdlib-only agent harness (22 modules) | No pre-fork autonomous executor remains; `agent/__init__.py` is inert. |
 | `features/` | Forge output, hot-loaded at startup | Untrusted model-generated code; see §7. |
 | `brahma_connect/` | Phone/device gateway (HTTP + WebSocket + mDNS) | Defaults to `127.0.0.1`, disabled, no mDNS advertise; HTTP control routes still unauthenticated when enabled. |
-| `tests/` | Pytest suite; 812 passed / 1 skipped after the ADR-020 (B8) batch | `test_agent_*` are display- and SDK-free. |
+| `tests/` | Pytest suite; 996 passed / 5 skipped after the Q4 Assurance & Red-Team batch | `test_agent_*` are display- and SDK-free. |
 | `docs/` | Design records, build logs, proposals, ADRs | Twenty-three documents; see §3. |
 
 ### 2.3 Subsystem inventory
@@ -554,7 +554,7 @@ py -3.11 -m pytest tests -q -k agent
 py -3.11 -m agent run "say hello" --provider stub --json --no-session
 ```
 
-Baseline after the ADR-020 (B8) batch: ruff clean; **812 passed, 1 skipped**; `-k agent` **407 passed, 1 skipped**; full suite ~2–5 min depending on host load. Python 3.11 is mandatory for the gates; the repo `.venv` and default `python` are 3.14 and lack the dev tools (`scripts/setup_dev.ps1 -Force` recreates it on 3.11).
+Baseline after the Q4 Assurance & Red-Team batch: ruff clean; **996 passed, 5 skipped**; `-k agent` **460 passed, 1 skipped**; full suite ~5.5 min depending on host load. Python 3.11 is mandatory for the gates; the repo `.venv` and default `python` are 3.14 and lack the dev tools (`scripts/setup_dev.ps1 -Force` recreates it on 3.11).
 
 ### 10.3 Definition of done
 
@@ -741,14 +741,15 @@ These are the cross-cutting questions raised by the synthesis, paired with their
 
 | Check | Result |
 |---|---|
-| `git log -1` | `99247f9 agent: add AgentBridge facade, tool publishing, and turn lifecycle wiring (ADR-018)` (2026-11-02) |
+| `git log -1` | `87b82f3 test(assurance): add red-team security test suite and consolidate tool process isolation` (2026-11-03) |
 | Working tree | clean; `main` ahead of `origin/main` |
 | `ruff check .` | clean |
-| `pytest tests -q` (offscreen) | 888 passed, 1 skipped |
+| `pytest tests -q` (offscreen) | 996 passed, 5 skipped |
 | `pytest tests -q -k agent` | 460 passed, 1 skipped |
 | Focused skills tests | 84 passed |
-| `upstream/main` | `bfb2868` (2026-10-27); 7 commits past merge base |
-| Security findings | Phase 0 (Q0-A and Q0-B) complete; 5 findings closed (2, 3, 4, 6, gateway); WS-1..10 roadmap active |
+| Red-team security suite | 17 passed (`tests/test_redteam.py`) |
+| `upstream/main` | Fully integrated (all 71 files categorized, 0 pending) |
+| Security findings | Phase 0 complete (metadata gating, closed stdin crucible, single-use token); Q4 red-team assurance test suite landed |
 | Bridge implementation | Landed (Q2 complete; `core/agent_bridge/` with detectors, registry, 3 adapters, artifacts, facade) |
 | Legacy executor | Deleted (`agent/planner.py`, `executor.py`, `task_queue.py`, `error_handler.py` removed) |
 
