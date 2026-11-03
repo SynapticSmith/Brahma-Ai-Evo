@@ -130,3 +130,64 @@ def test_staged_skills_live_under_user_data(tmp_path, monkeypatch):
 
     assert staged == tmp_path / "staged_skills"
     assert staged.is_dir()
+
+
+def test_dynamic_registry_rejects_unverified_feature(tmp_path, monkeypatch):
+    import core.dynamic_registry as dyn_reg
+    from core.dynamic_registry import DynamicToolRegistry
+
+    features_dir = tmp_path / "features"
+    features_dir.mkdir(parents=True, exist_ok=True)
+    appdata_dir = tmp_path / "appdata_skills"
+    appdata_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Unverified script without FEATURE_METADATA
+    (features_dir / "unverified.py").write_text(
+        "def execute(**kwargs):\n    return 'unverified'\n",
+        encoding="utf-8",
+    )
+
+    # 2. Inactive script
+    (features_dir / "inactive.py").write_text(
+        "FEATURE_METADATA = {'name': 'inactive', 'active': False, 'parameters': {}}\n"
+        "def execute(**kwargs):\n    return 'inactive'\n",
+        encoding="utf-8",
+    )
+
+    # 3. Valid script
+    (features_dir / "valid.py").write_text(
+        "FEATURE_METADATA = {'name': 'valid_tool', 'active': True, 'parameters': {}}\n"
+        "def execute(**kwargs):\n    return 'valid'\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(dyn_reg, "FEATURES_DIR", features_dir)
+    monkeypatch.setattr(dyn_reg, "APPDATA_SKILLS_DIR", appdata_dir)
+
+    # Re-initialize registry with temporary features
+    DynamicToolRegistry._initialized = False
+    DynamicToolRegistry._skills.clear()
+    DynamicToolRegistry.initialize()
+
+    assert not DynamicToolRegistry.has_tool("unverified")
+    assert not DynamicToolRegistry.has_tool("inactive")
+    assert DynamicToolRegistry.has_tool("valid_tool")
+
+
+def test_skill_crucible_runs_with_closed_stdin(monkeypatch):
+    import subprocess
+    captured_kwargs = {}
+
+    real_run = subprocess.run
+
+    def mock_run(*args, **kwargs):
+        captured_kwargs.update(kwargs)
+        return real_run(*args, **kwargs)
+
+    monkeypatch.setattr("core.skill_crucible.subprocess.run", mock_run)
+
+    dummy_code = "def execute(**kwargs):\n    return 'ok'\n"
+    ok, msg, tele = SkillCrucible.run_sandbox_test(dummy_code, [{"args": {}}], timeout=5.0)
+
+    assert ok is True
+    assert captured_kwargs.get("stdin") == subprocess.DEVNULL

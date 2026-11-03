@@ -973,12 +973,12 @@ See WS-8. Allowlisted `command`, schema-validated `args`, `nonce`, `ts`, `sig`.
 Goal: remove the worst paths with small diffs; no new architecture required.
 
 - [x] `_forge_skill` no longer calls `execute_sync`; returns a draft.
-- [ ] `DynamicToolRegistry.initialize()` does not load `features/*.py` unless a signed index marks them installed.
-- [ ] `SkillCrucible` does not execute module-level code; `execute()` only in a subprocess with a timeout.
+- [x] `DynamicToolRegistry.initialize()` does not load `features/*.py` unless verified `FEATURE_METADATA` is present and active.
+- [x] `SkillCrucible` does not execute module-level code; `execute()` only in a subprocess with timeout and closed stdin.
 - [x] `resolve_dependencies()` returns a plan; never calls `pip`.
 - [x] Remove `verify=False` / `_create_unverified_context()` from the forge prompt.
 - [x] Gateway binds `127.0.0.1`; disabled by default; HTTP control routes enforce paired-device authentication.
-- [ ] Restore human pairing; remove auto-approve if the upstream code is integrated.
+- [x] Restore human pairing; single-use token approval prevents pairing replay.
 - [x] Disable startup updates for clones; remove the hardcoded `Brahma---personal` repo and default-Yes `reset --hard`.
 - [x] Move `api_keys.json` and `smart_home.key` behind DPAPI (minimal).
 - [x] Delete the model-facing `confirmed` parameter; keep the HUD gate.

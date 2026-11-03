@@ -259,6 +259,7 @@ if __name__ == '__main__':
                 [py_exe, "-c", harness_script],
                 capture_output=True,
                 text=True,
+                stdin=subprocess.DEVNULL,
                 timeout=timeout
             )
             elapsed = time.time() - start_time

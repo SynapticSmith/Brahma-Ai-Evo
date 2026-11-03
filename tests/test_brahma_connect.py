@@ -78,3 +78,34 @@ def test_command_router_reports_offline_device(tmp_path: Path):
 
     assert result["success"] is False
     assert "offline" in result["error"].lower()
+
+
+def test_pairing_token_single_use_consumed(tmp_path: Path):
+    from unittest.mock import MagicMock
+    from brahma_connect.gateway.server import BrahmaGateway
+
+    gw = BrahmaGateway(tmp_path)
+    offer = gw.pairing_manager.create_offer("127.0.0.1", 8765)
+    token = offer.pairing_token
+
+    assert gw.pairing_manager.get_offer(token) is not None
+
+    mock_ws = MagicMock()
+    mock_ws.client.host = "127.0.0.1"
+
+    payload = {
+        "pairing_token": token,
+        "device_name": "Pixel 8",
+        "platform": "android",
+    }
+
+    # 1. First pair attempt succeeds and consumes token
+    res1 = asyncio.run(gw._pair_device(payload, mock_ws))
+    assert res1["success"] is True
+    assert res1["device"]["name"] == "Pixel 8"
+    assert gw.pairing_manager.get_offer(token) is None
+
+    # 2. Second pair attempt with same token fails (token consumed / single-use)
+    res2 = asyncio.run(gw._pair_device(payload, mock_ws))
+    assert res2["success"] is False
+    assert "Invalid or expired" in res2["error"]

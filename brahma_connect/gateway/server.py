@@ -345,6 +345,7 @@ class BrahmaGateway:
             permissions=permissions,
             metadata=metadata,
         )
+        self.pairing_manager.approve(offer.pairing_token)
         self._append_log("PAIR_APPROVED", device=record.device_id, name=record.name, platform=record.platform)
         return {
             "success": True,

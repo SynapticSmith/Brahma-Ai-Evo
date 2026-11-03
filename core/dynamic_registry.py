@@ -222,11 +222,14 @@ class DynamicToolRegistry:
                                 meta = parsed
                             break
                     if not meta:
-                        meta = {
-                            "name": item.stem,
-                            "description": ast.get_docstring(tree) or f"Native feature {item.stem}",
-                            "parameters": {"type": "OBJECT", "properties": {}},
-                        }
+                        logger.warning(
+                            f"[Registry] Skipping unverified file '{item.name}': no FEATURE_METADATA declaration found."
+                        )
+                        continue
+
+                    if not meta.get("active", True):
+                        logger.debug(f"[Registry] Skipping inactive feature '{item.stem}'.")
+                        continue
 
                     manifest_path = item.with_suffix("") / "manifest.json"
                     if manifest_path.exists():
@@ -253,6 +256,8 @@ class DynamicToolRegistry:
                     try:
                         with open(manifest_file, "r", encoding="utf-8") as f:
                             manifest = json.load(f)
+                        if not manifest.get("active", True):
+                            continue
                         skill = DynamicSkill(item, manifest)
                         cls._skills[skill.name] = skill
                         count += 1
