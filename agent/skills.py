@@ -328,6 +328,9 @@ def project_roots(workspace: Optional[str | Path]) -> List[Path]:
     if workspace is not None:
         for directory in _parent_dirs(_resolved(workspace)):
             roots.append(directory / ".brahma" / "skills")
+            repo_skills = directory / "skills"
+            if repo_skills.is_dir():
+                roots.append(repo_skills)
     return roots
 
 
