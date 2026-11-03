@@ -969,6 +969,22 @@ Three coordinated mechanisms ensure boot resilience and clean console operation:
    - Non-critical SDK warnings (`Revert to STA COM threading mode`, `Direct use of automatic function calling`, `there are non-data parts in the response`) are suppressed during startup via `configure_warning_filters()`.
    - `actions/weather_report.py` gains resilient dual-provider telemetry (wttr.in with Open-Meteo fallback).
 
+### D46 — Tier 2 External Orchestrator Connector & Settings Hub Agent Bridge UI (ADR-018)
+
+External agent fleet orchestrators (e.g. Paperclip REST services and Orca ADE CLI) expand Brahma's reach across multi-agent workflows while strictly preserving the single permission boundary of `AgentRuntime.execute` (ADR-018):
+
+1. **Non-Blocking Settings Hub UI Integration (`core/ui_agent_panel.py`):**
+   - Decoupled from `ui.py` into a leaf component (`AgentBridgeCard`) wired into `core/ui_connectivity.py`.
+   - Runs asynchronous background discovery scans via `_AsyncBridgeWorker` (QThread) so GUI rendering and live audio are never blocked by filesystem or loopback socket probes.
+   - Provides instant visual status indicators, enabled/disabled toggles, and live diagnostic re-probe actions.
+
+2. **Tier 2 Orchestrator Adapter (`core/agent_bridge/adapters/orchestrator.py`):**
+   - Implements `OrchestratorAdapter` supporting Paperclip (REST API) and Orca ADE (CLI).
+   - **Strict Loopback Self-Target Recursion Defense:** Rejects calls or probes targeting Brahma's own Gateway port (`BRAHMA_GATEWAY_PORT`, default 8000) with `ForbiddenTarget` to prevent recursive agent-calling-agent deadlocks or infinite invocation loops.
+   - **Per-Verb Mutation Approval Gating:** High-leverage mutating verbs (`create_issue`, `run_heartbeat`, `assign_goal`) are classified as `write` with `requires_approval=True`, ensuring human confirmation before state changes. Read-only inspection verbs (`list_agents`, `get_status`, `list_worktrees`) are classified as `read` with `requires_approval=False`.
+   - **Tolerant Schema Parsing:** Parses JSON payloads into structured `data` dicts while retaining raw text output in `AgentCallResult` and persisting durable artifact references when output thresholds are exceeded.
+   - Fully guarded by `tests/test_agent_orchestrator_adapter.py` (10/10 passing) and `tests/test_ui_agent_panel.py` (2/2 passing).
+
 ### D20 — Parallel dispatch is whole-turn and read-only (superseded by D30, then D32)
 
 Model turns often contain several `read_file`/`glob_files`/`grep_files` calls,
