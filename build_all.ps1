@@ -52,9 +52,17 @@ $VenvPy = if ($PythonExe) {
         }
     }
     if (-not $candidate) {
-        $sysPy = (py -3.11 -c "import sys; print(sys.executable)" 2>$null)
-        if ($sysPy) {
-            $candidate = $sysPy.Trim()
+        if (Get-Command py -ErrorAction SilentlyContinue) {
+            $sysPy = (py -3.11 -c "import sys; print(sys.executable)" 2>$null)
+            if ($sysPy) {
+                $candidate = $sysPy.Trim()
+            }
+        }
+    }
+    if (-not $candidate) {
+        $curPy = (Get-Command python -ErrorAction SilentlyContinue)
+        if ($curPy) {
+            $candidate = $curPy.Source
         }
     }
     if (-not $candidate) {
@@ -69,7 +77,12 @@ if (-not (Test-Path $VenvPy)) {
 
 $VenvVersion = (& $VenvPy -c "import sys; print('%d.%d' % sys.version_info[:2])").Trim()
 if ($VenvVersion -ne "3.11") {
-    Stop-WithError ".venv runs Python $VenvVersion but packaging requires 3.11. Run .\scripts\setup_dev.ps1 -Force to recreate it."
+    $has311 = if (Get-Command py -ErrorAction SilentlyContinue) { (py -3.11 -c "import sys; print(sys.version)" 2>$null) } else { $null }
+    if ($has311) {
+        Stop-WithError ".venv runs Python $VenvVersion but packaging requires 3.11. Run .\scripts\setup_dev.ps1 -Force to recreate it."
+    } else {
+        Write-Host "Notice: Python 3.11 not found on system. Building with Python $VenvVersion ($VenvPy)." -ForegroundColor Yellow
+    }
 }
 
 $Specs = @(
@@ -222,6 +235,18 @@ $Lines = foreach ($artifact in $Artifacts) {
 }
 Set-Content -Path $ShaFile -Value $Lines -Encoding ascii
 
+# --- Software Bill of Materials (SBOM) --------------------------------------
+$SbomFile = Join-Path $RepoRoot "dist\sbom.json"
+$SbomScript = Join-Path $RepoRoot "scripts\generate_sbom.py"
+if (Test-Path $SbomScript) {
+    Write-Host ""
+    Write-Host "Generating Software Bill of Materials (SBOM)..." -ForegroundColor Cyan
+    & $VenvPy $SbomScript --verify --output $SbomFile
+    if ($LASTEXITCODE -eq 0 -and (Test-Path $SbomFile)) {
+        Write-Host "OK $SbomFile" -ForegroundColor Green
+    }
+}
+
 # --- Release Manifest (WS-6) ------------------------------------------------
 $ReleaseJson = Join-Path $RepoRoot "dist\release.json"
 $BuildReleaseScript = Join-Path $RepoRoot "tools\build_release.py"
@@ -239,6 +264,9 @@ if (Test-Path $BuildReleaseScript) {
             $BuildArgs += @("--artifact", $a)
         }
     }
+    if (Test-Path $SbomFile) {
+        $BuildArgs += @("--sbom", $SbomFile)
+    }
     & $VenvPy @BuildArgs
     if ($LASTEXITCODE -eq 0 -and (Test-Path $ReleaseJson)) {
         Write-Host "OK $ReleaseJson" -ForegroundColor Green
@@ -248,6 +276,15 @@ if (Test-Path $BuildReleaseScript) {
 # --- Release Signature (WS-6) -----------------------------------------------
 $EffectiveKey = if ($SignKey) { $SignKey } else { $env:BRAHMA_RELEASE_SIGN_KEY }
 $SignReleaseScript = Join-Path $RepoRoot "tools\sign_release.py"
+if (-not $EffectiveKey -and (Test-Path $SignReleaseScript)) {
+    Write-Host ""
+    Write-Host "Notice: No signing key supplied (-SignKey or env:BRAHMA_RELEASE_SIGN_KEY). Generating ephemeral drill key..." -ForegroundColor Yellow
+    $KeyOutput = (& $VenvPy $SignReleaseScript --generate-key)
+    $KeyText = ($KeyOutput -join "`n")
+    $EffectiveKey = [regex]::Match($KeyText, "Private Key.*?([0-9a-f]{64})").Groups[1].Value
+    $PubKey = [regex]::Match($KeyText, "Public Key.*?([0-9a-f]{64})").Groups[1].Value
+    Write-Host "Drill Public Key: $PubKey" -ForegroundColor Gray
+}
 if ($EffectiveKey -and (Test-Path $SignReleaseScript) -and (Test-Path $ReleaseJson)) {
     Write-Host ""
     Write-Host "Signing release manifest..." -ForegroundColor Cyan
