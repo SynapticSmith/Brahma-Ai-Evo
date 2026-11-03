@@ -15,12 +15,12 @@ to the status doc, and re-rank what remains. A stale tracker is worse than none.
 
 | Field | Value |
 | --- | --- |
-| Snapshot date | 2026-11-02 |
-| `HEAD` | `99247f9 agent: add AgentBridge facade, tool publishing, and turn lifecycle wiring (ADR-018)` |
-| Working tree | clean; Queue 1 and Queue 2 complete |
-| Harness batches on `main` | N1–N5, ADR-018–021, Bridge v2 (B14–B22) |
-| Last decision recorded | D44 (run_subagent_batch read-only fan-out) + ADR-018 / ADR-015 |
-| Gate result | `ruff` clean; `pytest tests` → **888 passed, 1 skipped** (offscreen) |
+| Snapshot date | 2026-11-03 |
+| `HEAD` | `cc1e970 docs: record D46 for Tier 2 OrchestratorAdapter and Settings Hub Agent Bridge UI` |
+| Working tree | clean; Queue 1, Queue 2, Queue 3, and Queue 4 complete |
+| Harness batches on `main` | N1–N5, ADR-018–021, Bridge v2 (B14–B22), D45 (boot resilience), D46 (Tier 2 Orchestrator & UI) |
+| Last decision recorded | D46 (Tier 2 External Orchestrator Connector & Settings Hub Agent Bridge UI) |
+| Gate result | `ruff` clean; `pytest tests` → **1,134 passed, 5 skipped** (offscreen); `-k agent` → **483 passed, 1 skipped** |
 
 Reproduce the snapshot:
 
