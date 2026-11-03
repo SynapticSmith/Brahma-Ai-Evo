@@ -60,6 +60,18 @@ jobs:
           $lines | Set-Content -Path dist\SHA256SUMS.txt -Encoding ascii
           $lines
 
+      - name: Generate release manifest (WS-6)
+        run: |
+          $ver = if ("${{ github.ref_name }}" -match "^v?([0-9]+\.[0-9]+\.[0-9]+.*)") { $matches[1] } else { "1.1.0" }
+          python tools\build_release.py --version $ver --channel stable --artifact dist\BrahmaEvo_Setup.exe --output dist\release.json
+
+      - name: Sign release manifest (WS-6)
+        if: env.RELEASE_SIGN_KEY != ''
+        env:
+          RELEASE_SIGN_KEY: ${{ secrets.RELEASE_SIGN_KEY }}
+        run: |
+          python tools\sign_release.py --manifest dist\release.json --key "$env:RELEASE_SIGN_KEY"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -67,7 +79,9 @@ jobs:
           path: |
             dist\BrahmaEvo_Setup.exe
             dist\SHA256SUMS.txt
-          if-no-files-found: error
+            dist\release.json
+            dist\release.json.sig
+          if-no-files-found: warn
 
 # Honest limits, so nobody mistakes this for a signed release:
 #   - the setup exe is unsigned (codesign_identity=None, no signtool step)

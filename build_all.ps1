@@ -19,7 +19,10 @@
 #   dist\SHA256SUMS.txt                 sha256 of both, for release notes
 
 param(
-    [switch]$Clean
+    [switch]$Clean,
+    [string]$Version = "1.1.0",
+    [string]$Channel = "stable",
+    [string]$SignKey
 )
 
 $ErrorActionPreference = "Stop"
@@ -94,6 +97,41 @@ $Lines = foreach ($artifact in $Artifacts) {
     "$hash  $(Split-Path -Leaf $artifact)"
 }
 Set-Content -Path $ShaFile -Value $Lines -Encoding ascii
+
+# --- Release Manifest (WS-6) ------------------------------------------------
+$ReleaseJson = Join-Path $RepoRoot "dist\release.json"
+$BuildReleaseScript = Join-Path $RepoRoot "tools\build_release.py"
+if (Test-Path $BuildReleaseScript) {
+    Write-Host ""
+    Write-Host "Generating release manifest..." -ForegroundColor Cyan
+    $BuildArgs = @(
+        $BuildReleaseScript,
+        "--version", $Version,
+        "--channel", $Channel,
+        "--output", $ReleaseJson
+    )
+    foreach ($a in $Artifacts) {
+        if (Test-Path $a) {
+            $BuildArgs += @("--artifact", $a)
+        }
+    }
+    & $VenvPy @BuildArgs
+    if ($LASTEXITCODE -eq 0 -and (Test-Path $ReleaseJson)) {
+        Write-Host "OK $ReleaseJson" -ForegroundColor Green
+    }
+}
+
+# --- Release Signature (WS-6) -----------------------------------------------
+$EffectiveKey = if ($SignKey) { $SignKey } else { $env:BRAHMA_RELEASE_SIGN_KEY }
+$SignReleaseScript = Join-Path $RepoRoot "tools\sign_release.py"
+if ($EffectiveKey -and (Test-Path $SignReleaseScript) -and (Test-Path $ReleaseJson)) {
+    Write-Host ""
+    Write-Host "Signing release manifest..." -ForegroundColor Cyan
+    & $VenvPy $SignReleaseScript --manifest $ReleaseJson --key $EffectiveKey
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "OK ${ReleaseJson}.sig" -ForegroundColor Green
+    }
+}
 
 Write-Host ""
 Write-Host "Build complete." -ForegroundColor Green
