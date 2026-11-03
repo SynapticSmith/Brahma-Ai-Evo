@@ -52,12 +52,23 @@ $PyiVersion = (& $VenvPy -m PyInstaller --version).Trim()
 Write-Host "Building with PyInstaller $PyiVersion ($VenvPy)" -ForegroundColor Cyan
 
 $Specs = @(
-    @{ Spec = "installer\BrahmaEvo.spec";      Label = "main application"; Artifact = "dist\BrahmaEvo\BrahmaEvo.exe" },
+    @{ Spec = "installer\Uninstall.spec";       Label = "uninstaller";       Artifact = "dist\Uninstall.exe" },
+    @{ Spec = "installer\BrahmaEvo.spec";       Label = "main application"; Artifact = "dist\BrahmaEvo\BrahmaEvo.exe" },
     @{ Spec = "installer\BrahmaEvo_Setup.spec"; Label = "setup wizard";      Artifact = "dist\BrahmaEvo_Setup.exe" }
 )
 
 foreach ($entry in $Specs) {
     if (-not (Test-Path $entry.Spec)) { Stop-WithError "missing spec file: $($entry.Spec)" }
+
+    # If about to build the setup wizard, ensure the uninstaller is bundled into the main application directory
+    if ($entry.Spec -eq "installer\BrahmaEvo_Setup.spec") {
+        if (Test-Path "dist\Uninstall.exe") {
+            Copy-Item "dist\Uninstall.exe" -Destination "dist\BrahmaEvo\Uninstall.exe" -Force
+        }
+        if (Test-Path "installer\uninstall.cmd") {
+            Copy-Item "installer\uninstall.cmd" -Destination "dist\BrahmaEvo\uninstall.cmd" -Force
+        }
+    }
 
     $pyiArgs = @("-m", "PyInstaller", $entry.Spec, "--noconfirm")
     if ($Clean) { $pyiArgs += "--clean" }

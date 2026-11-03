@@ -1,0 +1,133 @@
+name: Build Multi-Platform Installers
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    name: Build Windows Setup (.exe)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build Uninstaller & BrahmaEvo
+        run: |
+          pyinstaller --noconfirm installer/Uninstall.spec
+          pyinstaller --noconfirm installer/BrahmaEvo.spec
+          Copy-Item "dist/Uninstall.exe" -Destination "dist/BrahmaEvo/Uninstall.exe" -Force
+          Copy-Item "installer/uninstall.cmd" -Destination "dist/BrahmaEvo/uninstall.cmd" -Force
+          pyinstaller --noconfirm installer/BrahmaEvo_Setup.spec
+
+      - name: Upload Windows Setup Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BrahmaEvo-Windows-Setup
+          path: dist/BrahmaEvo_Setup.exe
+
+  build-macos:
+    name: Build macOS Application (.dmg)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build macOS App
+        run: |
+          pyinstaller --noconfirm \
+            --windowed \
+            --name "BrahmaEvo" \
+            --add-data "assets:assets" \
+            --add-data "config:config" \
+            --add-data "core:core" \
+            --add-data "actions:actions" \
+            --add-data "features:features" \
+            --add-data "smart_home:smart_home" \
+            --add-data "dashboard/static:dashboard/static" \
+            --add-data "workspace_store.py:." \
+            main.py
+
+      - name: Create DMG
+        run: |
+          npm install --global create-dmg || true
+          mkdir -p dmg_out
+          if command -v create-dmg &>/dev/null; then
+            create-dmg "dist/BrahmaEvo.app" dmg_out/ || true
+          fi
+          cd dist && zip -r "BrahmaEvo-macOS.zip" "BrahmaEvo.app"
+
+      - name: Upload macOS Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BrahmaEvo-macOS
+          path: dist/BrahmaEvo-macOS.zip
+
+  build-linux:
+    name: Build Linux Portable Binary
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-glx libegl1-mesa libxkbcommon-x11-0 libpulse0 libasound2-dev
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build Linux Binary
+        run: |
+          pyinstaller --noconfirm \
+            --windowed \
+            --name "BrahmaEvo" \
+            --add-data "assets:assets" \
+            --add-data "config:config" \
+            --add-data "core:core" \
+            --add-data "actions:actions" \
+            --add-data "features:features" \
+            --add-data "smart_home:smart_home" \
+            --add-data "dashboard/static:dashboard/static" \
+            --add-data "workspace_store.py:." \
+            main.py
+          cd dist && tar -czvf "BrahmaEvo-Linux.tar.gz" "BrahmaEvo"
+
+      - name: Upload Linux Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BrahmaEvo-Linux
+          path: dist/BrahmaEvo-Linux.tar.gz

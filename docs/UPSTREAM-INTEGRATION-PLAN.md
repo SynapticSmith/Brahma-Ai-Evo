@@ -480,16 +480,16 @@ Status values: `PENDING` · `PORTED` · `ADAPTED` · `REJECTED` · `SUPERSEDED`
 
 | # | File | Upstream Commit | Component | Strategy | Status | Notes |
 |---|---|---|---|---|---|---|
-| 1 | `.github/workflows/build-all-platforms.yml` | `c8d9c0f` | CI/CD | ADAPT | PENDING | Evaluate vs `.github/workflows/ci.yml` |
-| 2 | `PRIVACY_POLICY.md` | `bfb2868` | Compliance | COPY | PENDING | Zero conflict; direct copy |
+| 1 | `.github/workflows/build-all-platforms.yml` | `c8d9c0f` | CI/CD | ADAPT | PORTED | Evaluate vs `.github/workflows/ci.yml` |
+| 2 | `PRIVACY_POLICY.md` | `bfb2868` | Compliance | COPY | PORTED | Zero conflict; direct copy |
 | 3 | `actions/game_sentinel.py` | `987f47d` | Sentinel | ADAPT | PENDING | Wrap as service/tool |
 | 4 | `actions/image_generator.py` | `987f47d` | Capability | ADAPT | PENDING | Port to `ToolSpec` in `desktop_tools.py` |
 | 5 | `actions/net_sentinel.py` | `987f47d` | Sentinel | ADAPT | PENDING | Wrap as service/tool |
 | 6 | `actions/rea_mcp_client.py` | `987f47d` | Capability | ADAPT | PENDING | Wrap as `ToolSpec` |
 | 7 | `actions/reverse_engineer.py` | `987f47d` | Capability | ADAPT | PENDING | Wrap as `ToolSpec` |
 | 8 | `actions/study_guard.py` | `987f47d` | Sentinel | ADAPT | PENDING | Wrap as service/tool |
-| 9 | `assets/radar/index.html` | `987f47d` | Assets | COPY | PENDING | Standalone Three.js radar asset |
-| 10 | `assets/space_cleaner/index.html` | `987f47d` | Assets | COPY | PENDING | Standalone space cleaner asset |
+| 9 | `assets/radar/index.html` | `987f47d` | Assets | COPY | PORTED | Standalone Three.js radar asset |
+| 10 | `assets/space_cleaner/index.html` | `987f47d` | Assets | COPY | PORTED | Standalone space cleaner asset |
 | 11 | `brahma_connect/gateway/mobile_portal.py` | `987f47d` | Gateway | ADAPT | PENDING | Ensure route auth (`WS-8`) is applied |
 | 12 | `config/mcp_servers.json` | `9dd02cf` | MCP Config | EVALUATE | PENDING | Check vs `app_settings.json` and ADR-020 |
 | 13 | `core/anticipatory_watcher.py` | `987f47d` | Evolution | ADAPT | PENDING | Background observer |
@@ -511,7 +511,7 @@ Status values: `PENDING` · `PORTED` · `ADAPTED` · `REJECTED` · `SUPERSEDED`
 | 29 | `core/space_cleaner_hud.py` | `987f47d` | HUD | ADAPT | PENDING | Adapt into `core/ui_*` overlay |
 | 30 | `core/study_guard.py` | `987f47d` | Feature | ADAPT | PENDING | Focus monitor |
 | 31 | `core/subagent_orchestrator.py` | `9dd02cf` | Subagents | REJECT | REJECT | Conflicts with `I-08` / `run_subagent_batch` |
-| 32 | `dashboard/static/voice.html` | `9dd02cf` | Dashboard | COPY | PENDING | Standalone dashboard voice interface |
+| 32 | `dashboard/static/voice.html` | `9dd02cf` | Dashboard | COPY | PORTED | Standalone dashboard voice interface |
 | 33 | `features/ascii_banner.py` | `987f47d` | Skill | ADAPT | PENDING | Register via staging/forge rules |
 | 34 | `features/ascii_banner/manifest.json` | `987f47d` | Skill | COPY | PENDING | Skill manifest |
 | 35 | `features/ascii_banner/skill.py` | `987f47d` | Skill | COPY | PENDING | Skill code |
@@ -521,23 +521,23 @@ Status values: `PENDING` · `PORTED` · `ADAPTED` · `REJECTED` · `SUPERSEDED`
 | 39 | `features/net_sentinel.py` | `987f47d` | Feature | ADAPT | PENDING | Feature entry point |
 | 40 | `features/shopping_agent.py` | `987f47d` | Feature | ADAPT | PENDING | Feature entry point |
 | 41 | `features/study_guard.py` | `987f47d` | Feature | ADAPT | PENDING | Feature entry point |
-| 42 | `installer/Uninstall.spec` | `c5e8162` | Installer | ADAPT | PENDING | Uninstaller build spec |
-| 43 | `installer/install.sh` | `c8d9c0f` | Installer | COPY | PENDING | Linux/macOS install script |
-| 44 | `installer/uninstall.cmd` | `c5e8162` | Installer | COPY | PENDING | Windows native uninstaller command |
-| 45 | `installer/uninstall.sh` | `c8d9c0f` | Installer | COPY | PENDING | Linux/macOS uninstall script |
-| 46 | `installer/uninstall_wizard.py` | `c5e8162` | Installer | ADAPT | PENDING | GUI uninstaller wizard |
-| 47 | `skills/api-mock-engine/SKILL.md` | `9dd02cf` | Playbook | COPY | PENDING | Project skill playbook |
-| 48 | `skills/browser-automation/SKILL.md` | `9dd02cf` | Playbook | COPY | PENDING | Project skill playbook |
-| 49 | `skills/code-review/SKILL.md` | `9dd02cf` | Playbook | COPY | PENDING | Project skill playbook |
-| 50 | `skills/database-architect/SKILL.md` | `9dd02cf` | Playbook | COPY | PENDING | Project skill playbook |
-| 51 | `skills/docker-devops/SKILL.md` | `9dd02cf` | Playbook | COPY | PENDING | Project skill playbook |
-| 52 | `skills/fullstack-scaffolder/SKILL.md` | `9dd02cf` | Playbook | COPY | PENDING | Project skill playbook |
-| 53 | `skills/git-workflow/SKILL.md` | `9dd02cf` | Playbook | COPY | PENDING | Project skill playbook |
-| 54 | `skills/github-automation/SKILL.md` | `9dd02cf` | Playbook | COPY | PENDING | Project skill playbook |
-| 55 | `skills/performance-profiler/SKILL.md` | `9dd02cf` | Playbook | COPY | PENDING | Project skill playbook |
-| 56 | `skills/security-auditor/SKILL.md` | `9dd02cf` | Playbook | COPY | PENDING | Project skill playbook |
-| 57 | `skills/test-driven-development/SKILL.md` | `9dd02cf` | Playbook | COPY | PENDING | Project skill playbook |
-| 58 | `skills/web-scraper-stealth/SKILL.md` | `9dd02cf` | Playbook | COPY | PENDING | Project skill playbook |
+| 42 | `installer/Uninstall.spec` | `c5e8162` | Installer | ADAPT | PORTED | Uninstaller build spec |
+| 43 | `installer/install.sh` | `c8d9c0f` | Installer | COPY | PORTED | Linux/macOS install script |
+| 44 | `installer/uninstall.cmd` | `c5e8162` | Installer | COPY | PORTED | Windows native uninstaller command |
+| 45 | `installer/uninstall.sh` | `c8d9c0f` | Installer | COPY | PORTED | Linux/macOS uninstall script |
+| 46 | `installer/uninstall_wizard.py` | `c5e8162` | Installer | ADAPT | PORTED | GUI uninstaller wizard |
+| 47 | `skills/api-mock-engine/SKILL.md` | `9dd02cf` | Playbook | COPY | PORTED | Project skill playbook |
+| 48 | `skills/browser-automation/SKILL.md` | `9dd02cf` | Playbook | COPY | PORTED | Project skill playbook |
+| 49 | `skills/code-review/SKILL.md` | `9dd02cf` | Playbook | COPY | PORTED | Project skill playbook |
+| 50 | `skills/database-architect/SKILL.md` | `9dd02cf` | Playbook | COPY | PORTED | Project skill playbook |
+| 51 | `skills/docker-devops/SKILL.md` | `9dd02cf` | Playbook | COPY | PORTED | Project skill playbook |
+| 52 | `skills/fullstack-scaffolder/SKILL.md` | `9dd02cf` | Playbook | COPY | PORTED | Project skill playbook |
+| 53 | `skills/git-workflow/SKILL.md` | `9dd02cf` | Playbook | COPY | PORTED | Project skill playbook |
+| 54 | `skills/github-automation/SKILL.md` | `9dd02cf` | Playbook | COPY | PORTED | Project skill playbook |
+| 55 | `skills/performance-profiler/SKILL.md` | `9dd02cf` | Playbook | COPY | PORTED | Project skill playbook |
+| 56 | `skills/security-auditor/SKILL.md` | `9dd02cf` | Playbook | COPY | PORTED | Project skill playbook |
+| 57 | `skills/test-driven-development/SKILL.md` | `9dd02cf` | Playbook | COPY | PORTED | Project skill playbook |
+| 58 | `skills/web-scraper-stealth/SKILL.md` | `9dd02cf` | Playbook | COPY | PORTED | Project skill playbook |
 | 59 | `tests/test_ai_evolution.py` | `987f47d` | Test | ADAPT | PENDING | Adapt to harness |
 | 60 | `tests/test_flowstate.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for flowstate |
 | 61 | `tests/test_game_sentinel.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for game sentinel |
