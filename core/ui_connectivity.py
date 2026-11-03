@@ -2593,6 +2593,14 @@ class SystemConnectivityPage(QWidget):
         # Custom MCP Servers
         lay.addWidget(self._build_custom_mcp_card())
 
+        # Agent & Orchestrator Bridge (ADR-018)
+        try:
+            from core.ui_agent_panel import build_agent_bridge_card
+
+            lay.addWidget(build_agent_bridge_card(self))
+        except Exception:
+            pass
+
         # Tool & Skill Index (must come after the MCP card: it reports on them)
         lay.addWidget(self._build_tool_index_card())
 
