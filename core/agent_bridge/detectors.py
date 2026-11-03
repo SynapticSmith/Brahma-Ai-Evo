@@ -212,6 +212,45 @@ def detect_orchestrators(ctx: DetectionContext) -> List[AgentRecord]:
     return records
 
 
+def detect_remote_agents(ctx: DetectionContext) -> List[AgentRecord]:
+    """Layer F: Detect configured remote and decentralized agents (Tier 3)."""
+    records: List[AgentRecord] = []
+
+    # 1. Check environment variable
+    raw_env = ctx.env.get("BRAHMA_REMOTE_AGENTS")
+    if raw_env:
+        try:
+            parsed = json.loads(raw_env)
+            if isinstance(parsed, list):
+                for item in parsed:
+                    if isinstance(item, dict) and item.get("endpoint"):
+                        item.setdefault("kind", "remote_http")
+                        item.setdefault("tier", 3)
+                        rec = AgentRecord.from_dict(item)
+                        rec.sources = sorted(list(set(rec.sources + ["env"])))
+                        records.append(rec)
+        except Exception:
+            pass
+
+    # 2. Check ~/.brahma/remote_agents.json
+    cfg_file = ctx.home_dir / ".brahma" / "remote_agents.json"
+    if cfg_file.is_file():
+        try:
+            parsed = json.loads(cfg_file.read_text(encoding="utf-8"))
+            if isinstance(parsed, list):
+                for item in parsed:
+                    if isinstance(item, dict) and item.get("endpoint"):
+                        item.setdefault("kind", "remote_http")
+                        item.setdefault("tier", 3)
+                        rec = AgentRecord.from_dict(item)
+                        rec.sources = sorted(list(set(rec.sources + ["remote_config"])))
+                        records.append(rec)
+        except Exception:
+            pass
+
+    return records
+
+
 def run_all(ctx: Optional[DetectionContext] = None) -> List[AgentRecord]:
     """Run all discovery layers, union sources, and deduplicate records by id.
 
@@ -226,6 +265,7 @@ def run_all(ctx: Optional[DetectionContext] = None) -> List[AgentRecord]:
             detect_local_model_servers,
             detect_vendor_configs,
             detect_orchestrators,
+            detect_remote_agents,
         ]
 
         for detector in detectors:

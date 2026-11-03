@@ -91,6 +91,10 @@ class AgentRecord:
             raw["transport"] = AgentTransport()
 
         # Handle defaults & migrations
+        if "kind" not in raw or not raw["kind"]:
+            raw["kind"] = "agent"
+        if "display_name" not in raw or not raw["display_name"]:
+            raw["display_name"] = raw.get("id", "agent")
         if "tier" not in raw or not isinstance(raw["tier"], int):
             raw["tier"] = 1
         if "status" not in raw or not raw["status"]:

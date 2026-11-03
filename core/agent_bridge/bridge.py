@@ -52,6 +52,9 @@ class AgentBridge:
             elif record.kind == "orchestrator":
                 from core.agent_bridge.adapters.orchestrator import OrchestratorAdapter
                 return OrchestratorAdapter(record)
+            elif record.kind in ("remote_http", "remote_agent", "peer"):
+                from core.agent_bridge.adapters.remote import RemoteAgentAdapter
+                return RemoteAgentAdapter(record)
             else:
                 logger.info("Unsupported agent kind %r for agent %s", record.kind, record.id)
                 return None

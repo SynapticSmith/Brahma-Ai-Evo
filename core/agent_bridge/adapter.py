@@ -70,7 +70,7 @@ class AgentAdapter(ABC):
                 tool_class = "mcp"
             elif self.record.kind == "cli_agent":
                 tool_class = "exec"
-            elif self.record.kind == "local_model":
+            elif self.record.kind in ("local_model", "remote_http", "remote_agent", "peer"):
                 tool_class = "network"
             else:
                 tool_class = "write" if cap.mutating else "read"
