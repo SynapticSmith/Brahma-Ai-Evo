@@ -175,10 +175,13 @@ class SkillCrucible:
                 return True, "No external dependencies required."
             return True, "All dependencies satisfied: " + ", ".join(sorted(dependencies))
 
-        missing_names = sorted(list(plan.resolved.keys()) + plan.missing)
+        missing_names = sorted(
+            [d for d in dependencies if d not in plan.satisfied_by_env]
+        ) or sorted(list(plan.resolved.keys()) + plan.missing)
+        install_cmd = plan.command or f"{_get_python_executable()} -m pip install " + " ".join(missing_names)
         return False, (
             "Missing dependencies: " + ", ".join(missing_names) + ". No packages were installed. "
-            f"Review the staged skill and install manually under locked hashes: {plan.command or 'Requires locked addition'}"
+            f"Review the staged skill and install manually: {install_cmd}"
         )
 
     @classmethod
