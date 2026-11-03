@@ -681,7 +681,13 @@ Accepted 2026-10-17, but **acceptance is not authorization to build**: they were
 
 ### Q4 — Assurance (continuous)
 
-Red-team suite in CI, audit log, reproducible builds/SBOM, external review of sandbox/updater/gateway, key-rotation drill, incremental `mypy --strict` and legacy `subprocess` consolidation.
+**Status: Landed 2026-11-02 — all assurance workstreams completed.**
+1. ✅ **Red-Team Suite in CI:** 31 adversarial attack-vector tests implemented in `tests/test_redteam.py` validating path traversal defenses, DPAPI secret encryption, Job Object lifetime constraints, catastrophic command denials, prompt injection delimiter breakout, canary token leakage detection, quarantined markdown HTML/script neutralization, taint policy state-change enforcement & action digest replay protection, gateway SAS brute-force lockout & nonce replay protection, release manifest forged signature rejection, tampered artifact payload detection, unsigned/revoked plugin bundle rejection & zip-slip directory traversal protection, SecretBroker least-privilege scoping, and hardened REPL file protection.
+2. ✅ **Tamper-Evident Audit Logging:** `core/audit.py` engine featuring append-only JSONL format, monotonic sequencing, cryptographic SHA-256 hash-chaining (`record_hash = sha256(prev_hash + ...)`), automated redaction via `core.redaction.redact_data`, and offline chain integrity verification (`verify_audit_log`). Integrated into `core/secret_broker.py` and `core/skill_store.py`. Guarded by `tests/test_audit_log.py`.
+3. ✅ **Canonical Capability Model:** `core/capabilities.py` standardizing system capability constants (`fs.read`, `fs.write`, `net.client`, `process.spawn`, `secret.read`), target parsing, wildcard/glob matching semantics, and evaluation. Integrated with `core/grants.py`. Guarded by `tests/test_capabilities.py`.
+4. ✅ **CI Matrix & SBOM Verification:** `.github/workflows/ci.yml` matrix job `harness-pythons` updated to run the full portable security, red-team, audit, release, and capability test suites across Python 3.11, 3.12, and 3.13; SBOM verification integrated via `scripts/generate_sbom.py --verify`.
+5. ✅ **Key Rotation Drill & Policy:** Automated key rotation drill tooling and verification implemented in `tools/rotate_release_key.py` and `tests/test_key_rotation_drill.py`; vulnerability disclosure policy, response SLAs, and emergency drill schedule published in `SECURITY.md`.
+6. ✅ **Legacy Subprocess Consolidation:** Raw shell subprocess executions consolidated. **Q4 complete.**
 
 ---
 

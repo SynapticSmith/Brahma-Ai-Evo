@@ -20,7 +20,7 @@ from typing import Any, Dict, Optional, Set, Tuple
 import urllib.request
 import urllib.error
 
-from core.redaction import redact_data
+from core.audit import AuditLogger
 from core.secret_store import load_api_keys, save_api_keys
 from core.user_paths import get_user_data_dir
 
@@ -68,6 +68,7 @@ class SecretBroker:
             if audit_file is not None
             else get_user_data_dir() / "secrets" / "logs" / "audit.jsonl"
         )
+        self._audit = AuditLogger(self.audit_file)
         self._lock = threading.RLock()
         self._secrets: Dict[str, str] = {}
         self._caller_grants: Dict[str, Set[str]] = {}  # caller_id -> set of granted scopes
@@ -81,14 +82,9 @@ class SecretBroker:
             self.config_path.parent.mkdir(parents=True, exist_ok=True)
 
     def _append_audit(self, event: str, **kwargs: Any) -> None:
-        record = {
-            "timestamp": _now_iso(),
-            "event": event,
-            **redact_data(kwargs),
-        }
+        caller = kwargs.pop("caller", "core")
         try:
-            with open(self.audit_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(record) + "\n")
+            self._audit.log(event, caller=caller, **kwargs)
         except Exception as exc:
             logger.warning(f"[SecretBroker] Failed to write audit record: {exc}")
 

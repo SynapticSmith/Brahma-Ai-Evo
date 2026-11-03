@@ -74,7 +74,7 @@ try:
 except Exception:
     try:
         import subprocess
-        subprocess.run(["msg", "*", "/TIME:30", "{safe_message}"], shell=True)
+        subprocess.run(["msg", "*", "/TIME:30", "{safe_message}"])
     except Exception:
         pass
 

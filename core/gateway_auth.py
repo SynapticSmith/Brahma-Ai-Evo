@@ -11,14 +11,22 @@ Implements:
 
 from __future__ import annotations
 
+import hmac
 import logging
 import secrets
 import threading
 import time
-from typing import Any, Dict, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Optional, Set, Tuple
 
-from brahma_connect.gateway.authentication import constant_time_equals
-from brahma_connect.gateway.models import DeviceRecord
+if TYPE_CHECKING:
+    from brahma_connect.gateway.models import DeviceRecord
+
+
+def constant_time_equals(left: str, right: str) -> bool:
+    try:
+        return hmac.compare_digest(str(left).encode("utf-8"), str(right).encode("utf-8"))
+    except Exception:
+        return False
 
 logger = logging.getLogger("GatewayAuth")
 

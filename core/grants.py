@@ -10,6 +10,8 @@ import datetime
 import secrets
 from typing import Any, Mapping, Optional, Sequence, Tuple
 
+from core.capabilities import matches_capability
+
 
 def _now_iso() -> str:
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -77,19 +79,8 @@ def verify_grant(
         return False, f"Grant expired at {expires_str}"
 
     if required_capability:
-        granted_caps = set(grant.get("capabilities") or [])
-        # Support exact match or wildcard prefixes, e.g. "fs.read:*" matching "fs.read:Documents"
-        matched = False
-        if required_capability in granted_caps:
-            matched = True
-        else:
-            for cap in granted_caps:
-                if cap.endswith(":*") and required_capability.startswith(cap[:-1]):
-                    matched = True
-                    break
-                elif cap == "*":
-                    matched = True
-                    break
+        granted_caps = grant.get("capabilities") or []
+        matched = any(matches_capability(cap, required_capability) for cap in granted_caps)
         if not matched:
             return False, f"Required capability '{required_capability}' is not granted"
 

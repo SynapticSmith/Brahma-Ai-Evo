@@ -18,6 +18,7 @@ from pathlib import Path
 import threading
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from core.audit import AuditLogger
 from core.grants import issue_grant, verify_grant
 from core.user_paths import atomic_write_json, get_user_data_dir
 
@@ -90,6 +91,7 @@ class SkillStore:
         self.store_dir = self.root_dir / "store"
         self.index_file = self.root_dir / "index.json"
         self.audit_file = self.root_dir / "logs" / "audit.jsonl"
+        self._audit = AuditLogger(self.audit_file)
         self._lock = threading.Lock()
 
         self._ensure_dirs()
@@ -99,14 +101,9 @@ class SkillStore:
         self.audit_file.parent.mkdir(parents=True, exist_ok=True)
 
     def _append_audit(self, event: str, **details: Any) -> None:
-        entry = {
-            "timestamp": _now_iso(),
-            "event": event,
-            **details,
-        }
+        caller = details.pop("caller", "skill_store")
         try:
-            with open(self.audit_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(entry) + "\n")
+            self._audit.log(event, caller=caller, **details)
         except Exception as exc:
             logger.warning(f"[SkillStore] Failed to write audit log: {exc}")
 
