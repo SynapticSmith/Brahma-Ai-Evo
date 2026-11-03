@@ -1,0 +1,25 @@
+{
+  "enabled": false,
+  "host": "127.0.0.1",
+  "port": 8010,
+  "allow_remote_bind": false,
+  "auth_required": true,
+  "preselect_profile": "reader",
+  "default_provider": "auto",
+  "workspaces": {
+    "brahma": "."
+  },
+  "limits": {
+    "requests_per_minute": 30,
+    "concurrent_runs": 2,
+    "concurrent_runs_per_token": 1,
+    "max_turns": 12,
+    "max_messages": 200,
+    "max_body_bytes": 1000000,
+    "wall_clock_s": 300,
+    "approval_timeout_s": 60
+  },
+  "stream_mode": "final",
+  "keepalive_s": 15,
+  "audit": true
+}

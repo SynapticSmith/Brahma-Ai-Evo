@@ -103,6 +103,13 @@ core/*- Copy.txt
 # ignored rather than trusted.
 config/app_settings.local.json
 
+# The OpenAI-compatible port's live config and its hash-only token registry.
+# brahma_api.example.json is the committed template; these two are the copy the
+# running process reads, and the token file must never enter git even though it
+# holds no plaintext.
+config/brahma_api.json
+config/brahma_api/
+
 # Node packages used only to vendor the VRM runtime (assets/avatar_vrm/vendor
 # holds the copies that ARE committed, with their licences).
 node_modules/
