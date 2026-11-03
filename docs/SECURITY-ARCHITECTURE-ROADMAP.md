@@ -1011,6 +1011,7 @@ Goal: remove the worst paths with small diffs; no new architecture required.
 
 - [ ] External audit of the sandbox, updater, and gateway.
 - [x] Red-team suite in CI.
+- [x] Cryptographic audit log + Security panel (SEC-16, SEC-17).
 - [x] Reproducible builds, SBOM, provenance attestations.
 - [x] Published security policy and disclosure channel.
 - [x] Rotation/revocation drill for the release key.
@@ -1041,8 +1042,8 @@ Use these as issue titles. IDs are stable.
 | SEC-14 | Gateway auth + pairing | `brahma_connect/gateway/server.py`, `core/gateway_auth.py` | — | 401/403 tests pass |
 | SEC-15 | Trust/taint policy + dual-LLM | `core/trust.py`, `core/policy.py`, `core/quarantine.py` | — | Hidden-text tests cannot change state |
 | SEC-16 | Process split + audit | `core/audit.py`, `core/capabilities.py`, `main.py` | SEC-05, SEC-12 | Grants enforced; audit chain verifies |
-| SEC-17 | Security panel | `ui.py` | SEC-16 | Approvals/denials/violations visible |
-| SEC-18 | Red-team suite in CI | `tests/security/*` | P1 | Tests run on every PR |
+| SEC-17 | Security panel | `ui.py`, `core/ui_security_panel.py` | SEC-16 | Approvals/denials/violations visible |
+| SEC-18 | Red-team suite in CI | `tests/test_redteam.py` | P1 | Tests run on every PR |
 
 ---
 
