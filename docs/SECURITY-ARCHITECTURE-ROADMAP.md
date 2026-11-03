@@ -987,9 +987,9 @@ Goal: remove the worst paths with small diffs; no new architecture required.
 
 ### Phase 1 — review pipeline (1–2 weeks)
 
-- [ ] Artifact store + hashes + `draft → approved → installed`.
+- [x] Artifact store + hashes + `draft → approved → installed`.
 - [ ] Review UI (code, capabilities, deps, tests).
-- [ ] `SkillHost` with restricted token + Job Object.
+- [x] `SkillHost` with restricted token + Job Object.
 - [ ] Per-skill venv/wheelhouse with hashed installs.
 - [ ] Gateway auth middleware + pairing code.
 - [ ] Plugin signature verification for new installs; dev mode flag.
@@ -1010,8 +1010,8 @@ Goal: remove the worst paths with small diffs; no new architecture required.
 ### Phase 3 — assurance (continuous)
 
 - [ ] External audit of the sandbox, updater, and gateway.
-- [ ] Red-team suite in CI.
-- [ ] Reproducible builds, SBOM, provenance attestations.
+- [x] Red-team suite in CI.
+- [x] Reproducible builds, SBOM, provenance attestations.
 - [ ] Published security policy and disclosure channel.
 - [ ] Rotation/revocation drill for the release key.
 
