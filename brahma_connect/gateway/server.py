@@ -19,6 +19,8 @@ from .discovery import GatewayDiscovery, local_ip
 from .pairing import PairingManager
 from .protocol import ProtocolTypes, build_message, validate_message, now_iso, new_request_id
 from .websocket import ConnectionHub
+import time
+from core.gateway_auth import GatewayAuthManager, SCOPE_DEVICE_COMMAND
 
 
 def _default_config_path(base_dir: Path) -> Path:
@@ -111,6 +113,7 @@ class BrahmaGateway:
         self._log: list[dict[str, Any]] = []
         self._pending_requests: dict[str, dict[str, Any]] = {}
         self.on_chat_message = None
+        self.auth_manager = GatewayAuthManager()
         self.app = self._build_app()
 
     def is_running(self) -> bool:
@@ -403,6 +406,102 @@ class BrahmaGateway:
         @app.get("/gateway/pair")
         async def get_pairing_offer(_device: DeviceRecord = Depends(_require_device)):
             return self.create_pairing_offer()
+
+        @app.post("/gateway/pair/start")
+        async def pair_start(request: Request):
+            try:
+                payload = await request.json()
+            except Exception:
+                payload = {}
+            device_name = str(payload.get("device_name") or "Unknown Device")
+            platform = str(payload.get("platform") or "unknown")
+            client_nonce = str(payload.get("client_nonce") or "")
+            client_ip = request.client.host if request.client else "127.0.0.1"
+
+            ok, result, msg = self.auth_manager.create_pairing_request(
+                device_name=device_name,
+                platform=platform,
+                client_nonce=client_nonce,
+                client_ip=client_ip,
+            )
+            if not ok:
+                return JSONResponse({"ok": False, "error": msg}, status_code=429)
+
+            self._append_log("PAIRING_SAS_REQUEST", device=device_name, platform=platform, code=result.get("pairing_code"))
+            return {"ok": True, **result}
+
+        @app.post("/gateway/pair/verify")
+        async def pair_verify(request: Request):
+            try:
+                payload = await request.json()
+            except Exception:
+                payload = {}
+            pending_id = str(payload.get("pending_id") or "").strip()
+            pairing_code = str(payload.get("pairing_code") or "").strip()
+            client_ip = request.client.host if request.client else "127.0.0.1"
+
+            ok, pending_req, msg = self.auth_manager.verify_pairing_code(
+                pending_id=pending_id,
+                pairing_code=pairing_code,
+                client_ip=client_ip,
+            )
+            if not ok:
+                status_code = 429 if "locked" in msg.lower() else 400
+                return JSONResponse({"ok": False, "error": msg}, status_code=status_code)
+
+            record, secret = self.device_manager.create_from_pairing(
+                name=pending_req.device_name,
+                platform=pending_req.platform,
+                ip=client_ip,
+                capabilities=list(payload.get("capabilities") or []),
+                permissions=list(payload.get("permissions") or []),
+            )
+            self._append_log("PAIR_APPROVED_SAS", device=record.device_id, name=record.name, platform=record.platform)
+            return {
+                "ok": True,
+                "device": record.to_dict(),
+                "device_token": f"{record.device_id}:{secret}",
+                "device_secret": secret,
+            }
+
+        @app.post("/gateway/execute")
+        async def execute_command(request: Request, _device: DeviceRecord = Depends(_require_device)):
+            if not self.auth_manager.has_scope(_device, SCOPE_DEVICE_COMMAND):
+                raise HTTPException(status_code=403, detail="Forbidden: Device lacks 'device:command:app' scope.")
+
+            try:
+                payload = await request.json()
+            except Exception:
+                return JSONResponse({"ok": False, "error": "Invalid JSON payload."}, status_code=400)
+
+            command = str(payload.get("command") or "").strip()
+            args = payload.get("args") if "args" in payload else {}
+            nonce = str(payload.get("nonce") or "").strip()
+            ts = payload.get("ts")
+
+            valid, err = self.auth_manager.validate_execution_request(command, args, nonce, ts)
+            if not valid:
+                return JSONResponse({"ok": False, "error": err}, status_code=400)
+
+            result: Any = {}
+            if command == "device.ping":
+                result = {"status": "pong", "device_id": _device.device_id, "server_time": time.time()}
+            elif command == "system.status":
+                result = {"status": "active", "online": True, "host": self.config.host, "port": self.config.port}
+            elif command == "device.battery":
+                result = {"battery": _device.battery or 100, "charging": False}
+            else:
+                target = str(payload.get("target") or _device.device_id)
+                route_result = await self.route_command(target, command, args)
+                result = route_result
+
+            self._append_log("GATEWAY_EXECUTE", device=_device.device_id, command=command, nonce=nonce)
+            return {
+                "ok": True,
+                "command": command,
+                "result": result,
+                "nonce": nonce,
+            }
 
         @app.get("/gateway/devices")
         async def list_devices(_device: DeviceRecord = Depends(_require_device)):

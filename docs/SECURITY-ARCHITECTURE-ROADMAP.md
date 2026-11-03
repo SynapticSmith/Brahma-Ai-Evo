@@ -991,7 +991,7 @@ Goal: remove the worst paths with small diffs; no new architecture required.
 - [x] Review UI (code, capabilities, deps, tests).
 - [x] `SkillHost` with restricted token + Job Object.
 - [ ] Per-skill venv/wheelhouse with hashed installs.
-- [ ] Gateway auth middleware + pairing code.
+- [x] Gateway auth middleware + pairing code.
 - [ ] Plugin signature verification for new installs; dev mode flag.
 
 **Exit criteria:** every new skill is reviewed; execution runs in a separate process; a skill cannot read the config directory; gateway returns 401 without a token.
