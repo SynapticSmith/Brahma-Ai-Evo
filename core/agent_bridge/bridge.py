@@ -49,6 +49,9 @@ class AgentBridge:
                 return LocalModelAdapter(record)
             elif record.kind == "cli_agent":
                 return CLIAgentAdapter(record)
+            elif record.kind == "orchestrator":
+                from core.agent_bridge.adapters.orchestrator import OrchestratorAdapter
+                return OrchestratorAdapter(record)
             else:
                 logger.info("Unsupported agent kind %r for agent %s", record.kind, record.id)
                 return None

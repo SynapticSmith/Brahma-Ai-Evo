@@ -165,6 +165,53 @@ def detect_vendor_configs(ctx: DetectionContext) -> List[AgentRecord]:
     return records
 
 
+def detect_orchestrators(ctx: DetectionContext) -> List[AgentRecord]:
+    """Layer E: Detect local orchestrators (Paperclip fleet, Orca ADE)."""
+    records: List[AgentRecord] = []
+    # 1. Paperclip
+    paperclip_url = ctx.env.get("PAPERCLIP_API_URL")
+    paperclip_dir = ctx.home_dir / ".paperclip"
+    has_port = ctx.check_port("127.0.0.1", 3100)
+    if has_port or paperclip_dir.exists() or paperclip_url:
+        src = "loopback_probe" if has_port else ("user_home" if paperclip_dir.exists() else "env")
+        records.append(
+            AgentRecord(
+                id="orchestrator_paperclip",
+                display_name="Paperclip Fleet Orchestrator",
+                kind="orchestrator",
+                tier=2,
+                endpoint=paperclip_url or "http://127.0.0.1:3100/api",
+                status="found",
+                sources=[src],
+                orchestrator={
+                    "connector": "paperclip",
+                    "high_leverage_verbs": ["list_agents", "get_status", "create_issue", "run_heartbeat"],
+                },
+            )
+        )
+
+    # 2. Orca ADE
+    orca_bin = ctx.env.get("ORCA_CLI_COMMAND") or ctx.which("orca") or ctx.which("orca.exe")
+    if orca_bin:
+        records.append(
+            AgentRecord(
+                id="orchestrator_orca",
+                display_name="Orca ADE Orchestrator",
+                kind="orchestrator",
+                tier=2,
+                executable=orca_bin,
+                status="found",
+                sources=["cli_path"],
+                orchestrator={
+                    "connector": "orca",
+                    "high_leverage_verbs": ["list_worktrees", "assign_goal"],
+                },
+            )
+        )
+
+    return records
+
+
 def run_all(ctx: Optional[DetectionContext] = None) -> List[AgentRecord]:
     """Run all discovery layers, union sources, and deduplicate records by id.
 
@@ -178,6 +225,7 @@ def run_all(ctx: Optional[DetectionContext] = None) -> List[AgentRecord]:
             detect_cli_agents,
             detect_local_model_servers,
             detect_vendor_configs,
+            detect_orchestrators,
         ]
 
         for detector in detectors:
