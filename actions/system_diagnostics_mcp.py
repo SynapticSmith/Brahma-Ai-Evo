@@ -145,8 +145,14 @@ def get_display_brightness_status() -> Dict[str, Any]:
         }
     except Exception as e:
         try:
-            cmd = 'powershell -Command "(Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness).CurrentBrightness"'
-            out = subprocess.check_output(cmd, shell=True, text=True, timeout=3).strip()
+            cmd = [
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "(Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness).CurrentBrightness",
+            ]
+            out = subprocess.check_output(cmd, text=True, timeout=3).strip()
             if out.isdigit():
                 val = int(out)
                 return {"monitors": ["Primary Display"], "brightness_levels": [val], "avg_brightness": val}

@@ -49,7 +49,7 @@ def _resolve_output_path(output_path: str | None, title: str, ext: str, fallback
 def _open_file(path: Path) -> None:
     try:
         if os.name == "nt":
-            subprocess.Popen(["cmd.exe", "/c", "start", "", str(path)], shell=True)
+            os.startfile(str(path))
         elif sys.platform == "darwin":
             subprocess.Popen(["open", str(path)])
         else:

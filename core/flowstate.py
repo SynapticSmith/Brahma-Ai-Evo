@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import time
 import urllib.parse
@@ -379,7 +380,8 @@ class FlowStateManager:
                 if Path(ws_path).exists():
                     try:
                         # Launch code into directory
-                        subprocess.Popen(f'code "{ws_path}"', shell=True)
+                        code_bin = shutil.which("code") or "code.cmd"
+                        subprocess.Popen([code_bin, str(ws_path)])
                         restored_items.append(f"VS Code ({Path(ws_path).name})")
                     except Exception as exc:
                         logger.warning(f"Failed to launch VS Code workspace {ws_path}: {exc}")
