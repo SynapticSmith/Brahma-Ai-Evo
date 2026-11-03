@@ -66,7 +66,8 @@ def execute_in_skill_host(
 
         params_file.write_text(json.dumps(kwargs), encoding="utf-8")
 
-        runner_path = (Path(__file__).resolve().parent / "skill_runner.py").resolve()
+        host_main_path = (Path(__file__).resolve().parent.parent / "sandbox" / "host_main.py").resolve()
+        runner_path = host_main_path if host_main_path.exists() else (Path(__file__).resolve().parent / "skill_runner.py").resolve()
         cmd = (
             f'"{sys.executable}" "{runner_path}" '
             f'--code "{code_path}" '

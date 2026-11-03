@@ -998,7 +998,7 @@ Goal: remove the worst paths with small diffs; no new architecture required.
 
 ### Phase 2 — real boundary (3–6 weeks)
 
-- [ ] AppContainer + capability SIDs + network broker.
+- [x] AppContainer + capability SIDs + network broker.
 - [x] Signed release manifest + A/B + rollback.
 - [x] Secret broker + scoped tokens + redaction.
 - [x] Dual-LLM reader + taint-aware policy.
