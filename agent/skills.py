@@ -478,6 +478,17 @@ def _load_skill(arguments: Dict[str, Any], context: Any) -> str:
     body = skill.body.strip()
     if not body:
         return f"# Skill: {skill.name}\n\n(source: {skill.path})\n\n(no instructions)"
+
+    try:
+        from core.user_paths import is_workspace_trusted
+        trusted = is_workspace_trusted(context.workspace)
+    except Exception:
+        trusted = True
+
+    if not trusted:
+        from agent.prompts import wrap_untrusted_instructions
+        body = wrap_untrusted_instructions(body)
+
     return (
         f"# Skill: {skill.name}\n\n"
         f"Source: {skill.path}\n"

@@ -97,6 +97,7 @@ DEFAULT_POLICY: Dict[str, Any] = {
         "outside_workspace": ASK,
         "protected": ASK,
         "trusted_roots": [],
+        "untrusted_workspace": ALLOW,
     },
     "protected_globs": list(DEFAULT_PROTECTED_GLOBS),
     "exec": {
@@ -375,6 +376,36 @@ class PermissionPolicy:
                 return str(pattern)
         return None
 
+    def is_workspace_trusted(self, workspace: Optional[Path]) -> bool:
+        """True when the given workspace is trusted by policy or the user data store."""
+        if workspace is None:
+            return False
+        try:
+            ws_root = str(workspace.expanduser().resolve())
+        except Exception:
+            ws_root = str(workspace)
+        try:
+            from core.user_paths import is_workspace_trusted
+            return is_workspace_trusted(ws_root)
+        except Exception:
+            return False
+
+    def trust_workspace(self, workspace: Path) -> None:
+        """Record the workspace as trusted in user data."""
+        try:
+            from core.user_paths import trust_workspace
+            trust_workspace(workspace)
+        except Exception:
+            pass
+
+    def revoke_workspace_trust(self, workspace: Path) -> bool:
+        """Revoke trust for the given workspace."""
+        try:
+            from core.user_paths import revoke_workspace_trust
+            return revoke_workspace_trust(workspace)
+        except Exception:
+            return False
+
     def evaluate(
         self,
         tool_name: str,
@@ -479,6 +510,24 @@ class PermissionPolicy:
                         f"{rel} matches a protected-file pattern.",
                         "paths.protected",
                     )
+
+        # 3b. untrusted workspace check for state-changing operations
+        if context_workspace is not None and tool_class in ("write", "exec"):
+            paths_cfg = self.data.get("paths") or {}
+            untrusted_rule = paths_cfg.get("untrusted_workspace", ALLOW)
+            if untrusted_rule != ALLOW and not self.is_workspace_trusted(context_workspace):
+                decision = _decision(untrusted_rule, "paths.untrusted_workspace")
+                if decision == ASK and headless:
+                    return PolicyResult(
+                        DENY,
+                        f"workspace '{context_workspace}' is untrusted. State-changing operations in untrusted workspaces are denied in headless mode.",
+                        "paths.untrusted_workspace",
+                    )
+                return PolicyResult(
+                    decision,
+                    f"workspace '{context_workspace}' is untrusted. State-changing operations require approval.",
+                    "paths.untrusted_workspace",
+                )
 
         # 4/5/6. class default, headless override, global default
         classes = self.data.get("classes") or {}
