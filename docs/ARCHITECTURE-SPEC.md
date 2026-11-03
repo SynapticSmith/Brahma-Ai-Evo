@@ -117,7 +117,7 @@ The two large proposals are in different states and must not be conflated:
 
 | Path | Contents | Notes |
 |---|---|---|
-| `main.py` | App entry, `BrahmaLive`, `TOOL_DECLARATIONS` (59 native tools), provider routing, controller delegation | 3,233 lines (below the 3,903 bridge guard). Ratchet ceiling 3,233. |
+| `main.py` | App entry, `BrahmaLive`, `TOOL_DECLARATIONS` (59 native tools), provider routing, controller delegation | 3,230 lines. Ratchet ceiling 3,230. |
 | `ui.py` | Thin `MainWindow` composition root over `core/ui_*` modules | 820 lines. Bridge-era guard was ≤692; already violated. Ratchet ceiling 827. |
 | `core/` | Cross-cutting seams: tool dispatch/index, turn controllers, provider chain, confirmation, sessions, skills, avatars, UI modules | ~97 modules. The de-facto architecture layer. |
 | `actions/` | One module per native capability (~51) | Native tool implementations reached through `core/desktop_tools.py` `ToolSpec` adapters behind `AgentRuntime`. |
