@@ -211,8 +211,8 @@ class EchoGuard:
                 self._run = 0
                 return False
             if not self._hist:
-                # Nothing playing that we know of — anything audible is theirs.
-                return True
+                # Output history not yet registered for this speech onset
+                return False
 
             t = time.monotonic() if when is None else when
             bands = band_energies(pcm, sr)
@@ -237,9 +237,10 @@ class EchoGuard:
                     best_res, best_level = ratio, ref_level
             self._last_sim = 1.0 - best_res
 
-            # Nothing in the window explained it at all — that is not our sound.
+            # Nothing in the window explained it at all — evaluate sustained run
             if best_level <= 0.0:
-                return True
+                self._run += 1
+                return self._run >= self.required_blocks
 
             # Learning happens in two stages, and the order matters both times.
             #
@@ -265,7 +266,7 @@ class EchoGuard:
                     self._residuals.clear()
                     self._run = 0
                     return False
-                return True
+                return self._run >= self.required_blocks
 
             self._run = 0
             self._residuals.append(best_res)

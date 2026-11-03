@@ -913,6 +913,11 @@ class SessionLifecycle:
     def set_speaking(self, value: bool):
         with self._host._speaking_lock:
             self._host._is_speaking = value
+            if not value:
+                self._host._server_turn_active = False
+                self._host._discard_server_audio = True
+            else:
+                self._host._discard_server_audio = False
         if value:
             self._host.ui.set_state("SPEAKING")
         elif not self._host.ui.muted:
@@ -921,9 +926,11 @@ class SessionLifecycle:
     def trigger_barge_in(self):
         """Immediately interrupts AI speech playback and switches state to LISTENING."""
         with self._host._speaking_lock:
-            if not self._host._is_speaking:
+            if not self._host._is_speaking and not getattr(self._host, "_server_turn_active", False):
                 return
             self._host._is_speaking = False
+            self._host._server_turn_active = False
+            self._host._discard_server_audio = True
 
         try:
             from actions.attention_monitor import stop_native_speech

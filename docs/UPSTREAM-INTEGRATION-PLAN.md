@@ -580,7 +580,7 @@ Status values: `PENDING` · `PORTED` · `ADAPTED` · `REJECTED` · `SUPERSEDED`
 | 20 | `core/circuit_hud.py` | `987f47d` | Low | REVIEW | Visual HUD update |
 | 21 | `core/clipboard_sentry.py` | `987f47d` | Low | REVIEW | Clipboard monitoring |
 | 22 | `core/dynamic_registry.py` | `987f47d` | High | EVALUATE | Stem matching vs Gemini Live 128-tool limit |
-| 23 | `core/echo.py` | `9dd02cf` | High | ADAPT | Port acoustic barge-in gating |
+| 23 | `core/echo.py` | `9dd02cf` | High | PORTED | Port acoustic barge-in gating |
 | 24 | `core/globe_window.py` | `987f47d` | Low | REVIEW | Globe window widget |
 | 25 | `core/learned_rules.py` | `987f47d` | Medium | ADAPT | Cherry-pick rule learning function |
 | 26 | `core/prompt.txt` | `987f47d` | High | MERGE | Semantic merge for REA / image gen |

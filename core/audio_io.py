@@ -190,6 +190,10 @@ class AudioIO:
                             self._host._resume_handle = _sru.new_handle
 
                     if response.data:
+                        if getattr(self._host, "_discard_server_audio", False):
+                            # Turn was interrupted; discard residual audio chunks
+                            continue
+                        self._host._server_turn_active = True
                         self._host.set_speaking(True)
                         self._host.audio_in_queue.put_nowait(response.data)
 
@@ -223,24 +227,24 @@ class AudioIO:
 
                         if sc.turn_complete:
                             self._host.set_speaking(False)
+                            self._host._server_turn_active = False
+                            self._host._discard_server_audio = False
 
                             full_in = " ".join(in_buf).strip()
                             if full_in:
                                 self._host.ui.write_log(f"You: {full_in}")
+                                if hasattr(self._host.ui, "set_live_subtitles"):
+                                    self._host.ui.set_live_subtitles("YOU", full_in, interim=False)
                             in_buf = []
 
                             full_out = " ".join(out_buf).strip()
                             if full_out:
-                                # The model emits its mood as a leading
-                                # [EMOTION] tag on the injected live layer. This
-                                # path used to log the turn verbatim and drop
-                                # the tag, so in the default voice mode the
-                                # avatar never reacted at all. Strip it, deliver
-                                # it, and log the clean turn.
                                 full_out, emotion = self._host._split_emotion_tag(full_out)
                                 self._host._deliver_avatar_emotion(emotion)
                                 if full_out:
                                     self._host.ui.write_log(f"Brahma Evo: {full_out}")
+                                    if hasattr(self._host.ui, "set_live_subtitles"):
+                                        self._host.ui.set_live_subtitles("BRAHMA", full_out, interim=False)
                             out_buf = []
 
                             # Archive the completed turn in the shared agent
@@ -309,13 +313,15 @@ class AudioIO:
             samplerate=self._recv_sample_rate,
             channels=self._channels,
             dtype="int16",
-            blocksize=self._chunk_size,
+            blocksize=0,
             device=_spk_dev,
         )
         stream.start()
         try:
             while True:
                 chunk = await self._host.audio_in_queue.get()
+                if getattr(self._host, "_discard_server_audio", False):
+                    continue
                 try:
                     pcm = np.frombuffer(chunk, dtype=np.int16)
                     lvl = float(np.sqrt(np.mean(np.square(pcm, dtype=np.float32))))
