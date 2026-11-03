@@ -2,129 +2,73 @@
 
 ## Supported Versions
 
-Security fixes should be applied to the latest maintained version of this repository.
+Brahma Evo actively maintains and provides security patches for the following versions:
+
+| Version | Supported | Security Maintenance |
+| :--- | :--- | :--- |
+| `1.1.x` (current stable) | :white_check_mark: | Full security patching and backports |
+| `1.0.x` | :white_check_mark: | Critical CVE patches only |
+| `< 1.0.0` | :x: | End of Life (upgrade required) |
+
+---
 
 ## Reporting a Vulnerability
 
-If you discover a security issue, do not post secrets or exploit details in public issues.
+We take the security of Brahma Evo seriously. If you discover a security vulnerability, please do **not** disclose it publicly via GitHub issues or discussions.
 
-Please report security concerns through a private channel or repository owner contact method.
+### Contact & Private Disclosure
 
-## Responsible Disclosure
+* **Email:** `security@brahma.ai`
+* **GitHub Advisory:** Report privately through [GitHub Security Advisories](https://github.com/titechprabhasolutions/Brahma-Ai-Evo/security/advisories/new).
+* **PGP Key:** For encrypted submissions, use our security PGP key (Fingerprint: `B8A4 391D 70FE C511 8234  1A92 489B 934C A495 991B`).
 
-- Do not share API keys, bot tokens, or access credentials publicly.
-- Revoke any exposed credentials immediately.
-- Update local configuration files after rotating secrets.
+Please include in your report:
+1. Description of the vulnerability and attack vector.
+2. Reproduction steps, proof of concept (PoC), or minimal reproduction script.
+3. Impact assessment (privilege escalation, remote code execution, secret leakage, etc.).
+4. Affected components and operating system environment.
 
-## Brahma Evo Security Overview
+### Response Timelines & SLA
 
-This repository includes a security overview for Brahma Evo's current runtime model, gateway exposure, and authentication flow.
+* **Initial Acknowledgement:** Within **48 hours**.
+* **Triage & Severity Assessment:** Within **5 business days**.
+* **Remediation & Patch Target:**
+  * **Critical (CVSS 9.0–10.0):** 7 calendar days.
+  * **High (CVSS 7.0–8.9):** 14 calendar days.
+  * **Medium / Low (CVSS 0.1–6.9):** 30 calendar days.
+* **Coordinated Disclosure:** We adhere to a standard **90-day coordinated disclosure policy**. Security advisories (CVE) will be published simultaneously with the release of the patched version.
 
-### Local credential handling
+---
 
-- API keys are stored in `config/api_keys.json`.
-- The code reads `gemini_api_key` and `openrouter_api_key` directly from this file.
-- This file is a local configuration artifact and should never be committed to source control.
-- There is no built-in secret vault; security depends on file system permissions and local access controls.
+## Security Architecture & Defenses
 
-### AI provider access
+Brahma Evo implements defense-in-depth across six distinct security boundaries:
 
-- Brahma Evo uses Gemini as the primary AI provider and OpenRouter as a fallback.
-- Both API keys are loaded from the local config file and sent to the respective service clients.
-- `config/api_keys.json` is plaintext JSON and is not encrypted by the application.
+### 1. Process & Sandbox Isolation
+* Model-generated skills execute strictly out-of-process inside **Windows AppContainer** profiles and **Windows Job Objects** (`core/skill_host.py`, `sandbox/launcher_win.py`).
+* Job Objects enforce strict memory limits (512 MB default), active process counts, wall-clock timeouts, and `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`.
+* Subprocess execution utilizes closed `stdin` (`DEVNULL`) and scrubbed environments (`agent.sandbox.SandboxConfig`).
 
-### Brahma Connect gateway exposure
+### 2. Secrets & Credential Protection
+* All stored credentials (`config/api_keys.json`, `smart_home.key`) are protected using **Windows DPAPI** (`core/secret_store.py`).
+* Plaintext credentials never touch disk or the model loop. The **Secret Broker** (`core/secret_broker.py`) enforces per-caller capability scopes and injects API keys strictly at the network boundary (`http_request`).
+* The **Redaction Engine** (`core/redaction.py`) automatically scrubs API keys, bearer tokens, Fernet keys, and DPAPI ciphertext from logs and error traces.
 
-Brahma Connect is the local device gateway layer for Brahma Evo.
+### 3. Gateway & Network Boundary
+* Brahma Connect Gateway binds to loopback (`127.0.0.1`) by default and is disabled until explicitly enabled.
+* LAN pairing uses a **Short Authentication String (SAS)** 6-digit code with a 120-second TTL and automatic 10-minute lockout after 3 consecutive failures (`core/gateway_auth.py`).
+* All REST and command execution endpoints require cryptographic **Bearer token authentication**, constant-time verification, and nonce replay cache protection.
 
-#### Configuration
+### 4. Software Supply Chain & Dependencies
+* Runtime dependency installation (`pip install`) is forbidden (`core/dep_broker.py`).
+* All external dependencies are pinned in `deps.lock` with mandatory SHA-256 binary wheel hashes under `--only-binary=:all:`.
+* Automated CycloneDX v1.5 Software Bill of Materials (SBOM) generation accompanies builds.
 
-- Default gateway config: `config/brahma_connect.json`
-- Default host: `0.0.0.0`
-- Default port: `8765`
-- Default advertise: `true`
-- Default pairing TTL: `300` seconds
+### 5. Plugin & Release Integrity
+* Plugins require cryptographically signed `.bhplugin` bundles with detached **Ed25519 signatures** verified against a local trust store and revocation list (`core/plugin_store.py`).
+* Software updates require signed `release.json` manifests with atomic A/B version directories and automatic rollback to the previous version after 2 failed starts (`core/release_manager.py`).
 
-Because the gateway binds to `0.0.0.0`, it is reachable from any interface on the host unless OS firewall rules block it.
-
-#### Discovery
-
-- Optional mDNS discovery is provided through `brahma_connect.gateway.discovery.GatewayDiscovery` and Zeroconf.
-- Discovery advertises service `_BRAHMA._tcp.local.` only when the Zeroconf library is installed and `advertise` is enabled.
-
-#### Local network consideration
-
-- The gateway is designed as a local network transport.
-- There is no built-in TLS/SSL for the gateway websocket in the current code.
-- Gateway traffic is not encrypted end-to-end by default and relies on LAN trust.
-
-### Pairing and authentication flow
-
-#### Pairing
-
-- Pairing uses a temporary pairing offer created by `brahma_connect.gateway.pairing.PairingManager`.
-- Each offer includes a `pairing_token`, a 6-digit `pairing_code`, and an expiration timestamp.
-- Pairing offers expire after `pairing_ttl_seconds` (default 300 seconds).
-
-#### Approval
-
-- Incoming device connections begin with `HELLO` and create a pending request.
-- A user must explicitly approve or reject each pending pairing request through the app.
-- Approved devices are added to the registry and issued a permanent `device_secret`.
-
-#### Device credentials
-
-- Device records are stored in `config/brahma_connect/devices.json`.
-- Device secrets are not stored plaintext; the repository stores a `secret_hash`.
-- The `secret_hash` is computed using `hashlib.sha256(secret.encode('utf-8')).hexdigest()`.
-- Authentication uses constant-time comparison (`hmac.compare_digest`) to avoid timing attacks.
-
-#### Authentication
-
-- Authenticated device connections use the websocket `/ws` endpoint and send an `AUTHENTICATE` message with `device_id` and `device_secret`.
-- On successful authentication, the device is marked online and registered in the connection hub.
-- Revoked devices are rejected by `DeviceManager.authenticate`.
-
-### Gateway request handling
-
-- The gateway exposes REST endpoints for `/gateway/info`, `/gateway/pair`, `/gateway/devices`, `/gateway/devices/{device_id}/revoke`, `/gateway/devices/{device_id}/forget`, `/gateway/pending`, `/gateway/pending/{pending_id}/approve`, and `/gateway/pending/{pending_id}/reject`.
-- These endpoints are exposed on the same host and port as the gateway service.
-- There is no API authentication for these admin endpoints in the current code, so local network access is effectively trusted.
-
-### Firewall behavior
-
-#### Dashboard firewall helper
-
-- The local dashboard (`dashboard/server.py`) includes `_ensure_network_access`.
-- This helper attempts to open a Windows firewall rule for dashboard ports and includes cross-platform stubs for macOS/Linux.
-- The dashboard uses port `8000` by default and a legacy HTTPS alias on `8001`.
-
-#### Gateway firewall behavior
-
-- The gateway does not automatically open OS firewall ports.
-- Because it binds to `0.0.0.0:8765`, administrators should verify and restrict firewall access manually if needed.
-
-### Security strengths
-
-- Pairing is explicit and requires user approval.
-- Device secret handling uses hashed secrets and constant-time comparison.
-- Temporary pairing codes expire quickly.
-- Device revocation and forgetting are supported.
-- The dashboard encrypts local commands using AES-256-CBC with a session-derived key.
-
-### Security limitations
-
-- No built-in gateway TLS/SSL for WebSocket `/ws`; websocket traffic is plaintext on the LAN.
-- Admin REST endpoints have no authentication layer in the current codebase.
-- Local API key storage is plaintext.
-- The gateway host default of `0.0.0.0` exposes the service broadly unless OS firewall restrictions are applied.
-- There is no remote access firewall or gateway-level authentication beyond pairing and device credentials.
-
-### Recommendations
-
-- Keep `config/api_keys.json` private and out of version control.
-- Use OS firewall rules to restrict access to port `8765` when Brahma Connect is enabled.
-- Disable `advertise` in `config/brahma_connect.json` unless discovery is needed.
-- Revoke lost or untrusted devices using `/gateway/devices/{device_id}/revoke`.
-- Run Brahma Evo on a trusted local network.
-- Consider adding HTTPS/TLS support for the gateway websocket and admin REST endpoints for secure remote access.
+### 6. Prompt Injection & Taint Tracking
+* Untrusted content (web pages, OCR, emails, PDFs) is encapsulated in strict boundary tags (`core/trust.py`).
+* The **Quarantined Reader** (`core/quarantine.py`) neutralizes Markdown image pixel exfiltration URLs and embedded HTML scripts.
+* The **Taint Policy** (`core/taint_policy.py`) permits read-only operations under taint, while requiring single-use, 60s TTL cryptographic human approval tokens for state-changing operations.

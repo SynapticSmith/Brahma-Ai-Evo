@@ -1012,8 +1012,8 @@ Goal: remove the worst paths with small diffs; no new architecture required.
 - [ ] External audit of the sandbox, updater, and gateway.
 - [x] Red-team suite in CI.
 - [x] Reproducible builds, SBOM, provenance attestations.
-- [ ] Published security policy and disclosure channel.
-- [ ] Rotation/revocation drill for the release key.
+- [x] Published security policy and disclosure channel.
+- [x] Rotation/revocation drill for the release key.
 
 **Exit criteria:** an external reviewer can reproduce the boundary from the docs and tests; a compromised publisher key cannot ship a valid release.
 
