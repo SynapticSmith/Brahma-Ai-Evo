@@ -18,7 +18,7 @@ import re
 import socket
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, Optional, Set
 
 import psutil
@@ -227,6 +227,8 @@ class AnticipatoryWatcher:
                                         hr = 0
                                 ev_dt = now_dt.replace(hour=hr, minute=mn, second=0, microsecond=0)
                             if ev_dt:
+                                if ev_dt < now_dt and (now_dt - ev_dt).total_seconds() > 43200:
+                                    ev_dt += timedelta(days=1)
                                 delta_min = (ev_dt - now_dt).total_seconds() / 60.0
                                 if 4.0 <= delta_min <= 12.0:
                                     self._announced_meeting_ids.add(ev_id)
