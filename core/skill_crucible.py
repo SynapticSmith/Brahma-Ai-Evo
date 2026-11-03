@@ -11,7 +11,6 @@ Performs:
 from __future__ import annotations
 
 import ast
-import importlib.util
 import json
 import logging
 import subprocess
@@ -154,6 +153,13 @@ class SkillCrucible:
         return sorted(list(imports))
 
     @classmethod
+    def plan_dependencies(cls, dependencies: List[str]):
+        """Plans dependencies against hash-pinned deps.lock without mutating runtime (WS-3)."""
+        from core.dep_broker import DependencyBroker
+        broker = DependencyBroker()
+        return broker.plan_dependencies(dependencies)
+
+    @classmethod
     def resolve_dependencies(cls, dependencies: List[str]) -> Tuple[bool, str]:
         """Report dependency availability without changing the environment.
 
@@ -163,26 +169,16 @@ class SkillCrucible:
         plan a human can review and run. The ``(bool, str)`` contract is
         unchanged for callers.
         """
-        if not dependencies:
-            return True, "No external dependencies required."
-
-        missing: List[str] = []
-        for dep in dependencies:
-            try:
-                found = importlib.util.find_spec(dep) is not None
-            except (ImportError, ValueError):
-                found = False
-            if not found:
-                missing.append(dep)
-
-        if not missing:
+        plan = cls.plan_dependencies(dependencies)
+        if plan.is_satisfied:
+            if not dependencies:
+                return True, "No external dependencies required."
             return True, "All dependencies satisfied: " + ", ".join(sorted(dependencies))
 
-        pip_names = [IMPORT_TO_PIP.get(dep, dep) for dep in missing]
-        plan = f"{_get_python_executable()} -m pip install " + " ".join(pip_names)
+        missing_names = sorted(list(plan.resolved.keys()) + plan.missing)
         return False, (
-            "Missing dependencies: " + ", ".join(missing) + ". No packages were installed. "
-            f"Review the staged skill and install manually with: {plan}"
+            "Missing dependencies: " + ", ".join(missing_names) + ". No packages were installed. "
+            f"Review the staged skill and install manually under locked hashes: {plan.command or 'Requires locked addition'}"
         )
 
     @classmethod

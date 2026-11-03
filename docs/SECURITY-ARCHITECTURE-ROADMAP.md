@@ -990,7 +990,7 @@ Goal: remove the worst paths with small diffs; no new architecture required.
 - [x] Artifact store + hashes + `draft → approved → installed`.
 - [x] Review UI (code, capabilities, deps, tests).
 - [x] `SkillHost` with restricted token + Job Object.
-- [ ] Per-skill venv/wheelhouse with hashed installs.
+- [x] Per-skill venv/wheelhouse with hashed installs.
 - [x] Gateway auth middleware + pairing code.
 - [ ] Plugin signature verification for new installs; dev mode flag.
 
