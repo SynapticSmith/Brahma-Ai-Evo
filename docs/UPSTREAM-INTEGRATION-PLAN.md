@@ -595,7 +595,7 @@ Status values: `PENDING` · `PORTED` · `ADAPTED` · `REJECTED` · `SUPERSEDED`
 | 35 | `installer/install_wizard.py` | `987f47d` | Medium | REVIEW | Wizard enhancements |
 | 36 | `llm_client.py` | `987f47d`, `62b1591` | High | ADAPT | Surgical patch for OpenRouter error handling |
 | 37 | `main.py` | `987f47d`, `9dd02cf`, `62b1591` | CRITICAL | SURGICAL ONLY | Do NOT merge wholesale. `main.py` line ceiling $\le 3,230$ |
-| 38 | `or_client.py` | `62b1591` | High | ADAPT | Adopt model pool fallback with DPAPI keys |
+| 38 | `or_client.py` | `62b1591` | High | PORTED | Adopt model pool fallback with DPAPI keys |
 | 39 | `tests/test_autonomous_evolution.py` | `987f47d` | CRITICAL | REJECT | We deleted this legacy file in B4 |
 | 40 | `tests/test_background_orb_startup.py` | `987f47d` | Low | REVIEW | Orb test check |
 | 41 | `tests/test_daily_briefing.py` | `987f47d` | Low | REVIEW | Test tweak |

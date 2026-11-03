@@ -1,3 +1,4 @@
+import os
 from core.user_paths import get_user_data_dir
 import json
 import sys
@@ -22,6 +23,9 @@ BASE_DIR     = _get_base_dir()
 API_KEY_PATH = get_user_data_dir() / "config" / "api_keys.json"
 
 def _load_api_key() -> str:
+    env_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if env_key:
+        return env_key
     try:
         from core.secret_store import load_api_keys
         data = load_api_keys(API_KEY_PATH)
@@ -34,47 +38,31 @@ def _load_api_key() -> str:
         return ""
 
 TEXT_MODELS: list[str] = [
-    "nvidia/nemotron-3-super-120b-a12b:free",
-    "nousresearch/hermes-3-llama-3.1-405b:free",
-    "minimax/minimax-m2.5:free",
+    "openrouter/auto",
     "meta-llama/llama-3.3-70b-instruct:free",
-    "qwen/qwen3-next-80b-a3b-instruct:free",
-    "qwen/qwen3-coder:free",
-    "google/gemma-4-31b-it:free",
-    "google/gemma-4-26b-a4b-it:free",
-    "google/gemma-3-27b-it:free",
-    "arcee-ai/trinity-large-preview:free",
-    "z-ai/glm-4.5-air:free",
-    "nvidia/nemotron-3-nano-30b-a3b:free",
-    "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
-    "google/gemma-3-12b-it:free",
-    "nvidia/nemotron-nano-12b-v2-vl:free",
-    "nvidia/nemotron-nano-9b-v2:free",
-    "google/gemma-3-4b-it:free",
-    "google/gemma-3n-e4b-it:free",
-    "meta-llama/llama-3.2-3b-instruct:free",
-    "google/gemma-3n-e2b-it:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "mistralai/mistral-small-3.1:free",
     "liquid/lfm-2.5-1.2b-instruct:free",
-    "liquid/lfm-2.5-1.2b-thinking:free",
+    "meta-llama/llama-3.2-3b-instruct:free",
+    "google/gemini-2.0-flash-exp:free",
+    "google/gemma-2-9b-it:free",
+    "deepseek/deepseek-chat:free",
+    "nousresearch/hermes-3-llama-3.1-405b:free",
 ]
 
 VISION_MODELS: list[str] = [
-    "nvidia/nemotron-nano-12b-v2-vl:free",
-    "nvidia/llama-nemotron-embed-vl-1b-v2:free",
-    "google/gemma-4-31b-it:free",
-    "google/gemma-4-26b-a4b-it:free",
-    "google/gemma-3n-e4b-it:free",
-    "google/gemma-3n-e2b-it:free",
+    "openrouter/auto",
     "meta-llama/llama-3.3-70b-instruct:free",
-    "nvidia/nemotron-3-super-120b-a12b:free",
+    "nvidia/nemotron-nano-12b-v2-vl:free",
+    "google/gemini-2.0-flash-exp:free",
 ]
 
 API_URL               = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MAX_TOKENS    = 4096
 DEFAULT_TEMPERATURE   = 0.7
-REQUEST_TIMEOUT       = 60   # seconds per request
+REQUEST_TIMEOUT       = 20   # seconds per request
 MAX_RETRIES_PER_MODEL = 2    # attempts before moving to next model
-RETRY_DELAY           = 2    # seconds between retries
+RETRY_DELAY           = 1    # seconds between retries
 RATE_LIMIT_COOLDOWN   = 60   # seconds before retrying a rate-limited model
 
 _rate_limited: dict[str, float] = {}
@@ -82,13 +70,21 @@ _rate_limited: dict[str, float] = {}
 class OpenRouterClient:
 
     def __init__(self) -> None:
-        self.api_key  = _load_api_key()
-        self._headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type":  "application/json",
-            "HTTP-Referer":  "https://github.com/brahma-ai",
-            "X-Title":       "Brahma Evo",
-        }
+        self.api_key = ""
+        self._headers: dict = {}
+        self._ensure_api_key()
+
+    def _ensure_api_key(self) -> str:
+        key = _load_api_key()
+        if key != self.api_key or not self._headers:
+            self.api_key = key
+            self._headers = {
+                "Authorization": f"Bearer {self.api_key}" if self.api_key else "",
+                "Content-Type":  "application/json",
+                "HTTP-Referer":  "https://github.com/brahma-ai",
+                "X-Title":       "Brahma Evo",
+            }
+        return self.api_key
 
     def _is_rate_limited(self, model: str) -> bool:
         ts = _rate_limited.get(model)
@@ -123,9 +119,10 @@ class OpenRouterClient:
         if response_format:
             payload["response_format"] = response_format
 
+        self._ensure_api_key()
         if not self.api_key:
             raise PermissionError(
-                "[OpenRouter] API key is missing. Add a valid sk-or- key in config/api_keys.json."
+                "[OpenRouter] API key is missing. Add a valid sk-or- key in Settings."
             )
 
         for attempt in range(1, MAX_RETRIES_PER_MODEL + 1):
@@ -151,6 +148,12 @@ class OpenRouterClient:
 
                 if resp.status_code == 429:
                     self._mark_rate_limited(model)
+                    return None
+
+                if resp.status_code in (400, 404):
+                    logger.warning(
+                        f"[OpenRouter] {model} unavailable (HTTP {resp.status_code}). Skipping."
+                    )
                     return None
 
                 if resp.status_code == 200:
@@ -202,6 +205,12 @@ class OpenRouterClient:
             # use it to move to the next link in the chain.
             provider_router.guard("openrouter")
 
+        self._ensure_api_key()
+        if not self.api_key:
+            raise PermissionError(
+                "[OpenRouter] API key is missing. Add a valid sk-or- key in Settings."
+            )
+
         if model and not self._is_rate_limited(model):
             try:
                 result = self._call(model, messages, max_tokens, temperature, response_format)
@@ -218,10 +227,15 @@ class OpenRouterClient:
             if self._is_rate_limited(m):
                 continue
             logger.info(f"[OpenRouter] Trying: {m}")
-            result = self._call(m, messages, max_tokens, temperature, response_format)
-            if result:
-                logger.info(f"[OpenRouter] ✓ Success: {m}")
-                return result
+            try:
+                result = self._call(m, messages, max_tokens, temperature, response_format)
+                if result:
+                    logger.info(f"[OpenRouter] ✓ Success: {m}")
+                    return result
+            except PermissionError:
+                raise
+            except Exception as e:
+                logger.warning(f"[OpenRouter] Failed on {m}: {e}")
 
         raise RuntimeError(
             "[OpenRouter] All models failed or are rate-limited. "
