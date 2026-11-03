@@ -100,6 +100,16 @@ def configure_warning_filters() -> None:
         message=".*Revert to STA COM threading mode.*",
         category=UserWarning,
     )
+    warnings.filterwarnings(
+        "ignore",
+        message=".*Direct use of automatic function calling.*",
+        category=UserWarning,
+    )
+    warnings.filterwarnings(
+        "ignore",
+        message=".*there are non-data parts in the response.*",
+        category=UserWarning,
+    )
 
 
 def configure_qt_environment() -> None:

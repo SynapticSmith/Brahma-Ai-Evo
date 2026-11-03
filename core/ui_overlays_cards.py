@@ -119,6 +119,10 @@ class _OverlayCardsMixin:
         self._confirm_sig.emit("hide", "", "")
 
     def _apply_confirm_overlay(self, action: str, title: str = "", detail: str = ""):
+        import threading
+        if threading.get_ident() != getattr(self, "_gui_thread_id", None) and hasattr(self, "_run_on_ui"):
+            self._run_on_ui(lambda: self._apply_confirm_overlay(action, title, detail))
+            return
         if action == "hide":
             if getattr(self, "_confirm_overlay", None):
                 try:

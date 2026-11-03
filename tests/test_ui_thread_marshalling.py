@@ -97,6 +97,18 @@ class _FakeWin:
     def set_meeting_mode(self, enabled, title="", summary="", answer="", speech=""):
         self.calls.append(("set_meeting_mode", enabled))
 
+    def show_confirm(self, title="", detail=""):
+        self.calls.append(("show_confirm", title, detail))
+
+    def hide_confirm(self):
+        self.calls.append("hide_confirm")
+
+    def show_memory_inspector(self):
+        self.calls.append("show_memory_inspector")
+
+    def hide_memory_inspector(self):
+        self.calls.append("hide_memory_inspector")
+
 
 class _Host:
     def __init__(self, win):
@@ -125,10 +137,14 @@ def test_delegates_defer_widget_calls_to_gui_thread():
     host.set_meeting_mode(True, "t", "s", "a", "sp")
     host.set_muted(True)
     host.set_muted_state(True, wakeword=True)
+    host.show_confirm("t", "d")
+    host.hide_confirm()
+    host.show_memory_inspector()
+    host.hide_memory_inspector()
 
     # Nothing touched the widgets yet -- every call was queued.
     assert win.calls == []
-    assert len(win.queued) == 9
+    assert len(win.queued) == 13
 
     win._drain()
 
@@ -142,6 +158,10 @@ def test_delegates_defer_widget_calls_to_gui_thread():
         ("set_meeting_mode", True),
         ("set_muted_state", True, False),
         ("set_muted_state", True, True),
+        ("show_confirm", "t", "d"),
+        "hide_confirm",
+        "show_memory_inspector",
+        "hide_memory_inspector",
     ]
 
 

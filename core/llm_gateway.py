@@ -251,6 +251,15 @@ def _call_gemini(contents: Any, model: str, config: Any, api_key: Optional[str])
     kwargs = {"model": model, "contents": contents}
     if config is not None:
         kwargs["config"] = config
+    else:
+        try:
+            from google.genai import types
+
+            kwargs["config"] = types.GenerateContentConfig(
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
+            )
+        except Exception:
+            pass
     response = client.models.generate_content(**kwargs)
     try:
         text = response.text

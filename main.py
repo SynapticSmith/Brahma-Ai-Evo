@@ -578,10 +578,10 @@ def _is_transient_live_error(exc: BaseException) -> bool:
 
 def _live_error_reason(exc: Exception) -> str:
     """A one-line, log-friendly reason for a dropped live link."""
-    if isinstance(exc, _LiveReconnect):
-        return str(exc) or "server requested reconnect"
-    text = f"{type(exc).__name__}: {exc}".strip()
-    return text[:160] if text else type(exc).__name__
+    cur = exc.exceptions[0] if getattr(exc, "exceptions", None) else exc
+    if isinstance(cur, _LiveReconnect):
+        return str(cur) or "server requested reconnect"
+    return f"{type(cur).__name__}: {cur}".strip()[:160] or type(cur).__name__
 
 
 def _looks_like_screen_request(text: str) -> bool:

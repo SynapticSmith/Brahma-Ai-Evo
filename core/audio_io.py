@@ -297,6 +297,8 @@ class AudioIO:
                             print(f"[BRAHMA EVO] ⚠️ Failed to send tool responses: {exc}")
                             raise
 
+        except self._LiveReconnect:
+            raise
         except Exception as e:
             print(f"[BRAHMA EVO] ❌ Recv: {e}")
             traceback.print_exc()

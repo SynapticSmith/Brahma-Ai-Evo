@@ -154,16 +154,16 @@ class _ShellDelegatesMixin:
         self._ui(_do)
 
     def show_confirm(self, title: str, detail: str = ""):
-        self.w.show_confirm(title, detail)
+        self._ui(lambda: self._win.show_confirm(title, detail))
 
     def hide_confirm(self):
-        self.w.hide_confirm()
+        self._ui(lambda: self._win.hide_confirm())
 
     def show_memory_inspector(self):
-        self.w.show_memory_inspector()
+        self._ui(lambda: self._win.show_memory_inspector())
 
     def hide_memory_inspector(self):
-        self.w.hide_memory_inspector()
+        self._ui(lambda: self._win.hide_memory_inspector())
 
     def show_daily_briefing(self, text: str):
         self._ui(lambda: self._win.show_daily_briefing(text))
