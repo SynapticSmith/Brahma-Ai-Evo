@@ -672,7 +672,12 @@ Accepted 2026-10-17, but **acceptance is not authorization to build**: they were
 
 ### Q3 — Upstream port (after Q0-A and Q0-B)
 
-Installer/CI → self-contained features → provider plumbing → selective voice work. No wholesale merge.
+**Status: Landed 2026-11-02 — all 5 batches completed.**
+1. ✅ **Compliance & Packaging:** `PRIVACY_POLICY.md` added; `build_all.ps1` and `.github/workflows/build.yml` integrated with signed release manifests (`tools/build_release.py`, `tools/sign_release.py`), SHA-256 checksums, and uninstaller packages.
+2. ✅ **Project Skills Library:** 12 upstream skill playbooks integrated into `skills/`; `agent/skills.py:project_roots()` updated to discover repo-level `skills/` alongside `.brahma/skills/`; bundled in `installer/BrahmaEvo.spec`.
+3. ✅ **Audio Pipeline Fixes:** PortAudio `RawOutputStream(blocksize=0)` in `core/audio_io.py`, `EchoGuard` acoustic energy run gating in `core/echo.py`, and interrupted turn server audio packet discarding.
+4. ✅ **Provider & Key Hardening:** `or_client.py` model fallback pool, 20s timeouts, and dynamic key reload over Windows DPAPI (`core/secret_store.py`).
+5. ✅ **Capability Tools & Sentinels:** `image_generator.py`, `reverse_engineer.py`, `game_sentinel.py`, `space_cleaner.py`, and `study_guard.py` ported and registered as canonical `ToolSpec`s in `core/desktop_tools.py` behind `AgentRuntime.execute`. **Q3 complete.**
 
 ### Q4 — Assurance (continuous)
 
