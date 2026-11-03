@@ -482,34 +482,34 @@ Status values: `PENDING` · `PORTED` · `ADAPTED` · `REJECTED` · `SUPERSEDED`
 |---|---|---|---|---|---|---|
 | 1 | `.github/workflows/build-all-platforms.yml` | `c8d9c0f` | CI/CD | ADAPT | PORTED | Evaluate vs `.github/workflows/ci.yml` |
 | 2 | `PRIVACY_POLICY.md` | `bfb2868` | Compliance | COPY | PORTED | Zero conflict; direct copy |
-| 3 | `actions/game_sentinel.py` | `987f47d` | Sentinel | ADAPT | PENDING | Wrap as service/tool |
-| 4 | `actions/image_generator.py` | `987f47d` | Capability | ADAPT | PENDING | Port to `ToolSpec` in `desktop_tools.py` |
-| 5 | `actions/net_sentinel.py` | `987f47d` | Sentinel | ADAPT | PENDING | Wrap as service/tool |
-| 6 | `actions/rea_mcp_client.py` | `987f47d` | Capability | ADAPT | PENDING | Wrap as `ToolSpec` |
-| 7 | `actions/reverse_engineer.py` | `987f47d` | Capability | ADAPT | PENDING | Wrap as `ToolSpec` |
-| 8 | `actions/study_guard.py` | `987f47d` | Sentinel | ADAPT | PENDING | Wrap as service/tool |
+| 3 | `actions/game_sentinel.py` | `987f47d` | Sentinel | ADAPT | PORTED | Wrap as service/tool |
+| 4 | `actions/image_generator.py` | `987f47d` | Capability | ADAPT | PORTED | Port to `ToolSpec` in `desktop_tools.py` |
+| 5 | `actions/net_sentinel.py` | `987f47d` | Sentinel | ADAPT | PORTED | Wrap as service/tool |
+| 6 | `actions/rea_mcp_client.py` | `987f47d` | Capability | ADAPT | PORTED | Wrap as `ToolSpec` |
+| 7 | `actions/reverse_engineer.py` | `987f47d` | Capability | ADAPT | PORTED | Wrap as `ToolSpec` |
+| 8 | `actions/study_guard.py` | `987f47d` | Sentinel | ADAPT | PORTED | Wrap as service/tool |
 | 9 | `assets/radar/index.html` | `987f47d` | Assets | COPY | PORTED | Standalone Three.js radar asset |
 | 10 | `assets/space_cleaner/index.html` | `987f47d` | Assets | COPY | PORTED | Standalone space cleaner asset |
-| 11 | `brahma_connect/gateway/mobile_portal.py` | `987f47d` | Gateway | ADAPT | PENDING | Ensure route auth (`WS-8`) is applied |
+| 11 | `brahma_connect/gateway/mobile_portal.py` | `987f47d` | Gateway | ADAPT | PORTED | Ensure route auth (`WS-8`) is applied |
 | 12 | `config/mcp_servers.json` | `9dd02cf` | MCP Config | EVALUATE | PENDING | Check vs `app_settings.json` and ADR-020 |
 | 13 | `core/anticipatory_watcher.py` | `987f47d` | Evolution | ADAPT | PENDING | Background observer |
 | 14 | `core/claude_tools.py` | `9dd02cf` | Tools | REJECT | REJECT | Replaced by `agent/tools_*.py` and `cli_agent.py` |
 | 15 | `core/execution_reflection.py` | `987f47d` | Evolution | ADAPT | PENDING | High-value self-critique module |
 | 16 | `core/flowstate.py` | `987f47d` | Feature | ADAPT | PENDING | Productivity monitor |
-| 17 | `core/game_sentinel.py` | `987f47d` | Sentinel | ADAPT | PENDING | Service module |
+| 17 | `core/game_sentinel.py` | `987f47d` | Sentinel | ADAPT | PORTED | Service module |
 | 18 | `core/intent_dispatcher.py` | `987f47d` | Routing | EVALUATE | PENDING | Compare with `provider_router.py` |
 | 19 | `core/live_voice_engine.py` | `9dd02cf` | Voice | ADAPT | PENDING | Standalone web voice service |
 | 20 | `core/mcp_manager.py` | `9dd02cf` | MCP | SUPERSEDED | SUPERSEDED | We implemented `core/mcp_manager.py` + refresh (B22) |
-| 21 | `core/mem_reduct.py` | `987f47d` | Evolution | ADAPT | PENDING | Memory reduction utility |
+| 21 | `core/mem_reduct.py` | `987f47d` | Evolution | ADAPT | PORTED | Memory reduction utility |
 | 22 | `core/memory_cortex.py` | `987f47d` | Memory | EVALUATE | PENDING | Compare with `agent/session.py` |
-| 23 | `core/net_sentinel.py` | `987f47d` | Sentinel | ADAPT | PENDING | Network guard core |
+| 23 | `core/net_sentinel.py` | `987f47d` | Sentinel | ADAPT | PORTED | Network guard core |
 | 24 | `core/omni_planner.py` | `987f47d` | Planning | REJECT | REJECT | Conflicts with `AgentLoop` |
-| 25 | `core/radar_hud.py` | `987f47d` | HUD | ADAPT | PENDING | Adapt into `core/ui_*` overlay |
+| 25 | `core/radar_hud.py` | `987f47d` | HUD | ADAPT | PORTED | Adapt into `core/ui_*` overlay |
 | 26 | `core/shopping_agent.py` | `987f47d` | Feature | ADAPT | PENDING | Wrap as `ToolSpec` |
 | 27 | `core/skills_engine.py` | `9dd02cf` | Skills | REJECT | REJECT | Replaced by `agent.skills` / Skills Library (D42) |
-| 28 | `core/space_cleaner.py` | `987f47d` | Feature | ADAPT | PENDING | Disk cleanup helper |
-| 29 | `core/space_cleaner_hud.py` | `987f47d` | HUD | ADAPT | PENDING | Adapt into `core/ui_*` overlay |
-| 30 | `core/study_guard.py` | `987f47d` | Feature | ADAPT | PENDING | Focus monitor |
+| 28 | `core/space_cleaner.py` | `987f47d` | Feature | ADAPT | PORTED | Disk cleanup helper |
+| 29 | `core/space_cleaner_hud.py` | `987f47d` | HUD | ADAPT | PORTED | Adapt into `core/ui_*` overlay |
+| 30 | `core/study_guard.py` | `987f47d` | Feature | ADAPT | PORTED | Focus monitor |
 | 31 | `core/subagent_orchestrator.py` | `9dd02cf` | Subagents | REJECT | REJECT | Conflicts with `I-08` / `run_subagent_batch` |
 | 32 | `dashboard/static/voice.html` | `9dd02cf` | Dashboard | COPY | PORTED | Standalone dashboard voice interface |
 | 33 | `features/ascii_banner.py` | `987f47d` | Skill | ADAPT | PENDING | Register via staging/forge rules |
@@ -517,10 +517,10 @@ Status values: `PENDING` · `PORTED` · `ADAPTED` · `REJECTED` · `SUPERSEDED`
 | 35 | `features/ascii_banner/skill.py` | `987f47d` | Skill | COPY | PENDING | Skill code |
 | 36 | `features/ascii_banner/test_cases.json` | `987f47d` | Skill | COPY | PENDING | Test cases |
 | 37 | `features/flowstate.py` | `987f47d` | Feature | ADAPT | PENDING | Feature entry point |
-| 38 | `features/game_sentinel.py` | `987f47d` | Feature | ADAPT | PENDING | Feature entry point |
-| 39 | `features/net_sentinel.py` | `987f47d` | Feature | ADAPT | PENDING | Feature entry point |
+| 38 | `features/game_sentinel.py` | `987f47d` | Feature | ADAPT | PORTED | Feature entry point |
+| 39 | `features/net_sentinel.py` | `987f47d` | Feature | ADAPT | PORTED | Feature entry point |
 | 40 | `features/shopping_agent.py` | `987f47d` | Feature | ADAPT | PENDING | Feature entry point |
-| 41 | `features/study_guard.py` | `987f47d` | Feature | ADAPT | PENDING | Feature entry point |
+| 41 | `features/study_guard.py` | `987f47d` | Feature | ADAPT | PORTED | Feature entry point |
 | 42 | `installer/Uninstall.spec` | `c5e8162` | Installer | ADAPT | PORTED | Uninstaller build spec |
 | 43 | `installer/install.sh` | `c8d9c0f` | Installer | COPY | PORTED | Linux/macOS install script |
 | 44 | `installer/uninstall.cmd` | `c5e8162` | Installer | COPY | PORTED | Windows native uninstaller command |
@@ -540,16 +540,16 @@ Status values: `PENDING` · `PORTED` · `ADAPTED` · `REJECTED` · `SUPERSEDED`
 | 58 | `skills/web-scraper-stealth/SKILL.md` | `9dd02cf` | Playbook | COPY | PORTED | Project skill playbook |
 | 59 | `tests/test_ai_evolution.py` | `987f47d` | Test | ADAPT | PENDING | Adapt to harness |
 | 60 | `tests/test_flowstate.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for flowstate |
-| 61 | `tests/test_game_sentinel.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for game sentinel |
-| 62 | `tests/test_image_generator.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for image generator |
+| 61 | `tests/test_game_sentinel.py` | `987f47d` | Test | ADAPT | PORTED | Test suite for game sentinel |
+| 62 | `tests/test_image_generator.py` | `987f47d` | Test | ADAPT | PORTED | Test suite for image generator |
 | 63 | `tests/test_intent_dispatcher.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for dispatcher |
 | 64 | `tests/test_mobile_connect_routing.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for mobile portal |
-| 65 | `tests/test_net_sentinel.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for net sentinel |
+| 65 | `tests/test_net_sentinel.py` | `987f47d` | Test | ADAPT | PORTED | Test suite for net sentinel |
 | 66 | `tests/test_proactive_engine.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for proactive engine |
-| 67 | `tests/test_reverse_engineer.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for REA cloner |
+| 67 | `tests/test_reverse_engineer.py` | `987f47d` | Test | ADAPT | PORTED | Test suite for REA cloner |
 | 68 | `tests/test_shopping_agent.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for shopping agent |
-| 69 | `tests/test_space_cleaner.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for space cleaner |
-| 70 | `tests/test_study_guard.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for study guard |
+| 69 | `tests/test_space_cleaner.py` | `987f47d` | Test | ADAPT | PORTED | Test suite for space cleaner |
+| 70 | `tests/test_study_guard.py` | `987f47d` | Test | ADAPT | PORTED | Test suite for study guard |
 | 71 | `tests/test_ui_upgrades.py` | `987f47d` | Test | ADAPT | PENDING | Test suite for UI contrast |
 
 ---

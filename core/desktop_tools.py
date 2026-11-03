@@ -138,6 +138,17 @@ WAVE3: Dict[str, Tuple[str, bool]] = {
     "video_publisher": ("network", False),
     "publish_video": ("network", False),
     "agent_task": ("read", False),
+    "generate_image": ("network", False),
+    "create_image": ("network", False),
+    "text_to_image": ("network", False),
+    "draw_image": ("network", False),
+    "ai_art": ("network", False),
+    "image_gen": ("network", False),
+    "reverse_engineer": ("network", False),
+    "game_sentinel": ("exec", False),
+    "study_guard": ("device", False),
+    "net_sentinel": ("network", False),
+    "space_cleaner": ("write", False),
 }
 
 #: Names the model may use that are not their own declaration. ``rollback``
@@ -168,6 +179,11 @@ ALIASES: Dict[str, str] = {
     "rep_counter": "pushup_counter",
     "video_publisher": "upload_video",
     "publish_video": "upload_video",
+    "create_image": "generate_image",
+    "text_to_image": "generate_image",
+    "draw_image": "generate_image",
+    "ai_art": "generate_image",
+    "image_gen": "generate_image",
 }
 
 #: Read-only verbs for ``file_controller``. Any other (or missing/unknown)
@@ -319,6 +335,42 @@ def _classify_dynamic_skill(args: Mapping[str, Any]) -> str:
     return "exec"
 
 
+
+
+def _classify_reverse_engineer(args: Mapping[str, Any]) -> str:
+    action = str((args or {}).get("action") or "analyze").strip().lower()
+    if action == "remake":
+        return "write"
+    return "network"
+
+
+def _classify_space_cleaner(args: Mapping[str, Any]) -> str:
+    action = str((args or {}).get("action") or "scan").strip().lower()
+    if action in ("purge", "clean"):
+        return "write"
+    return "read"
+
+
+def _classify_game_sentinel(args: Mapping[str, Any]) -> str:
+    action = str((args or {}).get("action") or "clean_ram").strip().lower()
+    if action in ("status", "telemetry", "info"):
+        return "read"
+    return "exec"
+
+
+def _classify_net_sentinel(args: Mapping[str, Any]) -> str:
+    action = str((args or {}).get("action") or "scan").strip().lower()
+    if action in ("wake_on_lan", "wol"):
+        return "device"
+    return "network"
+
+
+def _classify_study_guard(args: Mapping[str, Any]) -> str:
+    action = str((args or {}).get("action") or "status").strip().lower()
+    if action in ("status", "telemetry"):
+        return "read"
+    return "device"
+
 CLASSIFIERS: Dict[str, Callable[[Mapping[str, Any]], str]] = {
     "file_controller": _classify_file_controller,
     "smart_organizer": _classify_smart_organizer,
@@ -338,6 +390,11 @@ CLASSIFIERS: Dict[str, Callable[[Mapping[str, Any]], str]] = {
     "brightness_control": _classify_system_diagnostics("brightness"),
     "skill_forge": _classify_skill_forge,
     "dynamic_skill": _classify_dynamic_skill,
+    "reverse_engineer": _classify_reverse_engineer,
+    "space_cleaner": _classify_space_cleaner,
+    "game_sentinel": _classify_game_sentinel,
+    "net_sentinel": _classify_net_sentinel,
+    "study_guard": _classify_study_guard,
 }
 
 SILENT_TOOLS = frozenset({"save_memory"})
@@ -1249,6 +1306,84 @@ def _upload_video(args: Dict[str, Any], context: Any) -> str:
     )
 
 
+
+
+def _generate_image(args: Dict[str, Any], context: Any) -> str:
+    host = _host_for(context)
+    if host is None:
+        return desktop_host.MISSING_HOST
+    from actions.image_generator import generate_image
+
+    return (
+        generate_image(parameters=args, player=host.ui, speak=host.speak)
+        or "Image generated."
+    )
+
+
+def _reverse_engineer(args: Dict[str, Any], context: Any) -> str:
+    host = _host_for(context)
+    if host is None:
+        return desktop_host.MISSING_HOST
+    from actions.reverse_engineer import reverse_engineer
+
+    return (
+        reverse_engineer(parameters=args, player=host.ui, speak=host.speak)
+        or "Reverse engineering complete."
+    )
+
+
+def _game_sentinel(args: Dict[str, Any], context: Any) -> str:
+    host = _host_for(context)
+    if host is None:
+        return desktop_host.MISSING_HOST
+    from actions.game_sentinel import game_sentinel
+
+    return (
+        game_sentinel(parameters=args, player=host.ui)
+        or "Game Sentinel executed."
+    )
+
+
+def _study_guard(args: Dict[str, Any], context: Any) -> str:
+    host = _host_for(context)
+    if host is None:
+        return desktop_host.MISSING_HOST
+    from actions.study_guard import study_guard
+
+    return (
+        study_guard(parameters=args, player=host.ui)
+        or "Study Guard executed."
+    )
+
+
+def _net_sentinel(args: Dict[str, Any], context: Any) -> str:
+    host = _host_for(context)
+    if host is None:
+        return desktop_host.MISSING_HOST
+    from actions.net_sentinel import net_sentinel
+
+    return (
+        net_sentinel(parameters=args, player=host.ui)
+        or "Net Sentinel executed."
+    )
+
+
+def _space_cleaner(args: Dict[str, Any], context: Any) -> str:
+    host = _host_for(context)
+    if host is None:
+        return desktop_host.MISSING_HOST
+    from core.space_cleaner import get_space_cleaner
+
+    action = str(args.get("action", "scan")).lower()
+    cleaner = get_space_cleaner()
+    if action in ("purge", "clean"):
+        cats = args.get("categories") or ["system_temp", "browser_cache"]
+        res = cleaner.purge_selected(cats)
+        return res.get("message") or f"Purged {res.get('freed_mb', 0)} MB."
+    else:
+        res = cleaner.scan_all()
+        return f"Scan complete. Found {res.total_reclaimable_mb} MB reclaimable across {len(res.categories)} categories."
+
 HANDLERS = {
     "pdf_document": _pdf_document,
     "word_document": _word_document,
@@ -1334,6 +1469,17 @@ HANDLERS = {
     "upload_video": _upload_video,
     "video_publisher": _upload_video,
     "publish_video": _upload_video,
+    "generate_image": _generate_image,
+    "create_image": _generate_image,
+    "text_to_image": _generate_image,
+    "draw_image": _generate_image,
+    "ai_art": _generate_image,
+    "image_gen": _generate_image,
+    "reverse_engineer": _reverse_engineer,
+    "game_sentinel": _game_sentinel,
+    "study_guard": _study_guard,
+    "net_sentinel": _net_sentinel,
+    "space_cleaner": _space_cleaner,
 }
 
 
@@ -1341,6 +1487,39 @@ HANDLERS = {
 # Registration
 # --------------------------------------------------------------------------- #
 
+
+
+FALLBACK_DECLARATIONS: Dict[str, Dict[str, Any]] = {}
+
+
+def _get_fallback_declaration(name: str) -> Optional[Dict[str, Any]]:
+    if not FALLBACK_DECLARATIONS:
+        for mod_name, plugin_attr in (
+            ("actions.image_generator", "PLUGIN"),
+            ("actions.reverse_engineer", "PLUGIN"),
+            ("actions.game_sentinel", "PLUGIN"),
+            ("actions.study_guard", "PLUGIN"),
+            ("actions.net_sentinel", "PLUGIN"),
+        ):
+            try:
+                mod = __import__(mod_name, fromlist=[plugin_attr])
+                p = getattr(mod, plugin_attr, None)
+                if p and isinstance(p, dict) and "name" in p:
+                    FALLBACK_DECLARATIONS[p["name"]] = p
+            except Exception:
+                pass
+        FALLBACK_DECLARATIONS["space_cleaner"] = {
+            "name": "space_cleaner",
+            "description": "Scans and cleans disk storage, purging temporary files and cache.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "action": {"type": "STRING", "description": "scan | purge"},
+                    "categories": {"type": "ARRAY", "description": "Categories to purge"},
+                },
+            },
+        }
+    return FALLBACK_DECLARATIONS.get(name)
 
 def build_specs(
     declarations: Iterable[Mapping[str, Any]] = (),
@@ -1359,7 +1538,12 @@ def build_specs(
     waves = (("wave1", WAVE1), ("wave2", WAVE2), ("wave3", WAVE3))
     for wave_tag, table in waves:
         for name, (tool_class, needs_approval) in table.items():
-            source = declared.get(name) or declared.get(ALIASES.get(name, ""))
+            source = (
+                declared.get(name)
+                or declared.get(ALIASES.get(name, ""))
+                or _get_fallback_declaration(name)
+                or _get_fallback_declaration(ALIASES.get(name, ""))
+            )
             parameters = lowercase_schema(
                 (source or {}).get("parameters") or _empty_schema()
             )

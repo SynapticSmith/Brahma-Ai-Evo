@@ -675,3 +675,42 @@ def test_workspace_prefix_routes_through_google_workspace_spec(
     assert fr.response["result"] == "gw-unread-ok"
     assert seen["parameters"]["service"] == "gmail"
     assert seen["parameters"]["action"] == "unread"
+
+
+def test_ported_capability_specs(registered, tmp_path):
+    from agent.spec import get as get_spec
+
+    for name in (
+        "generate_image",
+        "reverse_engineer",
+        "game_sentinel",
+        "study_guard",
+        "net_sentinel",
+        "space_cleaner",
+    ):
+        spec = get_spec(name)
+        assert spec is not None, f"Spec missing for {name}"
+        assert desktop_tools.DESKTOP_TAG in spec.tags
+        assert spec.parameters.get("type") == "object"
+        assert len(spec.description) > 5
+
+    # Check classifiers
+    re_spec = get_spec("reverse_engineer")
+    assert re_spec.class_for({"action": "remake"}) == "write"
+    assert re_spec.class_for({"action": "analyze"}) == "network"
+
+    sc_spec = get_spec("space_cleaner")
+    assert sc_spec.class_for({"action": "purge"}) == "write"
+    assert sc_spec.class_for({"action": "scan"}) == "read"
+
+    gs_spec = get_spec("game_sentinel")
+    assert gs_spec.class_for({"action": "status"}) == "read"
+    assert gs_spec.class_for({"action": "clean_ram"}) == "exec"
+
+    ns_spec = get_spec("net_sentinel")
+    assert ns_spec.class_for({"action": "wake_on_lan"}) == "device"
+    assert ns_spec.class_for({"action": "scan"}) == "network"
+
+    sg_spec = get_spec("study_guard")
+    assert sg_spec.class_for({"action": "status"}) == "read"
+    assert sg_spec.class_for({"action": "start"}) == "device"
