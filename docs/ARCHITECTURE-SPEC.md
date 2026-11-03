@@ -718,6 +718,7 @@ ightarrow$ 10 min lockout), and replay-protected nonces enforced across all HTTP
 | `ONE-391-tool-index.md` | 182 | 1 | Authoritative design |
 | `ONE-391-avatar-backends.md` | 448 | 1 | Authoritative design |
 | `skills-library-jit-on-demand-skills.md` | 263 | 1 | Authoritative, root count stale |
+| `PRODUCTION-RELEASE-REPORT.md` | 65 | 1 | Authoritative production packaging & multi-agent architecture |
 | `SECURITY-ANALYSIS-ISSUE-4.md` | 173 | 2 | Current findings |
 | `SECURITY-ARCHITECTURE-ROADMAP.md` | 1,190 | 2 | Proposed |
 | `UPSTREAM-INTEGRATION-PLAN.md` | 629 | 2 | Authoritative plan & architectural divergence analysis |
