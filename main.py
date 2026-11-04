@@ -3178,9 +3178,10 @@ def main():
                 time.sleep(1.0)
                 try:
                     from core.tool_index import get_index
-                    if get_index().is_disabled("clipboard_processor"):
-                        continue
                     curr_clip = pyperclip.paste()
+                    if get_index().is_disabled("clipboard_processor"):
+                        last_clip = curr_clip
+                        continue
                     if curr_clip != last_clip:
                         last_clip = curr_clip
                         text = (curr_clip or "").strip()
