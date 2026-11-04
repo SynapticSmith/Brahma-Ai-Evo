@@ -208,6 +208,10 @@ class TokenRegistry:
         with self._lock:
             return sorted(self._records.values(), key=lambda item: item.created_at)
 
+    def list(self) -> List[TokenRecord]:
+        """Convenience alias for :meth:`records`."""
+        return self.records()
+
     def verify(self, token: str) -> Optional[TokenRecord]:
         """Constant-time lookup. A revoked token is indistinguishable from none."""
         if not token:

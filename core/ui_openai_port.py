@@ -188,7 +188,7 @@ class OpenAIPortCard(QFrame):
                     child.widget().deleteLater()
 
             registry = TokenRegistry(config.tokens_path)
-            active_tokens = [t for t in registry.list() if not t.revoked]
+            active_tokens = [t for t in registry.records() if not t.revoked]
             if not active_tokens:
                 no_tok = QLabel("No active tokens found.")
                 no_tok.setStyleSheet("color: #8892b0; font-style: italic;")
