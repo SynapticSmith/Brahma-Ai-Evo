@@ -262,7 +262,10 @@ class SmartDevicesSection(QFrame):
         return json.dumps(payload, ensure_ascii=True, sort_keys=False)
 
     def refresh(self, force: bool = False):
-        devices = self._service.list_devices()
+        try:
+            devices = self._service.list_devices()
+        except Exception:
+            return
         snapshot = self._snapshot_devices(devices)
         if not force and snapshot == self._snapshot:
             return
@@ -352,9 +355,12 @@ class SmartDevicesSection(QFrame):
         return str(device_or_id or "")
 
     def _find_device(self, device_id: str) -> dict[str, object] | None:
-        for device in self._service.list_devices():
-            if str(device.get("id", "")) == device_id:
-                return device
+        try:
+            for device in self._service.list_devices():
+                if str(device.get("id", "")) == device_id:
+                    return device
+        except Exception:
+            pass
         return None
 
     def _apply_tile_action(self, device_id: str, action: str, payload: dict):

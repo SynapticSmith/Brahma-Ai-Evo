@@ -1,6 +1,7 @@
 from __future__ import annotations
 from core.user_paths import get_user_data_dir
 
+from contextlib import contextmanager
 import json
 import os
 import sqlite3
@@ -8,7 +9,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Generator
 
 from cryptography.fernet import Fernet
 
@@ -111,15 +112,30 @@ class SmartHomeStorage:
         self._vault = CredentialVault()
         self._init_db()
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Generator[sqlite3.Connection, None, None]:
         conn = sqlite3.connect(self._db_path, timeout=10, check_same_thread=False)
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA synchronous=NORMAL;")
-        return conn
+        try:
+            conn.execute("PRAGMA busy_timeout=5000;")
+            conn.execute("PRAGMA synchronous=NORMAL;")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            with conn:
+                yield conn
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
     def _init_db(self) -> None:
         with self._lock, self._connect() as conn:
+            try:
+                conn.execute("PRAGMA journal_mode=WAL;")
+            except sqlite3.OperationalError:
+                pass
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS provider_accounts (
