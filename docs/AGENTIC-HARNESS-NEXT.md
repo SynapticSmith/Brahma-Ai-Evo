@@ -47,7 +47,7 @@ deliberately deferred, or rejected, so the next batch starts with N4 or N5.
 | N3 | Correct the stale claims in the two harness docs | Low | S | Done (with N1) |
 | N4 | Filesystem/network confinement for `run_command` | High (design) | XL | Done (D43 / O-1) |
 | N5 | Parallel / model-selecting subagents | Medium (design) | L | Done (D44 / O-2) |
-| N6 | MCP resources, prompts, sampling | Low | M | Deliberately deferred |
+| N6 | MCP resources, prompts (N6) & Outbound MCP Server | Medium | M | Done (D47) |
 | N7 | Executable skills / `allowed-tools` enforcement | Low | M | Rejected (would be a second boundary) |
 | N8 | Unify harness skills with the core Skills Library | Medium (design) | M | Done (D42) |
 
@@ -291,6 +291,12 @@ and `paths.protected` denied without prompt, ignoring `trusted_roots` and `sessi
 every child's surface (`I-08`), and
 (5) all children share the parent's `AgentRuntime` and `cancel_event`.
 
+### N6 — MCP resources, prompts & outbound MCP server
+
+**Landed (D47).** Two complementary MCP capabilities:
+1. **Outbound stdio MCP server (`agent/mcp_server.py`, `python -m agent mcp-server`):** Exposes Brahma's canonical tools (`tools/list`, `tools/call`), project skills (`prompts/list`, `prompts/get`), and workspace instructions (`resources/list`, `resources/read`) outwards over standard Model Context Protocol JSON-RPC 2.0 over stdio, routing all execution strictly through `AgentRuntime.execute`.
+2. **MCP client parity (`agent/mcp.py`):** Added client support for `resources/list`, `resources/read`, `prompts/list`, and `prompts/get` to `StdioServer` and `MCPSession`. Connected servers declaring resources or prompts have corresponding read-only `ToolSpec`s registered (`mcp_<server>_read_resource`, `mcp_<server>_list_resources`, `mcp_<server>_get_prompt`, `mcp_<server>_list_prompts`), and change notifications (`notifications/resources/list_changed`, `notifications/prompts/list_changed`) trigger turn-boundary refresh. Sampling is omitted as Brahma's provider chain and loop own completion.
+
 ---
 
 ### Landed
@@ -302,3 +308,4 @@ every child's surface (`I-08`), and
 | N8 | `531b961` | `agent.skills.project_roots()`; `SkillsLibrary` scans workspace `.brahma/skills` as the last, instructional-only source; `configure_library(project_workspace=...)` wired at startup (D42). |
 | N4 (O-1) | `8214ca4` | `probe_confinement`/`check_confinement` active behavioural probe (write-outside, network egress, UID/namespace isolation), `python -m agent sandbox doctor`, and `exec.sandbox.require_confined` policy gate (D43). |
 | N5 (O-2) | `0b48614` | `run_subagent_batch` parallel read-only fan-out under strict workspace-confinement, no-approval, and non-recursive (`DELEGATION_TOOLS`) enforcement (D44). |
+| N6 + Server | `HEAD` | Outbound stdio MCP server (`agent/mcp_server.py`, `agent mcp-server`) and client resources/prompts parity (`agent/mcp.py`) (D47). |

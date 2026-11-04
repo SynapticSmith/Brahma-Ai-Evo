@@ -491,12 +491,20 @@ fails the pending call instead of hanging the loop. `python -m agent mcp list`
 starts the configured servers, prints their tool counts, and shuts them down —
 the diagnostic to run before blaming the model.
 
-Two honest limits: tools only (resources, prompts and sampling are not
-implemented), and no background watcher. Refresh happens at the turn boundary
-instead: the GUI's `WorkspaceMCP` asks the live session whether any server
-latched `tools/list_changed` or lost its transport, and if so re-lists that
-server, restarts it when the process is gone, and re-registers its specs before
-the next model call merges the surface. Unchanged servers are left alone. A
+Full MCP client capabilities: tools (`tools/list`, `tools/call`), resources
+(`resources/list`, `resources/read`), and prompts (`prompts/list`, `prompts/get`)
+are fully supported (D47). When a server advertises resource or prompt capabilities,
+the session registers corresponding read-only `ToolSpec`s (`mcp_<server>_read_resource`,
+`mcp_<server>_list_resources`, `mcp_<server>_get_prompt`, `mcp_<server>_list_prompts`),
+allowing any model to inspect server resources and prompts under standard
+`AgentRuntime` policy governance.
+
+Sampling is omitted (completion is owned by Brahma's provider chain), and there is
+no background watcher. Refresh happens at the turn boundary instead: the GUI's
+`WorkspaceMCP` asks the live session whether any server latched `tools/list_changed`,
+`resources/list_changed`, `prompts/list_changed`, or lost its transport, and if so
+re-lists that server, restarts it when the process is gone, and re-registers its specs
+before the next model call merges the surface. Unchanged servers are left alone. A
 re-list that fails drops that server's tools and reports one error (with the
 stderr tail) rather than advertising calls that cannot work; it is not retried
 every turn, so a broken command does not spawn a process per turn. A server
@@ -508,6 +516,21 @@ file changes, refreshes in place as described, and closes at app exit. It
 merges the MCP declarations into the *first* model call as well as the
 follow-ups — a model that never learns a tool exists will never call it. The
 live voice path keeps its own SDK-based manager (`core/mcp_manager.py`).
+
+### Outbound MCP stdio server
+
+`agent/mcp_server.py` implements an outbound Model Context Protocol stdio server:
+
+```powershell
+py -3.11 -m agent mcp-server --cwd . --yolo
+```
+
+It exposes Brahma's canonical ToolSpecs (`tools/list`, `tools/call`), project skills
+as prompts (`prompts/list`, `prompts/get`), and repository instructions (`resources/list`,
+`resources/read`) over standard JSON-RPC 2.0 stdio framing. External hosts (Claude
+Desktop, Cursor, Windsurf, Zed) can configure Brahma as an MCP server. All tool
+executions strictly route through `AgentRuntime.execute`, ensuring identical permission
+policy, workspace containment, and audit trails.
 
 ---
 

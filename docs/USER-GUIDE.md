@@ -220,7 +220,35 @@ By default, Brahma can make thoughtful, proactive voice observations when signif
 
 ---
 
-## 10. Keyboard Shortcuts
+## 10. Connecting External Coding Tools via Outbound MCP Server
+
+Brahma can act as a standard Model Context Protocol (MCP) server over stdio. This exposes Brahma's repository tools (`read_file`, `write_file`, `edit_file`, `run_command`, etc.), project skills as prompts, and repository instructions outwards to tools like Claude Desktop, Cursor, Windsurf, or Zed:
+
+### Launching the Server
+```powershell
+py -3.11 -m agent mcp-server --cwd "C:\path\to\your\project"
+```
+Options:
+- `--cwd <path>`: Target workspace root.
+- `--permissions <path>`: Explicit path to `agent_permissions.json`.
+- `--yolo`: Allow all operations (use only in a trusted environment).
+
+### Configuring Claude Desktop
+Add Brahma to `%APPDATA%\Claude\claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "brahma": {
+      "command": "py",
+      "args": ["-3.11", "-m", "agent", "mcp-server", "--cwd", "C:\\Users\\Admin\\YourProject"]
+    }
+  }
+}
+```
+
+---
+
+## 11. Keyboard Shortcuts
 
 | Shortcut | Action |
 |---|---|

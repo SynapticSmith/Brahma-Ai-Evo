@@ -22,6 +22,8 @@ from agent.mcp import (
     MCPTimeout,
     WorkspaceMCP,
     discover_config,
+    format_prompt_result,
+    format_resource_result,
     format_tool_result,
     load_config,
     mcp_openai_tools,
@@ -1045,6 +1047,224 @@ def test_cli_run_gates_untrusted_repo_local_mcp_config(
     assert code2 == 0
     result2 = [e for e in out_lines2 if e.get("type") == "result"][0]
     assert "tools=19" in result2["text"]
+
+
+# --------------------------------------------------------------------------- #
+# MCP Resources and Prompts (N6)
+# --------------------------------------------------------------------------- #
+
+FAKE_CAPABILITIES_SERVER = r'''
+import json
+import sys
+
+RESOURCES = [
+    {
+        "uri": "memo://guidelines",
+        "name": "Project Guidelines",
+        "description": "Rules for the repository",
+        "mimeType": "text/markdown",
+    }
+]
+
+PROMPTS = [
+    {
+        "name": "review-code",
+        "description": "Code review template",
+        "arguments": [
+            {"name": "path", "description": "File to review", "required": True}
+        ],
+    }
+]
+
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        message = json.loads(line)
+    except ValueError:
+        continue
+    method = message.get("method")
+    request_id = message.get("id")
+    if request_id is None:
+        continue
+    if method == "initialize":
+        result = {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {
+                "tools": {},
+                "resources": {"listChanged": True},
+                "prompts": {"listChanged": True},
+            },
+            "serverInfo": {"name": "caps-server", "version": "1.0"},
+        }
+    elif method == "tools/list":
+        result = {"tools": [{"name": "ping", "description": "Ping tool", "inputSchema": {"type": "object"}}]}
+    elif method == "tools/call":
+        result = {"content": [{"type": "text", "text": "pong"}]}
+    elif method == "resources/list":
+        result = {"resources": RESOURCES}
+    elif method == "resources/read":
+        params = message.get("params") or {}
+        uri = params.get("uri")
+        if uri == "memo://guidelines":
+            result = {"contents": [{"uri": uri, "mimeType": "text/markdown", "text": "# Repository Guidelines\nClean code only."}]}
+        else:
+            sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": request_id, "error": {"code": -32602, "message": "not found"}}) + "\n")
+            sys.stdout.flush()
+            continue
+    elif method == "prompts/list":
+        result = {"prompts": PROMPTS}
+    elif method == "prompts/get":
+        params = message.get("params") or {}
+        name = params.get("name")
+        if name == "review-code":
+            result = {
+                "description": "Review code against guidelines",
+                "messages": [
+                    {"role": "user", "content": {"type": "text", "text": "Please review the specified file for defects."}}
+                ],
+            }
+        else:
+            sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": request_id, "error": {"code": -32602, "message": "prompt not found"}}) + "\n")
+            sys.stdout.flush()
+            continue
+    else:
+        sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": request_id, "error": {"code": -32601, "message": "unsupported"}}) + "\n")
+        sys.stdout.flush()
+        continue
+
+    sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": request_id, "result": result}) + "\n")
+    sys.stdout.flush()
+'''
+
+
+def test_format_resource_result_variants():
+    # Text item
+    res = {"contents": [{"uri": "memo://1", "mimeType": "text/plain", "text": "Hello text!"}]}
+    assert format_resource_result(res) == "Hello text!"
+
+    # Blob item
+    res_blob = {"contents": [{"uri": "data://bin", "mimeType": "application/octet-stream", "blob": "QUJD"}]}
+    assert "4 base64 chars" in format_resource_result(res_blob)
+
+    # Empty contents
+    assert format_resource_result({"contents": []}) == "(empty resource)"
+
+    # Non-mapping
+    assert format_resource_result("raw-string") == '"raw-string"'
+
+
+def test_format_prompt_result_variants():
+    # Description + messages
+    prompt = {
+        "description": "Helper prompt",
+        "messages": [
+            {"role": "user", "content": {"type": "text", "text": "What is the answer?"}},
+            {"role": "assistant", "content": [{"type": "text", "text": "The answer is 42."}]},
+        ],
+    }
+    rendered = format_prompt_result(prompt)
+    assert "# Helper prompt" in rendered
+    assert "[USER]" in rendered
+    assert "What is the answer?" in rendered
+    assert "[ASSISTANT]" in rendered
+    assert "The answer is 42." in rendered
+
+    # Empty prompt
+    assert format_prompt_result({"messages": []}) == "(empty prompt)"
+
+    # Non-mapping
+    assert format_prompt_result("raw") == '"raw"'
+
+
+def test_mcp_client_resources_and_prompts_discovery(tmp_path: Path):
+    script = tmp_path / "caps_server.py"
+    script.write_text(FAKE_CAPABILITIES_SERVER, encoding="utf-8")
+
+    cfg_file = tmp_path / "mcp.json"
+    cfg_file.write_text(
+        json.dumps({
+            "mcpServers": {
+                "caps": {
+                    "command": sys.executable,
+                    "args": [str(script)],
+                }
+            }
+        }),
+        encoding="utf-8",
+    )
+
+    session = MCPSession()
+    try:
+        statuses = session.start(load_config(cfg_file))
+        assert len(statuses) == 1
+        st = statuses[0]
+        assert st.ok is True
+        assert st.tools == 1
+        assert st.prompts == 1
+        assert st.resources == 1
+
+        # Check registered tool specs
+        specs = {s.name: s for s in all_specs()}
+        assert "mcp_caps_ping" in specs
+        assert "mcp_caps_read_resource" in specs
+        assert "mcp_caps_list_resources" in specs
+        assert "mcp_caps_get_prompt" in specs
+        assert "mcp_caps_list_prompts" in specs
+
+        # Call read_resource tool spec
+        read_res_spec = specs["mcp_caps_read_resource"]
+        content = read_res_spec.handler({"uri": "memo://guidelines"}, None)
+        assert "# Repository Guidelines" in content
+        assert "Clean code only." in content
+
+        # Call read_resource with invalid URI
+        err_content = read_res_spec.handler({"uri": "memo://missing"}, None)
+        assert "failed" in err_content.lower()
+
+        # Call list_resources tool spec
+        list_res_spec = specs["mcp_caps_list_resources"]
+        listed_str = list_res_spec.handler({}, None)
+        assert "memo://guidelines" in listed_str
+
+        # Call get_prompt tool spec
+        get_prompt_spec = specs["mcp_caps_get_prompt"]
+        prompt_content = get_prompt_spec.handler({"name": "review-code"}, None)
+        assert "Review code against guidelines" in prompt_content
+        assert "Please review the specified file" in prompt_content
+
+        # Call list_prompts tool spec
+        list_prompts_spec = specs["mcp_caps_list_prompts"]
+        listed_p_str = list_prompts_spec.handler({}, None)
+        assert "review-code" in listed_p_str
+
+        # Programmatic methods on MCPSession
+        res_list = session.list_resources("caps")
+        assert len(res_list) == 1
+        assert res_list[0]["uri"] == "memo://guidelines"
+
+        direct_read = session.read_resource("caps", "memo://guidelines")
+        assert "Clean code only." in direct_read
+
+        p_list = session.list_prompts("caps")
+        assert len(p_list) == 1
+        assert p_list[0]["name"] == "review-code"
+
+        direct_prompt = session.get_prompt("caps", "review-code")
+        assert "Review code against guidelines" in direct_prompt
+
+    finally:
+        session.close()
+
+    # Verify specs were completely unregistered
+    specs_after = {s.name for s in all_specs()}
+    assert "mcp_caps_ping" not in specs_after
+    assert "mcp_caps_read_resource" not in specs_after
+    assert "mcp_caps_list_resources" not in specs_after
+    assert "mcp_caps_get_prompt" not in specs_after
+    assert "mcp_caps_list_prompts" not in specs_after
+
 
 
 

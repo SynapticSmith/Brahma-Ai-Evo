@@ -6,18 +6,19 @@ module: ``agent/`` is kept importable on an interpreter that has only pytest
 installed, and the SDK's asyncio client would tie the loop to an event loop the
 agent does not own. This module therefore speaks the wire protocol directly.
 
-Scope is deliberately small — the part the agent actually needs:
+Scope covers the key client capabilities needed by the agent:
 
 * ``initialize`` / ``notifications/initialized``
-* ``tools/list`` (with cursor pagination)
-* ``tools/call``
-* ``notifications/tools/list_changed`` — latched by the reader thread and
+* ``tools/list`` (with cursor pagination) and ``tools/call``
+* ``resources/list`` and ``resources/read`` (with cursor pagination)
+* ``prompts/list`` and ``prompts/get`` (with cursor pagination)
+* ``notifications/tools/list_changed``, ``notifications/resources/list_changed``,
+  and ``notifications/prompts/list_changed`` — latched by the reader thread and
   acted on by :meth:`MCPSession.refresh`, which the workspace manager calls
   once per turn. There is no background watcher.
 
-Resources, prompts, sampling, roots and logging are not implemented. They are
-separate capabilities, and pretending to support them would produce tools that
-fail at the first call.
+Sampling, roots and logging are omitted; tools, resources and prompts are
+governed identically under :class:`~agent.runtime.AgentRuntime`.
 
 A server is an arbitrary program named in a config file the user wrote, so the
 config is trusted input in the same sense as ``AGENTS.md``. Tools are exposed
@@ -65,6 +66,8 @@ PROTOCOL_VERSION = "2024-11-05"
 #: Guard against a server that never stops paginating. Fifty pages of tools is
 #: far past any legitimate catalogue.
 MAX_TOOL_PAGES = 50
+MAX_RESOURCE_PAGES = 50
+MAX_PROMPT_PAGES = 50
 
 #: A model-facing description is prompt budget, not documentation. Some servers
 #: ship multi-kilobyte tool descriptions; the first paragraph is enough to pick
@@ -296,6 +299,7 @@ class StdioServer:
         self.config = config
         self.server_info: Dict[str, Any] = {}
         self.protocol_version = ""
+        self.capabilities: Dict[str, Any] = {}
         self.tools_changed = False
         self._process: Optional[subprocess.Popen] = None
         self._job: Any = None
@@ -364,6 +368,7 @@ class StdioServer:
         if isinstance(result, dict):
             self.server_info = dict(result.get("serverInfo") or {})
             self.protocol_version = str(result.get("protocolVersion") or "")
+            self.capabilities = dict(result.get("capabilities") or {})
         self.notify("notifications/initialized")
 
     def close(self) -> None:
@@ -497,6 +502,65 @@ class StdioServer:
         )
         return format_tool_result(result)
 
+    def list_resources(self) -> List[Dict[str, Any]]:
+        resources: List[Dict[str, Any]] = []
+        cursor: Optional[str] = None
+        for _ in range(MAX_RESOURCE_PAGES):
+            params = {"cursor": cursor} if cursor else {}
+            result = self.request("resources/list", params)
+            if not isinstance(result, dict):
+                raise MCPError(
+                    f"{self.config.name!r}: resources/list returned {type(result).__name__}"
+                )
+            page = result.get("resources") or []
+            if not isinstance(page, list):
+                raise MCPError(f"{self.config.name!r}: resources/list.resources must be a list")
+            for item in page:
+                if isinstance(item, dict) and isinstance(item.get("uri"), str) and item["uri"]:
+                    resources.append(item)
+            cursor = result.get("nextCursor")
+            if not cursor or not isinstance(cursor, str):
+                break
+        return resources
+
+    def read_resource(self, uri: str, *, timeout: Optional[float] = None) -> str:
+        result = self.request(
+            "resources/read",
+            {"uri": uri},
+            timeout=timeout,
+        )
+        return format_resource_result(result)
+
+    def list_prompts(self) -> List[Dict[str, Any]]:
+        prompts: List[Dict[str, Any]] = []
+        cursor: Optional[str] = None
+        for _ in range(MAX_PROMPT_PAGES):
+            params = {"cursor": cursor} if cursor else {}
+            result = self.request("prompts/list", params)
+            if not isinstance(result, dict):
+                raise MCPError(
+                    f"{self.config.name!r}: prompts/list returned {type(result).__name__}"
+                )
+            page = result.get("prompts") or []
+            if not isinstance(page, list):
+                raise MCPError(f"{self.config.name!r}: prompts/list.prompts must be a list")
+            for item in page:
+                if isinstance(item, dict) and isinstance(item.get("name"), str) and item["name"]:
+                    prompts.append(item)
+            cursor = result.get("nextCursor")
+            if not cursor or not isinstance(cursor, str):
+                break
+        return prompts
+
+    def get_prompt(
+        self, name: str, arguments: Optional[Mapping[str, Any]] = None, *, timeout: Optional[float] = None
+    ) -> str:
+        params: Dict[str, Any] = {"name": name}
+        if arguments:
+            params["arguments"] = dict(arguments)
+        result = self.request("prompts/get", params, timeout=timeout)
+        return format_prompt_result(result)
+
     # -- internals ---------------------------------------------------------
 
     def _write(self, payload: Mapping[str, Any]) -> None:
@@ -534,7 +598,11 @@ class StdioServer:
                 if isinstance(method, str):
                     if message.get("id") is not None:
                         self._answer_unsupported(message)
-                    elif method == "notifications/tools/list_changed":
+                    elif method in (
+                        "notifications/tools/list_changed",
+                        "notifications/resources/list_changed",
+                        "notifications/prompts/list_changed",
+                    ):
                         self.tools_changed = True
                     continue
                 self._deliver(message)
@@ -654,6 +722,58 @@ def format_tool_result(result: Any) -> str:
     return body
 
 
+def format_resource_result(result: Any) -> str:
+    """Render MCP ``resources/read`` content as model-readable text."""
+    if not isinstance(result, Mapping):
+        return json.dumps(result, ensure_ascii=False, default=str)
+    contents = result.get("contents") or []
+    if not isinstance(contents, list):
+        return "(no contents)"
+    parts: List[str] = []
+    for item in contents:
+        if isinstance(item, Mapping):
+            text = item.get("text")
+            if isinstance(text, str):
+                parts.append(text)
+            else:
+                uri = item.get("uri") or "(unknown)"
+                mime = item.get("mimeType") or "unknown type"
+                blob = item.get("blob")
+                size = len(str(blob)) if blob is not None else 0
+                parts.append(f"[resource {uri} ({mime})" + (f", {size} base64 chars" if size else "") + "]")
+        else:
+            parts.append(str(item))
+    return "\n\n".join(parts).strip() or "(empty resource)"
+
+
+def format_prompt_result(result: Any) -> str:
+    """Render MCP ``prompts/get`` content as model-readable text."""
+    if not isinstance(result, Mapping):
+        return json.dumps(result, ensure_ascii=False, default=str)
+    parts: List[str] = []
+    desc = result.get("description")
+    if isinstance(desc, str) and desc.strip():
+        parts.append(f"# {desc.strip()}\n")
+    messages = result.get("messages") or []
+    if isinstance(messages, list):
+        for msg in messages:
+            if isinstance(msg, Mapping):
+                role = str(msg.get("role") or "user").upper()
+                content = msg.get("content")
+                text = ""
+                if isinstance(content, Mapping):
+                    text = str(content.get("text") or "")
+                elif isinstance(content, list):
+                    text = "\n".join(_format_content_item(c) for c in content)
+                elif isinstance(content, str):
+                    text = content
+                if text.strip():
+                    parts.append(f"[{role}]\n{text.strip()}")
+            else:
+                parts.append(str(msg))
+    return "\n\n".join(parts).strip() or "(empty prompt)"
+
+
 # --------------------------------------------------------------------------- #
 # Tool exposure
 # --------------------------------------------------------------------------- #
@@ -711,6 +831,8 @@ class MCPServerStatus:
     command: str
     ok: bool
     tools: int = 0
+    prompts: int = 0
+    resources: int = 0
     error: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
@@ -719,6 +841,8 @@ class MCPServerStatus:
             "command": self.command,
             "ok": self.ok,
             "tools": self.tools,
+            "prompts": self.prompts,
+            "resources": self.resources,
             "error": self.error,
         }
 
@@ -763,14 +887,38 @@ class MCPSession:
                 self._emit(on_event, status)
                 continue
 
+            caps = server.capabilities or {}
+            num_prompts = 0
+            prompt_specs: List[str] = []
+            if "prompts" in caps:
+                try:
+                    p_list = server.list_prompts()
+                    num_prompts = len(p_list)
+                    prompt_specs = self._register_prompts(config, p_list, taken)
+                except MCPError:
+                    pass
+
+            num_resources = 0
+            resource_specs: List[str] = []
+            if "resources" in caps:
+                try:
+                    r_list = server.list_resources()
+                    num_resources = len(r_list)
+                    resource_specs = self._register_resources(config, r_list, taken)
+                except MCPError:
+                    pass
+
             self._servers[config.name] = server
-            names = self._register_tools(config, tools, taken)
+            tool_specs = self._register_tools(config, tools, taken)
+            names = tool_specs + prompt_specs + resource_specs
             self._by_server[config.name] = names
             status = MCPServerStatus(
                 name=config.name,
                 command=config.command,
                 ok=True,
-                tools=len(names),
+                tools=len(tool_specs),
+                prompts=num_prompts,
+                resources=num_resources,
             )
             self.statuses.append(status)
             self._emit(on_event, status)
@@ -806,6 +954,58 @@ class MCPSession:
         if server is None:
             raise MCPError(f"MCP server {server_name!r} is not running")
         return server.call_tool(tool_name, arguments)
+
+    def list_resources(self, server: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List resources from a specific server or all running servers."""
+        if server is not None:
+            s = self._servers.get(server)
+            if s is None:
+                raise MCPError(f"MCP server {server!r} is not running")
+            return s.list_resources()
+        all_res: List[Dict[str, Any]] = []
+        for s_name, s in self._servers.items():
+            if "resources" in s.capabilities:
+                try:
+                    for item in s.list_resources():
+                        entry = dict(item)
+                        entry["server"] = s_name
+                        all_res.append(entry)
+                except MCPError:
+                    pass
+        return all_res
+
+    def read_resource(self, server: str, uri: str) -> str:
+        """Read a resource by URI from the named server."""
+        s = self._servers.get(server)
+        if s is None:
+            raise MCPError(f"MCP server {server!r} is not running")
+        return s.read_resource(uri)
+
+    def list_prompts(self, server: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List prompts from a specific server or all running servers."""
+        if server is not None:
+            s = self._servers.get(server)
+            if s is None:
+                raise MCPError(f"MCP server {server!r} is not running")
+            return s.list_prompts()
+        all_prompts: List[Dict[str, Any]] = []
+        for s_name, s in self._servers.items():
+            if "prompts" in s.capabilities:
+                try:
+                    for item in s.list_prompts():
+                        entry = dict(item)
+                        entry["server"] = s_name
+                        all_prompts.append(entry)
+                except MCPError:
+                    pass
+        return all_prompts
+
+    def get_prompt(self, server: str, name: str, arguments: Optional[Mapping[str, Any]] = None) -> str:
+        """Get a prompt template from the named server."""
+        s = self._servers.get(server)
+        if s is None:
+            raise MCPError(f"MCP server {server!r} is not running")
+        return s.get_prompt(name, arguments)
 
     # -- refresh -----------------------------------------------------------
 
@@ -863,15 +1063,39 @@ class MCPSession:
 
             self._servers[name] = server
             taken = {spec.name for spec in all_specs()}
-            names = self._register_tools(server.config, tools, taken)
+            caps = server.capabilities or {}
+            num_prompts = 0
+            prompt_specs: List[str] = []
+            if "prompts" in caps:
+                try:
+                    p_list = server.list_prompts()
+                    num_prompts = len(p_list)
+                    prompt_specs = self._register_prompts(server.config, p_list, taken)
+                except MCPError:
+                    pass
+
+            num_resources = 0
+            resource_specs: List[str] = []
+            if "resources" in caps:
+                try:
+                    r_list = server.list_resources()
+                    num_resources = len(r_list)
+                    resource_specs = self._register_resources(server.config, r_list, taken)
+                except MCPError:
+                    pass
+
+            tool_specs = self._register_tools(server.config, tools, taken)
+            names = tool_specs + prompt_specs + resource_specs
             self._by_server[name] = names
-            new_tools = {self._calls[spec][1] for spec in names}
+            new_tools = {self._calls[spec][1] for spec in tool_specs}
             self._replace_status(
                 MCPServerStatus(
                     name=name,
                     command=server.config.command,
                     ok=True,
-                    tools=len(names),
+                    tools=len(tool_specs),
+                    prompts=num_prompts,
+                    resources=num_resources,
                 )
             )
             _emit_event(
@@ -915,6 +1139,152 @@ class MCPSession:
             self._specs.append(spec_name)
             self._calls[spec_name] = (config.name, tool_name)
             names.append(spec_name)
+        return names
+
+    def _register_resources(
+        self,
+        config: MCPServerConfig,
+        resources: Sequence[Mapping[str, Any]],
+        taken: Set[str],
+    ) -> List[str]:
+        """Register helper ToolSpecs to read/list resources on this server."""
+        names: List[str] = []
+        server_name = config.name
+
+        spec_name = tool_spec_name(server_name, "read_resource", taken=taken)
+        taken.add(spec_name)
+
+        def read_handler(arguments: Dict[str, Any], context: Any) -> str:
+            uri = str((arguments or {}).get("uri") or "").strip()
+            if not uri:
+                return "error: missing required argument 'uri'"
+            server = self._servers.get(server_name)
+            if server is None:
+                return f"MCP server {server_name!r} is not running"
+            try:
+                return server.read_resource(uri)
+            except MCPError as exc:
+                return f"MCP resource read failed: {exc}"
+
+        spec = ToolSpec(
+            name=spec_name,
+            description=f"Read a resource by URI from MCP server '{server_name}'.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "uri": {"type": "string", "description": "URI of the resource to read"},
+                },
+                "required": ["uri"],
+            },
+            tool_class="mcp",
+            handler=read_handler,
+            tags=("mcp", server_name, "resource"),
+            max_output_chars=20_000,
+        )
+        register(spec)
+        self._specs.append(spec_name)
+        names.append(spec_name)
+
+        list_name = tool_spec_name(server_name, "list_resources", taken=taken)
+        taken.add(list_name)
+
+        def list_handler(arguments: Dict[str, Any], context: Any) -> str:
+            server = self._servers.get(server_name)
+            if server is None:
+                return f"MCP server {server_name!r} is not running"
+            try:
+                items = server.list_resources()
+                return json.dumps(items, ensure_ascii=False, indent=2)
+            except MCPError as exc:
+                return f"MCP resource list failed: {exc}"
+
+        list_spec = ToolSpec(
+            name=list_name,
+            description=f"List available resources on MCP server '{server_name}'.",
+            parameters={"type": "object", "properties": {}},
+            tool_class="mcp",
+            handler=list_handler,
+            tags=("mcp", server_name, "resource"),
+            max_output_chars=20_000,
+        )
+        register(list_spec)
+        self._specs.append(list_name)
+        names.append(list_name)
+
+        return names
+
+    def _register_prompts(
+        self,
+        config: MCPServerConfig,
+        prompts: Sequence[Mapping[str, Any]],
+        taken: Set[str],
+    ) -> List[str]:
+        """Register helper ToolSpecs to get/list prompts on this server."""
+        names: List[str] = []
+        server_name = config.name
+
+        spec_name = tool_spec_name(server_name, "get_prompt", taken=taken)
+        taken.add(spec_name)
+
+        def get_handler(arguments: Dict[str, Any], context: Any) -> str:
+            name = str((arguments or {}).get("name") or "").strip()
+            if not name:
+                return "error: missing required argument 'name'"
+            prompt_args = (arguments or {}).get("arguments")
+            server = self._servers.get(server_name)
+            if server is None:
+                return f"MCP server {server_name!r} is not running"
+            try:
+                return server.get_prompt(name, prompt_args)
+            except MCPError as exc:
+                return f"MCP get_prompt failed: {exc}"
+
+        spec = ToolSpec(
+            name=spec_name,
+            description=f"Get a prompt template by name from MCP server '{server_name}'.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Name of the prompt template"},
+                    "arguments": {"type": "object", "description": "Optional prompt arguments"},
+                },
+                "required": ["name"],
+            },
+            tool_class="mcp",
+            handler=get_handler,
+            tags=("mcp", server_name, "prompt"),
+            max_output_chars=20_000,
+        )
+        register(spec)
+        self._specs.append(spec_name)
+        names.append(spec_name)
+
+        list_name = tool_spec_name(server_name, "list_prompts", taken=taken)
+        taken.add(list_name)
+
+        def list_handler(arguments: Dict[str, Any], context: Any) -> str:
+            server = self._servers.get(server_name)
+            if server is None:
+                return f"MCP server {server_name!r} is not running"
+            try:
+                items = server.list_prompts()
+                return json.dumps(items, ensure_ascii=False, indent=2)
+            except MCPError as exc:
+                return f"MCP prompt list failed: {exc}"
+
+        list_spec = ToolSpec(
+            name=list_name,
+            description=f"List available prompts on MCP server '{server_name}'.",
+            parameters={"type": "object", "properties": {}},
+            tool_class="mcp",
+            handler=list_handler,
+            tags=("mcp", server_name, "prompt"),
+            max_output_chars=20_000,
+        )
+        register(list_spec)
+        self._specs.append(list_name)
+        names.append(list_name)
+
         return names
 
     def _tool_names(self, server_name: str) -> Set[str]:
@@ -1253,6 +1623,8 @@ def _emit_event(sink: Optional[Any], event: Mapping[str, Any]) -> None:
 
 
 __all__ = [
+    "MAX_PROMPT_PAGES",
+    "MAX_RESOURCE_PAGES",
     "MAX_TOOL_PAGES",
     "MCPConfigError",
     "MCPError",
@@ -1264,6 +1636,8 @@ __all__ = [
     "StdioServer",
     "WorkspaceMCP",
     "discover_config",
+    "format_prompt_result",
+    "format_resource_result",
     "format_tool_result",
     "load_config",
     "mcp_openai_tools",

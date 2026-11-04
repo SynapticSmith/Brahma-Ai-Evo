@@ -814,6 +814,12 @@ ightarrow$ 10 min lockout), and replay-protected nonces enforced across all HTTP
 - **Passthrough Lane:** Exposes `brahma-evo:passthrough` so external coding assistants (Cline, Cursor, Continue) can supply their own tool arrays while routing through Brahma's provider chain.
 - **GUI Control & Settings Card:** Integrated `OpenAIPortCard` in Settings Hub (`core/ui_openai_port.py`) for port activation, token generation, and real-time revocation. Full lifecycle wired into `main.py`. Guarded by `tests/test_api_*.py`.
 
+### D.8 Outbound MCP Server & Full MCP Client Parity (N6, D47)
+- **Outbound stdio MCP Server:** Implemented `agent/mcp_server.py` and CLI subcommand `python -m agent mcp-server` exposing Brahma's canonical ToolSpecs (`tools/list`, `tools/call`), project skills (`prompts/list`, `prompts/get`), and repository instructions (`resources/list`, `resources/read`) outwards over standard JSON-RPC 2.0 stdio framing.
+- **Unified Policy Execution:** Outbound tool executions route strictly through `AgentRuntime.execute`, preserving permission policy, confirmation handling, workspace containment, and audit trails. Guarded by `tests/test_agent_mcp_server.py`.
+- **MCP Client Resources & Prompts (N6):** Added client support for `resources/list`, `resources/read`, `prompts/list`, and `prompts/get` to `StdioServer` and `MCPSession` in `agent/mcp.py`. Servers declaring resources/prompts have read-only `ToolSpec`s registered dynamically (`mcp_<server>_read_resource`, `mcp_<server>_get_prompt`, etc.).
+- **Dynamic Refresh on Notification:** Extended turn-boundary refresh to handle `notifications/resources/list_changed` and `notifications/prompts/list_changed`. Guarded by `tests/test_agent_mcp.py`.
+
 ---
 
 *This document is the orientation layer. When a batch changes an invariant, a status word, or a subsystem contract, change it here in the same commit. When it disagrees with the code, believe the code and fix this file.*

@@ -614,6 +614,25 @@ def _cmd_sandbox(args: argparse.Namespace) -> int:
     return EXIT_OK if report.confined else EXIT_ERROR
 
 
+def _cmd_mcp_server(args: argparse.Namespace) -> int:
+    from .mcp_server import MCPServer
+
+    workspace = Path(args.cwd or os.getcwd()).expanduser().resolve()
+    if not workspace.is_dir():
+        sys.stderr.write(f"error: workspace {workspace} is not a directory\n")
+        return EXIT_USAGE
+
+    args.headless = True
+    args.json = False
+    runtime = _configure_runtime(args, workspace)
+    server = MCPServer(runtime=runtime, workspace=workspace, name=args.name or "brahma-agent")
+    try:
+        server.serve(sys.stdin, sys.stdout)
+        return EXIT_OK
+    except KeyboardInterrupt:
+        return EXIT_INTERRUPTED
+
+
 # --------------------------------------------------------------------------- #
 # Parser
 # --------------------------------------------------------------------------- #
@@ -708,6 +727,23 @@ def build_parser() -> argparse.ArgumentParser:
     sandbox.add_argument("--timeout", type=float, default=15.0, help="Per-probe timeout in seconds")
     sandbox.add_argument("--json", action="store_true", help="Emit JSON report")
 
+    mcp_server = sub.add_parser("mcp-server", help="Run outbound Model Context Protocol stdio server")
+    mcp_server.add_argument("--cwd", help="Workspace root (default: current directory)")
+    mcp_server.add_argument("--permissions", help="Path to agent_permissions.json")
+    mcp_server.add_argument(
+        "--yolo", action="store_true", help="Allow every tool class (use only in a sandbox)"
+    )
+    mcp_server.add_argument(
+        "--allow", action="append", metavar="CLASS", help="Allow a tool class, repeatable/comma-separated"
+    )
+    mcp_server.add_argument(
+        "--deny", action="append", metavar="CLASS", help="Deny a tool class"
+    )
+    mcp_server.add_argument(
+        "--name", default=None, help="MCP server name (default: brahma-agent)"
+    )
+    mcp_server.add_argument("--timeout", type=float, default=120.0, help="Per-command tool timeout in seconds")
+
     return parser
 
 
@@ -717,7 +753,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # `python -m agent "do the thing"` -> treat the first bare word as a run.
     known = {
-        "run", "resume", "sessions", "tools", "skills", "mcp", "permissions", "sandbox",
+        "run", "resume", "sessions", "tools", "skills", "mcp", "mcp-server", "permissions", "sandbox",
         "-h", "--help",
     }
     if argv and argv[0] not in known:
@@ -745,6 +781,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             return _cmd_permissions(args)
         if args.command == "sandbox":
             return _cmd_sandbox(args)
+        if args.command == "mcp-server":
+            return _cmd_mcp_server(args)
     except KeyboardInterrupt:
         sys.stderr.write("\n[interrupted]\n")
         return EXIT_INTERRUPTED
