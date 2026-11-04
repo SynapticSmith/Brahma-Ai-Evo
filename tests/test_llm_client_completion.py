@@ -102,3 +102,49 @@ def test_chat_as_reports_tool_calls_instead_of_an_empty_reply(monkeypatch):
     )
     out = c.chat_as("custom", "hi")
     assert out and "tool" in out.lower()
+
+
+def test_openai_chat_completion_strips_trailing_chat_completions(monkeypatch):
+    """If url already ends in /chat/completions, it must not be doubled."""
+    import requests
+
+    c = UnifiedAIClient()
+    monkeypatch.setattr(c, "reload_settings", lambda: None)
+    captured = {}
+
+    class FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+    monkeypatch.setattr(requests, "post", lambda endpoint, **kw: captured.update(endpoint=endpoint) or FakeResp())
+    c._openai_chat_completion([], "http://example.com/v1/chat/completions", "test-model")
+    assert captured["endpoint"] == "http://example.com/v1/chat/completions"
+
+
+def test_openai_chat_completion_sends_stream_false_and_handles_done_suffix(monkeypatch):
+    """Explicitly send stream=False and tolerate trailing 'data: [DONE]' from proxy routers."""
+    import json
+    import requests
+
+    c = UnifiedAIClient()
+    monkeypatch.setattr(c, "reload_settings", lambda: None)
+    captured = {}
+
+    class FakeResp:
+        status_code = 200
+        text = '{"choices":[{"message":{"content":"hello"}}]}data: [DONE]\n\n'
+
+        def json(self):
+            # Simulate requests.json() raising JSONDecodeError because of extra trailing data
+            return json.loads(self.text)
+
+    def fake_post(endpoint, json=None, **kw):
+        captured["payload"] = json
+        return FakeResp()
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    res = c._openai_chat_completion([], "http://example.com/v1", "test-model")
+    assert captured["payload"]["stream"] is False
+    assert res == "hello"

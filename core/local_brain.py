@@ -232,10 +232,12 @@ class LocalBrain:
         """
         data = _load_settings()
         if self._pinned_endpoint:
-            self.endpoint = self._pinned_endpoint.rstrip("/")
+            ep = self._pinned_endpoint.rstrip("/")
+            self.endpoint = ep[: -len("/chat/completions")].rstrip("/") if ep.endswith("/chat/completions") else ep
         else:
             endpoint = str(data.get("local_ai_url") or "").strip() or DEFAULT_ENDPOINT
-            self.endpoint = endpoint.rstrip("/")
+            ep = endpoint.rstrip("/")
+            self.endpoint = ep[: -len("/chat/completions")].rstrip("/") if ep.endswith("/chat/completions") else ep
         if self._pinned_model:
             # An explicit constructor argument pins the model for this
             # instance; without this branch the pin only blocked Settings

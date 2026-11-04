@@ -75,10 +75,12 @@ class UnifiedAIClient:
             with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
             self._provider = data.get("default_ai_provider", "OpenRouter")
-            self._local_url = (data.get("local_ai_url") or DEFAULT_LOCAL_URL).rstrip("/")
+            raw_local = (data.get("local_ai_url") or DEFAULT_LOCAL_URL).rstrip("/")
+            self._local_url = raw_local[:-len("/chat/completions")].rstrip("/") if raw_local.endswith("/chat/completions") else raw_local
             self._local_model = data.get("local_ai_model") or DEFAULT_LOCAL_MODEL
             self._local_api_key = (data.get("local_api_key") or "").strip()
-            self._custom_url = (data.get("custom_ai_url") or "").rstrip("/")
+            raw_custom = (data.get("custom_ai_url") or "").rstrip("/")
+            self._custom_url = raw_custom[:-len("/chat/completions")].rstrip("/") if raw_custom.endswith("/chat/completions") else raw_custom
             self._custom_model = (data.get("custom_ai_model") or "").strip()
             self._custom_api_key = (data.get("custom_api_key") or "").strip()
         except Exception as e:
@@ -125,6 +127,7 @@ class UnifiedAIClient:
             "model": model,
             "messages": messages,
             "temperature": temperature,
+            "stream": False,
         }
         if max_tokens:
             payload["max_tokens"] = max_tokens
@@ -133,7 +136,10 @@ class UnifiedAIClient:
         if tools:
             payload["tools"] = tools
 
-        endpoint = f"{url}/chat/completions"
+        base_url = (url or "").rstrip("/")
+        if base_url.endswith("/chat/completions"):
+            base_url = base_url[: -len("/chat/completions")].rstrip("/")
+        endpoint = f"{base_url}/chat/completions"
         try:
             resp = requests.post(
                 endpoint,
@@ -142,13 +148,27 @@ class UnifiedAIClient:
                 timeout=timeout,
             )
             if resp.status_code == 200:
-                data = resp.json()
+                data = None
+                try:
+                    data = resp.json()
+                except Exception:
+                    raw = resp.text.strip()
+                    if "data: [DONE]" in raw:
+                        raw = raw.split("data: [DONE]")[0].strip()
+                    try:
+                        data = json.loads(raw)
+                    except Exception:
+                        pass
+                if data is None:
+                    data = resp.json()
                 message = data.get("choices", [{}])[0].get("message", {}) or {}
                 if return_message:
                     return message
                 content = message.get("content", "")
                 return content.strip() if content else None
-            logger.error(f"[LLM Client] {label} error {resp.status_code}: {resp.text[:400]}")
+            err_detail = resp.text[:400].strip()
+            self._last_error = f"HTTP {resp.status_code}: {err_detail}"
+            logger.error(f"[LLM Client] {label} error {resp.status_code}: {err_detail}")
             return None
         except requests.Timeout as e:
             logger.error(
@@ -474,6 +494,9 @@ class UnifiedAIClient:
         )
         if result:
             return result
+        last_err = getattr(self, "_last_error", "")
+        if last_err:
+            raise RuntimeError(f"{hint} Details: {last_err}")
         raise RuntimeError(hint)
 
     def chat_json(self, prompt: str, system: str = "Return ONLY valid JSON.", model: Optional[str] = None, max_tokens: int = 4096) -> dict:
