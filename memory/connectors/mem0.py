@@ -18,6 +18,12 @@ class Mem0MemoryConnector(BaseMemoryConnector):
     """Connector interfacing with Mem0 hybrid vector memory service or local Qdrant/Chroma instance."""
 
     def __init__(self, api_key: Optional[str] = None, user_id: str = "brahma_default"):
+        if not api_key:
+            try:
+                from core.secret_store import load_api_keys
+                api_key = load_api_keys().get("mem0_api_key")
+            except Exception:
+                pass
         self._api_key = api_key or os.environ.get("MEM0_API_KEY", "")
         self._user_id = user_id
         self._client: Optional[Any] = None

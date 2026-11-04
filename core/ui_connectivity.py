@@ -47,6 +47,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSlider,
+    QStackedWidget,
     QStyle,
     QVBoxLayout,
     QWidget,
@@ -1205,10 +1206,10 @@ class SystemConnectivityPage(QWidget):
     # Memory System & Modular Connectors
     # ------------------------------------------------------------------
     def _build_memory_connector_card(self):
-        """Card for configuring local and external memory backends (Mem0, Letta, Local)."""
+        """Card selecting and configuring the active long-term memory engine."""
         card = self._card(
             "Memory System & Connectors",
-            "Configure long-term memory engine: Built-in Local (SQLite/JSON), Mem0 Hybrid Vector, or Letta Tiered Archival."
+            "Configure long-term memory: Built-in Local (offline, zero-setup), Mem0 Hybrid Vector, or Letta Tiered Archival."
         )
         lay = card.layout()
 
@@ -1220,9 +1221,9 @@ class SystemConnectivityPage(QWidget):
         row.addWidget(lbl)
 
         combo = QComboBox()
-        combo.addItem("Local Storage (Built-in SQLite / JSON)", "local")
-        combo.addItem("Mem0 Hybrid Vector Memory", "mem0")
-        combo.addItem("Letta / MemGPT Tiered Memory", "letta")
+        combo.addItem("Local Storage (Recommended — Offline, Zero Setup)", "local")
+        combo.addItem("Mem0 Hybrid Vector Memory (Cloud / Local)", "mem0")
+        combo.addItem("Letta / MemGPT Tiered Archival (Server)", "letta")
         combo.setStyleSheet(
             f"background: {C.PANEL2}; color: {C.WHITE}; border: 1px solid {C.BORDER}; "
             f"border-radius: 6px; padding: 4px 8px; font-size: 11px;"
@@ -1234,10 +1235,173 @@ class SystemConnectivityPage(QWidget):
             idx = {"local": 0, "mem0": 1, "letta": 2}.get(current_backend, 0)
             combo.setCurrentIndex(idx)
         except Exception:
-            pass
+            idx = 0
 
         row.addWidget(combo, 1)
         lay.addLayout(row)
+
+        # Context-sensitive configuration panels for each backend
+        config_stack = QStackedWidget()
+
+        # --- Page 0: Local Storage ---
+        local_page = QWidget()
+        local_lay = QVBoxLayout(local_page)
+        local_lay.setContentsMargins(0, 4, 0, 4)
+        local_lay.setSpacing(6)
+
+        local_info = QLabel(
+            "<b>📁 Built-in Offline Storage:</b> Brahma stores all conversation turns, artifacts, "
+            "and long-term user facts securely on your PC using SQLite and encrypted JSON. "
+            "No internet, external accounts, or configuration required."
+        )
+        local_info.setWordWrap(True)
+        local_info.setStyleSheet(f"color: {C.TEXT_MED}; font-size: 11px;")
+        local_lay.addWidget(local_info)
+
+        local_btn_row = QHBoxLayout()
+        open_folder_btn = QPushButton("📂 Open Memory Folder")
+        open_folder_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        open_folder_btn.setStyleSheet(
+            f"background: {C.PANEL2}; color: {C.TEXT_MED}; border: 1px solid {C.BORDER}; "
+            f"border-radius: 6px; padding: 4px 10px; font-size: 11px;"
+        )
+        def _open_local_mem_dir():
+            try:
+                mem_dir = get_user_data_dir() / "memory"
+                mem_dir.mkdir(parents=True, exist_ok=True)
+                from PyQt6.QtCore import QUrl
+                from PyQt6.QtGui import QDesktopServices
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(mem_dir)))
+            except Exception as exc:
+                status_lbl.setText(f"Error opening folder: {exc}")
+        open_folder_btn.clicked.connect(_open_local_mem_dir)
+        local_btn_row.addWidget(open_folder_btn)
+        local_btn_row.addStretch(1)
+        local_lay.addLayout(local_btn_row)
+        config_stack.addWidget(local_page)
+
+        # --- Page 1: Mem0 ---
+        mem0_page = QWidget()
+        mem0_lay = QVBoxLayout(mem0_page)
+        mem0_lay.setContentsMargins(0, 4, 0, 4)
+        mem0_lay.setSpacing(6)
+
+        mem0_info = QLabel(
+            "<b>⚡ Mem0 Hybrid Vector Search:</b> Combines semantic vector embeddings with graph memory. "
+            "Enter your Mem0 cloud API key below (get a free key at <a href='https://mem0.ai' style='color:#00e5ff;'>mem0.ai</a>), "
+            "or leave blank if using a local Chroma/Qdrant instance."
+        )
+        mem0_info.setOpenExternalLinks(True)
+        mem0_info.setWordWrap(True)
+        mem0_info.setStyleSheet(f"color: {C.TEXT_MED}; font-size: 11px;")
+        mem0_lay.addWidget(mem0_info)
+
+        mem0_input_row = QHBoxLayout()
+        mem0_input_row.setSpacing(8)
+        mem0_lbl = QLabel("Mem0 API Key:")
+        mem0_lbl.setStyleSheet(f"color: {C.WHITE}; font-size: 11px;")
+        mem0_input_row.addWidget(mem0_lbl)
+
+        from core.secret_store import load_api_keys, save_api_keys
+        existing_keys = {}
+        try:
+            existing_keys = load_api_keys()
+        except Exception:
+            pass
+
+        mem0_key_input = QLineEdit()
+        mem0_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        mem0_key_input.setPlaceholderText("m0-... or leave blank for local")
+        mem0_key_input.setText(str(existing_keys.get("mem0_api_key") or ""))
+        mem0_key_input.setStyleSheet(
+            f"background: {C.PANEL2}; color: {C.WHITE}; border: 1px solid {C.BORDER}; "
+            f"border-radius: 6px; padding: 4px 8px; font-size: 11px;"
+        )
+        mem0_input_row.addWidget(mem0_key_input, 1)
+
+        mem0_save_btn = QPushButton("💾 Save Key")
+        mem0_save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        mem0_save_btn.setStyleSheet(
+            f"background: rgba(0, 229, 255, 0.15); color: {C.PRI}; border: 1px solid {C.BORDER}; "
+            f"border-radius: 6px; padding: 4px 10px; font-weight: bold; font-size: 11px;"
+        )
+        def _save_mem0():
+            key_val = mem0_key_input.text().strip()
+            try:
+                k = load_api_keys()
+                k["mem0_api_key"] = key_val
+                save_api_keys(k)
+                from memory.connectors import reset_connectors
+                reset_connectors()
+                _update_status()
+                status_lbl.setText("✅ Mem0 API Key saved securely.")
+            except Exception as e:
+                status_lbl.setText(f"❌ Error saving Mem0 key: {e}")
+        mem0_save_btn.clicked.connect(_save_mem0)
+        mem0_input_row.addWidget(mem0_save_btn)
+        mem0_lay.addLayout(mem0_input_row)
+        config_stack.addWidget(mem0_page)
+
+        # --- Page 2: Letta ---
+        letta_page = QWidget()
+        letta_lay = QVBoxLayout(letta_page)
+        letta_lay.setContentsMargins(0, 4, 0, 4)
+        letta_lay.setSpacing(6)
+
+        letta_info = QLabel(
+            "<b>🤖 Letta / MemGPT Archival Server:</b> Connects to a Letta REST server for tiered agent memory. "
+            "Run <code>letta run</code> locally or connect to a remote Letta service."
+        )
+        letta_info.setWordWrap(True)
+        letta_info.setStyleSheet(f"color: {C.TEXT_MED}; font-size: 11px;")
+        letta_lay.addWidget(letta_info)
+
+        letta_form = QGridLayout()
+        letta_form.setSpacing(6)
+
+        letta_form.addWidget(QLabel("Server URL:"), 0, 0)
+        letta_url_input = QLineEdit()
+        letta_url_input.setText(str(existing_keys.get("letta_endpoint") or "http://localhost:8283"))
+        letta_url_input.setStyleSheet(f"background: {C.PANEL2}; color: {C.WHITE}; border: 1px solid {C.BORDER}; border-radius: 6px; padding: 3px 6px; font-size: 11px;")
+        letta_form.addWidget(letta_url_input, 0, 1)
+
+        letta_form.addWidget(QLabel("Agent ID:"), 1, 0)
+        letta_agent_input = QLineEdit()
+        letta_agent_input.setText(str(existing_keys.get("letta_agent_id") or "default"))
+        letta_agent_input.setStyleSheet(f"background: {C.PANEL2}; color: {C.WHITE}; border: 1px solid {C.BORDER}; border-radius: 6px; padding: 3px 6px; font-size: 11px;")
+        letta_form.addWidget(letta_agent_input, 1, 1)
+
+        letta_form.addWidget(QLabel("Token (optional):"), 2, 0)
+        letta_token_input = QLineEdit()
+        letta_token_input.setEchoMode(QLineEdit.EchoMode.Password)
+        letta_token_input.setText(str(existing_keys.get("letta_token") or ""))
+        letta_token_input.setStyleSheet(f"background: {C.PANEL2}; color: {C.WHITE}; border: 1px solid {C.BORDER}; border-radius: 6px; padding: 3px 6px; font-size: 11px;")
+        letta_form.addWidget(letta_token_input, 2, 1)
+
+        letta_save_btn = QPushButton("💾 Save & Connect")
+        letta_save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        letta_save_btn.setStyleSheet(f"background: rgba(0, 229, 255, 0.15); color: {C.PRI}; border: 1px solid {C.BORDER}; border-radius: 6px; padding: 4px 10px; font-weight: bold; font-size: 11px;")
+        def _save_letta():
+            try:
+                k = load_api_keys()
+                k["letta_endpoint"] = letta_url_input.text().strip()
+                k["letta_agent_id"] = letta_agent_input.text().strip()
+                k["letta_token"] = letta_token_input.text().strip()
+                save_api_keys(k)
+                from memory.connectors import reset_connectors
+                reset_connectors()
+                _update_status()
+                status_lbl.setText("✅ Letta server configuration saved.")
+            except Exception as e:
+                status_lbl.setText(f"❌ Error saving Letta config: {e}")
+        letta_save_btn.clicked.connect(_save_letta)
+        letta_form.addWidget(letta_save_btn, 3, 1, alignment=Qt.AlignmentFlag.AlignRight)
+
+        letta_lay.addLayout(letta_form)
+        config_stack.addWidget(letta_page)
+
+        config_stack.setCurrentIndex(combo.currentIndex())
+        lay.addWidget(config_stack)
 
         status_lbl = QLabel()
         status_lbl.setWordWrap(True)
@@ -1253,10 +1417,11 @@ class SystemConnectivityPage(QWidget):
                 backend = stat.get("backend", selected)
                 entries_cnt = stat.get("entries_count", 0)
                 icon = "🟢" if avail else "🟡"
+                detail_text = stat.get("detail") or stat.get("message") or ("Connected" if avail else "Not available")
                 status_lbl.setText(
-                    f"{icon} <b>Backend:</b> {backend.upper()} | <b>Available:</b> {avail} | "
+                    f"{icon} <b>Backend:</b> {backend.upper()} | <b>Status:</b> {'Connected' if avail else 'Offline'} | "
                     f"<b>Entries:</b> {entries_cnt}<br>"
-                    f"<span style='color: {C.TEXT_DIM};'>{stat.get('message', '')}</span>"
+                    f"<span style='color: {C.TEXT_DIM};'>{detail_text}</span>"
                 )
             except Exception as e:
                 status_lbl.setText(f"⚠️ Status check failed: {e}")
@@ -1265,6 +1430,7 @@ class SystemConnectivityPage(QWidget):
 
         def _on_backend_changed(index):
             selected = combo.currentData()
+            config_stack.setCurrentIndex(index)
             try:
                 from memory.connectors import set_active_connector
                 set_active_connector(selected)

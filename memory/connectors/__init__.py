@@ -15,6 +15,7 @@ from .factory import (
     get_active_backend_name,
     get_memory_connector,
     list_available_backends,
+    reset_connectors,
     set_active_connector,
 )
 from .local import LocalMemoryConnector
@@ -30,5 +31,6 @@ __all__ = [
     "get_active_backend_name",
     "get_memory_connector",
     "list_available_backends",
+    "reset_connectors",
     "set_active_connector",
 ]

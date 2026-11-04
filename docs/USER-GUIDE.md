@@ -111,10 +111,30 @@ Brahma AI Evo can act as a conductor for your other AI tools and multi-agent sys
 
 ## 6. Memory & Continuous Self-Improvement
 
+### Memory Engines & Easy GUI Setup
+
+Brahma AI Evo provides a hybrid memory system that requires zero developer knowledge to configure. In **Settings Hub** (`Ctrl+,`), scroll to **Memory System & Connectors**:
+
+1. **Local Storage (Default — Zero Setup)**:
+   - **Recommended for most users**: 100% private, offline, and ready immediately.
+   - Saves all facts and chat history to your local PC (`%LOCALAPPDATA%\BrahmaAI\memory`).
+   - Click **📂 Open Memory Folder** in Settings to view or backup your memory files anytime.
+
+2. **Mem0 Hybrid Vector Memory**:
+   - Ideal for advanced semantic search across long conversations.
+   - Simply select **Mem0** in the dropdown, paste your API key from [mem0.ai](https://mem0.ai), and click **💾 Save Key**.
+   - Your key is encrypted with Windows DPAPI security — no terminal or environment variables needed.
+
+3. **Letta / MemGPT Archival Memory Server**:
+   - Ideal for power users running a local or cloud Letta agent memory service.
+   - Enter your **Server URL** (defaults to `http://localhost:8283`), **Agent ID**, and optional **API Token**, then click **💾 Save & Connect**.
+
+4. **Testing Your Memory**:
+   - Click **🔍 Test Memory Recall** anytime to verify that Brahma can instantly store and recall memories using your selected backend. The status badge displays `🟢 Connected` with your live memory entry count.
+
 ### Where Facts are Stored
 - **Semantic Facts & Preferences**: Stored locally in `%LOCALAPPDATA%\BrahmaAI\memory\long_term.json`.
 - **Chat Conversations & Attachments**: Stored in `%LOCALAPPDATA%\BrahmaAI\workspace_store.db` (SQLite).
-- **External Memory Connectors**: Brahma supports modular connectors for **Mem0** (hybrid vector memory) and **Letta** (archival memory service).
 
 ### Autonomous Self-Healing Sentry
 If an action encounters a bug or exception:

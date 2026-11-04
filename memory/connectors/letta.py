@@ -26,9 +26,15 @@ class LettaMemoryConnector(BaseMemoryConnector):
         agent_id: Optional[str] = None,
         token: Optional[str] = None,
     ):
-        self._endpoint = (endpoint or os.environ.get("LETTA_ENDPOINT", "http://localhost:8283")).rstrip("/")
-        self._agent_id = agent_id or os.environ.get("LETTA_AGENT_ID", "default")
-        self._token = token or os.environ.get("LETTA_TOKEN", "")
+        keys = {}
+        try:
+            from core.secret_store import load_api_keys
+            keys = load_api_keys()
+        except Exception:
+            pass
+        self._endpoint = (endpoint or os.environ.get("LETTA_ENDPOINT") or keys.get("letta_endpoint") or "http://localhost:8283").rstrip("/")
+        self._agent_id = agent_id or os.environ.get("LETTA_AGENT_ID") or keys.get("letta_agent_id") or "default"
+        self._token = token or os.environ.get("LETTA_TOKEN") or keys.get("letta_token") or ""
 
     @property
     def backend_name(self) -> str:

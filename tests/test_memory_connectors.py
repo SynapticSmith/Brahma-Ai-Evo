@@ -152,3 +152,30 @@ def test_set_active_connector_and_memory_manager_integration(tmp_path, monkeypat
     # Remember should synchronize to mem0
     memory_manager.remember("target_city", "Tokyo", category="preferences")
     mock_conn.store.assert_called_once_with("target_city", "Tokyo", category="preferences")
+
+
+def test_connectors_read_from_secret_store(monkeypatch):
+    from memory.connectors.mem0 import Mem0MemoryConnector
+    from memory.connectors.letta import LettaMemoryConnector
+    from memory.connectors.factory import reset_connectors
+
+    fake_keys = {
+        "mem0_api_key": "secret_m0_key_123",
+        "letta_endpoint": "http://192.168.1.50:8283",
+        "letta_agent_id": "test_agent_99",
+        "letta_token": "bearer_letta_token",
+    }
+    monkeypatch.setattr("core.secret_store.load_api_keys", lambda: fake_keys)
+    monkeypatch.delenv("MEM0_API_KEY", raising=False)
+    monkeypatch.delenv("LETTA_ENDPOINT", raising=False)
+    monkeypatch.delenv("LETTA_AGENT_ID", raising=False)
+    monkeypatch.delenv("LETTA_TOKEN", raising=False)
+
+    reset_connectors()
+    mem0 = Mem0MemoryConnector()
+    assert mem0._api_key == "secret_m0_key_123"
+
+    letta = LettaMemoryConnector()
+    assert letta._endpoint == "http://192.168.1.50:8283"
+    assert letta._agent_id == "test_agent_99"
+    assert letta._token == "bearer_letta_token"
