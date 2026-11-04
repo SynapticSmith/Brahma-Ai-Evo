@@ -76,8 +76,11 @@ def ensure_supported_environment() -> None:
                     file=sys.stderr,
                 )
                 full_cmd = [*cmd, *sys.argv]
-                rc = subprocess.call(full_cmd)
-                sys.exit(rc)
+                try:
+                    rc = subprocess.call(full_cmd)
+                    sys.exit(rc)
+                except KeyboardInterrupt:
+                    sys.exit(130)
         except Exception:
             continue
 
