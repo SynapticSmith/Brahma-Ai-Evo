@@ -730,7 +730,8 @@ class ConfirmationOverlay(QWidget):
                 # scrolls instead of pushing the buttons off screen.
                 box = QPlainTextEdit(detail)
                 box.setReadOnly(True)
-                box.setFixedHeight(150)
+                box.setMinimumHeight(60)
+                box.setMaximumHeight(130)
                 box.setFont(QFont("Consolas", 9))
                 box.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
                 box.setStyleSheet(

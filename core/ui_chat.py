@@ -384,7 +384,7 @@ def _markdown_to_html(text: str, role: str = "assistant", streaming: bool = Fals
     c_text = getattr(globals().get("C"), "TEXT", "#f4f6f8") if globals().get("C") else "#f4f6f8"
     accent = c_white if role == "assistant" else c_text
     return (
-        f'<div style="color:{accent}; font-size:12px; line-height:1.45; white-space:normal;">'
+        f'<div style="color:{accent}; font-size:12px; line-height:1.50; white-space:normal; word-break:break-word; overflow-wrap:break-word;">'
         f"{safe}"
         "</div>"
     )
@@ -435,8 +435,8 @@ class EventCard(QFrame):
             """
         )
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(10, 6, 12, 6)
-        lay.setSpacing(8)
+        lay.setContentsMargins(14, 10, 16, 10)
+        lay.setSpacing(10)
 
         icon_lbl = QLabel(icon[:1])
         icon_lbl.setFixedSize(24, 24)
@@ -446,8 +446,6 @@ class EventCard(QFrame):
         lay.addWidget(icon_lbl)
 
         clean_detail = (detail or "").strip()
-        if len(clean_detail) > 160:
-            clean_detail = clean_detail[:157] + "..."
         full_text = f"{title}: {clean_detail}" if clean_detail and clean_detail != title else title
         title_lbl = QLabel(full_text)
         title_lbl.setFont(QFont("Segoe UI", 9))
@@ -576,16 +574,21 @@ class ChatBubble(QFrame):
         self.setStyleSheet(f"QFrame#ChatBubble {{ {bg_style} }}")
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(14, 12, 14, 12)
-        outer.setSpacing(6)
+        outer.setContentsMargins(16, 14, 16, 14)
+        outer.setSpacing(8)
 
         head = QHBoxLayout()
         head.setContentsMargins(0, 0, 0, 0)
         head.setSpacing(8)
 
         if role == "assistant":
-            avatar = _framed_logo(24, 24, bg="rgba(12,14,20,245)", border="rgba(0, 229, 255,0.50)", radius=12, inset=4)
-            head.addWidget(avatar)
+            logo_fn = globals().get("_framed_logo")
+            if callable(logo_fn):
+                try:
+                    avatar = logo_fn(24, 24, bg="rgba(12,14,20,245)", border="rgba(0, 229, 255,0.50)", radius=12, inset=4)
+                    head.addWidget(avatar)
+                except Exception:
+                    pass
             name_lbl = QLabel(name or "Brahma Evo")
             name_lbl.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
             name_lbl.setStyleSheet("color: #ffffff; background: transparent;")
@@ -952,7 +955,7 @@ class ConversationFeed(QScrollArea):
             for i in range(self._layout.count()):
                 w = self._layout.itemAt(i).widget()
                 if w and isinstance(w, ChatBubble):
-                    max_w = max(180, int(vw * 0.84))
+                    max_w = max(200, int(vw * 0.88))
                     w.setMaximumWidth(max_w)
                 elif w and hasattr(w, "_fit_to_content"):
                     w._fit_to_content()

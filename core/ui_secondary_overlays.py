@@ -110,8 +110,17 @@ class _SecondaryOverlaysMixin:
         if not getattr(self, "_confirm_overlay", None):
             return
         geo = self.geometry()
-        x = max(16, (geo.width() - self._confirm_overlay.width()) // 2)
-        y = max(16, (geo.height() - self._confirm_overlay.height()) // 2)
+        try:
+            self._confirm_overlay.adjustSize()
+            max_h = max(240, geo.height() - 32)
+            self._confirm_overlay.setMaximumHeight(max_h)
+            self._confirm_overlay.adjustSize()
+        except Exception:
+            pass
+        w = self._confirm_overlay.width()
+        h = self._confirm_overlay.height()
+        x = max(16, (geo.width() - w) // 2)
+        y = max(16, min((geo.height() - h) // 2, geo.height() - h - 16))
         self._confirm_overlay.move(x, y)
 
     def show_memory_inspector(self):

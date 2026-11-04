@@ -2852,6 +2852,13 @@ class SystemConnectivityPage(QWidget):
         self._set_custom_instr.textChanged.connect(lambda: identity.set_custom_instructions(self._set_custom_instr.toPlainText().strip()))
         ilay.addWidget(self._set_custom_instr)
 
+        proactive_toggle = self._mk_toggle(
+            "Proactive Spoken Interjections (Health, System Alerts, Idle Checks)",
+            identity.is_proactive(),
+            lambda checked: identity.set_proactive(checked),
+        )
+        ilay.addWidget(proactive_toggle)
+
         lay.addWidget(identity_card)
 
         # AI Providers

@@ -139,3 +139,43 @@ class _RuntimeMixin:
         )
         if path:
             self._on_file_selected(path)
+
+    def _on_file_selected(self, path: str):
+        if not path:
+            return
+        p = Path(path)
+        name = p.name
+        size = p.stat().st_size if p.exists() else 0
+
+        # Post a file artifact card into the chat timeline
+        event = {
+            "role": "file",
+            "text": f"Attached file: {name}",
+            "attachments": [{"path": path, "name": name, "size": size}],
+        }
+        if hasattr(self, "_on_chat_event"):
+            try:
+                self._on_chat_event(event)
+            except Exception:
+                pass
+
+        # Populate the active input field
+        for attr in ("_inline_workspace", "_workspace_sidebar"):
+            try:
+                ws = getattr(self, attr, None)
+            except Exception:
+                ws = None
+            if ws and hasattr(ws, "_input"):
+                try:
+                    curr = ws._input.text().strip()
+                    new_val = f"{curr} {path}".strip() if curr else f"Analyze file: {path}"
+                    ws._input.setText(new_val)
+                    ws._input.setFocus()
+                except Exception:
+                    pass
+
+        if hasattr(self, "write_log"):
+            try:
+                self.write_log(f"Attached file: {name} ({path})")
+            except Exception:
+                pass

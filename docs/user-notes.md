@@ -9,3 +9,11 @@ please note.
 - We need toi look into the Auto0Heal &amp; Continuous Self-Improvement section as well to make sure it is still valid with our recent modifications to the system.
 - we need to investigate the memory system as well, to make sure it is a well architected and engineered production ready system, and not a experimental demo. additionally it might be even a great addition if we could add external memory systems of which there are a few available, online systems and offline systems.
 - Finally we need to make exhaustive documentation to catch up with what we have built.
+
+---
+
+- i've notice brahma makes proactive comments once a while, help me locate those functions, i would like to be able to control them .
+- in the gui, i notice the permission request popup, is fixed small height and doesn't show the overflow (there is around 1 pixel height of the buttons visible. it would be better if we could somehow wrap the whole thing so all the content is visible. A similar thing applies to chat display, sometimes the text content is truncated from the user and from the ai, and some of the event logs in the chat are a bit squeezed. were there isn't enough spacing around the content of to chat bubble.
+- attaching a file in the chat crashes the app (gemini live)
+- how does the user set up the memory modules?
+- 

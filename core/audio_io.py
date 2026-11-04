@@ -345,6 +345,14 @@ class AudioIO:
         if not text:
             return
 
+        if proactive:
+            try:
+                from core.identity import IdentityService
+                if not IdentityService().is_proactive():
+                    return
+            except Exception:
+                pass
+
         # Check if we should use Gemini Live for speech - only if backend is gemini_live
         backend = "local_loop"
         try:
