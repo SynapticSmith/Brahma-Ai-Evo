@@ -43,11 +43,19 @@ def test_parse_rejects_anything_else(raw):
 
 def test_unknown_and_unimplemented_models_are_the_same_404(tmp_path):
     config = make_config(tmp_path)
-    for raw in ("gpt-4o", "brahma-evo:shell", "brahma-evo:passthrough", "brahma-evo:hybrid"):
+    for raw in ("gpt-4o", "brahma-evo:shell", "brahma-evo:hybrid"):
         with pytest.raises(ApiError) as caught:
             models.resolve(config, principal("reader"), raw)
         assert caught.value.status == 404
         assert caught.value.code == "model_not_found"
+
+
+def test_passthrough_lane_resolves_without_tools(tmp_path):
+    config = make_config(tmp_path)
+    resolved = models.resolve(config, principal("reader"), "brahma-evo:passthrough")
+    assert resolved.lane == "passthrough"
+    assert resolved.tools is False
+    assert resolved.max_turns == 1
 
 
 def test_reader_keeps_tools_and_the_workspace(tmp_path):

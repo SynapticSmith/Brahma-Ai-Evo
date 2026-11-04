@@ -162,3 +162,29 @@ def test_sdk_concurrency_429_raises_rate_limit(tmp_path):
             limiter._global_sem.release()
 
     asyncio.run(_test())
+
+
+def test_sdk_passthrough_tools(api_setup):
+    _config, token, app = api_setup
+
+    async def _test():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as http_client:
+            client = openai.AsyncOpenAI(base_url="http://testserver/v1", api_key=token, http_client=http_client)
+            completion = await client.chat.completions.create(
+                model="brahma-evo:passthrough",
+                messages=[{"role": "user", "content": "test passthrough"}],
+                tools=[
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "calc",
+                            "parameters": {"type": "object", "properties": {"expr": {"type": "string"}}},
+                        },
+                    }
+                ],
+            )
+            assert completion.choices[0].finish_reason in ("stop", "tool_calls")
+            assert "[stub provider]" in completion.choices[0].message.content
+
+    asyncio.run(_test())
+

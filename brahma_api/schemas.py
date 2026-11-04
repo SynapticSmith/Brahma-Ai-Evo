@@ -70,7 +70,12 @@ ADVISORY_PHASE0 = ("max_tokens", "max_completion_tokens", "top_p", "presence_pen
                    "metadata")
 
 
-def validate_request(request: ChatRequest, *, tools_enabled: bool) -> List[str]:
+def validate_request(
+    request: ChatRequest,
+    *,
+    tools_enabled: bool,
+    lane: str = "agent",
+) -> List[str]:
     """Raise ``ApiError`` for fatal parameters; return the advisory ones used.
 
     Failing is the honest answer when the semantics cannot be honoured. The
@@ -103,24 +108,19 @@ def validate_request(request: ChatRequest, *, tools_enabled: bool) -> List[str]:
             param="stop",
         )
     if request.tools:
-        if not tools_enabled:
+        if lane != "passthrough":
             raise invalid(
                 "This model runs its own tools and cannot accept client tools. "
-                "Use model 'brahma-evo:passthrough' (Phase 2) to supply your own.",
+                "Use model 'brahma-evo:passthrough' to supply your own, or 'brahma-evo:hybrid' with an X-Brahma-Session header.",
                 param="tools",
                 code="tools_not_supported",
             )
-        raise invalid(
-            "Client tools are not supported in the agent lane.",
-            param="tools",
-            code="tools_not_supported",
-        )
     if request.tool_choice is not None and not request.tools:
         raise invalid(
             "tool_choice requires tools, and this model does not accept them.",
             param="tool_choice",
         )
-    if request.parallel_tool_calls:
+    if request.parallel_tool_calls and lane != "passthrough":
         raise invalid(
             "parallel_tool_calls is not supported in the agent lane.",
             param="parallel_tool_calls",

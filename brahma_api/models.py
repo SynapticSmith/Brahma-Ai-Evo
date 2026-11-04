@@ -35,8 +35,8 @@ VARIANTS: Dict[str, Tuple[str, Optional[str]]] = {
     "passthrough": ("passthrough", None),
     "hybrid": ("hybrid", None),
 }
-IMPLEMENTED_LANES = ("agent", "plan")
-LISTED_MODELS = ("brahma-evo", "brahma-evo:read", "brahma-evo:plan")
+IMPLEMENTED_LANES = ("agent", "plan", "passthrough")
+LISTED_MODELS = ("brahma-evo", "brahma-evo:read", "brahma-evo:plan", "brahma-evo:passthrough")
 
 
 @dataclass(frozen=True)
@@ -133,7 +133,7 @@ def resolve(
     if profile == "chat":
         alias = None
     workspace = config.workspace_path(alias) if alias else None
-    if profile != "chat":
+    if profile != "chat" and parsed.lane != "passthrough":
         if workspace is None:
             raise forbidden(
                 f"The workspace alias {alias!r} is not configured. "
@@ -147,7 +147,7 @@ def resolve(
             )
 
     tools = profile != "chat" and parsed.lane == "agent"
-    max_turns = 1 if parsed.lane == "plan" else config.limits.max_turns
+    max_turns = 1 if parsed.lane in ("plan", "passthrough") else config.limits.max_turns
     return ResolvedModel(
         model_id=parsed.raw,
         lane=parsed.lane,

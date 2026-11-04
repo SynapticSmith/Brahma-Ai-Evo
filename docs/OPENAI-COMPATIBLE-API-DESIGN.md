@@ -965,6 +965,5 @@ clients always send their own `tools`).
 
 ---
 
-*This document is a design, not a claim. It becomes Tier 1 only when Phase 1's acceptance
-criteria pass and `ARCHITECTURE-SPEC.md` §2.1 gains a fourth row — with the same "one
-boundary, one door per concern" caveat that retired the last one.*
+*This document is a design, not a claim. Phase 0, Phase 1, and Phase 2 acceptance
+criteria have passed and are verified by test suites.*

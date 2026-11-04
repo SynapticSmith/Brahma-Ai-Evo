@@ -42,6 +42,7 @@ def test_models_lists_what_the_key_can_use(tmp_path):
         "brahma-evo",
         "brahma-evo:read",
         "brahma-evo:plan",
+        "brahma-evo:passthrough",
     ]
     assert payload["data"][0]["brahma"]["policy"] == "reader"
 

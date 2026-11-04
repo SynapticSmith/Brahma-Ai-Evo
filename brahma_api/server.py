@@ -21,7 +21,7 @@ import secrets
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import uvicorn
 from fastapi import Depends, FastAPI, Header, Request
@@ -36,6 +36,7 @@ from .errors import (
     ApiError,
     forbidden,
     install_handlers,
+    invalid,
     not_found,
     rate_limited,
     too_large,
@@ -53,6 +54,7 @@ from .streaming import (
     sse_done,
     stream_error_chunk,
     text_delta_chunk,
+    tool_calls_delta_chunk,
     usage_chunk,
 )
 
@@ -134,6 +136,71 @@ class ConcurrencyLimiter:
         return _ReleaseContext(self._global_sem, token_sem)
 
 
+class RateLimiter:
+    """Sliding-window request rate limiter per token (design doc §5.12)."""
+
+    def __init__(self, requests_per_minute: int = 30) -> None:
+        self.rpm = max(1, requests_per_minute)
+        self._history: Dict[str, List[float]] = {}
+        self._lock = asyncio.Lock()
+
+    async def check(self, token_id: str) -> None:
+        now = time.monotonic()
+        async with self._lock:
+            timestamps = self._history.setdefault(token_id, [])
+            cutoff = now - 60.0
+            timestamps = [t for t in timestamps if t > cutoff]
+            self._history[token_id] = timestamps
+            if len(timestamps) >= self.rpm:
+                oldest = timestamps[0]
+                retry_after = max(1, int(60.0 - (now - oldest)) + 1)
+                raise rate_limited(
+                    f"Rate limit of {self.rpm} requests per minute exceeded.",
+                    retry_after=retry_after,
+                )
+            timestamps.append(now)
+
+
+class SessionTracker:
+    """Ensures at most one active run per pinned session, returning 409 when busy."""
+
+    def __init__(self) -> None:
+        self._active: set[str] = set()
+        self._lock = asyncio.Lock()
+
+    async def acquire(self, session_id: str) -> Any:
+        async with self._lock:
+            if session_id in self._active:
+                raise ApiError(
+                    409,
+                    "Session is busy with another run.",
+                    "invalid_request_error",
+                    None,
+                    "session_busy",
+                )
+            self._active.add(session_id)
+
+        class _Release:
+            def __init__(self, tracker: "SessionTracker", sid: str) -> None:
+                self._tracker = tracker
+                self._sid = sid
+                self._released = False
+
+            async def release(self) -> None:
+                if not self._released:
+                    self._released = True
+                    async with self._tracker._lock:
+                        self._tracker._active.discard(self._sid)
+
+            async def __aenter__(self) -> "_Release":
+                return self
+
+            async def __aexit__(self, exc_type: Any, exc_val: Any, tb: Any) -> None:
+                await self.release()
+
+        return _Release(self, session_id)
+
+
 def create_app(
     config: BrahmaApiConfig,
     *,
@@ -154,10 +221,14 @@ def create_app(
         global_limit=config.limits.concurrent_runs,
         per_token_limit=config.limits.concurrent_runs_per_token,
     )
+    rate_limiter = RateLimiter(requests_per_minute=config.limits.requests_per_minute)
+    session_tracker = SessionTracker()
     app.state.config = config
     app.state.registry = tokens
     app.state.runner = agent_runner
     app.state.limiter = limiter
+    app.state.rate_limiter = rate_limiter
+    app.state.session_tracker = session_tracker
 
     @app.middleware("http")
     async def _body_limit(request: Request, call_next: Callable[..., Any]) -> Any:
@@ -224,6 +295,16 @@ def create_app(
             "last_used_at": principal.token.last_used_at,
         }
 
+    @app.get("/v1/brahma/sessions")
+    def list_sessions(principal: Principal = Depends(principal_for)) -> Dict[str, Any]:
+        from agent.session import AgentSession
+
+        recent = AgentSession.recent(limit=50)
+        return {
+            "object": "list",
+            "data": [record.to_dict() for record in recent],
+        }
+
     @app.get("/v1/brahma/runs/{run_id}")
     def get_run(
         run_id: str,
@@ -242,11 +323,67 @@ def create_app(
         body: ChatRequest,
         principal: Principal = Depends(require("chat")),
     ) -> Any:
+        # Rate limiting per token (sliding window)
+        await rate_limiter.check(principal.token.id)
+
         resolved = models.resolve(config, principal, body.model)
-        ignored = validate_request(body, tools_enabled=resolved.tools)
-        seed = translate.build_seed(body.messages, max_messages=config.limits.max_messages)
+        ignored = validate_request(body, tools_enabled=resolved.tools, lane=resolved.lane)
+
+        # GUI Approval Channel
+        approval_header = (request.headers.get("x-brahma-approval") or "deny").strip().lower()
+        if approval_header == "gui":
+            client_ip = request.client.host if request.client else "127.0.0.1"
+            if client_ip not in ("127.0.0.1", "::1", "localhost", "testclient"):
+                raise forbidden("GUI approval is only allowed for loopback callers.", code="policy_denied")
+            if not principal.has_scope("approve"):
+                raise forbidden("This key does not carry the 'approve' scope.", code="insufficient_scope")
+            approval_channel = "gui"
+        elif approval_header == "deny":
+            approval_channel = "deny"
+        else:
+            raise invalid(f"Unknown X-Brahma-Approval {approval_header!r}; choose 'deny' or 'gui'.", param="X-Brahma-Approval")
+
+        # Pinned session binding
+        session_header = (request.headers.get("x-brahma-session") or "").strip()
+        session_id = session_header or (body.user.strip() if body.user else None)
+        sess_record = None
+        session_lock = None
+        if session_id:
+            session_lock = await session_tracker.acquire(session_id)
+            try:
+                from agent.session import AgentSession, SessionNotFound
+                try:
+                    sess_record = AgentSession.open(session_id)
+                except SessionNotFound:
+                    sess_record = AgentSession.create(
+                        cwd=str(resolved.workspace or config.base_dir),
+                        session_id=session_id,
+                        title=f"API session {session_id}",
+                        model=resolved.model_id,
+                    )
+            except Exception:
+                await session_lock.release()
+                raise
+
         run_id = secrets.token_hex(6)
         created = int(time.time())
+
+        if resolved.lane == "passthrough":
+            wire_messages = translate.build_passthrough_messages(
+                body.messages,
+                harness_system="",
+                max_messages=config.limits.max_messages,
+            )
+            seed = None
+        else:
+            wire_messages = None
+            seed = translate.build_seed(body.messages, max_messages=config.limits.max_messages)
+            if sess_record is not None:
+                from agent.session_bridge import history
+                stored_msgs = history(sess_record)
+                if stored_msgs:
+                    # Stored session wins over replayed history (§5.9)
+                    seed = translate.Seed(history=stored_msgs, prompt=seed.prompt, directives=seed.directives)
 
         if body.stream:
             return await _stream_completions(
@@ -255,33 +392,53 @@ def create_app(
                 principal=principal,
                 resolved=resolved,
                 seed=seed,
+                wire_messages=wire_messages,
                 body=body,
                 run_id=run_id,
                 created=created,
                 runner=agent_runner,
                 limiter=limiter,
+                session_lock=session_lock,
+                sess_record=sess_record,
+                session_id=session_id,
+                approval_channel=approval_channel,
             )
 
         # Non-streaming path
         ctx = await limiter.acquire(principal.token.id)
         cancel = threading.Event()
         try:
-            outcome = await asyncio.to_thread(
-                agent_runner.run,
-                principal,
-                resolved,
-                seed,
-                temperature=body.temperature,
-                cancel=cancel,
-                run_id=run_id,
-            )
+            if resolved.lane == "passthrough":
+                outcome = await asyncio.to_thread(
+                    agent_runner.run_passthrough,
+                    principal,
+                    resolved,
+                    wire_messages,
+                    body.tools,
+                    temperature=body.temperature,
+                    cancel=cancel,
+                    run_id=run_id,
+                )
+            else:
+                outcome = await asyncio.to_thread(
+                    agent_runner.run,
+                    principal,
+                    resolved,
+                    seed,
+                    temperature=body.temperature,
+                    cancel=cancel,
+                    run_id=run_id,
+                    approval_channel=approval_channel,
+                )
         except ProviderUnavailable as exc:
             raise unavailable(str(exc)) from exc
         finally:
             ctx.release()
+            if session_lock:
+                await session_lock.release()
 
         result = outcome.result
-        if not result.text.strip():
+        if resolved.lane != "passthrough" and not result.text.strip():
             if result.stop_reason == "permission_denied":
                 raise forbidden(
                     "The agent was denied permission before it could answer.",
@@ -295,6 +452,22 @@ def create_app(
                     None,
                     "internal_error",
                 )
+
+        if sess_record is not None:
+            if resolved.lane != "passthrough":
+                if seed and seed.prompt:
+                    sess_record.append_message({"role": "user", "content": seed.prompt})
+                sess_record.append_message({"role": "assistant", "content": result.text})
+            else:
+                last_user = next((m for m in reversed(body.messages) if m.role == "user"), None)
+                if last_user:
+                    from .translate import _content_text
+                    sess_record.append_message({"role": "user", "content": _content_text(last_user)})
+                asst_entry: Dict[str, Any] = {"role": "assistant", "content": result.text or None}
+                if outcome.tool_calls:
+                    asst_entry["tool_calls"] = outcome.tool_calls
+                sess_record.append_message(asst_entry)
+
         return translate.completion_body(
             run_id=run_id,
             model_id=resolved.model_id,
@@ -306,6 +479,8 @@ def create_app(
             upstream_model=outcome.upstream_model,
             policy_fingerprint=outcome.policy_fingerprint,
             ignored_params=ignored,
+            session_id=session_id,
+            tool_calls=outcome.tool_calls,
         )
 
     return app
@@ -317,12 +492,17 @@ async def _stream_completions(
     config: BrahmaApiConfig,
     principal: Principal,
     resolved: models.ResolvedModel,
-    seed: translate.Seed,
+    seed: Optional[translate.Seed],
+    wire_messages: Optional[List[Dict[str, Any]]],
     body: ChatRequest,
     run_id: str,
     created: int,
     runner: AgentRunner,
     limiter: ConcurrencyLimiter,
+    session_lock: Optional[Any] = None,
+    sess_record: Optional[Any] = None,
+    session_id: Optional[str] = None,
+    approval_channel: str = "deny",
 ) -> StreamingResponse:
     ctx = await limiter.acquire(principal.token.id)
     cancel = threading.Event()
@@ -334,15 +514,28 @@ async def _stream_completions(
 
     def worker() -> None:
         try:
-            outcome = runner.run(
-                principal,
-                resolved,
-                seed,
-                temperature=body.temperature,
-                cancel=cancel,
-                sink_callback=sink_callback,
-                run_id=run_id,
-            )
+            if resolved.lane == "passthrough":
+                outcome = runner.run_passthrough(
+                    principal,
+                    resolved,
+                    wire_messages or [],
+                    body.tools,
+                    temperature=body.temperature,
+                    cancel=cancel,
+                    sink_callback=sink_callback,
+                    run_id=run_id,
+                )
+            else:
+                outcome = runner.run(
+                    principal,
+                    resolved,
+                    seed,  # type: ignore
+                    temperature=body.temperature,
+                    cancel=cancel,
+                    sink_callback=sink_callback,
+                    run_id=run_id,
+                    approval_channel=approval_channel,
+                )
             async_loop.call_soon_threadsafe(queue.put_nowait, {"type": "_done", "outcome": outcome})
         except Exception as exc:
             async_loop.call_soon_threadsafe(queue.put_nowait, {"type": "_error", "exc": exc})
@@ -360,6 +553,10 @@ async def _stream_completions(
                 )
             )
 
+            if session_id:
+                yield sse_comment(f"brahma.session {json.dumps({'id': session_id})}")
+
+            deltas_streamed = False
             done = False
             while not done:
                 # Disconnect detection
@@ -381,6 +578,43 @@ async def _stream_completions(
                     yield sse_comment(
                         f"brahma.tool {json.dumps({'name': event.get('name'), 'chars': event.get('chars')})}"
                     )
+                elif event_type == "delta":
+                    deltas_streamed = True
+                    delta = event.get("delta") or {}
+                    kind = delta.get("kind")
+                    if kind == "text":
+                        text_val = delta.get("text", "")
+                        if text_val:
+                            yield sse_data(
+                                text_delta_chunk(
+                                    run_id=run_id,
+                                    model_id=resolved.model_id,
+                                    content=text_val,
+                                    created=created,
+                                )
+                            )
+                    elif kind == "tool_call":
+                        tc_idx = delta.get("index", 0)
+                        tc_id = delta.get("id")
+                        tc_name = delta.get("name")
+                        tc_args = delta.get("arguments", "")
+                        tc_frag: Dict[str, Any] = {
+                            "index": tc_idx,
+                            "type": "function",
+                            "function": {"arguments": tc_args},
+                        }
+                        if tc_id:
+                            tc_frag["id"] = tc_id
+                        if tc_name:
+                            tc_frag["function"]["name"] = tc_name
+                        yield sse_data(
+                            tool_calls_delta_chunk(
+                                run_id=run_id,
+                                model_id=resolved.model_id,
+                                tool_calls=[tc_frag],
+                                created=created,
+                            )
+                        )
                 elif event_type == "_error":
                     exc = event["exc"]
                     code = "provider_unavailable" if isinstance(exc, ProviderUnavailable) else "internal_error"
@@ -397,51 +631,96 @@ async def _stream_completions(
                     result = outcome.result
                     fingerprint = outcome.policy_fingerprint
 
-                    if not result.text.strip() and result.stop_reason == "permission_denied":
+                    if resolved.lane == "passthrough":
+                        finish_reason = "tool_calls" if outcome.tool_calls else "stop"
+                        if not deltas_streamed:
+                            if result.text:
+                                for piece in split_text_chunks(result.text):
+                                    yield sse_data(
+                                        text_delta_chunk(
+                                            run_id=run_id,
+                                            model_id=resolved.model_id,
+                                            content=piece,
+                                            created=created,
+                                            system_fingerprint=fingerprint,
+                                        )
+                                    )
+                            if outcome.tool_calls:
+                                for idx, tc in enumerate(outcome.tool_calls):
+                                    func = tc.get("function") or {}
+                                    yield sse_data(
+                                        tool_calls_delta_chunk(
+                                            run_id=run_id,
+                                            model_id=resolved.model_id,
+                                            tool_calls=[{
+                                                "index": idx,
+                                                "id": tc.get("id"),
+                                                "type": "function",
+                                                "function": {
+                                                    "name": func.get("name"),
+                                                    "arguments": func.get("arguments", ""),
+                                                },
+                                            }],
+                                            created=created,
+                                            system_fingerprint=fingerprint,
+                                        )
+                                    )
                         yield sse_data(
-                            stream_error_chunk(
-                                "The agent was denied permission before it could answer.",
-                                type="permission_denied",
-                                code="policy_denied",
-                            )
-                        )
-                        done = True
-                        break
-
-                    if not result.text.strip() and result.stop_reason == "error":
-                        yield sse_data(
-                            stream_error_chunk(
-                                "The agent stopped on an internal error before answering.",
-                                type="server_error",
-                                code="internal_error",
-                            )
-                        )
-                        done = True
-                        break
-
-                    # Final mode: stream the assistant's buffered final text
-                    for delta in split_text_chunks(result.text):
-                        yield sse_data(
-                            text_delta_chunk(
+                            finish_chunk(
                                 run_id=run_id,
                                 model_id=resolved.model_id,
-                                content=delta,
+                                finish_reason=finish_reason,
+                                created=created,
+                                system_fingerprint=fingerprint,
+                            )
+                        )
+                    else:
+                        # Agent lane
+                        if not result.text.strip() and result.stop_reason == "permission_denied":
+                            yield sse_data(
+                                stream_error_chunk(
+                                    "The agent was denied permission before it could answer.",
+                                    type="permission_denied",
+                                    code="policy_denied",
+                                )
+                            )
+                            done = True
+                            break
+
+                        if not result.text.strip() and result.stop_reason == "error":
+                            yield sse_data(
+                                stream_error_chunk(
+                                    "The agent stopped on an internal error before answering.",
+                                    type="server_error",
+                                    code="internal_error",
+                                )
+                            )
+                            done = True
+                            break
+
+                        for delta_text in split_text_chunks(result.text):
+                            yield sse_data(
+                                text_delta_chunk(
+                                    run_id=run_id,
+                                    model_id=resolved.model_id,
+                                    content=delta_text,
+                                    created=created,
+                                    system_fingerprint=fingerprint,
+                                )
+                            )
+
+                        finish_reason = translate.FINISH_REASONS.get(result.stop_reason, "stop")
+                        yield sse_data(
+                            finish_chunk(
+                                run_id=run_id,
+                                model_id=resolved.model_id,
+                                finish_reason=finish_reason,
                                 created=created,
                                 system_fingerprint=fingerprint,
                             )
                         )
 
-                    finish_reason = translate.FINISH_REASONS.get(result.stop_reason, "stop")
-                    yield sse_data(
-                        finish_chunk(
-                            run_id=run_id,
-                            model_id=resolved.model_id,
-                            finish_reason=finish_reason,
-                            created=created,
-                            system_fingerprint=fingerprint,
-                        )
-                    )
-
+                    # Usage chunk
                     include_usage = True
                     if body.stream_options is not None:
                         include_usage = bool(body.stream_options.get("include_usage", True))
@@ -456,11 +735,30 @@ async def _stream_completions(
                                 system_fingerprint=fingerprint,
                             )
                         )
+
+                    # Persist session turns
+                    if sess_record is not None:
+                        if resolved.lane != "passthrough":
+                            if seed and seed.prompt:
+                                sess_record.append_message({"role": "user", "content": seed.prompt})
+                            sess_record.append_message({"role": "assistant", "content": result.text})
+                        else:
+                            last_user = next((m for m in reversed(body.messages) if m.role == "user"), None)
+                            if last_user:
+                                from .translate import _content_text
+                                sess_record.append_message({"role": "user", "content": _content_text(last_user)})
+                            asst_entry = {"role": "assistant", "content": result.text or None}
+                            if outcome.tool_calls:
+                                asst_entry["tool_calls"] = outcome.tool_calls
+                            sess_record.append_message(asst_entry)
+
                     done = True
 
             yield sse_done()
         finally:
             ctx.release()
+            if session_lock:
+                await session_lock.release()
 
     return StreamingResponse(
         event_generator(),

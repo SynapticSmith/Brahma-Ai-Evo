@@ -90,6 +90,32 @@ def text_delta_chunk(
     }
 
 
+def tool_calls_delta_chunk(
+    *,
+    run_id: str,
+    model_id: str,
+    tool_calls: List[Dict[str, Any]],
+    created: Optional[int] = None,
+    system_fingerprint: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Delta chunk carrying tool_calls fragments."""
+    return {
+        "id": f"chatcmpl-{run_id}",
+        "object": "chat.completion.chunk",
+        "created": created or int(time.time()),
+        "model": model_id,
+        "system_fingerprint": system_fingerprint,
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"tool_calls": tool_calls},
+                "finish_reason": None,
+                "logprobs": None,
+            }
+        ],
+    }
+
+
 def finish_chunk(
     *,
     run_id: str,

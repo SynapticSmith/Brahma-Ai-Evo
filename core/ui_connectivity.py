@@ -2749,6 +2749,14 @@ class SystemConnectivityPage(QWidget):
         except Exception:
             pass
 
+        # OpenAI-Compatible API Surface (ADR-022, Phase 2)
+        try:
+            from core.ui_openai_port import build_openai_port_card
+
+            lay.addWidget(build_openai_port_card(self))
+        except Exception:
+            pass
+
         # Tool & Skill Index (must come after the MCP card: it reports on them)
         lay.addWidget(self._build_tool_index_card())
 

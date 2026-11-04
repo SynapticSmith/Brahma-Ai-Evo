@@ -144,6 +144,55 @@ def build_seed(messages: List[ChatMessage], *, max_messages: int) -> Seed:
     return Seed(history=history, prompt=prompt, directives=directives)
 
 
+def build_passthrough_messages(
+    messages: List[ChatMessage],
+    *,
+    harness_system: str = "",
+    max_messages: int = 200,
+) -> List[Dict[str, Any]]:
+    """Preserve wire messages verbatim for the passthrough model lane."""
+    if not messages:
+        raise invalid("messages must contain at least one message.", param="messages")
+    if len(messages) > max_messages:
+        raise invalid(
+            f"messages has {len(messages)} entries; the limit is {max_messages}.",
+            param="messages",
+        )
+
+    directives: List[str] = []
+    wire: List[Dict[str, Any]] = []
+
+    for message in messages:
+        role = str(message.role or "").lower()
+        text = _content_text(message)
+        if role in ("system", "developer"):
+            if text.strip():
+                directives.append(text.strip())
+            continue
+        if role == "user":
+            wire.append({"role": "user", "content": text})
+            continue
+        if role == "assistant":
+            entry: Dict[str, Any] = {"role": "assistant", "content": text or None}
+            if message.tool_calls:
+                entry["tool_calls"] = message.tool_calls
+            wire.append(entry)
+            continue
+        if role == "tool":
+            entry = {"role": "tool", "content": text}
+            if message.tool_call_id:
+                entry["tool_call_id"] = message.tool_call_id
+            wire.append(entry)
+            continue
+        raise invalid(f"Unknown message role {role!r}.", param="messages")
+
+    system_text = compose_system(harness_system, directives) if harness_system else ("\n\n".join(directives) if directives else "")
+    if system_text:
+        wire.insert(0, {"role": "system", "content": system_text})
+
+    return wire
+
+
 def extract_usage(result_usage: Dict[str, Any]) -> Optional[Dict[str, int]]:
     """`null` when the provider did not report counts. I-22: never zero for unknown."""
     if not result_usage.get("tokens_reported"):
@@ -171,8 +220,14 @@ def completion_body(
     policy_fingerprint: str,
     ignored_params: List[str],
     session_id: Optional[str] = None,
+    tool_calls: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """The non-streaming response body (design doc §5.6)."""
+    finish_reason = "tool_calls" if tool_calls else FINISH_REASONS.get(stop_reason, "stop")
+    message: Dict[str, Any] = {"role": "assistant", "content": text if (text or not tool_calls) else None}
+    if tool_calls:
+        message["tool_calls"] = tool_calls
+
     return {
         "id": f"chatcmpl-{run_id}",
         "object": "chat.completion",
@@ -181,8 +236,8 @@ def completion_body(
         "choices": [
             {
                 "index": 0,
-                "message": {"role": "assistant", "content": text},
-                "finish_reason": FINISH_REASONS.get(stop_reason, "stop"),
+                "message": message,
+                "finish_reason": finish_reason,
                 "logprobs": None,
             }
         ],
@@ -193,7 +248,7 @@ def completion_body(
             "lane": lane,
             "stop_reason": stop_reason,
             "turns": int(result_usage.get("turns") or 0),
-            "tool_calls": int(result_usage.get("tool_calls") or 0),
+            "tool_calls": len(tool_calls) if tool_calls else int(result_usage.get("tool_calls") or 0),
             "session_id": session_id,
             "upstream_provider": provider,
             "upstream_model": upstream_model,
