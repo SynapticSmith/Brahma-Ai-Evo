@@ -729,7 +729,7 @@ ightarrow$ 10 min lockout), and replay-protected nonces enforced across all HTTP
 | `SECURITY-ARCHITECTURE-ROADMAP.md` | 1,190 | 2 | Proposed |
 | `UPSTREAM-INTEGRATION-PLAN.md` | 629 | 2 | Authoritative plan & architectural divergence analysis |
 | `DEFERRED-TOOL-PROXY-MISSION.md` | 110 | 2 | Open investigation |
-| `OPENAI-COMPATIBLE-API-DESIGN.md` | 970 | 2 | Proposed design; Phase 0 code exists (proposes ADR-022) |
+| `OPENAI-COMPATIBLE-API-DESIGN.md` | 970 | 2 | Proposed design; Phase 0+1+2 implemented (proposes ADR-022) |
 | `CODE-REVIEW-TODO.md` | 899 | 3 | Historical rules |
 | `VERSION-1.0.1-LOG.md` | 1,287 | 3 | Historical |
 | `VERSION-1.0.1-CHANGES.md` | 1,037 | 3 | Historical |
@@ -800,6 +800,19 @@ ightarrow$ 10 min lockout), and replay-protected nonces enforced across all HTTP
 - **Connector Interface:** Established `BaseMemoryConnector` protocol in `memory/connectors/base.py`.
 - **Local Engine:** Hardened `LocalMemoryConnector` backed by SQLite and semantic JSON facts.
 - **External Hooks:** Implemented `Mem0MemoryConnector` (vector/graph) and `LettaMemoryConnector` (tiered REST archival memory) with factory resolution.
+
+### D.6 UI Ergonomics, Proactive Voice Control & Layout Polish (User Notes)
+- **Proactive Comment Control:** Added an explicit toggle in Settings Hub under Voice/Speech settings (`proactive_voice_comments_enabled`) controlling unsolicited spoken observations from `actions/attention_monitor.py` and `core/audio_io.py`.
+- **Permission Overlay Sizing:** Relaxed height clamping on `ConfirmationOverlay` in `core/ui_overlays.py` and wrapped action summaries with a minimum dialog height and scroll containment, eliminating button clipping.
+- **Chat & Event Card Spacing:** Removed 160-char text clamping on `EventCard`, enhanced line-height and bubble margins in `core/ui_chat.py`.
+- **File Attachment Guard:** Handled drag-and-drop and attachment button files in Live chat sessions without tearing down the WebSocket audio loop (`core/ui_runtime.py`, `core/audio_io.py`). Guarded by `tests/test_ui_user_notes_fixes.py`.
+
+### D.7 OpenAI-Compatible Loopback Port Phase 0, 1 & 2 (ADR-022, brahma_api)
+- **Loopback HTTP Server:** `brahma_api/` transport package listening on `127.0.0.1:8010` providing standard `GET /v1/models` and `POST /v1/chat/completions`.
+- **Streaming & Non-Streaming:** Supports non-streaming JSON and real-time SSE streaming (`text/event-stream`) in `final` mode with keepalive frames and clean client cancellation.
+- **Token Management & Presets:** Cryptographically hashed token storage (`config/brahma_api/tokens.json`) with safe capability presets (`chat`, `reader`, `worker`, `operator`).
+- **Passthrough Lane:** Exposes `brahma-evo:passthrough` so external coding assistants (Cline, Cursor, Continue) can supply their own tool arrays while routing through Brahma's provider chain.
+- **GUI Control & Settings Card:** Integrated `OpenAIPortCard` in Settings Hub (`core/ui_openai_port.py`) for port activation, token generation, and real-time revocation. Full lifecycle wired into `main.py`. Guarded by `tests/test_api_*.py`.
 
 ---
 

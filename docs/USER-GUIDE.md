@@ -145,7 +145,82 @@ If an action encounters a bug or exception:
 
 ---
 
-## 7. Keyboard Shortcuts
+## 7. OpenAI-Compatible Loopback API (`brahma_api`)
+
+Brahma AI Evo includes a built-in, local OpenAI-compatible HTTP server running on `http://127.0.0.1:8010/v1`. This allows external coding agents, editor plugins, and scripts to use Brahma as their agentic backend.
+
+### Enabling the Port
+1. Open **Settings Hub** (`Ctrl+,`) and navigate to **System Connectivity**.
+2. Locate the **OpenAI-Compatible Local API (Port 8010)** card.
+3. Toggle the switch to **Enabled** (or set `"enabled": true` in `config/brahma_api/config.json`).
+
+### Minting API Tokens & Presets
+To maintain strict least-privilege security, all external calls require a Bearer token with an explicit capability preset:
+- **`chat`**: Pure conversational reasoning without tool or filesystem execution.
+- **`reader`**: Read-only tools (`read_file`, `list_directory`, inspection).
+- **`worker`**: Safe state-modifying actions contained within your project workspace.
+- **`operator`**: Full capability surface (requires confirmation dialogs for sensitive actions).
+
+In the **OpenAI-Compatible Local API** card, select your desired preset from the dropdown and click **➕ Mint New Token**. Store the token immediately, as only its SHA-256 hash is saved to disk.
+
+### Connecting External Tools
+
+#### 1. Cline (VS Code Extension)
+- **API Provider**: `OpenAI-Compatible`
+- **Base URL**: `http://127.0.0.1:8010/v1`
+- **API Key**: Your minted Brahma bearer token
+- **Model ID**: `brahma-evo:passthrough` (allows Cline to execute its own tools while using Brahma's routing) or `brahma-evo`
+
+#### 2. Continue.dev (`config.json`)
+```json
+{
+  "models": [
+    {
+      "title": "Brahma Evo",
+      "provider": "openai",
+      "model": "brahma-evo",
+      "apiBase": "http://127.0.0.1:8010/v1",
+      "apiKey": "YOUR_MINTED_TOKEN"
+    }
+  ]
+}
+```
+
+#### 3. Python SDK or Custom Script
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:8010/v1",
+    api_key="YOUR_MINTED_TOKEN"
+)
+
+response = client.chat.completions.create(
+    model="brahma-evo",
+    messages=[{"role": "user", "content": "List the files in my workspace"}]
+)
+print(response.choices[0].message.content)
+```
+
+---
+
+## 8. Proactive Voice Comments & Attention
+
+By default, Brahma can make thoughtful, proactive voice observations when significant system events or tasks occur.
+- **Controlling Proactive Speech**: In **Settings Hub** under **Speech Engines**, toggle **Proactive Voice Comments** on or off. When disabled, Brahma only speaks when explicitly addressed or when finishing a requested action.
+
+---
+
+## 9. Troubleshooting & FAQ
+
+### Custom Endpoint Connection Issues
+- **Expected URL Format**: The **Remote URL** field in Settings expects the OpenAI Base URL (e.g. `http://localhost:20128/v1` or `http://127.0.0.1:20128/v1`). Brahma automatically targets `/chat/completions`.
+- **`localhost` vs `127.0.0.1` on Windows**: On Windows systems, `localhost` attempts IPv6 (`[::1]`) before falling back to IPv4. Using `http://127.0.0.1:<port>/v1` provides lower latency and avoids connection timeouts.
+- **HTTP 401 or 400 Errors**: Ensure you have entered your API Key and a currently active model ID in Settings > AI Providers. If an upstream provider in a proxy/router exhausts its token quota, switch the model to an active backup.
+
+---
+
+## 10. Keyboard Shortcuts
 
 | Shortcut | Action |
 |---|---|

@@ -1,6 +1,6 @@
 # Brahma Evo as an OpenAI-Compatible Endpoint — Research & Design
 
-**Status:** Phase 0 and Phase 1 built. Tier 2 in the document map.
+**Status:** Phase 0, Phase 1, and Phase 2 built. Tier 2 in the document map.
 **Capability:** per key — `chat` (no tools, no workspace), `reader` (read-only), `worker` (workspace write/MCP), `operator` (full policy). Chosen at mint time; never implicit. §6.3.
 **Created:** 2026-11-03
 **Baseline:** `main` @ `b188305` (2026-11-03), working tree clean.
