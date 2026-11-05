@@ -36,7 +36,6 @@ import llm_client as llm_client_mod
 from core import local_brain as local_brain_mod
 from core.local_brain import (
     LOCAL_NUM_CTX,
-    STREAM_IDLE_TIMEOUT,
     TIMEOUT_PROFILES,
     LocalBrain,
     LocalBrainError,
@@ -456,7 +455,17 @@ def test_stream_tightens_to_idle_after_first_byte(monkeypatch):
     chunks = list(brain.generate_chat_stream([{"role": "user", "content": "hi"}]))
 
     assert chunks == [{"choices": [{"delta": {"content": "hi"}}]}]
-    assert stream.sock.timeouts == [STREAM_IDLE_TIMEOUT]
+    assert stream.sock.timeouts == [brain.stream_idle_timeout()]
+
+
+def test_stream_tightens_to_configured_idle_timeout(monkeypatch):
+    brain = _brain_with_settings(monkeypatch, {"local_stream_idle_timeout_s": 45.0})
+    stream = _FakeStream([b'data: {"choices": [{"delta": {"content": "hi"}}]}\n'])
+    monkeypatch.setattr(brain, "_open_stream", lambda req: stream)
+
+    chunks = list(brain.generate_chat_stream([{"role": "user", "content": "hi"}]))
+    assert chunks == [{"choices": [{"delta": {"content": "hi"}}]}]
+    assert stream.sock.timeouts == [45.0]
 
 
 def test_stream_tightening_failure_leaves_first_token_budget(monkeypatch):
