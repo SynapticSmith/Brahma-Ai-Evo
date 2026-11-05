@@ -259,6 +259,28 @@ def test_serve_stream(server: MCPServer) -> None:
     assert r2["id"] == 2
 
 
+def test_serve_forces_utf8_and_lf_framing(server: MCPServer, workspace: Path) -> None:
+    """A legacy Windows code page must not mangle or crash non-ASCII output."""
+    (workspace / "arrow.txt").write_text("rule \u21d2 note", encoding="utf-8")
+    uri = (workspace / "arrow.txt").resolve().as_uri()
+    request = json.dumps({
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "resources/read",
+        "params": {"uri": uri},
+    }) + "\n"
+
+    raw = io.BytesIO()
+    writer = io.TextIOWrapper(raw, encoding="cp1252", newline="\r\n")
+    server.serve(io.StringIO(request), writer)
+    writer.flush()
+    data = raw.getvalue()
+
+    assert b"\r\n" not in data
+    assert "\u21d2".encode("utf-8") in data
+    assert json.loads(data.decode("utf-8"))["id"] == 7
+
+
 def test_cli_mcp_server_invocation(workspace: Path) -> None:
     import sys
     from agent.__main__ import main

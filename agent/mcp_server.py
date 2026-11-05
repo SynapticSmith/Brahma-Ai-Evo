@@ -26,6 +26,17 @@ from . import code_tools as _code_tools  # noqa: F401 - ensures code tool specs 
 
 logger = logging.getLogger("agent.mcp_server")
 
+
+def _force_utf8(stream: TextIO) -> None:
+    """Reconfigure a text stream to UTF-8/LF when the platform allows it."""
+    reconfigure = getattr(stream, "reconfigure", None)
+    if reconfigure is None:
+        return
+    try:
+        reconfigure(encoding="utf-8", errors="replace", newline="\n")
+    except (ValueError, OSError):  # detached or already-closed stream
+        pass
+
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "brahma-agent"
 SERVER_VERSION = "1.1.1"
@@ -316,6 +327,13 @@ class MCPServer:
         """Run the stdio loop until EOF."""
         in_stream = reader or sys.stdin
         out_stream = writer or sys.stdout
+
+        # MCP framing is UTF-8 with LF line endings. A Windows console pipe
+        # defaults to a legacy code page (cp1252) and CRLF, so a tool result
+        # containing any other character would raise UnicodeEncodeError and
+        # kill the server mid-session.
+        _force_utf8(in_stream)
+        _force_utf8(out_stream)
 
         for raw_line in in_stream:
             resp_str = self.handle_line(raw_line)
