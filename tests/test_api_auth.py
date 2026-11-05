@@ -141,3 +141,29 @@ def test_touch_updates_memory_only(tmp_path):
     registry.touch(record.id)
     assert registry.records()[0].last_used_at is not None
     assert config.tokens_path.read_text(encoding="utf-8") == before
+
+
+def test_concurrent_mint_no_file_collision(tmp_path):
+    import concurrent.futures
+
+    config = make_config(tmp_path)
+    registries = [TokenRegistry(config.tokens_path) for _ in range(10)]
+    results = []
+
+    def _do_mint(reg, idx):
+        return reg.mint("reader", workspace=f"test_{idx}", label=f"client_{idx}")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+        futures = [pool.submit(_do_mint, registries[i], i) for i in range(10)]
+        for f in concurrent.futures.as_completed(futures):
+            results.append(f.result())
+
+    assert len(results) == 10
+    final_reg = TokenRegistry(config.tokens_path)
+    records = final_reg.records()
+    assert len(records) == 10
+    for rec, tok in results:
+        verified = final_reg.verify(tok)
+        assert verified is not None
+        assert verified.id == rec.id
+

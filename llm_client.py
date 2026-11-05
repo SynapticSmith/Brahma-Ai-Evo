@@ -163,6 +163,10 @@ class UnifiedAIClient:
                     data = resp.json()
                 message = data.get("choices", [{}])[0].get("message", {}) or {}
                 if return_message:
+                    usage = data.get("usage")
+                    if isinstance(usage, dict) and "usage" not in message:
+                        message = dict(message)
+                        message["usage"] = usage
                     return message
                 content = message.get("content", "")
                 return content.strip() if content else None

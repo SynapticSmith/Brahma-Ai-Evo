@@ -219,3 +219,72 @@ def test_agent_lane_refuses_client_tools_with_specific_error(tmp_path: Path):
     body = response.json()
     assert body["error"]["code"] == "tools_not_supported"
     assert "brahma-evo:passthrough" in body["error"]["message"]
+
+
+def test_passthrough_extracts_provider_usage(tmp_path: Path):
+    config = make_config(tmp_path)
+    _rec, token = mint(config, "reader")
+
+    def mock_factory(provider, model, **_kw):
+        def complete(messages, tools):
+            return {
+                "role": "assistant",
+                "content": "Hello with usage",
+                "usage": {
+                    "prompt_tokens": 15,
+                    "completion_tokens": 25,
+                    "total_tokens": 40,
+                },
+            }
+
+        return complete
+
+    client = build_client(config, factory=mock_factory)
+    payload = {
+        "model": "brahma-evo:passthrough",
+        "messages": [{"role": "user", "content": "hello"}],
+    }
+    response = client.post("/v1/chat/completions", headers=auth(token), json=payload)
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["usage"] == {
+        "prompt_tokens": 15,
+        "completion_tokens": 25,
+        "total_tokens": 40,
+    }
+    assert data["brahma"]["tokens_reported"] is True
+
+
+def test_passthrough_extracts_gemini_usage_metadata(tmp_path: Path):
+    config = make_config(tmp_path)
+    _rec, token = mint(config, "reader")
+
+    def mock_factory(provider, model, **_kw):
+        def complete(messages, tools):
+            return {
+                "role": "assistant",
+                "content": "Hello Gemini usage",
+                "usage_metadata": {
+                    "prompt_token_count": 12,
+                    "candidates_token_count": 18,
+                    "total_token_count": 30,
+                },
+            }
+
+        return complete
+
+    client = build_client(config, factory=mock_factory)
+    payload = {
+        "model": "brahma-evo:passthrough",
+        "messages": [{"role": "user", "content": "hello"}],
+    }
+    response = client.post("/v1/chat/completions", headers=auth(token), json=payload)
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["usage"] == {
+        "prompt_tokens": 12,
+        "completion_tokens": 18,
+        "total_tokens": 30,
+    }
+    assert data["brahma"]["tokens_reported"] is True
+

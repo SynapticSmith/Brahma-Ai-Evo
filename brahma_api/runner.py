@@ -343,12 +343,15 @@ class AgentRunner:
             "turns": 1,
             "tool_calls": len(tool_calls or []),
         }
-        if isinstance(resp, dict) and "usage" in resp and isinstance(resp["usage"], dict):
-            u = resp["usage"]
-            usage["prompt_tokens"] = int(u.get("prompt_tokens") or 0)
-            usage["completion_tokens"] = int(u.get("completion_tokens") or 0)
-            usage["total_tokens"] = int(u.get("total_tokens") or 0)
-            usage["tokens_reported"] = True
+        if isinstance(resp, dict):
+            from agent.usage import extract_usage as _extract_tokens
+
+            tokens = _extract_tokens(resp)
+            if tokens:
+                usage["prompt_tokens"] = int(tokens.get("prompt_tokens") or 0)
+                usage["completion_tokens"] = int(tokens.get("completion_tokens") or 0)
+                usage["total_tokens"] = int(tokens.get("total_tokens") or 0)
+                usage["tokens_reported"] = True
 
         result = AgentResult(
             text=text,

@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -274,9 +276,23 @@ class BrahmaApiConfig:
     def save(self) -> Path:
         path = self.config_path
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(self.to_dict(), indent=2) + "\n", encoding="utf-8")
-        os.replace(tmp, path)
+        tmp = path.parent / f"{path.name}.{os.getpid()}.{secrets.token_hex(8)}.tmp"
+        try:
+            tmp.write_text(json.dumps(self.to_dict(), indent=2) + "\n", encoding="utf-8")
+            for attempt in range(15):
+                try:
+                    os.replace(tmp, path)
+                    break
+                except (PermissionError, OSError):
+                    if attempt == 14:
+                        raise
+                    time.sleep(0.02 * (attempt + 1))
+        finally:
+            if tmp.exists():
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
         return path
 
 

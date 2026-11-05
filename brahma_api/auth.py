@@ -32,6 +32,28 @@ SCOPES = ("chat", "models", "diagnostics", "approve", "admin")
 DEFAULT_SCOPES: Tuple[str, ...] = ("chat", "models")
 RELOAD_INTERVAL_S = 1.0
 
+_PATH_LOCKS: Dict[str, threading.Lock] = {}
+_PATH_LOCKS_GUARD = threading.Lock()
+
+
+def _normalize_path(path: Path) -> str:
+    s = os.path.normcase(os.path.abspath(path))
+    if s.startswith("\\\\?\\"):
+        s = s[4:]
+    return s
+
+
+def _get_path_lock(path: Path) -> threading.Lock:
+    key = _normalize_path(path)
+    with _PATH_LOCKS_GUARD:
+        lock = _PATH_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _PATH_LOCKS[key] = lock
+        return lock
+
+
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -202,6 +224,16 @@ class TokenRegistry:
             if mtime != self._mtime_ns:
                 self.load()
 
+    def reload_if_changed(self) -> None:
+        """Reload from disk immediately if the file modified timestamp changed."""
+        with self._lock:
+            try:
+                mtime = self.path.stat().st_mtime_ns
+            except OSError:
+                return
+            if mtime != self._mtime_ns:
+                self.load()
+
     # -- queries -----------------------------------------------------------
 
     def records(self) -> List[TokenRecord]:
@@ -285,19 +317,23 @@ class TokenRegistry:
             upstream_model=upstream_model,
             created_at=_now(),
         )
-        with self._lock:
-            self._records[record.id] = record
-            self._save()
+        with _get_path_lock(self.path):
+            with self._lock:
+                self.load()
+                self._records[record.id] = record
+                self._save()
         return record, plaintext
 
     def revoke(self, token_id: str) -> bool:
-        with self._lock:
-            record = self._records.get(token_id)
-            if record is None:
-                return False
-            self._records[token_id] = replace(record, revoked=True)
-            self._save()
-            return True
+        with _get_path_lock(self.path):
+            with self._lock:
+                self.load()
+                record = self._records.get(token_id)
+                if record is None:
+                    return False
+                self._records[token_id] = replace(record, revoked=True)
+                self._save()
+                return True
 
     # -- persistence -------------------------------------------------------
 
@@ -307,9 +343,23 @@ class TokenRegistry:
             "version": 1,
             "tokens": [record.to_dict() for record in self._records.values()],
         }
-        tmp = self.path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        os.replace(tmp, self.path)
+        tmp = self.path.parent / f"{self.path.name}.{os.getpid()}.{secrets.token_hex(8)}.tmp"
+        try:
+            tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+            for attempt in range(15):
+                try:
+                    os.replace(tmp, self.path)
+                    break
+                except (PermissionError, OSError):
+                    if attempt == 14:
+                        raise
+                    time.sleep(0.02 * (attempt + 1))
+        finally:
+            if tmp.exists():
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
         try:
             os.chmod(self.path, 0o600)
         except OSError:

@@ -15,6 +15,13 @@ The ticked items below have been investigated, fixed in code, tested in CI, and 
 - [x] **Chat File Attachment Handling**: Handled drag-and-drop file attachments in Live chat sessions without disconnecting the WebSocket audio loop (`core/ui_runtime.py`, `core/audio_io.py`).
 - [x] **Memory Modules Setup Documentation**: Documented step-by-step setup for Local, Mem0, and Letta in `docs/USER-GUIDE.md` Section 6.
 - [x] **Exhaustive Documentation Catch-up**: Updated `docs/USER-GUIDE.md`, `docs/ARCHITECTURE-SPEC.md`, and `docs/OPENAI-COMPATIBLE-API-DESIGN.md` covering all newly landed subsystems.
+- [x] **API Provider & Fallback Chain Resolution**: API now honours `default_ai_provider`, provider router chain, and settings-enabled flags instead of hardcoding local-first (`agent/providers.py`, `brahma_api/runner.py`). Added first-call failover and Gemini harness adapter.
+- [x] **Harness Native Web Tools**: Added stdlib `web_search` and `web_fetch` in `agent/web.py` gated under `network` permission class (`agent/spec.py`). Available to `worker` and `operator` profiles and propagated to subagents.
+- [x] **Local Inference Timeouts & Configurable API Wall Clock**: Fixed JSON probe parsing in `core/local_brain.py`, made timeouts settings-backed (`core/popup_settings.py`), and raised/configured API wall clock in `brahma_api/config.py`.
+- [x] **Subagent SSE Observability**: Emitted structured subagent events (`subagent_started`, `subagent_tool`, `subagent_report`) in SSE streams (`agent/subagent.py`, `agent/loop.py`); ensured reports cross back on turn exhaustion or cancellation.
+- [x] **Configurable Popup Auto-Dismiss**: Added user settings for task card & daily briefing auto-dismissal and timeout seconds in Settings Hub with separate bounded approval timeout (`core/popup_settings.py`, `core/ui_connectivity.py`).
+- [x] **Concurrent Token Minting & Provider Usage Reporting**: Resolved token temp file collisions on Windows via unique temp paths, path normalization, and retry backoff (`brahma_api/auth.py`, `brahma_api/config.py`). Preserved token usage reporting from Gemini (`usage_metadata`) and OpenAI (`usage`) across passthrough and agent lanes (`agent/providers.py`, `llm_client.py`, `brahma_api/runner.py`).
+
 
 ---
 

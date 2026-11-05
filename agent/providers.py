@@ -306,6 +306,9 @@ def _gemini_message(body: Any) -> Dict[str, Any]:
     tool_calls = message.get("tool_calls")
     if isinstance(tool_calls, list) and tool_calls:
         out["tool_calls"] = tool_calls
+    usage = body.get("usage") or body.get("usage_metadata") or body.get("usageMetadata")
+    if isinstance(usage, dict):
+        out["usage"] = usage
     return out
 
 
@@ -350,6 +353,7 @@ def _gemini_stream(
         "messages": messages,
         "temperature": temperature,
         "stream": True,
+        "stream_options": {"include_usage": True},
     }
     if tools:
         payload["tools"] = tools
