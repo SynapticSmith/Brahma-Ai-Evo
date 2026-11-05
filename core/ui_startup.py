@@ -105,6 +105,22 @@ def _default_app_settings() -> dict:
         "provider_enabled_openrouter": True,
         "provider_enabled_local": True,
         "provider_enabled_custom": True,
+        # Cosmetic popups. `popup_dismiss_seconds` of 0 means the per-surface
+        # default (4 s task card / 30 s briefing). Approval is separate and
+        # capped in core/popup_settings.py; it is never covered by the toggle.
+        "popup_auto_dismiss_enabled": True,
+        "popup_dismiss_seconds": 0,
+        "approval_timeout_seconds": 90,
+        # Local inference budgets. 0/blank keeps the active profile's value;
+        # these stay finite on purpose (see core/local_brain.py).
+        "local_timeout_profile": "auto",
+        "local_response_timeout_s": 0,
+        "local_first_token_timeout_s": 0,
+        "local_stream_idle_timeout_s": 0,
+        # Harness web tools (agent/web.py). Keyless DuckDuckGo by default;
+        # brave/tavily/serpapi use a key from api_keys.json or the environment.
+        "web_search_backend": "duckduckgo",
+        "web_allow_private_hosts": False,
         # Background memory extraction. Deliberately independent of the selected
         # provider: running locally is when you still want the memory graph built.
         "memory_extraction_enabled": True,

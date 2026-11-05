@@ -68,6 +68,10 @@ class _Pending:
     #: What "always allow" would remember, in the user's words. Shown under the
     #: banner so the button is not a blank cheque.
     remember: str = ""
+    #: The budget this prompt was shown with. ``resolve`` compares against it
+    #: rather than the module constant, so a caller-supplied (or Settings)
+    #: timeout is actually enforced.
+    timeout: float = TIMEOUT_SECONDS
 
 
 _pending: Optional[_Pending] = None
@@ -143,6 +147,16 @@ def ask_blocking_choice(
         allow_always=True,
         remember=str(remember),
     )
+    # Approval is the one popup that must still expire. The Settings value is
+    # clamped to a finite range; an explicit caller timeout (the API's
+    # ``limits.approval_timeout_s``) is clamped to the same ceiling.
+    try:
+        from core.popup_settings import clamp_approval_timeout
+
+        wait_for = clamp_approval_timeout(timeout)
+    except Exception:
+        wait_for = TIMEOUT_SECONDS if timeout is None else max(1.0, float(timeout))
+    pending.timeout = wait_for
     with _lock:
         _pending = pending
 
@@ -156,7 +170,6 @@ def ask_blocking_choice(
         return "deny"
 
     _log(f"SYS: Awaiting approval — {key}")
-    wait_for = TIMEOUT_SECONDS if timeout is None else max(1.0, float(timeout))
     answered = pending.waiter.wait(wait_for)
     if not answered:
         with _lock:
@@ -239,7 +252,7 @@ def resolve(accepted: bool, *, always: bool = False) -> None:
     if p is None:
         return
 
-    expired = time.monotonic() - p.at > TIMEOUT_SECONDS
+    expired = time.monotonic() - p.at > p.timeout
     if expired:
         _log(f"SYS: Confirmation expired — {p.title}")
         if p.waiter is not None:
@@ -276,7 +289,7 @@ def pending_title() -> str:
     with _lock:
         if _pending is None:
             return ""
-        if time.monotonic() - _pending.at > TIMEOUT_SECONDS:
+        if time.monotonic() - _pending.at > _pending.timeout:
             return ""
         return _pending.title
 

@@ -128,8 +128,11 @@ def select_tools(
 
     ``requested`` is intersected with what the parent actually has: a model
     cannot grant a child a tool the parent was not given. With no request the
-    surface is the parent's read-class tools, which is the useful default for
-    research and review tasks and cannot mutate the workspace.
+    surface is the parent's read-class tools plus its network-class tools (the
+    native web search/fetch pair), which is the useful default for research and
+    review tasks and cannot mutate the workspace. The parent surface has
+    already been filtered by policy, so a ``reader`` parent never has network
+    tools to pass on.
     """
     wanted = {
         str(name).strip()
@@ -146,7 +149,11 @@ def select_tools(
         if wanted:
             if name not in wanted:
                 continue
-        elif spec is None or spec.tool_class != "read" or "desktop" in spec.tags:
+        elif (
+            spec is None
+            or "desktop" in spec.tags
+            or spec.tool_class not in ("read", "network")
+        ):
             continue
         chosen.append(item)
         seen.add(name)

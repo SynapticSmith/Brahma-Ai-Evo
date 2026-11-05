@@ -47,6 +47,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSlider,
+    QSpinBox,
     QStackedWidget,
     QStyle,
     QVBoxLayout,
@@ -1479,6 +1480,80 @@ class SystemConnectivityPage(QWidget):
     # ------------------------------------------------------------------
     # Speech engines (core/speech_stt.py, core/speech_tts.py)
     # ------------------------------------------------------------------
+    def _build_popup_card(self):
+        """Cosmetic timers (task card + briefing) and the separate approval budget.
+
+        The toggle is deliberately not wired to approval: a prompt that asks for
+        permission must always expire, otherwise a forgotten banner becomes a
+        live button on the HUD for the rest of the day. The approval budget is
+        capped at the same ceiling the confirm module enforces.
+        """
+        card = self._card(
+            "Popup Timers",
+            "How long the task card and the daily briefing stay on screen. "
+            "Approval prompts are separate and always expire.",
+        )
+        lay = card.layout()
+        settings = self._load_app_settings()
+
+        enabled = bool(settings.get("popup_auto_dismiss_enabled", True))
+        toggle = self._mk_toggle(
+            "Auto-dismiss the task card and daily briefing",
+            enabled,
+            lambda checked: self._set_setting(
+                "popup_auto_dismiss_enabled", bool(checked)
+            ),
+        )
+        lay.addWidget(toggle)
+
+        seconds_row = QHBoxLayout()
+        seconds_row.addWidget(QLabel("Dismiss after (seconds)"))
+        seconds = QSpinBox()
+        seconds.setRange(0, 600)
+        seconds.setSpecialValueText("Surface default (4 s card / 30 s briefing)")
+        try:
+            seconds.setValue(int(settings.get("popup_dismiss_seconds", 0) or 0))
+        except (TypeError, ValueError):
+            seconds.setValue(0)
+        seconds.setEnabled(enabled)
+        seconds.valueChanged.connect(
+            lambda value: self._set_setting("popup_dismiss_seconds", int(value))
+        )
+        toggle.toggled.connect(seconds.setEnabled)
+        seconds_row.addWidget(seconds, 1)
+        lay.addLayout(seconds_row)
+
+        seconds_note = QLabel(
+            "0 keeps the per-surface default. With auto-dismiss off, a popup "
+            "stays until the next task or until you close it."
+        )
+        seconds_note.setWordWrap(True)
+        seconds_note.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
+        lay.addWidget(seconds_note)
+
+        approval_row = QHBoxLayout()
+        approval_row.addWidget(QLabel("Approval prompt timeout (seconds)"))
+        approval = QSpinBox()
+        approval.setRange(10, 600)
+        try:
+            approval.setValue(int(settings.get("approval_timeout_seconds", 90) or 90))
+        except (TypeError, ValueError):
+            approval.setValue(90)
+        approval.valueChanged.connect(
+            lambda value: self._set_setting("approval_timeout_seconds", int(value))
+        )
+        approval_row.addWidget(approval, 1)
+        lay.addLayout(approval_row)
+
+        approval_note = QLabel(
+            "An unanswered approval is denied after this long. It is never "
+            "infinite, and the API token setting is clamped to the same ceiling."
+        )
+        approval_note.setWordWrap(True)
+        approval_note.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
+        lay.addWidget(approval_note)
+        return card
+
     def _build_speech_card(self):
         """Card selecting the STT/TTS engines for the modular speech pipeline.
 
@@ -2939,6 +3014,10 @@ class SystemConnectivityPage(QWidget):
         # Speech Engines — sits next to the tool index because both describe how
         # a request reaches the model and how the answer gets back out.
         lay.addWidget(self._build_speech_card())
+
+        # Popup timers: the cosmetic task card + briefing share one group;
+        # approval keeps its own capped budget.
+        lay.addWidget(self._build_popup_card())
 
         # Apply / diagnostics bar. Saves explicitly (so nothing is lost to a
         # silent exception) and reports what this RUNNING process actually

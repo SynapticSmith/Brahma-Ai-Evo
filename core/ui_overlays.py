@@ -273,7 +273,15 @@ class DailyBriefingOverlay(QWidget):
         else:
             self._data = {}
 
-        self._remaining_secs = 30
+        try:
+            from core.popup_settings import DEFAULT_BRIEFING_SECONDS, dismiss_seconds
+
+            self._auto_dismiss_secs = dismiss_seconds(DEFAULT_BRIEFING_SECONDS)
+        except Exception:
+            self._auto_dismiss_secs = 30.0
+        self._remaining_secs = (
+            int(self._auto_dismiss_secs) if self._auto_dismiss_secs is not None else 0
+        )
         self.setFixedSize(720, 540)
 
         # Glassmorphism container
@@ -392,7 +400,10 @@ class DailyBriefingOverlay(QWidget):
         bot_lay = QHBoxLayout()
         bot_lay.setSpacing(12)
 
-        self._countdown_lbl = QLabel(f"Auto-dismissing in {self._remaining_secs}s")
+        if self._auto_dismiss_secs is None:
+            self._countdown_lbl = QLabel("This briefing stays open until you dismiss it.")
+        else:
+            self._countdown_lbl = QLabel(f"Auto-dismissing in {self._remaining_secs}s")
         self._countdown_lbl.setFont(QFont("Segoe UI", 8))
         self._countdown_lbl.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent; border: none;")
         bot_lay.addWidget(self._countdown_lbl)
@@ -420,10 +431,12 @@ class DailyBriefingOverlay(QWidget):
 
         main_lay.addLayout(bot_lay)
 
-        # Auto-hide timer
+        # Auto-hide timer. Off entirely when the user disabled cosmetic
+        # auto-dismiss: no timer means nothing can fire.
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
-        self._timer.start(1000)
+        if self._auto_dismiss_secs is not None:
+            self._timer.start(1000)
 
     def _create_bento_box(self) -> QFrame:
         box = QFrame()
@@ -614,6 +627,8 @@ class DailyBriefingOverlay(QWidget):
         return box
 
     def _tick(self):
+        if self._auto_dismiss_secs is None:
+            return
         self._remaining_secs -= 1
         if self._remaining_secs <= 0:
             self._do_close()

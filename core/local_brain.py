@@ -65,6 +65,16 @@ STREAM_IDLE_TIMEOUT = 60.0
 # Liveness probe: fail fast, the UI polls this. Also the /api/ps budget -
 # both are cheap local admin endpoints.
 PROBE_TIMEOUT = 3.0
+#: Settings overrides. A positive value replaces the profile budget; an absent,
+#: zero or malformed value keeps the profile. These stay finite on purpose:
+#: ``urlopen(timeout=None)`` would let a wedged local server hold a worker
+#: thread forever and block the reply ladder from failing over. An "unlimited"
+#: run belongs at the outer bound (the API wall clock / GUI ladder), not here.
+TIMEOUT_SETTING_KEYS = (
+    "local_response_timeout_s",
+    "local_first_token_timeout_s",
+    "local_stream_idle_timeout_s",
+)
 # /api/ps results are cached briefly: the probe is cheap, but not free
 # enough to repeat on every follow-up call inside a tool loop.
 PS_CACHE_TTL = 60.0
@@ -95,6 +105,23 @@ class LocalBrainError(RuntimeError):
     fall through as ``None``/empty content: the reply ladder logs this text
     verbatim, so it has to say *which* endpoint failed and *why*.
     """
+
+
+def _positive_seconds(value: Any) -> Optional[float]:
+    """Parse a Settings timeout override; ``None`` means "use the profile".
+
+    ``0``/negative/blank/malformed all mean "not configured" rather than
+    "unlimited": the socket budget must stay finite (see TIMEOUT_SETTING_KEYS).
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        seconds = float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    if seconds <= 0 or seconds != seconds:  # NaN-safe
+        return None
+    return seconds
 
 
 def convert_schema_to_lowercase(schema: Any) -> Any:
@@ -184,9 +211,9 @@ def _tools_unsupported(exc: BaseException) -> bool:
     return "does not support tools" in str(exc)
 
 
-def _tighten_stream_timeout(resp: Any) -> None:
+def _tighten_stream_timeout(resp: Any, timeout: float = STREAM_IDLE_TIMEOUT) -> None:
     """Switch a live stream's socket from the first-token budget to the
-    inter-chunk budget (STREAM_IDLE_TIMEOUT).
+    inter-chunk budget.
 
     Prefill is over once the first byte arrives, so from here a silent
     server means a wedged one and should fail fast. The switch reaches
@@ -196,7 +223,7 @@ def _tighten_stream_timeout(resp: Any) -> None:
     stays in place (still bounded, just less tight).
     """
     try:
-        resp.fp.raw._sock.settimeout(STREAM_IDLE_TIMEOUT)
+        resp.fp.raw._sock.settimeout(timeout)
     except Exception:
         pass
 
@@ -212,6 +239,10 @@ class LocalBrain:
         self.endpoint = DEFAULT_ENDPOINT
         self._default_model = DEFAULT_MODEL
         self._timeout_profile = "auto"
+        #: Per-setting overrides (seconds) from Settings; None keeps the profile.
+        self._response_override: Optional[float] = None
+        self._first_token_override: Optional[float] = None
+        self._stream_idle_override: Optional[float] = None
         # endpoint|model -> (monotonic stamp, "fast"/"slow"/None-unknown);
         # conclusive verdicts and broken-probe failures are cached for
         # PS_CACHE_TTL, inconclusive ones are not (see _probe_load_speed).
@@ -253,6 +284,12 @@ class LocalBrain:
         # fall back to "auto" rather than to a silent fast/slow surprise.
         profile = str(data.get("local_timeout_profile") or "auto").strip().lower()
         self._timeout_profile = profile if profile in ("auto", "fast", "slow") else "auto"
+        # Explicit seconds win over the profile. These are read every call, so
+        # a Settings change needs no restart. A blank/zero value means "keep the
+        # profile" (finite), never "unlimited".
+        self._response_override = _positive_seconds(data.get("local_response_timeout_s"))
+        self._first_token_override = _positive_seconds(data.get("local_first_token_timeout_s"))
+        self._stream_idle_override = _positive_seconds(data.get("local_stream_idle_timeout_s"))
 
     @property
     def default_model(self) -> str:
@@ -520,17 +557,38 @@ class LocalBrain:
     def response_timeout(self) -> float:
         """Seconds a non-streaming completion may take (whole body).
 
-        Covers prompt prefill plus full decode; see TIMEOUT_PROFILES.
+        Covers prompt prefill plus full decode; see TIMEOUT_PROFILES. A
+        positive ``local_response_timeout_s`` in Settings overrides the
+        profile without restarting.
         """
+        if self._response_override is not None:
+            return self._response_override
         return TIMEOUT_PROFILES[self.active_profile()]["response"]
 
     def first_token_timeout(self) -> float:
         """Seconds a stream may spend before its first byte arrives.
 
         Prefill happens before any chunk, so this - not STREAM_IDLE_TIMEOUT -
-        is the prefill budget (see _open_stream).
+        is the prefill budget (see _open_stream). A positive
+        ``local_first_token_timeout_s`` overrides the profile.
         """
+        if self._first_token_override is not None:
+            return self._first_token_override
         return TIMEOUT_PROFILES[self.active_profile()]["first_token"]
+
+    def stream_idle_timeout(self) -> float:
+        """Max silence between chunks once a stream has started.
+
+        A flat 60 s is too tight for a CPU-resident model that can pause while
+        it swaps or prefills the next segment. Scale it with the active
+        profile's first-token budget (slow -> 150 s) and let Settings override
+        it with ``local_stream_idle_timeout_s``. It never drops below the
+        historical 60 s.
+        """
+        if self._stream_idle_override is not None:
+            return self._stream_idle_override
+        profile_budget = TIMEOUT_PROFILES[self.active_profile()]["first_token"]
+        return max(STREAM_IDLE_TIMEOUT, profile_budget / 10.0)
 
     def _probe_load_speed(self) -> Optional[str]:
         """Cached "fast"/"slow"/None speed verdict from Ollama's ``/api/ps``.
@@ -567,8 +625,8 @@ class LocalBrain:
         for capability probes decide themselves what a failure means.
         """
         req = urllib.request.Request(url, headers={"Content-Type": "application/json"})
-        with self._open(req, PROBE_TIMEOUT) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+        body = self._open(req, PROBE_TIMEOUT)
+        return json.loads(body)
 
     # ------------------------------------------------- tool capability
 
@@ -626,7 +684,7 @@ class LocalBrain:
                     # is over); from here the tight inter-chunk budget
                     # applies instead of the patient first-token budget.
                     tightened = True
-                    _tighten_stream_timeout(resp)
+                    _tighten_stream_timeout(resp, self.stream_idle_timeout())
                 line_str = line.decode("utf-8").strip()
                 if line_str.startswith("data: "):
                     content = line_str[6:].strip()

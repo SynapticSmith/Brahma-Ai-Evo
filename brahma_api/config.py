@@ -64,7 +64,7 @@ class Limits:
     max_turns: int = 12
     max_messages: int = 200
     max_body_bytes: int = 1_000_000
-    wall_clock_s: float = 300.0
+    wall_clock_s: float = 1800.0
     approval_timeout_s: float = 60.0
 
     def to_dict(self) -> Dict[str, Any]:
@@ -89,9 +89,17 @@ class Limits:
                 return default
             return _int(data[name], default, low=low, high=high, problems=problems, name=f"limits.{name}")
 
-        def number(name: str, default: float, low: float, high: float) -> float:
+        def number(name: str, default: float, low: float, high: float, *, zero_ok: bool = False) -> float:
             if name not in data:
                 return default
+            if zero_ok:
+                # 0 is a meaningful sentinel for wall_clock_s ("no watchdog"),
+                # so it must survive the range check that rejects 1..low-1.
+                try:
+                    if float(data[name]) == 0:
+                        return 0.0
+                except (TypeError, ValueError):
+                    pass
             return _float(data[name], default, low=low, high=high, problems=problems, name=f"limits.{name}")
 
         return cls(
@@ -101,7 +109,10 @@ class Limits:
             max_turns=integer("max_turns", 12, 1, 100),
             max_messages=integer("max_messages", 200, 1, 10_000),
             max_body_bytes=integer("max_body_bytes", 1_000_000, 1_024, 100_000_000),
-            wall_clock_s=number("wall_clock_s", 300.0, 5.0, 3_600.0),
+            # 30 min matches the local brain's slow profile; a cloud reasoning
+            # run can legitimately outlive the old 5 min. 0 disables the
+            # watchdog entirely (the socket timeouts still bound each call).
+            wall_clock_s=number("wall_clock_s", 1800.0, 5.0, 86_400.0, zero_ok=True),
             approval_timeout_s=number("approval_timeout_s", 60.0, 5.0, 600.0),
         )
 

@@ -27,6 +27,7 @@ Adding a vendor is therefore a registry entry plus a base URL, not a new branch.
 """
 from __future__ import annotations
 
+import os
 import threading
 from typing import Any, Dict, List, Optional
 
@@ -145,12 +146,21 @@ def _configured(provider_id: str) -> bool:
     if provider_id == "local":
         return bool(str(_setting("local_ai_url", "") or "").strip())
     if provider_id == "gemini":
-        try:
-            from main import _get_api_key
-
-            return bool(_get_api_key())
-        except Exception:
+        # Read the key store directly. Importing ``main`` here pulled in PyQt
+        # and the Gemini SDK just to answer "is a key present", which made the
+        # router unusable from the stdlib-only harness.
+        if str(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip():
             return True
+        try:
+            from core.secret_store import load_api_keys
+
+            data = load_api_keys()
+        except Exception:
+            # An unreadable store is not proof the key is missing; keep the
+            # historical "assume configured" so a broken file cannot silently
+            # drop the default provider from the chain.
+            return True
+        return bool(str((data or {}).get("gemini_api_key") or "").strip())
     return True
 
 

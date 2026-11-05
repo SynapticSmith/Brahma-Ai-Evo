@@ -148,6 +148,9 @@ class TaskCard(QFrame):
         self.setObjectName("TaskCard")
         self._active = False
         self._workspace_locked = False
+        #: Invalidates pending auto-dismiss timers when a new task starts, so an
+        #: old 4 s timer cannot hide or clear the new card.
+        self._dismiss_token = 0
         self.setStyleSheet(
             """
             QFrame#TaskCard {
@@ -258,6 +261,7 @@ class TaskCard(QFrame):
     def start_workspace(self, command: str, plan: list[str] | str | None = None, source: str = "local"):
         self._active = True
         self._workspace_locked = False
+        self._dismiss_token += 1
         self._title.setText("Task Workspace")
         self._command_lbl.setText(f"Command: {command or 'waiting for input'}")
         self._plan_lbl.setText(self._format_plan(plan))
@@ -299,11 +303,37 @@ class TaskCard(QFrame):
         self._output_lbl.setText(f"Output: {result or 'Done.'}")
         self._pct.setText(f"{max(0, min(100, percent))}%")
         self._bar.setValue(max(0, min(100, percent)))
-        self._foot.setText("Resetting workspace shortly...")
         self.show()
-        QTimer.singleShot(5000, self.clear_workspace)
+        # One owner for the card's lifetime: the cosmetic-popup setting decides
+        # whether it hides at all, and a token makes an old timer harmless if a
+        # new task starts first. Approval prompts are deliberately not covered
+        # by this setting (see core/popup_settings.py).
+        self._dismiss_token += 1
+        token = self._dismiss_token
+        try:
+            from core.popup_settings import DEFAULT_TASK_CARD_SECONDS, dismiss_seconds
+
+            seconds = dismiss_seconds(DEFAULT_TASK_CARD_SECONDS)
+        except Exception:
+            seconds = 4.0
+        if seconds is None:
+            self._foot.setText("Task complete. This card stays until the next task.")
+            return
+        self._foot.setText(f"Resetting workspace in {seconds:.0f}s...")
+
+        def _hide_if_current() -> None:
+            if self._dismiss_token == token:
+                self.hide()
+
+        def _clear_if_current() -> None:
+            if self._dismiss_token == token:
+                self.clear_workspace()
+
+        QTimer.singleShot(int(seconds * 1000), _hide_if_current)
+        QTimer.singleShot(int((seconds + 1.0) * 1000), _clear_if_current)
 
     def clear_workspace(self):
+        self._dismiss_token += 1
         self._active = False
         self._workspace_locked = False
         self._title.setText("Ready")
@@ -1696,7 +1726,8 @@ class WorkspaceSidebar(QWidget):
                 "text": data.get("result") or data.get("output") or "Done.",
                 "source": data.get("source") or "local",
             })
-            QTimer.singleShot(4000, self._task_card.hide)
+            # The card owns its own dismiss timer (Settings-aware); do not
+            # schedule a second hide here.
         elif action == "clear":
             self._task_card.clear_workspace()
 
@@ -2221,7 +2252,8 @@ class InlineChatWorkspace(QFrame):
                 "text": data.get("result") or data.get("output") or "Done.",
                 "source": data.get("source") or "local",
             })
-            QTimer.singleShot(4000, self._task_card.hide)
+            # The card owns its own dismiss timer (Settings-aware); do not
+            # schedule a second hide here.
         elif action == "clear":
             self._task_card.clear_workspace()
 

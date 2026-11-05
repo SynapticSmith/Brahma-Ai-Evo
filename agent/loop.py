@@ -228,13 +228,25 @@ class AgentLoop:
         batch_readonly: bool = False,
     ):
         self._complete = complete
+        self._native_dispatch = native_dispatch
+        self._runtime = runtime or current_runtime()
         self._tools: List[Any] = (
             list(tools)
             if tools is not None
             else [spec for spec in all_specs() if "desktop" not in spec.tags]
         )
-        self._native_dispatch = native_dispatch
-        self._runtime = runtime or current_runtime()
+        if tools is None:
+            # A profile that denies ``network`` must not be advertised a web
+            # tool it can only be denied on: the API's ``reader``/``chat``
+            # presets stay visibly offline, while ``worker``/``operator`` and
+            # the CLI keep both tools. Other classes keep their historical
+            # surface (advertised, then decided at dispatch).
+            self._tools = [
+                item
+                for item in self._tools
+                if getattr(item, "tool_class", "") != "network"
+                or self._network_allowed(item)
+            ]
         self._session = session
         self.max_turns = max(1, int(max_turns))
         self.repeat_limit = max(1, int(repeat_limit))
@@ -275,6 +287,11 @@ class AgentLoop:
         self._batch_readonly = bool(batch_readonly)
         self._subagent_runs = 0
         self._subagent_lock = threading.Lock()
+        #: The most recent child report. Used only as a fallback when the
+        #: parent is cancelled after a child finished but before the model
+        #: turned that tool result into an answer; without it the API would
+        #: return an empty ``cancelled`` body even though real work happened.
+        self._last_subagent_report = ""
         #: Sum of provider-reported counts. Empty until a response carries
         #: usage; ``estimated_tokens`` stays as the local fallback.
         self._tokens: Dict[str, int] = {}
@@ -357,6 +374,24 @@ class AgentLoop:
 
     def _cancelled(self) -> bool:
         return self._cancel is not None and self._cancel.is_set()
+
+    def _network_allowed(self, item: Any) -> bool:
+        """True unless the runtime policy explicitly denies ``network``.
+
+        An ``ask`` still advertises the tool (the CLI/HUD can approve it); only
+        a hard ``deny`` hides it. A broken policy fails open here because the
+        dispatch boundary is still the real gate.
+        """
+        name = str(getattr(item, "name", "") or "")
+        if not name:
+            return False
+        try:
+            decision = self._runtime.policy.evaluate(
+                name, {}, tool_class="network", headless=False
+            )
+        except Exception:
+            return True
+        return decision.decision != "deny"
 
     def _request(
         self,
@@ -604,7 +639,9 @@ class AgentLoop:
                 "\n\n[The subagent did not finish. Treat this report as "
                 "partial and verify the work before relying on it.]"
             )
-        return head + (("\n\n" + body) if body else "")
+        report = head + (("\n\n" + body) if body else "")
+        self._last_subagent_report = report
+        return report
 
     def _run_subagent(self, args: Dict[str, Any]) -> str:
         """Run one bounded child loop and return its report as tool text.
@@ -1067,7 +1104,14 @@ class AgentLoop:
                 final_text = ""
             else:
                 last = self._last_assistant_text()
-                final_text = last or f"[Agent stopped: {stop_reason} after {turn} turn(s)]"
+                # A cancelled parent may have finished a child but never got
+                # to summarise it. The report is real output; return it rather
+                # than an empty body.
+                final_text = (
+                    last
+                    or self._last_subagent_report
+                    or f"[Agent stopped: {stop_reason} after {turn} turn(s)]"
+                )
 
         if self._session is not None:
             try:

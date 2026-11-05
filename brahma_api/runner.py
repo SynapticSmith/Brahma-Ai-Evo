@@ -206,18 +206,27 @@ class AgentRunner:
         for message in seed.history:
             loop.context.append(dict(message))
 
-        watchdog = threading.Timer(self.config.limits.wall_clock_s, runtime.cancel)
-        watchdog.daemon = True
-        watchdog.start()
+        watchdog: Optional[threading.Timer] = None
+        if self.config.limits.wall_clock_s and self.config.limits.wall_clock_s > 0:
+            # 0 means "no outer bound": the per-call socket timeouts still keep
+            # a wedged provider from hanging forever, but a long reasoning run
+            # is allowed to finish.
+            watchdog = threading.Timer(self.config.limits.wall_clock_s, runtime.cancel)
+            watchdog.daemon = True
+            watchdog.start()
         try:
             result = loop.run(seed.prompt)
         finally:
-            watchdog.cancel()
+            if watchdog is not None:
+                watchdog.cancel()
 
         elapsed = round(time.monotonic() - started, 2)
         result.usage["elapsed_s"] = elapsed
+        # ``auto`` may have failed over; audit the provider that actually
+        # answered rather than the first candidate the chain named.
+        provider_used = str(getattr(completer, "last_provider", provider) or provider)
         fingerprint = policy_fingerprint(policy)
-        self._audit_run(principal, resolved, result, events, elapsed, provider, upstream_model)
+        self._audit_run(principal, resolved, result, events, elapsed, provider_used, upstream_model)
 
         if run_id:
             tool_rows = _tool_rows(events)
@@ -241,7 +250,7 @@ class AgentRunner:
 
         return RunOutcome(
             result=result,
-            provider=provider,
+            provider=provider_used,
             upstream_model=upstream_model,
             policy_fingerprint=fingerprint,
             elapsed_s=elapsed,
@@ -315,6 +324,8 @@ class AgentRunner:
         except Exception as exc:  # noqa: BLE001
             raise ProviderUnavailable(str(exc)) from exc
 
+        provider_used = str(getattr(completer, "last_provider", provider) or provider)
+
         if isinstance(resp, dict):
             text = str(resp.get("content") or "")
             tool_calls = resp.get("tool_calls")
@@ -367,7 +378,7 @@ class AgentRunner:
 
         return RunOutcome(
             result=result,
-            provider=provider,
+            provider=provider_used,
             upstream_model=upstream_model,
             policy_fingerprint="passthrough",
             elapsed_s=elapsed,

@@ -578,6 +578,38 @@ async def _stream_completions(
                     yield sse_comment(
                         f"brahma.tool {json.dumps({'name': event.get('name'), 'chars': event.get('chars')})}"
                     )
+                elif event_type in ("subagent_start", "subagent_end"):
+                    # Progress for a delegated run. Comments keep the OpenAI
+                    # stream valid: a client that only understands deltas can
+                    # ignore them, and one that watches them can show the
+                    # child working instead of a silent multi-minute gap.
+                    payload = {
+                        "id": event.get("subagent"),
+                        "phase": "start" if event_type == "subagent_start" else "end",
+                        "task": event.get("task"),
+                        "tools": event.get("tools"),
+                        "stop_reason": event.get("stop_reason"),
+                        "turns": event.get("turns"),
+                        "chars": event.get("chars"),
+                    }
+                    yield sse_comment(
+                        "brahma.subagent "
+                        + json.dumps({k: v for k, v in payload.items() if v is not None})
+                    )
+                elif event_type == "subagent_event":
+                    inner = event.get("event") or {}
+                    payload = {
+                        "id": event.get("subagent"),
+                        "phase": "event",
+                        "event": inner.get("type"),
+                        "turn": inner.get("turn"),
+                        "tool": inner.get("name"),
+                        "chars": inner.get("chars"),
+                    }
+                    yield sse_comment(
+                        "brahma.subagent "
+                        + json.dumps({k: v for k, v in payload.items() if v is not None})
+                    )
                 elif event_type == "delta":
                     deltas_streamed = True
                     delta = event.get("delta") or {}
