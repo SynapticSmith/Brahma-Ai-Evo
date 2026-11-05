@@ -985,6 +985,25 @@ External agent fleet orchestrators (e.g. Paperclip REST services and Orca ADE CL
    - **Tolerant Schema Parsing:** Parses JSON payloads into structured `data` dicts while retaining raw text output in `AgentCallResult` and persisting durable artifact references when output thresholds are exceeded.
    - Fully guarded by `tests/test_agent_orchestrator_adapter.py` (10/10 passing) and `tests/test_ui_agent_panel.py` (2/2 passing).
 
+### D47 — Outbound stdio MCP server & client resources/prompts parity (N6)
+
+Two complementary Model Context Protocol capabilities:
+1. **Outbound stdio MCP server (`agent/mcp_server.py`, `python -m agent mcp-server`):** Exposes Brahma's canonical tools (`tools/list`, `tools/call`), project skills (`prompts/list`, `prompts/get`), and workspace instructions (`resources/list`, `resources/read`) outwards over standard Model Context Protocol JSON-RPC 2.0 over stdio, routing all execution strictly through `AgentRuntime.execute`. Standard streams are explicitly configured to UTF-8 and LF framing to guarantee portable cross-platform pipe communication.
+2. **MCP client parity (`agent/mcp.py`):** Added client support for `resources/list`, `resources/read`, `prompts/list`, and `prompts/get` to `StdioServer` and `MCPSession`. Connected servers declaring resources or prompts have corresponding read-only `ToolSpec`s registered (`mcp_<server>_read_resource`, `mcp_<server>_list_resources`, `mcp_<server>_get_prompt`, `mcp_<server>_list_prompts`), and change notifications (`notifications/resources/list_changed`, `notifications/prompts/list_changed`) trigger turn-boundary refresh.
+
+### D48 — First-call provider failover, Gemini harness adapter, native web tools, and subagent SSE events
+
+Handoff items addressing local/API divergence and operational feedback:
+1. **Dynamic Provider Resolution & First-Call Failover:** The harness and `brahma_api` now honour `default_ai_provider`, provider router chains, and settings-enabled flags. Added a Gemini harness adapter communicating over the OpenAI-compatible endpoint without importing `google.genai` at module scope. First-call failover automatically cascades to the next available provider before any state-mutating tool calls occur.
+2. **Native Web Search and Fetch Tools (`agent/web.py`):** Pure stdlib `web_search` and `web_fetch` registered as canonical `ToolSpec`s under the `network` permission class with private-IP SSRF protection, bounded output, and propagation to child subagents when the parent token permits network.
+3. **Local Inference Timeouts & Configurable Wall Clock:** Fixed JSON probe parsing in `core/local_brain.py`, made timeouts settings-backed with profile-scaled idle timeouts, and allowed configurable API wall clock deadlines.
+4. **Subagent Progress in SSE:** Emitted structured events (`subagent_started`, `subagent_tool`, `subagent_report`) through the event sink so external API clients observe child agent execution.
+
+### D49 — Token registry concurrency safety & cross-provider token usage extraction
+
+1. **Token Minting Concurrency Safety (`brahma_api/auth.py`, `brahma_api/config.py`):** Replaced static temp files with process/nonce-unique paths and added a retry backoff loop on Windows transient sharing collisions (`[WinError 5]` / `[WinError 32]`). Implemented path-level locking with case-normalized, `\\?\` prefix-neutral path canonicalization to prevent in-process race conditions.
+2. **Cross-Provider Token Usage Reporting:** Preserved token usage reporting from Gemini (`usage_metadata`) and OpenAI (`usage`) across both passthrough and agent lanes, ensuring `tokens_reported` is accurately reflected and clients receive standard OpenAI usage objects instead of nulls.
+
 ### D20 — Parallel dispatch is whole-turn and read-only (superseded by D30, then D32)
 
 Model turns often contain several `read_file`/`glob_files`/`grep_files` calls,
