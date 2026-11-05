@@ -96,9 +96,15 @@ i might need this explained, as perhaps that is just the consequence of our conf
 
 ---
 
-## Handoff — API provider, web tools, timeouts, subagents, popups (approved 2026-11-04)
+## Handoff — API provider, web tools, timeouts, subagents, popups (landed 2026-11-05)
 
-> **Status: approved in principle, NOT implemented.** No code has been changed. This section is the pickup point for a later agent. It records the traced root cause (`file:line`), the agreed direction, concrete tasks, and acceptance checks.
+> **Status: Fully implemented and verified in CI.** All 5 workstreams have landed in code and pass testing:
+> 1. Provider chain + Gemini adapter + first-call failover (`agent/providers.py`, `brahma_api/runner.py`)
+> 2. Harness-native `web_search` and `web_fetch` under `network` permission (`agent/web.py`, `agent/subagent.py`)
+> 3. Timeout settings & configurable API wall clock (`core/local_brain.py`, `brahma_api/config.py`, `core/popup_settings.py`)
+> 4. Subagent SSE events & report preservation (`agent/subagent.py`, `agent/loop.py`)
+> 5. Cosmetic popup auto-dismiss settings (`core/popup_settings.py`, `core/ui_connectivity.py`, `core/ui_chat.py`, `core/ui_overlays.py`, `core/confirm.py`)
+> 6. Concurrent token minting fix & provider token usage reporting (`brahma_api/auth.py`, `brahma_api/config.py`, `brahma_api/runner.py`, `agent/providers.py`, `llm_client.py`).
 
 ### Environment and gates
 
@@ -154,12 +160,12 @@ i might need this explained, as perhaps that is just the consequence of our conf
 
 **Tasks**
 
-- [ ] Add a helper in `agent/providers.py` (lazy `core` import) that returns the preferred + fallback order: start from `default_ai_provider`, then `provider_router.chain(only_configured=True)`, de-duplicated, mapped to harness adapter ids.
-- [ ] Change `resolve_provider("auto")` (or the API runner) to use that order, not local-first. Keep `BRAHMA_AGENT_PROVIDER` as an override.
-- [ ] Add `gemini` to `PROVIDERS` only if an adapter exists. Research the OpenAI-compatible Gemini endpoint (`/v1beta/openai/chat/completions`) and reuse `llm_client._openai_chat_completion`; do not import `google.genai` at module scope. If not feasible, raise `ProviderUnavailable("gemini is not available on the agent lane; pin local/custom/openrouter")`.
-- [ ] Add first-call failover: build a small chain completer that tries the next adapter on `ProviderUnavailable` / connection errors only, before any tool call is emitted.
-- [ ] Record the resolved provider + chain in the API audit row and response metadata.
-- [ ] Document token-level `provider` pinning as the explicit override.
+- [x] Add a helper in `agent/providers.py` (lazy `core` import) that returns the preferred + fallback order: start from `default_ai_provider`, then `provider_router.chain(only_configured=True)`, de-duplicated, mapped to harness adapter ids.
+- [x] Change `resolve_provider("auto")` (or the API runner) to use that order, not local-first. Keep `BRAHMA_AGENT_PROVIDER` as an override.
+- [x] Add `gemini` to `PROVIDERS` only if an adapter exists. Research the OpenAI-compatible Gemini endpoint (`/v1beta/openai/chat/completions`) and reuse `llm_client._openai_chat_completion`; do not import `google.genai` at module scope. If not feasible, raise `ProviderUnavailable("gemini is not available on the agent lane; pin local/custom/openrouter")`.
+- [x] Add first-call failover: build a small chain completer that tries the next adapter on `ProviderUnavailable` / connection errors only, before any tool call is emitted.
+- [x] Record the resolved provider + chain in the API audit row and response metadata.
+- [x] Document token-level `provider` pinning as the explicit override.
 
 **Acceptance**
 
@@ -190,14 +196,14 @@ i might need this explained, as perhaps that is just the consequence of our conf
 
 **Tasks**
 
-- [ ] Create `agent/web.py` (stdlib only) with `web_fetch` (URL -> text, size cap, timeout, redirect cap) and `web_search`.
-- [ ] Search backend: make it configurable (`BRAHMA_SEARCH_BACKEND` / settings). Default to a keyless DuckDuckGo HTML parse; support Brave/Tavily/Serp with a key when configured. Return `title`, `url`, `snippet`.
-- [ ] Register both as `ToolSpec`s with `network` class, `native`-style tags (not `desktop`), and bounded output (e.g. 8 KB) to protect the context window.
-- [ ] Add SSRF/URL guard: block `file:`, `ftp:`, private/link-local hosts unless explicitly allowed; no credentials in logs.
-- [ ] Ensure `AgentLoop` advertises them for `worker`/`operator` and for the CLI; keep `chat`/`reader` without them.
-- [ ] Update `agent/subagent.py:select_tools` / `select_batch_tools` so a parent with `network` gives the child `web_search`/`web_fetch` (still no `run_subagent`, no writes beyond the existing read-only default).
-- [ ] Update `docs/OPENAI-COMPATIBLE-API-DESIGN.md` §6.3 to say the `worker`/`operator` surface includes native web tools.
-- [ ] Tests: `tests/test_agent_web_tools.py` with a local HTTP fixture (no real network), plus a surface test proving the desktop filter still hides `core` tools.
+- [x] Create `agent/web.py` (stdlib only) with `web_fetch` (URL -> text, size cap, timeout, redirect cap) and `web_search`.
+- [x] Search backend: make it configurable (`BRAHMA_SEARCH_BACKEND` / settings). Default to a keyless DuckDuckGo HTML parse; support Brave/Tavily/Serp with a key when configured. Return `title`, `url`, `snippet`.
+- [x] Register both as `ToolSpec`s with `network` class, `native`-style tags (not `desktop`), and bounded output (e.g. 8 KB) to protect the context window.
+- [x] Add SSRF/URL guard: block `file:`, `ftp:`, private/link-local hosts unless explicitly allowed; no credentials in logs.
+- [x] Ensure `AgentLoop` advertises them for `worker`/`operator` and for the CLI; keep `chat`/`reader` without them.
+- [x] Update `agent/subagent.py:select_tools` / `select_batch_tools` so a parent with `network` gives the child `web_search`/`web_fetch` (still no `run_subagent`, no writes beyond the existing read-only default).
+- [x] Update `docs/OPENAI-COMPATIBLE-API-DESIGN.md` §6.3 to say the `worker`/`operator` surface includes native web tools.
+- [x] Tests: `tests/test_agent_web_tools.py` with a local HTTP fixture (no real network), plus a surface test proving the desktop filter still hides `core` tools.
 
 **Acceptance**
 
@@ -233,13 +239,13 @@ i might need this explained, as perhaps that is just the consequence of our conf
 
 **Tasks**
 
-- [ ] Fix `_get_json`: `body = self._open(req, PROBE_TIMEOUT); return json.loads(body)`.
-- [ ] Make the four timeout values settings-backed (`local_response_timeout_s`, `local_first_token_timeout_s`, `local_stream_idle_timeout_s`) with the current values as defaults and validation (>= 1 or "unlimited").
-- [ ] Scale `STREAM_IDLE_TIMEOUT` with the active profile instead of a flat 60 s.
-- [ ] Add an explicit "unlimited" sentinel (e.g. `0` or `"none"`) only for the outer bound; document that a wedged server then holds a thread and blocks failover.
-- [ ] Raise `brahma_api` `limits.wall_clock_s` (e.g. 1800) or make it per-token; validate in `brahma_api/config.py`.
-- [ ] Ensure the watchdog can interrupt between chunks if feasible; if not, document that cancellation is turn-boundary only.
-- [ ] Tests: probe parsing, profile resolution (auto -> fast when VRAM-resident), settings validation, and an API run that survives >300 s in a fake clock.
+- [x] Fix `_get_json`: `body = self._open(req, PROBE_TIMEOUT); return json.loads(body)`.
+- [x] Make the four timeout values settings-backed (`local_response_timeout_s`, `local_first_token_timeout_s`, `local_stream_idle_timeout_s`) with the current values as defaults and validation (>= 1 or "unlimited").
+- [x] Scale `STREAM_IDLE_TIMEOUT` with the active profile instead of a flat 60 s.
+- [x] Add an explicit "unlimited" sentinel (e.g. `0` or `"none"`) only for the outer bound; document that a wedged server then holds a thread and blocks failover.
+- [x] Raise `brahma_api` `limits.wall_clock_s` (e.g. 1800) or make it per-token; validate in `brahma_api/config.py`.
+- [x] Ensure the watchdog can interrupt between chunks if feasible; if not, document that cancellation is turn-boundary only.
+- [x] Tests: probe parsing, profile resolution (auto -> fast when VRAM-resident), settings validation, and an API run that survives >300 s in a fake clock.
 
 **Acceptance**
 
@@ -271,12 +277,12 @@ i might need this explained, as perhaps that is just the consequence of our conf
 
 **Tasks**
 
-- [ ] Emit structured subagent events (`subagent_started`, `subagent_tool`, `subagent_report`) through the loop `on_event` sink so SSE can show progress.
-- [ ] Include the child report in the parent tool message even when the child hit its turn budget (mark it truncated).
-- [ ] If the parent is cancelled after a child already produced a report, return that report instead of an empty `cancelled` body.
-- [ ] Allow `network` in `select_tools` when the parent profile allows it (depends on item 2).
-- [ ] Add an API config knob for wall clock per token/profile; document `X-Brahma-Approval: gui` + `approve` scope.
-- [ ] Tests: child report crosses back; child exception becomes tool text; cancelled-after-report returns text; SSE emits subagent events.
+- [x] Emit structured subagent events (`subagent_started`, `subagent_tool`, `subagent_report`) through the loop `on_event` sink so SSE can show progress.
+- [x] Include the child report in the parent tool message even when the child hit its turn budget (mark it truncated).
+- [x] If the parent is cancelled after a child already produced a report, return that report instead of an empty `cancelled` body.
+- [x] Allow `network` in `select_tools` when the parent profile allows it (depends on item 2).
+- [x] Add an API config knob for wall clock per token/profile; document `X-Brahma-Approval: gui` + `approve` scope.
+- [x] Tests: child report crosses back; child exception becomes tool text; cancelled-after-report returns text; SSE emits subagent events.
 
 **Acceptance**
 
@@ -305,12 +311,12 @@ i might need this explained, as perhaps that is just the consequence of our conf
 
 **Tasks**
 
-- [ ] Add settings: `popup_auto_dismiss_enabled` (bool), `popup_dismiss_seconds` (int, e.g. 4/30 defaults per surface), `approval_timeout_seconds` (capped, e.g. 10-600).
-- [ ] Wire the task-card hide/reset (`ui_chat.py:304`, `:1699`, `:2224`) to the setting; "keep" leaves the card until the next task or manual clear.
-- [ ] Wire `DailyBriefingOverlay._remaining_secs` / `_tick` (`ui_overlays.py:276`, `:616`) to the setting; hide the countdown label when disabled.
-- [ ] Wire `core/confirm.TIMEOUT_SECONDS` and `ask_blocking_choice(timeout=...)` to the approval setting; the API keeps its own `limits.approval_timeout_s` but clamps to the same cap.
-- [ ] Add the controls to the Settings Hub with labels that say which popups they affect.
-- [ ] Tests: settings round-trip; a disabled timer does not call `hide()`; approval still expires at the cap.
+- [x] Add settings: `popup_auto_dismiss_enabled` (bool), `popup_dismiss_seconds` (int, e.g. 4/30 defaults per surface), `approval_timeout_seconds` (capped, e.g. 10-600).
+- [x] Wire the task-card hide/reset (`ui_chat.py:304`, `:1699`, `:2224`) to the setting; "keep" leaves the card until the next task or manual clear.
+- [x] Wire `DailyBriefingOverlay._remaining_secs` / `_tick` (`ui_overlays.py:276`, `:616`) to the setting; hide the countdown label when disabled.
+- [x] Wire `core/confirm.TIMEOUT_SECONDS` and `ask_blocking_choice(timeout=...)` to the approval setting; the API keeps its own `limits.approval_timeout_s` but clamps to the same cap.
+- [x] Add the controls to the Settings Hub with labels that say which popups they affect.
+- [x] Tests: settings round-trip; a disabled timer does not call `hide()`; approval still expires at the cap.
 
 **Acceptance**
 
