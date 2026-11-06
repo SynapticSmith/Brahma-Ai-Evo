@@ -847,6 +847,71 @@ class MCPServerStatus:
         }
 
 
+def _app_manager_owns(name: str) -> bool:
+    """True when the app's own MCP manager already publishes ``name``.
+
+    Both clients name tools ``mcp_<server>_<tool>`` and publish them under the
+    same ``mcp:<server>`` source, so a server configured in both places would
+    otherwise register a phantom collision (``call_tool`` would refuse to pick
+    a server) and closing this session would delete the app manager's live
+    entry. The app manager is the older, always-configured client, so its entry
+    wins; this session still advertises its own spec.
+    """
+    try:
+        from core.dynamic_registry import DynamicToolRegistry
+
+        return DynamicToolRegistry.is_external_tool(name)
+    except Exception:
+        return False
+
+
+def _index_spec(spec: ToolSpec, server: str, raw_tool: str) -> bool:
+    """Publishes one registered spec into :mod:`core.tool_index`.
+
+    Done at registration time, matching the app manager: a server that
+    connects mid-session becomes searchable and ``call_tool``-able
+    immediately instead of waiting for the next ``sync_all``. Everything is
+    lazy and fail-soft — ``agent`` must stay importable with only pytest
+    installed, and a broken index must never prevent a server from starting.
+    """
+    if _app_manager_owns(spec.name):
+        return False
+    try:
+        from core import tool_index as ti
+
+        ti.get_index().upsert(
+            ti.ToolEntry(
+                name=spec.name,
+                description=spec.description,
+                parameters=spec.parameters,
+                source=f"mcp:{server}",
+                skill_id=f"mcp:{server}",
+                domain=f"mcp {server}",
+                keywords=f"{server} {raw_tool}",
+                declaration={
+                    "name": spec.name,
+                    "description": f"[MCP:{server}] {spec.description}",
+                    "parameters": spec.parameters,
+                },
+            )
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _unindex_spec(name: str, server: str) -> bool:
+    """Removes an entry this session published, never another owner's."""
+    if _app_manager_owns(name):
+        return False
+    try:
+        from core import tool_index as ti
+
+        return ti.get_index().remove(name, source=f"mcp:{server}")
+    except Exception:
+        return False
+
+
 class MCPSession:
     """A set of running servers plus the tool specs they contributed.
 
@@ -861,6 +926,10 @@ class MCPSession:
         self._specs: List[str] = []
         self._calls: Dict[str, Tuple[str, str]] = {}
         self._by_server: Dict[str, List[str]] = {}
+        #: Spec name -> server for entries this session published into the
+        #: shared tool index. Tracked so close/refresh retract exactly what
+        #: this session added, never the app manager's same-named entries.
+        self._indexed: Dict[str, str] = {}
         self.statuses: List[MCPServerStatus] = []
 
     def start(
@@ -925,11 +994,13 @@ class MCPSession:
         return list(self.statuses)
 
     def close(self) -> None:
-        for name in self._specs:
+        for name in list(self._specs):
             unregister(name)
+            self._unindex(name)
         self._specs.clear()
         self._calls.clear()
         self._by_server.clear()
+        self._indexed.clear()
         for server in self._servers.values():
             server.close()
         self._servers.clear()
@@ -1137,6 +1208,7 @@ class MCPSession:
             )
             register(spec)
             self._specs.append(spec_name)
+            self._publish(spec, config.name, tool_name)
             self._calls[spec_name] = (config.name, tool_name)
             names.append(spec_name)
         return names
@@ -1183,6 +1255,7 @@ class MCPSession:
         )
         register(spec)
         self._specs.append(spec_name)
+        self._publish(spec, server_name, "read_resource")
         names.append(spec_name)
 
         list_name = tool_spec_name(server_name, "list_resources", taken=taken)
@@ -1209,6 +1282,7 @@ class MCPSession:
         )
         register(list_spec)
         self._specs.append(list_name)
+        self._publish(list_spec, server_name, "list_resources")
         names.append(list_name)
 
         return names
@@ -1257,6 +1331,7 @@ class MCPSession:
         )
         register(spec)
         self._specs.append(spec_name)
+        self._publish(spec, server_name, "get_prompt")
         names.append(spec_name)
 
         list_name = tool_spec_name(server_name, "list_prompts", taken=taken)
@@ -1283,9 +1358,21 @@ class MCPSession:
         )
         register(list_spec)
         self._specs.append(list_name)
+        self._publish(list_spec, server_name, "list_prompts")
         names.append(list_name)
 
         return names
+
+    def _publish(self, spec: ToolSpec, server: str, raw_tool: str) -> None:
+        """Indexes one freshly registered spec, remembering what we own."""
+        if _index_spec(spec, server, raw_tool):
+            self._indexed[spec.name] = server
+
+    def _unindex(self, spec_name: str) -> None:
+        """Retracts one spec's index entry if this session published it."""
+        server = self._indexed.pop(spec_name, None)
+        if server is not None:
+            _unindex_spec(spec_name, server)
 
     def _tool_names(self, server_name: str) -> Set[str]:
         """The un-namespaced tool names one server currently contributes."""
@@ -1299,6 +1386,7 @@ class MCPSession:
         for spec_name in self._by_server.pop(server_name, []):
             unregister(spec_name)
             self._calls.pop(spec_name, None)
+            self._unindex(spec_name)
             try:
                 self._specs.remove(spec_name)
             except ValueError:

@@ -1,6 +1,6 @@
 # Brahma Evo — Tool Retrieval Design (short queries, same-word tools)
 
-**Status:** Design record. No code changed by this batch.
+**Status:** Design record; Phases R0–R3 are implemented (status inline in §5), and G8 (harness-MCP coverage) closed on 2026-11-06. R4 is ongoing.
 **Created:** 2026-11-05
 **Companion:** `docs/ROUTING-AUDIT.md` (why pre-LLM utterance routing is being removed).
 **Trigger:** `search_tools` is usually called with a compressed phrase ("vault", "browser click"), and an MCP server name is the only reliable way to tell two tools apart. The current index knows the server but the model does not see it clearly enough, and the meta-tool offers no filter and no ambiguity signal.
@@ -22,7 +22,7 @@ A model does not search the way a user speaks. It searches the way it plans: sho
 | G5 | `_diversify` deliberately lets two servers appear (per-source cap), but presentation does not explain the difference, so the model sees near-duplicates and picks arbitrarily. | `core/tool_index.py:1248`, `:1266-1270` |
 | G6 | `call_tool` does not guard same-word ambiguity. An unknown name gets similarity suggestions; a bare name that exists on two servers is not detected. | `core/tool_bridge.py:1071-1100` |
 | G7 | There is no resident statement of which servers exist and what each is for. The model cannot add a server word to a short query if it does not know the server exists. | `build_session_payload` returns only `declarations` + `skill_context` |
-| G8 | Harness MCP tools (`agent/mcp.py`) are registered as `ToolSpec`s but are not indexed into `core.tool_index`, so `search_tools` cannot find them. Two MCP surfaces, one searchable. | `agent/mcp.py:781`, `:1390`; only `core/mcp_manager.py:1019` and `core/tool_bridge.py` call `upsert` |
+| G8 | Harness MCP tools (`agent/mcp.py`) are registered as `ToolSpec`s but are not indexed into `core.tool_index`, so `search_tools` cannot find them. Two MCP surfaces, one searchable. **Closed 2026-11-06:** both clients now index at registration; see §5 R1. | `agent/mcp.py:868` `_index_spec`; `:1366` `_publish` |
 | G9 | No evaluation set measures retrieval precision, so every weight change is a guess. | no `tests/test_tool_retrieval_*` |
 
 The user's observation is therefore correct and the fix is **not** "ask the model to write longer queries". The fix is to make a short query sufficient: constrain it with server/domain, fuse it with the turn that produced it, and make collisions explicit instead of silently ranking one above the other.
@@ -184,7 +184,12 @@ Server: Calyx. Domain: kernel memory vault. Tool: vault_search. Search the vault
 
 This is enough to separate the two vaults without a new model.
 
-**Coverage:** index harness MCP tools too, or state explicitly that `search_tools` covers only the core/dynamic catalogue. Recommendation: index them. The harness already names them `mcp_<server>_<tool>` (`agent/mcp.py:781`); adding a `ToolEntry` at registration time is the same pattern as `core/mcp_manager._index_tool` (`:1019`), and it removes G8. If that is deferred, the `search_tools` description must say which catalogue it covers — a silent gap is worse than a documented one.
+**Coverage (implemented 2026-11-06):** `agent/mcp.py` publishes each registered `ToolSpec` into the same catalogue via `_index_spec` (`:868`), using `source`/`skill_id` `mcp:<server>` so grouping and the server filter behave exactly like the app manager's tools. Indexing happens at registration, which means a server that connects mid-session is searchable immediately, and it is retracted on `close`/refresh. Two hazards are handled explicitly:
+
+- **Duplicate client.** A server configured in both `app_settings.json` and a workspace `.mcp.json` would give the app manager and the harness the same tool names and the same source. The harness skips a name the app manager already owns (`DynamicToolRegistry.is_external_tool`), so no phantom collision is recorded and closing the harness session cannot delete a live entry.
+- **Scoped removal.** `ToolIndex.remove(name, source=...)` refuses to delete an entry owned by another source. A harness session only retracts what its own `_indexed` map recorded publishing.
+
+Indexing is lazy and fail-soft: `agent/` stays importable with only pytest installed, and a broken index never prevents a server from starting. Covered by `tests/test_agent_mcp.py` (5 tests) and `tests/test_tool_index.py`.
 
 **Description hygiene:** `core/mcp_manager._index_tool` already prefixes the provider declaration with `[MCP:<server>]` (`:1042`), but the `search_tools` output uses `entry.short_description`, which does not include it. The fix is in presentation (§4.4), not by mutating the upstream description.
 
@@ -372,11 +377,19 @@ MCP tool is indexed as `mcp_<server>_<tool>`; the owner is therefore weighted
 more strongly than a bm25 column would weight it. `tests/test_tool_retrieval_eval.py::test_naming_the_server_wins_at_every_k`
 locks the property in at k=1, 2 and 3. Aliases need no separate field either:
 `domain` and `keywords` already carry the synonyms (notes/markdown/backlinks).
-Harness-MCP coverage is documented rather than indexed: `agent/mcp.py` registers
-ordinary ToolSpecs that are merged into the first model call
-(`with_mcp_tools`/`all_specs`), so they are advertised directly and never need
-discovery. The separate FTS schema is deferred until a real miss is observed;
-adding it now would only duplicate an existing weight.
+Harness-MCP coverage closed on 2026-11-06: `agent/mcp.py` now also publishes
+every registered ToolSpec into `core.tool_index` (`_index_spec`:868),
+so `search_tools` and `call_tool` reach the `.mcp.json` path as well as the app
+manager's `custom_mcp_servers` path. Publication happens at registration and is
+retracted on close/refresh; a name already owned by the app manager is skipped,
+and `ToolIndex.remove(name, source=...)` (`core/tool_index.py:1067`) makes the
+retraction source-scoped. The direct-advertisement path
+(`with_mcp_tools`/`all_specs`) is unchanged, so the change only adds discovery,
+never removes a tool from the first model call. The separate FTS schema is still
+deferred until a real miss is observed; adding it now would only duplicate an
+existing weight. Covered by `tests/test_agent_mcp.py`
+(`test_workspace_mcp_tools_are_searchable_and_removed_on_close`, the refresh,
+`call_tool`, duplicate-client and fail-soft tests).
 
 ### Phase R2 — Fuse the turn (medium)
 
@@ -439,10 +452,11 @@ count would force a library refresh at every connect. Covered by
 ## 7. Open questions
 
 1. **Server alias source.** Use the MCP `initialize` server name, the config key, or both? Recommendation: both, plus an optional per-server `aliases` list in settings; index all of them in the `server` column.
-2. **Harness MCP coverage.** Index `agent/mcp.py` tools into `core.tool_index`, or keep the two surfaces separate and document it? Recommendation: index them; a tool the model can call but cannot search is a trap.
-3. **`call_tool` bare-name behavior.** Refuse and list, or auto-resolve when exactly one match? Recommendation: auto-resolve only when the bare name maps to one tool **and** the server filter/context agrees; otherwise refuse.
-4. **Ambiguity in the advertised surface.** Should an ambiguous `search_tools` result also affect `resolve` (the connect-time payload)? Recommendation: no — the payload is a different problem (budget), and the manifest plus search covers it. Keep the ambiguity signal on the search surface only.
-5. **Context retention.** Two turns, or the current plan step too? Recommendation: two user turns plus the current plan step if one exists, cleared on session end.
+2. **`call_tool` bare-name behavior.** Refuse and list, or auto-resolve when exactly one match? Recommendation: auto-resolve only when the bare name maps to one tool **and** the server filter/context agrees; otherwise refuse.
+3. **Ambiguity in the advertised surface.** Should an ambiguous `search_tools` result also affect `resolve` (the connect-time payload)? Recommendation: no — the payload is a different problem (budget), and the manifest plus search covers it. Keep the ambiguity signal on the search surface only.
+4. **Context retention.** Two turns, or the current plan step too? Recommendation: two user turns plus the current plan step if one exists, cleared on session end.
+
+**Resolved:** harness MCP coverage (was Q2) — indexed at registration; see §4.2 and §5 R1.
 
 ---
 
@@ -457,7 +471,8 @@ count would force a library refresh at every connect. Covered by
 | N-gram / embedding | `core/tool_index.py:537`, `:780` |
 | Entry / server | `core/tool_index.py:229` `ToolEntry`; `server` property `:287`; `search_text` `:292` |
 | MCP indexing (core) | `core/mcp_manager.py:1019` `_index_tool` |
-| MCP registration (harness) | `agent/mcp.py:781` `tool_spec_name`; `:1390` `with_mcp_tools` |
+| MCP registration (harness) | `agent/mcp.py:781` `tool_spec_name`; `:868` `_index_spec`; `:1366` `_publish`; `:1478` `with_mcp_tools` |
+| Scoped index removal | `core/tool_index.py:1067` `ToolIndex.remove` |
 | Call guard | `core/tool_bridge.py:1071` `_handle_call` |
 | Payload / manifest | `core/tool_bridge.py:458` `build_session_payload` |
 | List filter precedent | `core/tool_bridge.py:767` `_handle_list_tools` (`source`) |

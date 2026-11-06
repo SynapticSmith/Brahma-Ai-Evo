@@ -79,7 +79,8 @@
 ### Phase 7 — R1 acceptance (evidence, no schema change — D9)
 
 - [x] `test_naming_the_server_wins_at_every_k` locks the owner-first property at k=1, 2 and 3.
-- [x] Record that aliases are covered by `domain` + `keywords`, and that harness-MCP tools are advertised directly (documented, not indexed).
+- [x] Record that aliases are covered by `domain` + `keywords`.
+- [x] Close harness-MCP coverage (2026-11-06): `agent/mcp.py` indexes each registered spec into `core.tool_index`, so `search_tools`/`call_tool` reach `.mcp.json` tools too. Source-scoped removal and an app-manager ownership guard prevent a dual-configured server from colliding or losing its live entry.
 
 ### Phase 8 — Plane-A authority registry (ROUTING-AUDIT §6 Phase 4)
 
@@ -107,3 +108,4 @@
 - **2026-11-05:** Full gate green after R0–R3: `ruff check .` clean, `1386 passed, 5 skipped` in 169 s.
 - **2026-11-05:** Plane-A authority registry landed (`core/routing.py`, §6 Phase 4). The four authorities are the whole vocabulary, `RoutingClaim` has no `confidence` field, and the 23-record `ROUTERS` inventory drives `tests/test_routing_authority.py`. Converted: dynamic skills (exact trigger/alias/name, one imperative stripped) and open-app (exact alias, which also fixed the empty-candidate match); Brahma Connect now requires a token-bounded phone word plus a device that resolves; the task preview is neutral for every input. Every fixed-phrase gate is word-bounded, so `ac`/`backup`, `phone`/`microphone`, `fan`/`fantastic`, `light`/`highlight`, `hall`/`challenge`, `room`/`mushroom` and `script`/`play` no longer claim a turn. `intent_dispatcher` and `execution_reflection` stay dormant, pinned by a test that fails if app code imports them. 105 new routing-authority tests.
 - **2026-11-05:** Full gate green after the authority registry: `ruff check .` clean, `1491 passed, 5 skipped` in 181 s.
+- **2026-11-06:** Harness-MCP coverage closed (G8). `agent/mcp.py` publishes every registered `ToolSpec` into `core.tool_index` at registration (`_index_spec`) with `source`/`skill_id` `mcp:<server>` and retracts it on close/refresh (`_unindex_spec`). `ToolIndex.remove(name, source=...)` makes removal source-scoped, and a name the app manager already owns (`DynamicToolRegistry.is_external_tool`) is skipped, so a server configured in both MCP clients neither creates a phantom `call_tool` collision nor loses its live entry when a harness session closes. Lazy, fail-soft imports keep `agent/` importable with only pytest. New tests: 5 in `tests/test_agent_mcp.py` (search, refresh, `call_tool`, duplicate client, fail-soft) plus a source-scoped removal test in `tests/test_tool_index.py`; targeted suites green (213 passed).

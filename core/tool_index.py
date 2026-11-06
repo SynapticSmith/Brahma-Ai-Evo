@@ -1064,6 +1064,26 @@ class ToolIndex:
             self._built = False
             return len(doomed)
 
+    def remove(self, name: str, *, source: Optional[str] = None) -> bool:
+        """Drops one tool by name, optionally only if it belongs to ``source``.
+
+        A source-scoped removal is what the harness MCP client needs: its
+        sessions come and go during one process, and the same server name may
+        also be published by the app's own MCP manager. Passing ``source`` means
+        closing a harness session can only remove the entry it published, never
+        a still-live entry from another owner.
+        """
+        with self._lock:
+            entry = self._entries.get(name)
+            if entry is None or (source is not None and entry.source != source):
+                return False
+            self._entries.pop(name, None)
+            if name in self._order:
+                self._order.remove(name)
+            self._forget_collision_source(name, entry.source)
+            self._built = False
+            return True
+
     def _forget_collision_source(self, name: str, source: str) -> None:
         """Drops a source from a collision record once its entry is gone."""
         sources = self._collisions.get(name)

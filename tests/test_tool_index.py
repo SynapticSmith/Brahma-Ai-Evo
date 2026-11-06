@@ -381,6 +381,22 @@ def test_remove_source_drops_tools_and_manual(index):
     assert index.manual("mcp:Synapse") is None
 
 
+def test_remove_is_scoped_to_the_owning_source(tmp_path):
+    """Closing one publisher must not delete another owner's same-named tool."""
+    idx = ToolIndex(cache_dir=tmp_path / "c")
+    idx.upsert(_entry("shared_tool", "From one client.", source="mcp:S"))
+    idx.upsert(_entry("shared_tool", "From another client.", source="skill"))
+    assert idx.collision_for("shared_tool") == ["mcp:S", "skill"]
+
+    assert idx.remove("shared_tool", source="mcp:S") is False
+    assert idx.get("shared_tool").source == "skill"
+
+    assert idx.remove("shared_tool", source="skill") is True
+    assert idx.get("shared_tool") is None
+    assert idx.collision_for("shared_tool") == []
+    assert idx.remove("shared_tool") is False
+
+
 def test_upsert_preserves_pin_on_replacement(tmp_path):
     idx = ToolIndex(cache_dir=tmp_path / "c")
     idx.upsert(_entry("undo", "original", pinned=True))

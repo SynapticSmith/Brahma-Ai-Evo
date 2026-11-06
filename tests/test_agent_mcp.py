@@ -739,6 +739,175 @@ def test_merging_is_a_no_op_when_nothing_is_registered():
 
 
 # --------------------------------------------------------------------------- #
+# Tool index: search_tools / call_tool must reach harness MCP tools too
+# --------------------------------------------------------------------------- #
+
+@pytest.fixture
+def indexed_bridge(tmp_path: Path, monkeypatch):
+    """An isolated tool index plus a recording bridge executor."""
+    from core import tool_bridge
+    from core import tool_index as ti
+
+    ti.reset_index()
+    idx = ti.ToolIndex(cache_dir=tmp_path / "cache")
+    monkeypatch.setattr(ti, "get_index", lambda: idx)
+    monkeypatch.setattr(tool_bridge, "get_index", lambda: idx)
+    monkeypatch.setattr(
+        tool_bridge,
+        "_settings",
+        {"tool_index_enabled": True, "tool_index_budget": 20},
+    )
+    calls: list = []
+
+    def _executor(name, args):
+        calls.append((name, args))
+        return f"executed {name}"
+
+    monkeypatch.setattr(tool_bridge, "_executor", _executor)
+    yield idx, calls
+    ti.reset_index()
+
+
+def test_workspace_mcp_tools_are_searchable_and_removed_on_close(
+    tmp_path: Path, indexed_bridge
+):
+    import asyncio
+
+    from core import tool_bridge
+
+    idx, _ = indexed_bridge
+    _workspace_config(tmp_path)
+    manager = WorkspaceMCP()
+    try:
+        assert manager.ensure(tmp_path) is True
+
+        entry = idx.get("mcp_demo_echo")
+        assert entry is not None
+        assert entry.source == "mcp:demo"
+        assert entry.skill_id == "mcp:demo"
+        assert entry.domain == "mcp demo"
+        assert "demo" in entry.keywords and "echo" in entry.keywords
+        assert entry.declaration["name"] == "mcp_demo_echo"
+
+        found = asyncio.run(
+            tool_bridge.execute_meta("search_tools", {"intent": "echo arguments"})
+        )
+        assert "mcp_demo_echo" in found
+
+        manager.close()
+        assert idx.get("mcp_demo_echo") is None
+        assert idx.get("mcp_demo_fail") is None
+    finally:
+        manager.close()
+
+
+def test_a_refresh_republishes_the_changed_catalogue(tmp_path: Path, indexed_bridge):
+    idx, _ = indexed_bridge
+    _workspace_config(tmp_path)
+    manager = WorkspaceMCP()
+    try:
+        assert manager.ensure(tmp_path) is True
+        assert idx.get("mcp_demo_binary") is not None
+
+        assert _call_spec("mcp_demo_mutate") == "mutated"
+        assert manager.ensure(tmp_path) is True
+
+        assert idx.get("mcp_demo_binary") is None
+        assert idx.get("mcp_demo_added") is not None
+        assert idx.get("mcp_demo_echo") is not None
+    finally:
+        manager.close()
+
+
+def test_call_tool_dispatches_a_workspace_mcp_tool(tmp_path: Path, indexed_bridge):
+    import asyncio
+
+    from core import tool_bridge
+
+    idx, calls = indexed_bridge
+    _workspace_config(tmp_path)
+    manager = WorkspaceMCP()
+    try:
+        assert manager.ensure(tmp_path) is True
+        assert idx.get("mcp_demo_echo") is not None
+
+        result = asyncio.run(
+            tool_bridge.execute_meta(
+                "call_tool",
+                {"tool_name": "mcp_demo_echo", "arguments": {"text": "hi"}},
+            )
+        )
+
+        assert result == "executed mcp_demo_echo"
+        assert calls == [("mcp_demo_echo", {"text": "hi"})]
+    finally:
+        manager.close()
+
+
+def test_a_same_named_app_manager_tool_is_neither_duplicated_nor_removed(
+    tmp_path: Path, indexed_bridge
+):
+    """A server configured in both MCP clients must not create a phantom clash."""
+    from core.dynamic_registry import DynamicToolRegistry
+    from core.tool_index import ToolEntry
+
+    idx, _ = indexed_bridge
+    DynamicToolRegistry.register_external_tool(
+        "mcp_demo_echo",
+        description="app manager copy",
+        executor=lambda **_kwargs: "app",
+    )
+    idx.upsert(
+        ToolEntry(
+            name="mcp_demo_echo",
+            description="app manager copy",
+            source="mcp:demo",
+            skill_id="mcp:demo",
+            domain="mcp demo",
+            keywords="demo mcp_demo_echo",
+        )
+    )
+    _workspace_config(tmp_path)
+    manager = WorkspaceMCP()
+    try:
+        assert manager.ensure(tmp_path) is True
+
+        # The app manager's entry wins; this session adds no second source.
+        assert idx.get("mcp_demo_echo").description == "app manager copy"
+        assert idx.collision_for("mcp_demo_echo") == []
+
+        manager.close()
+        assert idx.get("mcp_demo_echo") is not None
+        assert idx.get("mcp_demo_echo").description == "app manager copy"
+    finally:
+        manager.close()
+        DynamicToolRegistry.unregister_external_tool("mcp_demo_echo")
+
+
+def test_a_failing_index_does_not_stop_a_server_from_starting(
+    tmp_path: Path, monkeypatch
+):
+    from core import tool_index as ti
+
+    class _Broken:
+        def upsert(self, entry):
+            raise RuntimeError("index unavailable")
+
+        def remove(self, name, **kwargs):
+            raise RuntimeError("index unavailable")
+
+    monkeypatch.setattr(ti, "get_index", lambda: _Broken())
+
+    _workspace_config(tmp_path)
+    manager = WorkspaceMCP()
+    try:
+        assert manager.ensure(tmp_path) is True
+        assert get_spec("mcp_demo_echo") is not None
+    finally:
+        manager.close()
+
+
+# --------------------------------------------------------------------------- #
 # In-place refresh: tools/list_changed and a dead process
 # --------------------------------------------------------------------------- #
 

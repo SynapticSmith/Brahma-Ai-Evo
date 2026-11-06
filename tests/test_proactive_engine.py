@@ -11,6 +11,10 @@ from actions.proactive import ProactiveEngine
 
 def test_sensorium_power_transitions():
     sensorium = PassiveSensorium(poll_interval=100.0)
+    # This test is about power, not the time of day: suppress the morning
+    # greeting that would otherwise fire during a 06:00–11:00 test run and
+    # turn the exact-length assertion below into a clock-dependent failure.
+    sensorium._last_morning_briefing_date = datetime.now().strftime("%Y-%m-%d")
     alerts = []
     sensorium.register_interjection_handler(lambda at, meta: alerts.append((at, meta)))
 
