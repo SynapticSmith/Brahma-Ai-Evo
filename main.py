@@ -18,6 +18,7 @@ from core import boot_sentry
 boot_sentry.run()
 from core.sensorium import sensorium
 from core import desktop_tools
+from core import routing
 import asyncio
 import threading
 import re
@@ -434,7 +435,7 @@ def _looks_like_code_request(text: str) -> bool:
         "module", "function", "class", "project", "script", "api",
         "ui", "webpage", "bot", "server", "service"
     )
-    return any(word in low for word in code_words)
+    return routing.any_phrase(low, code_words)
 
 
 def _looks_like_website_request(text: str) -> bool:
@@ -461,7 +462,12 @@ def _looks_like_website_request(text: str) -> bool:
     action_words = ("make", "create", "build", "design", "develop", "generate", "code", "edit", "update", "fix")
     has_web = any(re.search(rf"\b{re.escape(w)}\b", low) for w in website_words)
     has_action = any(re.search(rf"\b{re.escape(a)}\b", low) for a in action_words)
-    return has_web and (has_action or any(w in low for w in ("landing page", "homepage", "portfolio", "website", "web app", "web page")))
+    return has_web and (
+        has_action
+        or routing.any_phrase(
+            low, ("landing page", "homepage", "portfolio", "website", "web app", "web page")
+        )
+    )
 
 
 def _looks_like_presentation_request(text: str) -> bool:
@@ -473,7 +479,10 @@ def _looks_like_presentation_request(text: str) -> bool:
     action_words = ("make", "create", "build", "design", "develop", "generate", "draft", "prepare")
     has_keyword = any(re.search(rf"\b{re.escape(k)}\b", low) for k in ppt_keywords)
     has_action = any(re.search(rf"\b{re.escape(a)}\b", low) for a in action_words)
-    return has_keyword and (has_action or any(k in low for k in ("slide deck", "pitch deck", "powerpoint", "pptx", "ppt")))
+    return has_keyword and (
+        has_action
+        or routing.any_phrase(low, ("slide deck", "pitch deck", "powerpoint", "pptx", "ppt"))
+    )
 
 
 def _looks_like_spreadsheet_request(text: str) -> bool:
@@ -485,7 +494,12 @@ def _looks_like_spreadsheet_request(text: str) -> bool:
     action_words = ("make", "create", "build", "design", "develop", "generate", "draft", "prepare")
     has_keyword = any(re.search(rf"\b{re.escape(k)}\b", low) for k in sheet_keywords)
     has_action = any(re.search(rf"\b{re.escape(a)}\b", low) for a in action_words)
-    return has_keyword and (has_action or any(k in low for k in ("spreadsheet", "excel sheet", "expense tracker", "budget sheet", "xlsx")))
+    return has_keyword and (
+        has_action
+        or routing.any_phrase(
+            low, ("spreadsheet", "excel sheet", "expense tracker", "budget sheet", "xlsx")
+        )
+    )
 
 
 def _extract_skill_creation_goal(text: str) -> str | None:
@@ -611,7 +625,7 @@ def _looks_like_screen_request(text: str) -> bool:
         "inspect my screen",
         "what am i looking at",
     )
-    if any(p in t for p in direct_phrases):
+    if routing.any_phrase(t, direct_phrases):
         return True
     screen_words = ("screen", "display", "monitor", "window")
     request_words = ("what", "check", "look", "analy", "analyse", "analyze", "read", "tell", "answer", "see", "explain")
@@ -627,7 +641,7 @@ def _looks_like_daily_briefing_request(text: str) -> bool:
         "brief me", "give me a briefing", "briefing for today", "what's happening today",
         "whats happening today", "what is happening today",
     )
-    return any(phrase in normalized for phrase in phrases)
+    return routing.any_phrase(normalized, phrases)
 
 
 def _wakeword_detected(text: str) -> bool:
@@ -668,56 +682,14 @@ def _standby_wakeword_detected(text: str) -> bool:
 
 
 def _build_task_plan(text: str) -> list[str]:
-    t = (text or "").lower()
-    if any(word in t for word in ("presentation", "ppt", "slides", "deck")):
-        return [
-            "Understand the topic and goal",
-            "Build a slide structure",
-            "Generate and format the deck",
-            "Open the finished presentation",
-        ]
-    if any(word in t for word in ("spreadsheet", "excel", "sheet", "table", "tracker", "budget")):
-        return [
-            "Read the data request",
-            "Lay out sheets and columns",
-            "Apply formulas and formatting",
-            "Open the workbook",
-        ]
-    if any(word in t for word in ("word", "docx", "document", "report", "letter")):
-        return [
-            "Understand the document type",
-            "Draft the structure and content",
-            "Preserve formatting and polish",
-            "Save the editable file",
-        ]
-    if any(word in t for word in ("website", "web site", "landing page", "saaS", "saas", "dashboard", "app")):
-        return [
-            "Interpret the brief",
-            "Generate frontend and backend files",
-            "Launch the local preview",
-            "Debug and fix launch issues if needed",
-        ]
-    if any(word in t for word in ("browser", "website", "google", "search", "open url", "navigate")):
-        return [
-            "Open the browser",
-            "Navigate to the target page",
-            "Collect the needed information",
-            "Return the result",
-        ]
-    if any(word in t for word in ("screen", "camera", "meeting", "call", "analyze", "analyse", "analyze")):
-        return [
-            "Capture the live screen or camera",
-            "Inspect what is visible",
-            "Answer with the important details",
-            "Keep listening for follow-up commands",
-        ]
-    if any(word in t for word in ("fan", "light", "plug", "kasa", "atomberg", "smart home", "home device", "room", "bedroom", "living room", "kitchen", "office", "bathroom", "balcony")):
-        return [
-            "Identify the smart-home device or room",
-            "Choose the correct action",
-            "Send the command to the connected provider",
-            "Confirm the result back to the user",
-        ]
+    """A neutral placeholder until the model or a tool updates the workspace.
+
+    The old version classified the turn from substrings ("table" meant a
+    spreadsheet, "report" a document, "room" a device room). It had no
+    authority and no information the model lacks, and it disagreed with the
+    handlers it tried to preview (ROUTING-AUDIT §4 R2, Phase 4 A15). Domain
+    guessing before the model speaks is deliberately gone.
+    """
     return [
         "Understand the command",
         "Choose the right tool",
@@ -1213,7 +1185,8 @@ TOOL_DECLARATIONS = [
         "name": "smart_home_control",
         "description": (
             "Controls connected smart-home devices such as Atomberg fans and TP-Link Kasa lights/plugs. "
-            "Use when the user asks to turn devices on or off, set fan speed, change brightness, or control a room."
+            "Use when the user asks to turn devices on or off, set fan speed, change brightness, or control a room. "
+            "If no devices are paired, the tool returns a clear no-devices message; say so rather than guessing."
         ),
         "parameters": {
             "type": "OBJECT",
@@ -2467,9 +2440,6 @@ class BrahmaLive:
             df = DeviceFlow(self)
             self._device_flow_obj = df
         return df
-
-    def _handle_smart_home_command(self, text: str, source: str = "local") -> bool:
-        return self._device_flow.handle_smart_home_command(text, source)
 
     def _handle_brahma_connect_command(self, text: str, source: str = "local") -> bool:
         return self._device_flow.handle_brahma_connect_command(text, source)

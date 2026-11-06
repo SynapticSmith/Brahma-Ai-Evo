@@ -979,7 +979,14 @@ def _smart_home_control(args: Dict[str, Any], context: Any) -> str:
         from core.smart_home import SmartHomeService
 
         smart_home = SmartHomeService()
-    r = smart_home.execute_command(command_text)
+    try:
+        r = smart_home.execute_command(command_text)
+    except Exception as exc:
+        # The service speaks the truth ("No smart home devices are connected
+        # yet.", "I couldn't find a matching device."). A tool call is allowed
+        # to fail; the model reads this text and answers or asks. This is the
+        # model-visible replacement for the old pre-LLM matcher's dead end.
+        return str(exc) or "Smart-home command failed."
     return str((r or {}).get("detail") or "Smart-home command completed.")
 
 

@@ -218,6 +218,12 @@ class AudioIO:
                                 # Seed the next session's tool selection with what
                                 # the user is actually asking about.
                                 self._host._last_user_text = txt
+                                try:
+                                    from core.tool_bridge import set_turn_context
+
+                                    set_turn_context(txt)
+                                except Exception:
+                                    pass
                                 if self._host.ui.muted and self._wakeword_detected(txt):
                                     try:
                                         self._host.ui.set_muted_state(False, wakeword=True)

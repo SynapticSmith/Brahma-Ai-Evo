@@ -147,6 +147,28 @@ LIST_PAGE_MAX = 100
 #: Reciprocal Rank Fusion constant. 60 is the value from the original RRF paper.
 RRF_K = 60
 
+#: Ambiguity is a structural fact, not a confidence score. Two servers are
+#: presented as a contrast set when the runner-up's best hit is at least this
+#: fraction of the winner's — i.e. when ranking alone cannot separate them.
+AMBIGUITY_MARGIN = 0.80
+
+#: Lower margin used when one query word is literally owned by more than one
+#: server (a shared noun such as "vault"). The word alone is evidence that the
+#: turn is genuinely ambiguous, so a slightly wider gap still deserves the flag.
+AMBIGUITY_MARGIN_LEXICAL = 0.70
+
+#: An intent at or below this many tokens is treated as a compression, not a
+#: query. It is completed from the user's actual turn (TOOL-RETRIEVAL-DESIGN
+#: §4.1) unless the caller passed ``context`` explicitly. Tuned on the gold set.
+SHORT_QUERY_TOKENS = 6
+
+#: Resident server manifest bounds (§4.6). One line per server: enough to let
+#: the model name an owner in ``search_tools(server=...)``, never enough to
+#: crowd out behaviour in the core prompt.
+SERVER_MANIFEST_MAX_SERVERS = 12
+SERVER_MANIFEST_MAX_CHARS = 1200
+SERVER_MANIFEST_DOMAIN_CHARS = 48
+
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 _SERVER_PREFIX_RE = re.compile(r"^mcp[_-](?P<server>[^_]+(?:_[^_]+)*?)_(?P<tool>[a-z0-9_]+)$")
 
@@ -978,6 +1000,11 @@ class ToolIndex:
         #: cannot lose them) but are invisible to retrieval, advertisement and
         #: execution — i.e. fully removed from what the model can see or call.
         self._disabled: set[str] = set()
+        #: Names more than one source tried to register. The catalogue is keyed
+        #: by name (provider declarations must be unique), so the later source
+        #: wins; the record is what lets ``call_tool`` refuse to guess instead
+        #: of silently running the wrong server's tool.
+        self._collisions: Dict[str, List[str]] = {}
 
         self._fts = _Fts5Backend()
         self._ngram = _NgramBackend()
@@ -994,13 +1021,28 @@ class ToolIndex:
         """Adds or replaces one tool. Cheap; the index rebuilds lazily."""
         with self._lock:
             entry.apply_routing(self._overrides.get(entry.name, {}))
-            if entry.name in self._entries:
+            previous = self._entries.get(entry.name)
+            if previous is not None:
                 # Preserve a pin the caller did not know about.
-                entry.pinned = entry.pinned or self._entries[entry.name].pinned
+                entry.pinned = entry.pinned or previous.pinned
+                if previous.source != entry.source:
+                    self._collisions.setdefault(entry.name, [previous.source])
+                    if entry.source not in self._collisions[entry.name]:
+                        self._collisions[entry.name].append(entry.source)
             self._entries[entry.name] = entry
             if entry.name not in self._order:
                 self._order.append(entry.name)
             self._built = False
+
+    def collisions(self) -> Dict[str, List[str]]:
+        """Tool names registered by more than one source, with those sources."""
+        with self._lock:
+            return {name: list(sources) for name, sources in self._collisions.items()}
+
+    def collision_for(self, name: str) -> List[str]:
+        """Sources competing for one tool name; empty when the name is unique."""
+        with self._lock:
+            return list(self._collisions.get(name, ()))
 
     def upsert_many(self, entries: Iterable[ToolEntry]) -> int:
         count = 0
@@ -1017,17 +1059,31 @@ class ToolIndex:
                 self._entries.pop(name, None)
                 if name in self._order:
                     self._order.remove(name)
+                self._forget_collision_source(name, source)
             self._manuals.pop(source, None)
             self._built = False
             return len(doomed)
+
+    def _forget_collision_source(self, name: str, source: str) -> None:
+        """Drops a source from a collision record once its entry is gone."""
+        sources = self._collisions.get(name)
+        if not sources:
+            return
+        remaining = [s for s in sources if s != source]
+        if len(remaining) < 2:
+            self._collisions.pop(name, None)
+        else:
+            self._collisions[name] = remaining
 
     def remove_skill(self, skill_id: str) -> None:
         with self._lock:
             self._manuals.pop(skill_id, None)
             for name in [n for n, e in self._entries.items() if e.skill_id == skill_id]:
-                self._entries.pop(name, None)
+                entry = self._entries.pop(name, None)
                 if name in self._order:
                     self._order.remove(name)
+                if entry is not None:
+                    self._forget_collision_source(name, entry.source)
             self._built = False
 
     def put_manual(self, manual: SkillManual) -> None:
@@ -1070,6 +1126,88 @@ class ToolIndex:
     def skill_ids(self) -> List[str]:
         with self._lock:
             return sorted({e.skill_id for e in self._entries.values()})
+
+    def vocabulary(self) -> set:
+        """Tokens that actually carry routing signal in the visible catalogue.
+
+        Used by the implicit-context rule: an intent that already names a
+        server, source, domain, keyword or tool-name segment does not need the
+        user's turn to disambiguate; one that names none of them does.
+        """
+        vocab: set = set()
+        with self._lock:
+            for name, entry in self._entries.items():
+                if name in self._disabled:
+                    continue
+                vocab.update(_tokens(entry.server))
+                vocab.update(_tokens(entry.source))
+                vocab.update(_tokens(entry.domain))
+                vocab.update(_tokens(entry.keywords))
+                vocab.update(_tokens(" ".join(_name_variants(entry.name))))
+        return vocab
+
+    def server_manifest(
+        self,
+        *,
+        max_servers: int = SERVER_MANIFEST_MAX_SERVERS,
+        max_chars: int = SERVER_MANIFEST_MAX_CHARS,
+    ) -> str:
+        """One bounded line per connected tool server (TOOL-RETRIEVAL §4.6).
+
+        Built from the live catalogue, never a hardcoded list, so a server that
+        connects or disappears is reflected at the next payload rebuild. This is
+        context for the model's own choice; it routes nothing, and it is bounded
+        so it can never crowd out behaviour in the resident prompt.
+        """
+        groups: Dict[str, Dict[str, Any]] = {}
+        with self._lock:
+            for name in self._order:
+                entry = self._entries.get(name)
+                if entry is None or name in self._disabled:
+                    continue
+                slot = groups.setdefault(
+                    entry.server,
+                    {"count": 0, "domains": {}, "skill_id": entry.skill_id},
+                )
+                slot["count"] += 1
+                if entry.domain:
+                    slot["domains"][entry.domain] = slot["domains"].get(entry.domain, 0) + 1
+        if not groups:
+            return ""
+
+        ordered = sorted(
+            groups.items(), key=lambda item: (-item[1]["count"], item[0].lower())
+        )
+        shown = ordered[: max(1, int(max_servers))]
+        lines = [
+            "Connected tool servers "
+            "(search with search_tools(intent=..., server=<name>)):"
+        ]
+        for server, slot in shown:
+            line = f"- {server}"
+            if slot["domains"]:
+                label = max(slot["domains"].items(), key=lambda kv: (kv[1], kv[0]))[0]
+                label = " ".join(label.split())
+                if len(label) > SERVER_MANIFEST_DOMAIN_CHARS:
+                    label = label[: SERVER_MANIFEST_DOMAIN_CHARS - 1].rstrip() + "…"
+                line += f" — {label}"
+            line += f" ({slot['count']} tools"
+            manual = self.manual(slot["skill_id"]) if slot["skill_id"] else None
+            if manual is not None:
+                line += f"; manual: {slot['skill_id']}"
+            line += ")"
+            lines.append(line)
+
+        # Fit the cap by dropping whole server lines, then say how many are
+        # hidden. A truncated server name would be worse than a shorter list.
+        body = lines[1:]
+        while body and len("\n".join([lines[0]] + body)) > max_chars:
+            body.pop()
+        dropped = len(ordered) - len(body)
+        if dropped > 0:
+            body.append(f"- (+{dropped} more — use list_tools())")
+        text = "\n".join([lines[0]] + body)
+        return text if len(text) <= max_chars else text[:max_chars]
 
     # -- build ------------------------------------------------------------- #
 
@@ -1131,42 +1269,126 @@ class ToolIndex:
 
     # -- search ------------------------------------------------------------ #
 
-    def search(self, query: str, k: int = 8) -> List[SearchHit]:
+    def _allowed_names(self, server: str = "", domain: str = "") -> Optional[set]:
+        """Names that satisfy the structural filters, or ``None`` for no filter.
+
+        ``server`` accepts the bare server name, its source, or its skill id
+        (``Calyx``, ``mcp:Calyx``, ``mcp_Calyx``). ``domain`` accepts a label or
+        any word inside one, so ``notes`` matches "notes vault". Filtering is
+        deliberately exact about the server: a near-miss must return nothing and
+        say so, not silently widen to the whole catalogue.
+        """
+        server_needle = str(server or "").strip().lower()
+        domain_needle = str(domain or "").strip().lower()
+        if not server_needle and not domain_needle:
+            return None
+        allowed = set()
+        with self._lock:
+            for name, entry in self._entries.items():
+                if name in self._disabled:
+                    continue
+                if server_needle:
+                    aliases = {
+                        entry.server.lower(),
+                        entry.source.lower(),
+                        entry.skill_id.lower(),
+                        f"mcp:{entry.server.lower()}",
+                        f"mcp_{entry.server.lower()}",
+                    }
+                    if server_needle not in aliases:
+                        continue
+                if domain_needle:
+                    domain_text = entry.domain.lower()
+                    if domain_needle != domain_text and domain_needle not in domain_text:
+                        continue
+                allowed.add(name)
+        return allowed
+
+    def search(
+        self,
+        query: str,
+        k: int = 8,
+        *,
+        server: str = "",
+        domain: str = "",
+        context: str = "",
+    ) -> List[SearchHit]:
         """Rank the catalog against an intent using RRF-fused backends.
 
         Multi-clause requests are scored per clause and fused, so a compound
         ask ("search the web for NVDA, then build a deck") surfaces tools for
         both halves instead of only the dominant one.
+
+        ``server``/``domain`` constrain the candidate pool *before* ranking.
+        When they are set the backends are asked for the whole catalogue and
+        the filter is applied afterwards, so a tool cannot be missed merely
+        because it ranked low globally. ``context`` is the user's turn, fused
+        at lower weight: it supplies the noun a short intent omitted.
+
+        Browse mode: ``server``/``domain`` with no query returns that slice
+        directly, sorted, instead of pretending an empty string was ranked.
         """
         started = time.perf_counter()
-        clauses = _split_clauses(query)
-        if not clauses:
+        query = (query or "").strip()
+        context = (context or "").strip()
+        allowed = self._allowed_names(server, domain)
+        if allowed is not None and not allowed:
+            self._stats.last_query_ms = round((time.perf_counter() - started) * 1000.0, 2)
             return []
+        if not query and not context:
+            if allowed is None:
+                return []
+            with self._lock:
+                slice_hits = [
+                    SearchHit(entry=entry, score=1.0)
+                    for entry in self.entries()
+                    if entry.name in allowed
+                ]
+            slice_hits.sort(key=lambda h: h.name.lower())
+            self._stats.last_query_ms = round((time.perf_counter() - started) * 1000.0, 2)
+            return slice_hits[: max(1, int(k))]
+
+        variants: List[Tuple[str, float]] = []
+        if query:
+            variants.append((query, 1.0))
+        if context:
+            if query:
+                variants.append((f"{query} {context}", 0.7))
+                variants.append((context, 0.4))
+            else:
+                variants.append((context, 1.0))
 
         self.rebuild()
         fused: Dict[str, Dict[str, Any]] = {}
         with self._lock:
             backends = [b for b in (self._fts, self._ngram, self._embed) if b.available]
             k = max(1, int(k))
-            for clause in clauses:
-                per_backend: List[List[Tuple[str, float]]] = []
-                for backend in backends:
-                    try:
-                        per_backend.append(backend.rank(clause, k))
-                    except Exception as exc:
-                        logger.debug("[ToolIndex] Backend %s failed: %s", backend.name, exc)
-                        per_backend.append([])
-                per_backend.extend(self._lexical_fallback(clause, k))
+            # A filtered query must look at the whole catalogue: the backends
+            # rank the global corpus, and applying the filter afterwards must
+            # not drop a candidate that the global top-k cut off.
+            fetch = len(self._order) if allowed is not None else k
+            for text, weight in variants:
+                for clause in _split_clauses(text):
+                    per_backend: List[List[Tuple[str, float]]] = []
+                    for backend in backends:
+                        try:
+                            per_backend.append(backend.rank(clause, fetch))
+                        except Exception as exc:
+                            logger.debug("[ToolIndex] Backend %s failed: %s", backend.name, exc)
+                            per_backend.append([])
+                    per_backend.extend(self._lexical_fallback(clause, fetch))
 
-                for results in per_backend:
-                    for rank, (name, _score) in enumerate(results, start=1):
-                        slot = fused.setdefault(name, {"rrf": 0.0, "ranks": {}})
-                        slot["rrf"] += 1.0 / (RRF_K + rank)
-                        slot["ranks"].setdefault("rank", rank)
+                    for results in per_backend:
+                        for rank, (name, _score) in enumerate(results, start=1):
+                            slot = fused.setdefault(name, {"rrf": 0.0, "ranks": {}})
+                            slot["rrf"] += weight / (RRF_K + rank)
+                            slot["ranks"].setdefault("rank", rank)
 
             hits: List[SearchHit] = []
             for name, slot in fused.items():
                 if name in self._disabled:
+                    continue
+                if allowed is not None and name not in allowed:
                     continue
                 entry = self._entries.get(name)
                 if entry is None:
@@ -1178,7 +1400,7 @@ class ToolIndex:
             # "synapse_browser_wait_for_url" shares most of its n-grams with
             # "synapse_browser_wait_for", so pure rank fusion ranks the shorter
             # sibling first. Users naming a tool expect that tool.
-            needle = re.sub(r"[^a-z0-9_]", "", query.lower())
+            needle = re.sub(r"[^a-z0-9_]", "", (query or context).lower())
             if needle:
                 for hit in hits:
                     flat = hit.name.lower()
@@ -1191,9 +1413,75 @@ class ToolIndex:
         # backends happened to emit their (tied) results, or two identical
         # builds of the same intent can differ. Break ties on the tool name.
         hits.sort(key=lambda h: (-h.score, h.name.lower()))
-        diversified = self._diversify(hits, k)
+        # The per-source cap exists to stop one server owning a general search.
+        # It is the wrong tool when the user explicitly asked for that server.
+        if allowed is not None and server and not domain:
+            selected = hits[:k]
+        else:
+            selected = self._diversify(hits, k)
         self._stats.last_query_ms = round((time.perf_counter() - started) * 1000.0, 2)
-        return diversified
+        return selected
+
+    def ambiguity(self, hits: Sequence[SearchHit], query: str = "") -> Optional[Dict[str, Any]]:
+        """Return a contrast set when two servers are plausible for one query.
+
+        This is the deterministic test from TOOL-RETRIEVAL-DESIGN §4.4, not a
+        confidence score: take the best hit per server, compare the top two,
+        and flag only when the margin is too small to separate them. If a query
+        word is owned by more than one server (the shared-noun case: "vault"),
+        the margin widens so a real collision is not hidden by a slightly
+        higher score on one side. Never used to pick a winner.
+        """
+        if not hits:
+            return None
+        best: Dict[str, SearchHit] = {}
+        counts: Dict[str, int] = {}
+        for hit in hits:
+            server = hit.entry.server
+            counts[server] = counts.get(server, 0) + 1
+            best.setdefault(server, hit)
+        groups = sorted(best.values(), key=lambda h: (-h.score, h.entry.server.lower()))
+        if len(groups) < 2:
+            return None
+        top, second = groups[0], groups[1]
+        if top.score <= 0:
+            return None
+
+        tokens = set(_tokens(query))
+        owners: Dict[str, set] = {}
+        for server, hit in best.items():
+            text = " ".join((server, hit.entry.name, hit.entry.domain, hit.entry.keywords))
+            owners[server] = tokens & set(_tokens(text))
+        # If the ranking winner owns a word the runner-up does not, the query
+        # already discriminates ("Obsidian" / "notes" / "kernel"). That is not
+        # ambiguity, even though a shared noun is present.
+        if owners.get(top.entry.server, set()) - owners.get(second.entry.server, set()):
+            return None
+        shared = {
+            token
+            for token in tokens
+            if sum(1 for owned in owners.values() if token in owned) >= 2
+        }
+        margin = AMBIGUITY_MARGIN_LEXICAL if shared else AMBIGUITY_MARGIN
+        ratio = second.score / top.score
+        if ratio < margin:
+            return None
+        return {
+            "ambiguous": True,
+            "margin": margin,
+            "ratio": round(ratio, 3),
+            "shared": sorted(shared),
+            "servers": [
+                {
+                    "server": hit.entry.server,
+                    "source": hit.entry.source,
+                    "domain": hit.entry.domain,
+                    "tools": counts[hit.entry.server],
+                    "score": round(hit.score, 4),
+                }
+                for hit in groups
+            ],
+        }
 
     def _lexical_fallback(self, clause: str, k: int) -> List[List[Tuple[str, float]]]:
         """Exact-identifier safety net.
@@ -1564,7 +1852,10 @@ SEARCH_TOOLS_DECLARATION: Dict[str, Any] = {
         "any usage rules for that tool group. "
         "Call this FIRST whenever you need a capability that is not among your current "
         "tools — for example when the user asks for something in a domain you have not "
-        "been given a tool for. Then call the returned tool with call_tool."
+        "been given a tool for. Then call the returned tool with call_tool. "
+        "If you know which server owns the capability, pass server; if your intent is a "
+        "short keyword, pass the user's request as context. When the result says "
+        "AMBIGUOUS, pick a server or an exact tool name — never guess between them."
     ),
     "parameters": {
         "type": "OBJECT",
@@ -1573,7 +1864,35 @@ SEARCH_TOOLS_DECLARATION: Dict[str, Any] = {
                 "type": "STRING",
                 "description": (
                     "What you want to do, in the user's own words "
-                    "(e.g. 'control the brightness of the monitors', 'search my vault for notes')."
+                    "(e.g. 'control the brightness of the monitors', 'search my vault for notes'). "
+                    "Required unless you pass server or domain to browse that slice."
+                ),
+            },
+            "context": {
+                "type": "STRING",
+                "description": (
+                    "Optional: the user's request or the current plan step, verbatim. "
+                    "Pass it when intent is a short keyword so the missing noun is not lost."
+                ),
+            },
+            "server": {
+                "type": "STRING",
+                "description": (
+                    "Optional exact owner filter, e.g. 'Calyx', 'mcp:Calyx' or 'native'. "
+                    "Use it when the result is ambiguous between servers."
+                ),
+            },
+            "domain": {
+                "type": "STRING",
+                "description": (
+                    "Optional domain filter, e.g. 'notes', 'browser', 'system'."
+                ),
+            },
+            "detail": {
+                "type": "STRING",
+                "description": (
+                    "Optional 'names' (default) for a compact result, or 'schema' "
+                    "to include the full argument schema."
                 ),
             },
             "limit": {
@@ -1586,7 +1905,7 @@ SEARCH_TOOLS_DECLARATION: Dict[str, Any] = {
                 ),
             },
         },
-        "required": ["intent"],
+        "required": [],
     },
 }
 

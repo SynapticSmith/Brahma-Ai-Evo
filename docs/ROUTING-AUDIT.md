@@ -1,8 +1,9 @@
 # Brahma Evo — Routing Audit & Remediation Plan
 
-**Status:** Design record. No code changed by this batch.
+**Status:** Design record. The original audit batch changed no code; remediation status per phase is recorded inline (§6).
 **Created:** 2026-11-05
 **Revised:** 2026-11-05 — Phase 0 now removes the pre-LLM smart-home claim instead of extending it; see §1 and §6.
+**Revised:** 2026-11-05 — Phases 0–4 are implemented; Phase 4 is the authority registry in §6.
 **Companion:** `docs/TOOL-RETRIEVAL-DESIGN.md` (short queries, same-word tools, server-aware retrieval).
 **Scope:** every mechanism that decides what happens to a user utterance or decides which tools a model can see — the pre-LLM command handlers, the prompt tiers, the tool index, the skill catalogues, and the dispatch boundary.
 **Trigger:** ordinary requests (`"Make a backup of my photos"`, `"Track my parcel"`) are answered as smart-home failures.
@@ -137,6 +138,8 @@ Ordered by when they run on the text path. `file:symbol` is authoritative.
 | A22 | **Model tool choice** (the intended semantic router) | provider tool-calling → `AgentRuntime.execute` | model reads the live surface, chooses, asks when ambiguous | Built | Low; the target for A7–A11/A16–A18 |
 
 A17 is the only Plane-A row this batch removes. A22 is not a new layer to build — it is the route that already exists (`TOOL_DECLARATIONS` → provider tool call → `AgentRuntime.execute`), now expected to be the *only* route for semantic actions. The index and the prompt are what A22 needs in order to choose well; that is the subject of `docs/TOOL-RETRIEVAL-DESIGN.md`.
+
+**Phase 4 outcome (2026-11-05).** `core/routing.py` now holds the authoritative inventory (`ROUTERS`, 23 records, with `status` = live / converted / delegated / dormant / removed). It covers the pre-LLM consumers in the table above and adds the three sub-branches the audit treated inline (A7b briefing, A9b auto-heal, A16b active-device rewrite); A19 (provider dispatch) is routing *after* a tool is chosen and A22 is the destination, so neither is a Plane-A claim. A15 and A17 are removed; A6 and A11 are converted to exact-alias claims; A16 requires a verified target; A20/A21 stay dormant and a test fails if app code imports them. The line numbers above are evidence from the audit, not contracts — resolve an entry through `ROUTERS` when they disagree.
 
 A20 is imported by tests only (`tests/test_intent_dispatcher.py`, `test_flowstate.py`, `test_game_sentinel.py`, …). Its composite-goal branch imports `core.omni_planner` (which does not exist) inside a `try/except`, so that branch silently does nothing rather than raising. It is **not** on the GUI, CLI, or voice path. It must not be revived as part of this fix without an explicit decision (§7).
 
@@ -273,7 +276,9 @@ There is also a timing question: a Live socket is connected **before** the first
 - It is **not** cold-start advertised at the default budget: budget 24 − 5 pinned (`undo`, `recall_memory`, `read_file`, `edit_file`, `run_command`) − 8 meta tools = **11 retrieval slots** (`tool_index.py:1386`, `1397`). `smart_home_control` is the 17th non-pinned native declaration, so it is outside the cold-start 11.
 - But it becomes reachable three ways: `search_tools` retrieval, `INTENT_HINTS` (no smart-home hint exists today, but adding one would pin it), and `pinned_extra` learned names after one use. On a machine with no devices, all three are dead ends.
 
-The correct gate is availability, not vocabulary: if `device_count() == 0`, the tool should not be advertised as a *control* surface. Keep a cheap read-only `smart_home_status` (or a `list_smart_home_devices` tool) that is always advertised and answers "no devices connected", so the model can respond honestly instead of guessing. When devices exist, advertise `smart_home_control` with a compact target list (names/rooms) in its description or via the status tool. The same argument applies to `connect_*` when no phone is paired.
+The correct gate is availability, not vocabulary. The implementation choice (D2 in `docs/ROUTING-IMPLEMENTATION.md`) is to keep `smart_home_control` advertised and make it **tell the truth**: `_smart_home_control` catches the service error and returns "No smart home devices are connected yet." as ordinary tool text. A hidden tool cannot answer "do I have devices?"; a model that deliberately calls the tool and gets a truthful result has not been hijacked. The declaration says this explicitly, and the core prompt tells the model to say so rather than guess.
+
+A read-only `smart_home_status` (or `list_smart_home_devices`) remains an option if the product wants an inventory surface, but it is not required to fix R5. The same "report availability" argument applies to `connect_*` when no phone is paired: return a truthful message rather than a dead end.
 
 ### R6 — Medium: the dynamic skill registry is a second pre-LLM matcher (`core/text_turn_controller.py:228-271`)
 
@@ -315,6 +320,24 @@ Full design in `docs/TOOL-RETRIEVAL-DESIGN.md`. The short version:
 - add a resident, bounded server manifest so the model knows which owners exist;
 - add a gold-set eval with recall and cross-server-confusion thresholds.
 
+**Status (2026-11-05): R0, R2 and R3 implemented; R1 accepted on evidence.** `search_tools`
+now takes `server`/`domain`/`context`/`detail`, returns one group header per
+owning server plus `matched:` reasons and an explicit `AMBIGUOUS` block with a
+refine hint, and `ToolIndex.search` applies the server/domain filter before
+ranking (with a browse mode when no intent is given). `ToolIndex.ambiguity` is
+the deterministic contrast set, suppressed when the winning server owns a word
+the runner-up does not. `call_tool` refuses a bare name shared by two servers and
+refuses a name whose registration was overwritten by a later server. R2 completes
+a compressed intent from the user's actual turn on the text, agentic and Live
+paths, so `intent="vault"` after "search my Obsidian notes" does not reach the
+ambiguity path at all. R3 puts a live, bounded server manifest in the session
+payload, so the model knows which owners exist before it searches. The synthetic
+two-vault gold set (`tests/test_tool_retrieval_eval.py`) passes recall@1 1.0,
+recall@3 1.0, MRR 1.0, cross-server confusion 0.0, ambiguity precision/recall
+1.0. R1's ranking acceptance is met by the existing name-variant weighting
+(`test_naming_the_server_wins_at_every_k`); a separate FTS column is deferred
+until a real miss is observed (D9).
+
 ---
 
 ## 5. Invariants a fix must preserve
@@ -322,7 +345,7 @@ Full design in `docs/TOOL-RETRIEVAL-DESIGN.md`. The short version:
 1. **Authority, not confidence.** Plane A may claim a turn only for explicit syntax, an exact user alias, state the system owns, or a verified live target. Similarity, substrings, and model-style confidence are not authority. A handler that cannot prove one of the four declines.
 2. **One permission boundary.** Nothing in Plane A may execute a tool directly. If a fast path wants to act, it calls the same `ToolSpec` / `AgentRuntime.execute` route (or the service method the ToolSpec calls). `core/device_flow.py` was a *text front-end* to `SmartHomeService`; it must not grow its own device transport, and after Phase 0 it should not exist as a router at all.
 3. **A failed action must be reportable, not terminal-by-accident.** `return True` after a failure is only correct when authority was proven. Otherwise it must return `False` so the normal answer path runs. Structured tool errors (`NO_DEVICES`, `NO_MATCH`, `AMBIGUOUS_TARGET`) are the model-visible form of the same rule.
-4. **The advertised surface and the deterministic gate must tell the same story about availability.** If `smart_home_control` is hidden because there are no devices, no text gate may claim a device turn as if devices existed. The read-only status tool is the honest answer for both.
+4. **The tool must report availability truthfully, and no gate may contradict it.** `smart_home_control` returns the service's no-devices/no-match message; the declaration says that is a valid result; the core prompt tells the model to report it. A hidden tool is not required, and a pre-LLM gate must never claim a device turn on the tool's behalf.
 5. **No new pre-LLM router without an authority class and a decline path.** Tokenised input is not enough; the claim must be provable, and a miss must return `None`/`False` so the turn continues.
 6. **The core prompt stays small.** Fix R3 with one or two resident lines, not by making the manual resident.
 7. **Tests are the deliverable.** A corpus of ordinary prompts that must *not* be claimed, a set of real commands that must be served, and a retrieval gold set. A change without these will regress the first time someone adds a device type or an MCP server.
@@ -337,15 +360,16 @@ Files: `core/text_turn_controller.py`, `core/device_flow.py`, `smart_home/servic
 
 1. **Delete the A17 call site** (`core/text_turn_controller.py:1105`) and the smart-home entry predicate/handler in `core/device_flow.py` (`:24-102`), including the substring word list and the failure-swallow branch. Keep the Brahma Connect branch (A16) untouched in this batch; it is a different domain and follows the same authority rule in Phase 4. If the module is shared, keep only the Brahma Connect path.
 2. **Make `execute_command` return structured outcomes** (`smart_home/service.py:176`): `NO_DEVICES`, `NO_MATCH`, `AMBIGUOUS_TARGET`, or the action result. It may still raise for programmer errors; it may not raise a user-facing "no devices" that a caller has to interpret.
-3. **Availability, not vocabulary** (`core/desktop_tools.py`, `core/tool_index.py`):
-   - add a small read-only `smart_home_status` tool that is always advertised and returns the current devices/targets (or "none");
-   - gate `smart_home_control` on a non-zero device count, using `ToolIndex.set_disabled` (`:1497`) and recomputing on device add/remove.
-   - the control tool's description should name the current targets (or point to `smart_home_status`), so the model can choose without a pre-LLM lexicon.
+3. **Availability, not vocabulary** (`core/desktop_tools.py`, `main.py`):
+   - keep `smart_home_control` advertised, but make `_smart_home_control` catch the service's `ValueError` and return it as tool text ("No smart home devices are connected yet.", "I couldn't find a matching device.");
+   - say in the declaration that a no-devices result is a valid answer, so the model reports it instead of guessing;
+   - do **not** add a second availability registry or hide the tool. A hidden tool cannot answer "do I have devices?", and the old dead end came from the pre-LLM claim, not from the tool's error.
+   - if a device inventory surface is wanted later, add a read-only status tool then; it is not required for this fix.
 4. **Regression corpus** (`tests/test_smart_home_routing.py`):
    - the 19 ordinary prompts in §8 plus `"Open Microsoft Office"` / `"Mushroom risotto recipe"` must produce **no** pre-LLM claim — assert the call site is gone (or that the handler always declines) and that the turn reaches the model;
    - real commands (`"Turn off the bedroom light"`, `"Turn on the fan"`, `"Switch off the kitchen plug"`, `"Set the living room AC to 24"`, `"Turn off all devices"`) must be served through `smart_home_control` and `_select_targets` (`smart_home/service.py:283` already supports "all devices");
    - mobile-target prompts must not select a device target;
-   - zero-device `smart_home_status` says none; zero-device control is not advertised.
+   - zero-device `smart_home_control` returns the no-devices message; the model answers rather than guessing.
 
 **Acceptance:** 0/19 ordinary hijacks by construction; 5/5 real commands work through the tool; 0 mobile leaks; the new tests and `py -3.11 -m ruff check .` pass.
 
@@ -365,12 +389,12 @@ Files: `main.py`, `core/text_turn_controller.py`.
 
 Files: `core/desktop_tools.py`, `core/tool_index.py` / `core/tool_bridge.py`, `core/session_lifecycle.py`.
 
-- Complete the availability gate from Phase 0 for `connect_*` when no phone is paired.
+- Make `connect_*` report "no paired phone" as a truthful tool message when the device list is empty, rather than a dead end (the same D2 rule).
 - Fix `core/session_lifecycle.py:490` to read `self._host._last_user_text` so the voice path is not permanently cold-start; then decide the timing question in §7 Q4 before relying on it.
 - With A17 gone, the voice path has no deterministic fallback. Make sure the resident prompt (Phase 3) and the tool surface cover the common device request; do not reintroduce a lexicon to compensate.
-- If a smart-home intent hint is added to `core/tool_bridge.py:90`, gate it on the same availability check.
+- If a smart-home intent hint is added to `core/tool_bridge.py:90`, make sure it does not turn into a pre-LLM claim.
 
-**Acceptance:** on a zero-device machine, `search_tools("turn off the light")` does not return `smart_home_control` and does return `smart_home_status`; on a machine with devices, control is reachable.
+**Acceptance:** on a zero-device machine, calling `smart_home_control` returns the no-devices message and the model can answer; no ordinary prompt is consumed before the model.
 
 ### Phase 3 — Resident device policy in the core prompt (P2, small)
 
@@ -399,6 +423,22 @@ Keep the full routing table in the manual. Add a test that `load_prompt_tiers` p
 
 **Acceptance:** one documented list of Plane-A routers, each with an authority class and a negative test; no router claims on similarity alone.
 
+**Status (2026-11-05): landed.** `core/routing.py` owns the contract (`Authority` =
+`syntax` | `exact_alias` | `owned_state` | `verified_target`; `RoutingClaim` with
+`claim()`/`decline()` and no `confidence` field) and the 23-record `ROUTERS`
+inventory, which `validate()` checks and `tests/test_routing_authority.py` pins.
+Removed: A15 (`_build_task_plan` is now the neutral four-step plan) and A17
+(Phase 0). Converted: A6 dynamic skills (exact trigger/alias/name, one
+imperative stripped) and A11 open-app (exact alias; the old substring test also
+matched an empty candidate). A16 Brahma Connect now needs a token-bounded phone
+word *and* a device that resolves. Every remaining fixed-phrase gate uses
+`routing.has_phrase`/`any_phrase`, so substrings inside other words (`ac` in
+"backup", `phone` in "microphone") can no longer claim a turn. The dormant pair
+is kept, not wired: a catalogue test fails if app code imports
+`core.intent_dispatcher` or `core.execution_reflection`. The optional
+verified-target voice path remains unbuilt, as intended, until latency is
+measured (Q1).
+
 ### Phase 5 — Retrieval precision (P2; see the companion doc)
 
 Files: `core/tool_index.py`, `core/tool_bridge.py`, `core/mcp_manager.py`, `agent/mcp.py` (coverage), tests.
@@ -412,17 +452,28 @@ Execute `docs/TOOL-RETRIEVAL-DESIGN.md` Phases R0–R3:
 
 **Acceptance:** on a synthetic two-vault catalogue, `search_tools(intent="vault")` reports the ambiguity and both server groups; naming a server selects it; `call_tool(tool_name="vault_search")` refuses with qualified names; recall@3 and cross-server-confusion thresholds pass.
 
+**Status (2026-11-05): R0, R2 and R3 accepted; R1 met by evidence.** The
+acceptance above passes in `tests/test_tool_retrieval_eval.py`, and the wider
+bridge/index/registry suites are green. R2 (`set_turn_context` on the text,
+agentic and Live paths) is covered by `tests/test_turn_context.py`; R3 (the
+bounded resident manifest) by `tests/test_server_manifest.py`. R1's ranking
+acceptance is already satisfied by the name-variant weighting and is guarded by
+`test_naming_the_server_wins_at_every_k`; a separate FTS column is deferred until
+a real miss is observed (D9). The Phase 4 authority registry has since landed
+(§6 Phase 4 status); the progress log and open items live in
+`docs/ROUTING-IMPLEMENTATION.md`.
+
 ---
 
 ## 7. Open questions
 
 1. **Is the model-only smart-home path fast enough for voice?** It adds a model round-trip ("turn off the bedroom light" no longer executes locally). Recommendation: ship it, measure p50/p95 on the target host, and only then decide whether a *verified-live-target* fast path is justified. If it is, it must satisfy every condition in Phase 4; a better word list is not an option.
-2. **What should "no devices connected" do?** The model answers, using `smart_home_status` / the tool's structured `NO_DEVICES`. The pre-LLM layer no longer has an opinion. If the user explicitly asks "what smart-home devices do I have?", `smart_home_status` is the honest answer.
+2. **What should "no devices connected" do?** The model calls `smart_home_control`, gets the service's truthful "No smart home devices are connected yet.", and says so. The pre-LLM layer no longer has an opinion. If the product wants an explicit inventory question ("what smart-home devices do I have?"), add a read-only status tool then; it is not needed to fix the hijack.
 3. **Should `_build_task_plan` guess at all?** No domain guessing before the model. Recommendation: neutral preview, model/plan-driven update. This is a product decision about perceived latency, not a routing decision.
 4. **Voice intent at connect time.** A Live socket connects before the first utterance, so `last_intent` may legitimately be empty. Options: (a) keep cold-start and rely on `search_tools` + the R3 prompt rule; (b) reconnect/re-advertise after the first utterance; (c) seed the session from the last completed turn (`_last_user_text`). Recommendation: (a) plus the manifest/prompt work; treat (b) as a separate design because Gemini Live cannot swap tools mid-session.
-5. **Do we want a shared `core/routing.py` chokepoint?** The repo's stated principle is "one door per concern." A single registry of Plane-A claims with authority classes would make R1 impossible to repeat, but it is a larger change than the bug requires. Recommendation: Phase 4, with the `RoutingClaim` contract first.
-6. **Dead code:** is `intent_dispatcher` an intended future (then it needs `omni_planner`, an authority class, and a decision to wire it), or abandoned (then delete it)? Leaving it is the worst option because it looks authoritative in the tree.
-7. **Dynamic skills:** should `find_matching_skill` survive as exact triggers only, or should the model choose from the manifest like any other tool? Recommendation: exact triggers for saved aliases, model choice for everything else. Do not keep fuzzy scoring as a pre-LLM claim.
+5. **Do we want a shared `core/routing.py` chokepoint?** The repo's stated principle is "one door per concern." A single registry of Plane-A claims with authority classes would make R1 impossible to repeat, but it is a larger change than the bug requires. Recommendation: Phase 4, with the `RoutingClaim` contract first. **Resolved (2026-11-05):** `core/routing.py` exists; the contract and the inventory are the door.
+6. **Dead code:** is `intent_dispatcher` an intended future (then it needs `omni_planner`, an authority class, and a decision to wire it), or abandoned (then delete it)? Leaving it is the worst option because it looks authoritative in the tree. **Resolved for now (2026-11-05):** neither is deleted; both are recorded as `DORMANT` in `ROUTERS` and a test fails if app code imports them. Deleting them remains an allowed, separate cleanup.
+7. **Dynamic skills:** should `find_matching_skill` survive as exact triggers only, or should the model choose from the manifest like any other tool? Recommendation: exact triggers for saved aliases, model choice for everything else. Do not keep fuzzy scoring as a pre-LLM claim. **Implemented (2026-11-05):** exact trigger/alias/name only; the fuzzy score is gone and the model still sees every active skill as a `dynamic_skill` declaration.
 8. **Retrieval scope:** do harness MCP tools enter `core.tool_index`, or does `search_tools` explicitly cover only the core/dynamic catalogue? Recommendation: index them; a callable-but-unsearchable tool is a trap. See `docs/TOOL-RETRIEVAL-DESIGN.md` Q2.
 
 ---
@@ -501,10 +552,10 @@ Note the last two lines: the preview and the handler disagree in both directions
 |---|---|
 | Smart-home entry predicate (**to delete in Phase 0**) | `core/device_flow.py:24` `handle_smart_home_command`, words at `:39-45`, claim at `:57-58`, failure-swallow at `:83-102` |
 | Smart-home service | `smart_home/service.py:176` `execute_command`; no-device at `:181-183`; `_guess_action:259`; `_select_targets:281` (supports "all devices" at `:283`) |
-| Smart-home tool surface | `core/desktop_tools.py:971` `_smart_home_control`; add `smart_home_status`; availability gate via `core/tool_index.py:1497` `set_disabled` |
+| Smart-home tool surface | `core/desktop_tools.py:971` `_smart_home_control` (returns the service's truthful error); declaration `main.py` |
 | Tool retrieval | `docs/TOOL-RETRIEVAL-DESIGN.md`; `core/tool_bridge.py:698` `_handle_search`; `core/tool_index.py:1134` `search`, `:1326` `resolve` |
 | Server identity in the index | `core/tool_index.py:287` `server` property, `:292` `search_text`; `core/mcp_manager.py:1019` `_index_tool` |
-| Text turn order | `core/text_turn_controller.py:118` `on_text_command`; device gates at `:1101` and `:1105`; provider branch at `:1155` |
+| Text turn order | `core/text_turn_controller.py:118` `on_text_command`; Brahma Connect at `:1101`; provider branch at `:1155` (smart-home gate removed) |
 | Task-plan preview | `main.py:670` `_build_task_plan`; smart-home branch `:714` |
 | Prompt tiers | `core/prompt_parts.py:105` `tier_for`; `main.py:221` `_prompt_tier`; `text_turn_controller.py:1311` `agentic_seed_messages` |
 | Device policy text | `core/prompt.txt:115-118` (manual half, marker at `:70`) |

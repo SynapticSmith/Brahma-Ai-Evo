@@ -51,9 +51,11 @@ of skills costs the context almost nothing.
 from __future__ import annotations
 
 import copy
+import json
 import logging
 import threading
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from collections import deque
+from typing import Any, Callable, Deque, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from core import tool_index as ti
 from core.tool_index import (
@@ -104,6 +106,14 @@ LEARNED_BUFFER_MAX = 24
 #: without replaying the user turn. Reset when the user ends the session.
 _learned_names: List[str] = []
 _learned_lock = threading.Lock()
+
+#: The user's most recent turns, newest last. Retrieval context only: it is
+#: never persisted, never sent to a provider on its own, and never logged.
+#: Two turns is enough for a follow-up ("search it again") without letting an
+#: older topic leak into an unrelated request.
+_TURN_CONTEXT: Deque[str] = deque(maxlen=2)
+_TURN_CONTEXT_LOCK = threading.Lock()
+MAX_TURN_CONTEXT_CHARS = 600
 
 
 # --------------------------------------------------------------------------- #
@@ -219,10 +229,45 @@ def recent_learned() -> List[str]:
         return list(_learned_names)
 
 
+def set_turn_context(text: str) -> None:
+    """Remember the user's words for retrieval, in memory only.
+
+    Called by every surface that receives a user turn: the text controller,
+    ``AgentLoop`` (CLI and GUI agentic paths) and the Live transcription
+    handler. A short ``search_tools`` intent is completed from here when the
+    model does not pass an explicit ``context`` (TOOL-RETRIEVAL-DESIGN §4.1).
+    """
+    cleaned = " ".join(str(text or "").split())
+    if not cleaned:
+        return
+    with _TURN_CONTEXT_LOCK:
+        _TURN_CONTEXT.append(cleaned[:MAX_TURN_CONTEXT_CHARS])
+
+
+def turn_context() -> str:
+    """The most recent user turn ("" when none is known)."""
+    with _TURN_CONTEXT_LOCK:
+        return _TURN_CONTEXT[-1] if _TURN_CONTEXT else ""
+
+
+def turn_context_history() -> List[str]:
+    """Up to two remembered turns, newest first (a copy)."""
+    with _TURN_CONTEXT_LOCK:
+        return list(reversed(_TURN_CONTEXT))
+
+
+def reset_turn_context() -> None:
+    """Forget the remembered turns (explicit end of session)."""
+    with _TURN_CONTEXT_LOCK:
+        _TURN_CONTEXT.clear()
+
+
 def reset_session_learning() -> None:
     """Forget what this Live connection learned (explicit end of session)."""
     with _learned_lock:
         _learned_names.clear()
+    # The turn that started this session is not context for the next one.
+    reset_turn_context()
 
 
 def intent_pins(intent: str, index: Any = None) -> List[str]:
@@ -462,10 +507,11 @@ def build_session_payload(
     """Produces the advertised declarations plus the JIT skill context block.
 
     Returns a dict with ``declarations`` (provider-ready), ``skill_context``
-    (appended to the system instruction), and counts for logging. Never raises:
-    a failure here would be indistinguishable from the handshake bug we are
-    fixing, so the worst case is "advertise everything", which is what happens
-    if the index itself is broken.
+    (appended to the system instruction), ``server_manifest`` (the server-owner
+    block inside that context, kept separate for tests), and counts for logging.
+    Never raises: a failure here would be indistinguishable from the handshake
+    bug we are fixing, so the worst case is "advertise everything", which is what
+    happens if the index itself is broken.
 
     ``pinned_extra`` defaults to the intent hints plus this connection's
     recently learned tools. Both are passed to :meth:`ToolIndex.resolve`, which
@@ -506,9 +552,20 @@ def build_session_payload(
         len(declarations), resolved["deferred"], index.stats().total_tokens_estimate,
         (intent or "")[:60], len(extras), resolved.get("pinned_extra_dropped", 0),
     )
+    # The manifest tells the model which owners exist, so it can pass
+    # ``server=`` instead of asking an ambiguous question about a shared noun.
+    manifest = ""
+    try:
+        manifest = index.server_manifest()
+    except Exception as exc:  # never fatal: the payload is still usable
+        logger.debug("[ToolBridge] Server manifest failed: %s", exc)
+    skill_context = "\n\n".join(
+        part for part in (manifest, resolved["skill_context"]) if part
+    )
     return {
         "declarations": declarations,
-        "skill_context": resolved["skill_context"],
+        "skill_context": skill_context,
+        "server_manifest": manifest,
         "deferred": resolved["deferred"],
         "indexed": enabled(),
     }
@@ -543,6 +600,7 @@ def _legacy_payload() -> Dict[str, Any]:
     return {
         "declarations": declarations,
         "skill_context": "",
+        "server_manifest": "",
         "deferred": 0,
         "indexed": False,
     }
@@ -695,10 +753,66 @@ def _call_template(entry: ToolEntry) -> str:
     return f'call_tool(tool_name="{entry.name}", arguments={{{pairs}}})'
 
 
+def _match_reasons(
+    entry: ToolEntry, tokens: set, server: str = "", domain: str = ""
+) -> List[str]:
+    """Cheap, factual reasons a hit is present.
+
+    No score and no confidence number: the model cannot calibrate a float and
+    will over-trust it. A word it can check against the result is enough.
+    ``semantic`` is the honest answer when only the embedding backend matched.
+    """
+    reasons: List[str] = []
+    if tokens & set(ti._tokens(entry.name)):
+        reasons.append("name")
+    server_needle = server.strip().lower()
+    if (
+        server_needle
+        and server_needle in {entry.server.lower(), entry.source.lower(), entry.skill_id.lower()}
+    ) or tokens & set(ti._tokens(entry.server)):
+        reasons.append("server")
+    domain_needle = domain.strip().lower()
+    if (domain_needle and domain_needle in entry.domain.lower()) or tokens & set(
+        ti._tokens(entry.domain)
+    ):
+        reasons.append("domain")
+    if tokens & set(ti._tokens(entry.keywords)):
+        reasons.append("keyword")
+    if tokens & set(ti._tokens(entry.description)):
+        reasons.append("description")
+    return reasons or ["semantic"]
+
+
+def _needs_turn_context(intent: str, index: Any) -> bool:
+    """Whether a short intent should be completed from the user's turn.
+
+    Two structural conditions (TOOL-RETRIEVAL-DESIGN §4.1): the intent is a
+    compression (few tokens), or it names nothing the catalogue knows. A long
+    intent that already mentions a server/domain/keyword is left alone, so the
+    turn cannot drag in an unrelated topic.
+    """
+    tokens = set(ti._tokens(intent))
+    if not tokens:
+        return False
+    if len(tokens) <= ti.SHORT_QUERY_TOKENS:
+        return True
+    try:
+        known = index.vocabulary()
+    except Exception:
+        return False
+    return not (tokens & known)
+
+
 def _handle_search(args: Dict[str, Any]) -> str:
     intent = str(args.get("intent") or args.get("query") or "").strip()
-    if not intent:
-        return "Error: search_tools requires an 'intent' describing what you want to do."
+    context = str(args.get("context") or "").strip()
+    server = str(args.get("server") or args.get("source") or "").strip()
+    domain = str(args.get("domain") or "").strip()
+    if not intent and not context and not server and not domain:
+        return (
+            "Error: search_tools requires an 'intent' describing what you want to do, "
+            "or a 'server'/'domain' to browse that slice."
+        )
 
     try:
         limit = int(args.get("limit") or 6)
@@ -706,35 +820,122 @@ def _handle_search(args: Dict[str, Any]) -> str:
         limit = 6
     limit = max(1, min(limit, search_limit_cap()))
 
-    index = get_index()
-    hits = index.search(intent, k=limit)
+    detail = str(args.get("detail") or "names").strip().lower()
+    if detail not in {"names", "schema"}:
+        detail = "names"
 
+    index = get_index()
+    # An explicit context is the caller's judgement and wins. Otherwise a
+    # compressed intent is completed with the turn that produced it, because
+    # the model will not always remember to pass the user's words along.
+    used_turn_context = False
+    if not context and intent:
+        latest = turn_context()
+        if latest and latest.lower() != intent.lower() and _needs_turn_context(intent, index):
+            context = latest
+            used_turn_context = True
+
+    hits = index.search(intent, k=limit, server=server, domain=domain, context=context)
+
+    scope_bits = []
+    if server:
+        scope_bits.append(f"server={server!r}")
+    if domain:
+        scope_bits.append(f"domain={domain!r}")
+    scope = f" ({', '.join(scope_bits)})" if scope_bits else ""
+    subject = intent or context
     if not hits:
+        if scope_bits:
+            return (
+                f"No tool matches {subject!r}{scope}. The filter is applied exactly; "
+                "remove it to search the whole catalogue."
+            )
         return (
-            f"No tool matches {intent!r}. "
+            f"No tool matches {subject!r}. "
             f"The catalogue has {index.stats().tools} tools. "
             "Try different wording, or handle this yourself."
         )
 
     note_learned(h.entry.name for h in hits)
 
-    lines = [f"Found {len(hits)} tool(s) for {intent!r}:"]
-    for rank, hit in enumerate(hits, start=1):
-        entry = hit.entry
-        schema = entry.parameters or {}
-        props = schema.get("properties") if isinstance(schema, dict) else None
-        argspec = ", ".join(sorted(props.keys())) if isinstance(props, dict) and props else "none"
-        required = schema.get("required") if isinstance(schema, dict) else None
-        req = f" (required: {', '.join(required)})" if required else ""
-        lines.append(
-            f"\n{rank}. ⚠️ DISCOVERED TOOL (NOT DIRECTLY CALLABLE) - tool_name: {entry.name}"
-            f"\n   group: {entry.skill_id}"
-            f"\n   does: {entry.short_description(300)}"
-            f"\n   arguments: {argspec}{req}"
-            f"\n   call: {_call_template(entry)}"
-        )
-        if entry.skill_id and index.manual(entry.skill_id) is not None:
-            lines.append(f"   manual: call get_skill_manual with skill_id='{entry.skill_id}'")
+    # Group by owner, in rank order of each server's first appearance. One
+    # header per server, never repeated per tool: the whole point is that the
+    # model can tell *which* server owns a same-word capability.
+    by_server: Dict[str, List] = {}
+    order: List[str] = []
+    for hit in hits:
+        if hit.entry.server not in by_server:
+            by_server[hit.entry.server] = []
+            order.append(hit.entry.server)
+        by_server[hit.entry.server].append(hit)
+
+    lines = [
+        f"Found {len(hits)} tool(s) for {subject!r}{scope}"
+        f"{' (completed from the current turn)' if used_turn_context else ''} — "
+        f"{len(by_server)} server group(s)."
+    ]
+
+    # A filter is the model's explicit choice; do not call its result ambiguous.
+    ambiguous = None if scope_bits else index.ambiguity(
+        hits, " ".join(t for t in (intent, context) if t)
+    )
+    if ambiguous:
+        lines.append("")
+        lines.append(f"⚠️ AMBIGUOUS: {subject!r} matches more than one server.")
+        for info in ambiguous["servers"][:4]:
+            label = info["domain"] or info["source"]
+            lines.append(
+                f"  {info['server']} — {label} — {info['tools']} tool(s)"
+            )
+        alternatives = [
+            info["server"]
+            for info in ambiguous["servers"][1:3]
+        ]
+        if alternatives:
+            refine = " or ".join(f"server={name!r}" for name in alternatives)
+            lines.append(
+                f"  Refine with search_tools(intent={subject!r}, {refine}), "
+                "or use an exact tool name."
+            )
+
+    tokens = set(ti._tokens(" ".join(t for t in (intent, context) if t)))
+    rank = 0
+    for server_name in order:
+        group = by_server[server_name]
+        first = group[0].entry
+        header = f"\n── {server_name} ──  {first.source}  ·  {first.domain}"
+        if first.skill_id and index.manual(first.skill_id) is not None:
+            header += f"  ·  manual: get_skill_manual({first.skill_id!r})"
+        lines.append(header)
+
+        for hit in group:
+            rank += 1
+            entry = hit.entry
+            schema = entry.parameters or {}
+            props = schema.get("properties") if isinstance(schema, dict) else None
+            argspec = (
+                ", ".join(sorted(props.keys()))
+                if isinstance(props, dict) and props
+                else "none"
+            )
+            required = schema.get("required") if isinstance(schema, dict) else None
+            req = f" (required: {', '.join(required)})" if required else ""
+            reasons = _match_reasons(entry, tokens, server, domain)
+            lines.append(
+                f"\n{rank}. ⚠️ DISCOVERED TOOL (NOT DIRECTLY CALLABLE) - tool_name: {entry.name}"
+                f"\n   matched: {', '.join(reasons)}"
+                f"\n   does: {entry.short_description(300)}"
+                f"\n   arguments: {argspec}{req}"
+            )
+            if detail == "schema":
+                lines.append(
+                    f"   schema: {json.dumps(entry.parameters, ensure_ascii=False, default=str)}"
+                )
+            lines.append(f"   call: {_call_template(entry)}")
+            if entry.skill_id and index.manual(entry.skill_id) is not None:
+                lines.append(
+                    f"   manual: call get_skill_manual with skill_id='{entry.skill_id}'"
+                )
 
     lines.append(
         "\n🚨 ABSOLUTELY CRITICAL: THESE TOOLS ARE NOT IN YOUR DECLARED FUNCTION LIST. "
@@ -1068,6 +1269,31 @@ def _skill_manual_fallback(skill_id: str) -> str:
     return spec.rendered()
 
 
+def _bare_name_candidates(tool_name: str) -> List[ToolEntry]:
+    """Entries whose server-qualified name ends in this unqualified name.
+
+    ``mcp_Calyx_vault_search`` and ``mcp_Obsidian_vault_search`` both answer to
+    "vault_search". The mapping is derived from the entry's own ``server``, not
+    from a guessed prefix, so a sanitised or prefixed name still resolves.
+    """
+    needle = tool_name.strip().lower()
+    out: List[ToolEntry] = []
+    for entry in get_index().entries():
+        name = entry.name.lower()
+        if name == needle:
+            continue
+        bare = name
+        server = entry.server.lower()
+        for prefix in (f"mcp_{server}_", f"{server}_", "mcp_"):
+            if name.startswith(prefix) and len(name) > len(prefix):
+                bare = name[len(prefix):]
+                break
+        if bare == needle:
+            out.append(entry)
+    out.sort(key=lambda e: (e.server.lower(), e.name.lower()))
+    return out
+
+
 async def _handle_call(args: Dict[str, Any]) -> str:
     tool_name = str(args.get("tool_name") or args.get("name") or "").strip()
     if not tool_name:
@@ -1079,12 +1305,49 @@ async def _handle_call(args: Dict[str, Any]) -> str:
     if not isinstance(call_args, dict):
         call_args = {}
 
-    entry = get_index().get(tool_name)
+    index = get_index()
+    # Two servers can register the same name. The index is keyed by name, so
+    # the later registration won; executing it would silently pick a server.
+    collision = index.collision_for(tool_name)
+    if collision:
+        return (
+            f"Error: '{tool_name}' is registered by more than one server "
+            f"({', '.join(collision)}), so I cannot tell which one you mean. "
+            "Disable one of those servers, or use a tool with a distinct name."
+        )
+
+    entry = index.get(tool_name)
     if entry is None:
-        hits = get_index().search(tool_name, k=5)
-        suggestions = [h.name for h in hits if h.name != tool_name]
-        hint = f" Did you mean: {', '.join(suggestions[:3])}?" if suggestions else ""
-        return f"Error: no tool named '{tool_name}'.{hint} Use search_tools to find the right name."
+        candidates = _bare_name_candidates(tool_name)
+        if len(candidates) == 1:
+            only = candidates[0]
+            return (
+                f"Error: '{tool_name}' is not an exact tool name. "
+                f"Use the qualified name '{only.name}' "
+                f"({only.server} — {only.domain})."
+            )
+        if len(candidates) > 1:
+            listing = "\n".join(
+                f"  {c.name}  ({c.server} — {c.domain})" for c in candidates
+            )
+            return (
+                f"Error: '{tool_name}' is ambiguous — {len(candidates)} tools share "
+                f"that name. Use the exact name:\n{listing}"
+            )
+        hits = index.search(tool_name, k=5)
+        suggestions = [h for h in hits if h.name != tool_name]
+        if suggestions:
+            listing = "\n".join(
+                f"  {h.name}  ({h.entry.server} — {h.entry.domain})"
+                for h in suggestions[:3]
+            )
+            hint = f" Did you mean:\n{listing}"
+        else:
+            hint = ""
+        return (
+            f"Error: no tool named '{tool_name}'.{hint} "
+            "Use search_tools to find the right name."
+        )
 
     if _executor is None:
         return (

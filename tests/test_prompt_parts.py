@@ -52,10 +52,15 @@ def test_resident_core_keeps_behaviour_and_drops_the_routing_table():
         "CONTEXT BLOCKS AROUND THIS TEXT",
         "MEMORY DOCTRINE",
         "SAFETY AND REVERSIBILITY",
+        "DEVICE TARGETING",
         "AUTONOMY AND SELF-EVOLUTION",
         "COMMUNICATION",
     ):
         assert f"\n{heading}\n" in f"\n{core}\n", f"{heading} must stay resident"
+    # The device rule is resident by design: without it the lite tier only
+    # learns device targeting from the on-demand manual (audit Phase 3).
+    assert "smart_home_control is only for a device" in core
+    assert "Never claim a device changed" in core
     # The big reference table is exactly what moved on demand.
     assert "OPERATING THE TOOLS" not in core
 

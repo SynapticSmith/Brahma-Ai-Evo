@@ -95,6 +95,20 @@ class AgentResult:
         }
 
 
+def _remember_turn_for_retrieval(text: str) -> None:
+    """Hand the user's words to the tool bridge, when the host app has it.
+
+    ``agent/`` must import with only pytest installed, so the bridge is imported
+    lazily and a missing or broken bridge is never fatal to a turn.
+    """
+    try:
+        from core.tool_bridge import set_turn_context
+
+        set_turn_context(text)
+    except Exception:  # noqa: BLE001 - retrieval context is optional
+        pass
+
+
 def _nested(first: Path, second: Path) -> bool:
     """True when one path is the other or sits inside it."""
     try:
@@ -273,6 +287,10 @@ class AgentLoop:
         #: A retry needs a ``reset`` so a UI drops the partial text.
         self._delta_sent = False
         self._turn = 0
+        #: A child loop is built by :meth:`_execute_child_subagent`; its task is
+        #: not the user's turn, so it must not replace the parent's retrieval
+        #: context (see :func:`_remember_turn_for_retrieval`).
+        self._is_child = False
         self._stream_fallback_reported = False
         self._events: List[Dict[str, Any]] = []
         self._repeat_counts: Dict[str, int] = {}
@@ -608,6 +626,7 @@ class AgentLoop:
             allow_subagents=False,
             batch_readonly=batch_readonly,
         )
+        child._is_child = True
 
         try:
             result = child.run(prompt)
@@ -930,6 +949,8 @@ class AgentLoop:
         if prompt:
             message = ctx.append_user(prompt)
             self._persist(message)
+            if not self._is_child:
+                _remember_turn_for_retrieval(prompt)
         self._announce_stream()
         if self._session is not None:
             self._emit("session_start", session_id=self._session.id, cwd=str(self._runtime.workspace))

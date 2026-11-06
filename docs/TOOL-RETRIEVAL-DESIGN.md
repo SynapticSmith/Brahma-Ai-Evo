@@ -346,6 +346,14 @@ Files: `core/tool_bridge.py`, `core/tool_index.py`, `tests/test_tool_retrieval_e
 
 **Acceptance:** `search_tools(intent="vault")` on a two-vault catalogue prints the ambiguity block and both server groups; `call_tool(tool_name="vault_search")` refuses with qualified names; eval thresholds pass.
 
+**Status (2026-11-05): implemented.** `ToolIndex.search` takes `server`/`domain`/`context`
+and filters before ranking (browse mode when there is no query); `ToolIndex.ambiguity`
+returns the contrast set and is suppressed when a unique owner word already
+discriminates; `_handle_search` emits one header per server plus `matched:` and
+the refine hint; `_handle_call` refuses a shared bare name and a name whose
+registration was overwritten by another server. Explicit `context` is fused at
+0.7/0.4; the implicit turn seam remains R2.
+
 ### Phase R1 — Index the server as a column (medium)
 
 Files: `core/tool_index.py`, `core/mcp_manager.py`, `agent/mcp.py` (coverage), tests.
@@ -357,6 +365,19 @@ Files: `core/tool_index.py`, `core/mcp_manager.py`, `agent/mcp.py` (coverage), t
 
 **Acceptance:** naming the server in the query moves that server's tool above a same-word tool from another server, at every k; the eval does not regress.
 
+**Status (2026-11-05): acceptance met without a schema change (D9).** The
+premise of a weighted column was that the owner was not in the indexed text, but
+`ToolEntry.search_text` already repeats the name variants three times, and every
+MCP tool is indexed as `mcp_<server>_<tool>`; the owner is therefore weighted
+more strongly than a bm25 column would weight it. `tests/test_tool_retrieval_eval.py::test_naming_the_server_wins_at_every_k`
+locks the property in at k=1, 2 and 3. Aliases need no separate field either:
+`domain` and `keywords` already carry the synonyms (notes/markdown/backlinks).
+Harness-MCP coverage is documented rather than indexed: `agent/mcp.py` registers
+ordinary ToolSpecs that are merged into the first model call
+(`with_mcp_tools`/`all_specs`), so they are advertised directly and never need
+discovery. The separate FTS schema is deferred until a real miss is observed;
+adding it now would only duplicate an existing weight.
+
 ### Phase R2 — Fuse the turn (medium)
 
 Files: `core/tool_bridge.py`, `core/text_turn_controller.py`, `agent/loop.py` / `agent/runtime.py`, tests.
@@ -367,6 +388,15 @@ Files: `core/tool_bridge.py`, `core/text_turn_controller.py`, `agent/loop.py` / 
 
 **Acceptance:** with `intent="vault"` and the user's turn "search my Obsidian notes for the Q3 plan", the top group is Obsidian; with the same intent and "answer from the Calyx vault", it is Calyx.
 
+**Status (2026-11-05): implemented.** `tool_bridge.set_turn_context` keeps the
+last two user turns in memory only (never persisted, never logged) and is fed by
+`TextTurnController.on_text_command`, `AgentLoop.run` (skipped for child
+subagent loops) and the Live input-transcription handler. A ``search_tools``
+intent of at most six tokens, or one that names nothing in the catalogue
+vocabulary, is completed from that turn; an explicit ``context`` always wins.
+`reset_session_learning` (explicit end of session) clears it. Covered by
+`tests/test_turn_context.py` (10 tests).
+
 ### Phase R3 — Manifest + prompt (small)
 
 Files: `core/tool_bridge.py`, `core/prompt.txt` (manual tier), tests.
@@ -375,6 +405,18 @@ Files: `core/tool_bridge.py`, `core/prompt.txt` (manual tier), tests.
 - One line in the search_tools description: "If you know which server owns the capability, pass `server`; if your intent is a short keyword, pass the user's request as `context`."
 
 **Acceptance:** the assembled payload contains one line per connected server and stays under the character cap.
+
+**Status (2026-11-05): implemented.** `build_session_payload` returns
+`server_manifest` and prepends it to `skill_context`, so every surface that
+already appends that block (Live voice, local brain, GUI agentic text) gets it
+with no caller change. `ToolIndex.server_manifest()` builds one line per owner
+from the live catalogue, ordered by tool count then name, with the most common
+domain label, a manual hint, a 12-server cap and a 1200-character cap; hidden
+servers are reported as `+N more — use list_tools()`. It is empty when the index
+is disabled. The Skills Library line in the example above was deliberately left
+out: `search_skills` / `list_skills` already enumerate it on demand, and a live
+count would force a library refresh at every connect. Covered by
+`tests/test_server_manifest.py` (7 tests).
 
 ### Phase R4 — Production lineage + tuning (ongoing)
 

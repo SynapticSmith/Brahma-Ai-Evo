@@ -1,10 +1,13 @@
-"""Device routing seam for BrahmaLive (P4-19): smart-home and Brahma-Connect handlers.
+"""Device routing seam for BrahmaLive (P4-19): Brahma-Connect handler.
 
-Moved verbatim from main.py::BrahmaLive. The host keeps thin delegating wrappers for the
-two externally-called handlers (`_handle_smart_home_command`, `_handle_brahma_connect_command`)
-and a lazily-built `_device_flow` property; `_extract_launch_app_name` is cluster-internal.
-Free names are imported directly (`json`/`re`/`threading` + `actions.brahma_connect` symbols);
-`mobile_autopilot` stays a lazy in-body import. `_smart_home`/`ui`/`speak` live on the host.
+Smart-home is deliberately **not** routed here. It is a `smart_home_control`
+tool the model chooses; the old pre-LLM matcher claimed semantic authority it
+could not have (see docs/ROUTING-AUDIT.md, Phase 0). The host keeps a thin
+delegating wrapper for `_handle_brahma_connect_command` and a lazily-built
+`_device_flow` property; `extract_launch_app_name` is cluster-internal.
+Free names are imported directly (`json`/`re`/`threading` +
+`actions.brahma_connect` symbols); `mobile_autopilot` stays a lazy in-body
+import. `ui`/`speak` live on the host.
 """
 from __future__ import annotations
 
@@ -13,93 +16,14 @@ import re
 import threading
 
 from actions.brahma_connect import connect_execute, connect_list_devices
+from core import routing
 
 
 class DeviceFlow:
-    """Smart-home and Brahma-Connect text-command routing; holds a `_host` reference."""
+    """Brahma-Connect text-command routing; holds a `_host` reference."""
 
     def __init__(self, host):
         self._host = host
-
-    def handle_smart_home_command(self, text: str, source: str = "local") -> bool:
-        normalized = re.sub(r"\s+", " ", re.sub(r"[^a-z0-9\s%]", " ", text.lower())).strip()
-        
-        # Don't touch commands targeted at phone or mobile
-        mobile_words = (
-            "phone", "mobile", "android", "tablet", "brahma connect",
-            "my phone", "my mobile", "my tablet", "my android", "flashlight", "torch"
-        )
-        if any(word in normalized for word in mobile_words):
-            return False
-
-        # Don't hijack PC screen/monitor brightness
-        if any(w in normalized for w in ("screen", "monitor", "display", "laptop", "pc")) and "brightness" in normalized:
-            return False
-
-        smart_home_words = (
-            "fan", "fans", "light", "lights", "lamp", "plug", "socket", "outlet", "bulb",
-            "kasa", "atomberg", "bedroom", "living room", "kitchen", "office room",
-            "balcony", "bathroom", "hall", "dining", "smart home", "smart-home",
-            "ac", "air conditioner", "thermostat"
-        )
-        has_smart_word = any(word in normalized for word in smart_home_words)
-        if not has_smart_word:
-            try:
-                for d in self._host._smart_home.list_devices():
-                    d_name = str(d.get("name", "")).lower()
-                    d_room = str(d.get("room", "")).lower()
-                    if (d_name and d_name in normalized) or (d_room and d_room in normalized):
-                        has_smart_word = True
-                        break
-            except Exception:
-                pass
-
-        if not has_smart_word:
-            return False
-        try:
-            result = self._host._smart_home.execute_command(text)
-            detail = str(result.get("detail") or "Smart-home command completed.")
-            title = f"Smart Home: {result.get('action', 'control')}"
-            plan = [
-                "Identify the target device or room",
-                "Send the command to the smart-home provider",
-                "Verify the new state",
-                "Report the result",
-            ]
-            self._host.ui.update_task_workspace(
-                title=title,
-                command=text,
-                plan=plan,
-                status="Executing smart-home command",
-                output=detail,
-                percent=100,
-                source=source,
-            )
-            self._host.ui.write_log(f"Brahma Evo: {detail}")
-            self._host.speak(detail)
-            if not self._host.ui.muted:
-                self._host.ui.set_state("LISTENING")
-            return True
-        except Exception as exc:
-            message = f"I couldn't control the smart home device: {exc}"
-            self._host.ui.write_log(f"ERR: {message}")
-            self._host.ui.update_task_workspace(
-                title="Smart Home Control",
-                command=text,
-                plan=[
-                    "Identify the target device or room",
-                    "Send the command to the smart-home provider",
-                    "Verify the new state",
-                ],
-                status="Smart-home command failed",
-                output=message,
-                percent=100,
-                source=source,
-            )
-            self._host.speak(message)
-            if not self._host.ui.muted:
-                self._host.ui.set_state("LISTENING")
-            return True
 
     def extract_launch_app_name(self, text: str) -> str:
         normalized = re.sub(r"\s+", " ", re.sub(r"[^a-z0-9\s%]", " ", text.lower())).strip()
@@ -136,12 +60,25 @@ class DeviceFlow:
         
         # Explicit mobile indicators: only route to phone if user explicitly mentions phone/mobile
         # or asks for a phone-exclusive action (flashlight/torch, ring phone).
-        is_flashlight = "flashlight" in normalized or "torch" in normalized
-        is_ring_phone = any(p in normalized for p in ("ring phone", "ring my phone", "find my phone", "find phone", "locate phone"))
-        has_phone_ref = any(token in normalized for token in (
-            "phone", "mobile", "android", "tablet", "brahma connect",
-            "my phone", "my mobile", "my tablet", "my android"
-        ))
+        is_flashlight = routing.any_phrase(normalized, ("flashlight", "torch"))
+        is_ring_phone = routing.any_phrase(
+            normalized,
+            ("ring phone", "ring my phone", "find my phone", "find phone", "locate phone"),
+        )
+        has_phone_ref = routing.any_phrase(
+            normalized,
+            (
+                "phone",
+                "mobile",
+                "android",
+                "tablet",
+                "brahma connect",
+                "my phone",
+                "my mobile",
+                "my tablet",
+                "my android",
+            ),
+        )
 
         # Never hijack local PC commands (e.g. open chrome, volume up, pc battery) unless user says 'on phone'
         if not (has_phone_ref or is_flashlight or is_ring_phone):
@@ -162,7 +99,18 @@ class DeviceFlow:
                 name = str(device.get("name", "")).lower()
                 device_id = str(device.get("device_id", "")).lower()
                 platform = str(device.get("platform", "")).lower()
-                if any(token in normalized for token in (name, device_id, platform, "phone", "mobile", "android", "tablet")):
+                if routing.any_phrase(
+                    normalized,
+                    (
+                        name,
+                        device_id,
+                        platform,
+                        "phone",
+                        "mobile",
+                        "android",
+                        "tablet",
+                    ),
+                ):
                     target = str(device.get("device_id") or device.get("name") or "").strip()
                     break
             if not target and (has_phone_ref or is_flashlight or is_ring_phone) and len(devices) == 1:
@@ -175,30 +123,44 @@ class DeviceFlow:
             
             # Check for complex multi-step mobile workflow first
             # Examples: "open X and do Y", "search for Z on X", "message X on Y"
-            if (" and " in normalized or " search " in normalized or " play " in normalized or " message " in normalized or " tell " in normalized) and ("open " in normalized or "launch " in normalized or "app" in normalized):
+            if (
+                routing.any_phrase(normalized, ("and", "search", "play", "message", "tell"))
+                and routing.any_phrase(normalized, ("open", "launch", "app"))
+            ):
                 action = "mobile_autopilot"
                 params["instruction"] = text
-            elif "flashlight" in normalized and ("turn on" in normalized or "switch on" in normalized or "power on" in normalized or "on" == normalized):
+            elif routing.has_phrase(normalized, "flashlight") and (
+                routing.any_phrase(normalized, ("turn on", "switch on", "power on"))
+                or routing.is_phrase(normalized, "on")
+            ):
                 action = "flashlight_on"
-            elif "flashlight" in normalized and ("turn off" in normalized or "switch off" in normalized or "power off" in normalized or "off" == normalized):
+            elif routing.has_phrase(normalized, "flashlight") and (
+                routing.any_phrase(normalized, ("turn off", "switch off", "power off"))
+                or routing.is_phrase(normalized, "off")
+            ):
                 action = "flashlight_off"
-            elif "battery" in normalized or "charge" in normalized:
+            elif routing.any_phrase(normalized, ("battery", "charge")):
                 action = "get_battery"
-            elif "open url" in normalized or "open website" in normalized or "go to" in normalized:
+            elif routing.any_phrase(normalized, ("open url", "open website", "go to")):
                 action = "open_url"
-            elif any(word in normalized for word in ("launch app", "open app", "start app", "open ", "launch ", "start ", "run ", "bring up ")):
+            elif routing.any_phrase(
+                normalized,
+                ("launch app", "open app", "start app", "open", "launch", "start", "run", "bring up"),
+            ):
                 app_name = self.extract_launch_app_name(text)
                 if app_name:
                     action = "launch_app"
                     params["app_name"] = app_name
-            elif "volume" in normalized and ("set" in normalized or "change" in normalized or "to " in normalized):
+            elif routing.has_phrase(normalized, "volume") and routing.any_phrase(
+                normalized, ("set", "change", "to")
+            ):
                 action = "volume_set"
                 match = re.search(r"\b(\d{1,3})\b", normalized)
                 if match:
                     params["value"] = int(match.group(1))
-            elif "volume" in normalized:
+            elif routing.has_phrase(normalized, "volume"):
                 action = "volume_get"
-            elif "info" in normalized or "status" in normalized:
+            elif routing.any_phrase(normalized, ("info", "status")):
                 action = "get_device_info"
                 
             if not action:

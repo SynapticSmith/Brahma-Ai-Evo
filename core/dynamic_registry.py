@@ -21,6 +21,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from core.routing import normalize
 from core.user_paths import get_user_data_dir
 
 logger = logging.getLogger("DynamicToolRegistry")
@@ -391,10 +392,17 @@ class DynamicToolRegistry:
 
     @classmethod
     def find_matching_skill(cls, text: str) -> Optional[Tuple[str, Dict[str, Any]]]:
-        """
-        Intelligently matches a natural language user command or directive
-        to an active synthetic skill in the registry using semantic token matching
-        and dynamic metadata-driven parameter extraction. Completely non-hardcoded.
+        """Match an active skill only when the user names it exactly.
+
+        A fuzzy score is not authority: a >=70 token score can claim a turn the
+        user meant for another tool, and a pre-LLM claim cannot fall through on
+        a near miss. The model sees every active skill as a ``dynamic_skill``
+        declaration, so an approximate request still reaches it — it just is
+        not routed before the model (ROUTING-AUDIT §2, Phase 4 A6).
+
+        Exact means the normalised utterance equals a configured trigger,
+        alias, or the skill name, optionally after one imperative verb
+        (``run``/``use``/``launch``/...). Parameter extraction is unchanged.
         """
         if not text or not isinstance(text, str):
             return None
@@ -417,18 +425,9 @@ class DynamicToolRegistry:
             "one", "did", "have", "current", "currently", "present", "status", "view", "info", "data", "details", "as", "like"
         }
 
-        def stem(w: str) -> str:
-            w = w.lower()
-            for sfx in ("ing", "ies", "es", "s"):
-                if w.endswith(sfx) and len(w) > len(sfx) + 2:
-                    return w[:-len(sfx)]
-            return w
-
         q_meaningful = [w for w in q_words if w not in stopwords and len(w) > 2]
-        q_stems = {stem(w) for w in q_meaningful}
 
-        # 1. Unnamed skill trigger: ONLY when the user explicitly says 'use the skill', 'test new skill', etc.
-        # WITHOUT specifying any specific domain topic (like 'bitcoin', 'cricket', 'internet')!
+        # 1. Unnamed skill directive: exact grammar, no domain word.
         generic_directives = {
             "use the skill", "run the skill", "test the skill", "execute the skill",
             "the skill", "use skill", "run skill", "test skill", "use latest skill",
@@ -449,64 +448,31 @@ class DynamicToolRegistry:
             if latest:
                 return latest.name, {}
 
-        # 2. Dynamic metadata-driven semantic skill matching across ALL registered skills
-        best_skill = None
-        best_score = 0
+        # 2. Exact trigger, alias or skill name. Similarity is not authority.
+        spoken = normalize(text)
+        stripped = spoken
+        for verb in ("run", "use", "execute", "start", "launch", "test", "try", "do"):
+            if spoken.startswith(verb + " "):
+                stripped = spoken[len(verb) + 1 :].strip()
+                break
 
+        def _spoken_forms(value: str) -> set[str]:
+            forms = {normalize(value), normalize(str(value).replace("_", " "))}
+            forms.discard("")
+            return forms
+
+        best_skill = None
         for skill in cls._skills.values():
             if not skill.active:
                 continue
-
-            score = 0
-            s_name_words = re.findall(r"[a-z0-9]+", skill.name.lower())
-            s_name_stems = {stem(w) for w in s_name_words if w not in stopwords and len(w) > 2}
-
-            s_desc_words = re.findall(r"[a-z0-9]+", skill.description.lower())
-            s_desc_stems = {stem(w) for w in s_desc_words if w not in stopwords and len(w) > 2}
-
-            # Explicit trigger phrases defined by the feature
-            for trig in getattr(skill, "triggers", []):
-                if trig.lower() in q_lower:
-                    score += 200
-                    break
-
-            # Explicit aliases defined by the feature
+            phrases: set[str] = set(_spoken_forms(skill.name))
+            for trigger in getattr(skill, "triggers", []):
+                phrases.update(_spoken_forms(trigger))
             for alias in getattr(skill, "aliases", []):
-                if alias.lower() in q_lower or alias.replace("_", " ").lower() in q_lower:
-                    score += 180
-                    break
-
-            # Exact skill name match or clean underscore-replaced match
-            if skill.name.lower() in q_lower or skill.name.replace("_", " ").lower() in q_lower:
-                score += 150
-
-            # Direct phrase match in query (e.g. 'internet speed', 'speed test')
-            for phrase_len in (3, 2):
-                for i in range(len(q_words) - phrase_len + 1):
-                    phrase = " ".join(q_words[i:i + phrase_len])
-                    if phrase in skill.name.replace("_", " ").lower() and not all(pw in stopwords for pw in q_words[i:i + phrase_len]):
-                        score += 60
-                    elif phrase in skill.description.lower() and not all(pw in stopwords for pw in q_words[i:i + phrase_len]):
-                        score += 25
-
-            # Skill name stem overlap
-            name_hits = s_name_stems.intersection(q_stems)
-            score += len(name_hits) * 35
-            if s_name_stems and name_hits == s_name_stems:
-                score += 50
-
-            # Description stem overlap (only meaningful stems!)
-            desc_hits = s_desc_stems.intersection(q_stems)
-            score += len(desc_hits) * 6
-
-            # Acronym / token check for meaningful words only
-            for word in q_meaningful:
-                if len(word) >= 2 and word in skill.name.lower().split("_"):
-                    score += 25
-
-            if score > best_score and score >= 70:
-                best_score = score
+                phrases.update(_spoken_forms(alias))
+            if spoken in phrases or stripped in phrases:
                 best_skill = skill
+                break
 
         if not best_skill:
             return None

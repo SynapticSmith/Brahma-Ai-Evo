@@ -18,6 +18,14 @@ def _base_dir() -> Path:
 BASE_DIR = _base_dir()
 _SERVICE_PROVIDER: Callable[[], Any] | None = None
 
+# Shared by every "there is nothing to act on" path. Kept as text because the
+# tool result is what the model reads and speaks; a bare error code is not an
+# answer to "why didn't my phone do that?".
+NO_PAIRED_DEVICE_MESSAGE = (
+    "No phone or tablet is paired with Brahma Connect yet. "
+    "Pair one from the Brahma Connect panel before asking me to control a device."
+)
+
 
 def set_service_provider(provider: Callable[[], Any] | None) -> None:
     global _SERVICE_PROVIDER
@@ -133,7 +141,40 @@ def _format_devices(devices: list[dict[str, Any]]) -> str:
             "battery_text": battery_text,
             "capabilities": list(device.get("capabilities") or []),
         })
-    return _dump({"success": True, "count": len(items), "devices": items})
+    payload: dict[str, Any] = {
+        "success": True,
+        "count": len(items),
+        "devices": items,
+        "paired": bool(items),
+    }
+    if not items:
+        # An empty list is an answer, not a failure. State it once here so
+        # every caller of list_devices gets the same truthful text.
+        payload["note"] = NO_PAIRED_DEVICE_MESSAGE
+    return _dump(payload)
+
+
+def _no_paired_device(service: Any, *, action: str, device: str | None = None) -> str | None:
+    """Return a truthful "nothing is paired" error, or ``None`` if something is.
+
+    Without this, a machine with no phone paired and a machine with a phone
+    whose name does not match both answer ``DEVICE_NOT_FOUND``. The model then
+    asks the user to rename a device that was never there. A gateway exception
+    is not proof of an empty pairing list, so it falls through to the existing
+    error handling.
+    """
+    try:
+        devices = service.list_devices()
+    except Exception:
+        return None
+    if devices:
+        return None
+    return _fail(
+        NO_PAIRED_DEVICE_MESSAGE,
+        "NO_PAIRED_DEVICE",
+        device=device,
+        action=action,
+    )
 
 
 def _single_or_ambiguous(matches: list[dict[str, Any]], *, device_label: str, action: str) -> str:
@@ -171,6 +212,9 @@ def connect_get_device(parameters: dict[str, Any] | None = None, player=None, sp
         return _fail("A device name or id is required.", "MISSING_PARAMETERS", action="connect_get_device")
     try:
         service = _service()
+        unavailable = _no_paired_device(service, action="connect_get_device", device=target)
+        if unavailable:
+            return unavailable
         direct = service.get_device(target)
         if direct:
             return _dump({"success": True, "device": direct})
@@ -198,6 +242,9 @@ def connect_get_capabilities(parameters: dict[str, Any] | None = None, player=No
         return _fail("A device name or id is required.", "MISSING_PARAMETERS", action="connect_get_capabilities")
     try:
         service = _service()
+        unavailable = _no_paired_device(service, action="connect_get_capabilities", device=target)
+        if unavailable:
+            return unavailable
         result = service.get_capabilities(target)
         if not result.get("success", False):
             return _dump(result)
@@ -246,6 +293,9 @@ def connect_disconnect_device(parameters: dict[str, Any] | None = None, player=N
     reason = str(params.get("reason") or "Disconnected by Brahma").strip()
     try:
         service = _service()
+        unavailable = _no_paired_device(service, action="connect_disconnect_device", device=target)
+        if unavailable:
+            return unavailable
         result = asyncio.run(service.disconnect_device(target, reason=reason))
         return _dump(result)
     except Exception as exc:
@@ -288,6 +338,9 @@ def connect_execute(parameters: dict[str, Any] | None = None, player=None, speak
 
     try:
         service = _service()
+        unavailable = _no_paired_device(service, action="connect_execute", device=target)
+        if unavailable:
+            return unavailable
         result = service.route_command(target, action, command_parameters)
         if not isinstance(result, dict):
             return _dump({

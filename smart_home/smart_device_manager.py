@@ -2,6 +2,8 @@
 import re
 from typing import Optional, Any
 
+from core import routing
+
 class SmartDeviceManager:
     _instance = None
 
@@ -40,7 +42,7 @@ class SmartDeviceManager:
         any_name_mentioned = False
         for d in devices:
             d_name = d.get("name", "").lower()
-            if d_name and d_name in normalized:
+            if d_name and routing.has_phrase(normalized, d_name):
                 any_name_mentioned = True
                 break
                 

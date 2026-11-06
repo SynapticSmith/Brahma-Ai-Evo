@@ -20,6 +20,8 @@ import threading
 from typing import Any
 
 from core import desktop_tools
+from core import routing
+from core import tool_bridge
 from core.local_brain import local_brain
 from llm_client import client as openrouter_client
 from memory import config_manager
@@ -28,6 +30,139 @@ from memory import config_manager
 def _main() -> Any:
     """Return the loaded ``main`` module so ``unittest.mock.patch('main.*')`` works."""
     return sys.modules.get("main") or sys.modules.get("__main__")
+
+
+# Fixed phrase lists for the remaining syntax claims. They are module constants
+# so the routing-authority tests can prove each one declines on ordinary text
+# (docs/ROUTING-AUDIT.md §2, Phase 4). Matching is word-bounded, never a raw
+# substring: "backup" must not contain "ac", "microphone" must not contain
+# "phone".
+OFFLINE_PHRASES = (
+    "switch to offline mode",
+    "go offline",
+    "turn on offline mode",
+    "enable offline mode",
+    "air gap mode",
+)
+ONLINE_PHRASES = (
+    "switch to online mode",
+    "go online",
+    "turn off offline mode",
+    "disable offline mode",
+)
+EMAIL_CHECK_PHRASES = (
+    "check email",
+    "check my email",
+    "unread email",
+    "read email",
+    "my inbox",
+    "check inbox",
+    "show emails",
+)
+CALENDAR_CHECK_PHRASES = (
+    "my schedule",
+    "what's on my calendar",
+    "check calendar",
+    "my meetings",
+    "schedule today",
+    "events today",
+)
+RAM_CHECK_PHRASES = (
+    "eating my ram",
+    "ram hogs",
+    "memory hogs",
+    "check ram",
+    "ram usage",
+    "memory usage",
+    "who is using ram",
+)
+BATTERY_CHECK_PHRASES = (
+    "battery health",
+    "check battery",
+    "battery status",
+    "battery percentage",
+    "is laptop charging",
+    "how much battery",
+)
+BRIGHTNESS_PHRASES = (
+    "dim screen",
+    "dim monitor",
+    "increase brightness",
+    "lower brightness",
+    "set brightness",
+    "screen brightness",
+)
+DIAGNOSTIC_PHRASES = (
+    "system status",
+    "system diagnostics",
+    "hardware status",
+    "computer vitals",
+    "pc diagnostics",
+)
+BUG_TRIGGER_PHRASES = (
+    "trigger test bug",
+    "simulate bug",
+    "test bug",
+    "create bug",
+    "simulate error",
+    "trigger error",
+    "break test",
+)
+HEAL_PHRASES = (
+    "fix that bug",
+    "fix the bug",
+    "heal yourself",
+    "auto heal",
+    "patch yourself",
+    "fix error",
+    "fix this error",
+)
+ROLLBACK_PHRASES = ("undo last patch", "rollback patch", "revert patch", "undo patch")
+PATCH_HISTORY_PHRASES = ("patch history", "patch log", "show patches", "auto heal status")
+VOLUME_PHRASES = (
+    "volume up",
+    "volume down",
+    "mute volume",
+    "mute audio",
+    "unmute",
+    "set volume",
+    "increase volume",
+    "decrease volume",
+    "lower volume",
+)
+MOBILE_TARGET_PHRASES = ("on phone", "on my phone", "on mobile", "on my mobile", "on android", "on tablet")
+OPEN_APP_PREFIXES = (
+    "open app ",
+    "open ",
+    "launch app ",
+    "launch ",
+    "start app ",
+    "start ",
+)
+#: The software nouns that make a "write/build" request a Brahma Dev request.
+#: A bare "script" is ambiguous ("write a script for a play"), so it needs
+#: explicit code evidence in addition.
+SOFTWARE_NOUNS = (
+    "app",
+    "website",
+    "web",
+    "program",
+    "project",
+    "game",
+    "calc",
+    "html",
+    "react",
+)
+SCRIPT_EVIDENCE = ("python", "bash", "powershell", "automation", "code")
+
+
+def looks_like_software_request(text: str) -> bool:
+    """A code/build claim needs a software noun, not just an action verb."""
+    if routing.any_phrase(text, SOFTWARE_NOUNS):
+        return True
+    return routing.has_phrase(text, "script") and routing.any_phrase(
+        text, SCRIPT_EVIDENCE
+    )
 
 
 class TextTurnController:
@@ -125,6 +260,9 @@ class TextTurnController:
             return
         if host._handle_agent_session_command(text):
             return
+        # Retrieval context for a compressed search_tools intent. Memory only;
+        # the bridge never persists or logs this (TOOL-RETRIEVAL-DESIGN §4.1).
+        tool_bridge.set_turn_context(text)
         if len(text) > 4:
             update_mem = getattr(m, "_update_memory_async", None)
             if callable(update_mem):
@@ -157,16 +295,7 @@ class TextTurnController:
                 return
 
         lower = text.lower().strip()
-        if any(
-            p in lower
-            for p in (
-                "switch to offline mode",
-                "go offline",
-                "turn on offline mode",
-                "enable offline mode",
-                "air gap mode",
-            )
-        ):
+        if routing.any_phrase(lower, OFFLINE_PHRASES):
             config_manager.set_setting("offline_mode_enabled", True)
             config_manager.set_setting("default_ai_provider", "Local")
             host.ui.write_log(
@@ -178,15 +307,7 @@ class TextTurnController:
             )
             return
 
-        if any(
-            p in lower
-            for p in (
-                "switch to online mode",
-                "go online",
-                "turn off offline mode",
-                "disable offline mode",
-            )
-        ):
+        if routing.any_phrase(lower, ONLINE_PHRASES):
             config_manager.set_setting("offline_mode_enabled", False)
             config_manager.set_setting("default_ai_provider", "Google Gemini")
             host.ui.write_log("🌐 SYSTEM: Offline Mode DISENGAGED. Cloud connectivity restored.")
@@ -271,11 +392,8 @@ class TextTurnController:
             print(f"[Registry] Match error: {e_dyn}")
 
         if (
-            lower.startswith("email ")
-            or lower.startswith("mail ")
-            or "send email" in lower
-            or "write email" in lower
-            or "compose email" in lower
+            any(routing.normalize(text).startswith(prefix) for prefix in ("email ", "mail "))
+            or routing.any_phrase(lower, ("send email", "write email", "compose email"))
         ):
             rem = text
             for prefix in (
@@ -490,21 +608,7 @@ class TextTurnController:
             not presentation_request
             and not spreadsheet_request
             and looks_code(text)
-            and any(
-                w in text.lower()
-                for w in (
-                    "app",
-                    "website",
-                    "web",
-                    "program",
-                    "script",
-                    "project",
-                    "game",
-                    "calc",
-                    "html",
-                    "react",
-                )
-            )
+            and looks_like_software_request(text)
         )
 
         if website_request or code_request:
@@ -570,29 +674,8 @@ class TextTurnController:
             return
 
         lower_cmd = text.lower().strip()
-        is_email_check = any(
-            phrase in lower_cmd
-            for phrase in (
-                "check email",
-                "check my email",
-                "unread email",
-                "read email",
-                "my inbox",
-                "check inbox",
-                "show emails",
-            )
-        )
-        is_calendar_check = any(
-            phrase in lower_cmd
-            for phrase in (
-                "my schedule",
-                "what's on my calendar",
-                "check calendar",
-                "my meetings",
-                "schedule today",
-                "events today",
-            )
-        )
+        is_email_check = routing.any_phrase(lower_cmd, EMAIL_CHECK_PHRASES)
+        is_calendar_check = routing.any_phrase(lower_cmd, CALENDAR_CHECK_PHRASES)
 
         if is_email_check:
             host.speak("Checking your Gmail inbox, sir...")
@@ -675,55 +758,15 @@ class TextTurnController:
             thread_cls(target=_run_gw_calendar, daemon=True).start()
             return
 
-        is_ram_check = any(
-            p in lower_cmd
-            for p in (
-                "eating my ram",
-                "ram hogs",
-                "memory hogs",
-                "check ram",
-                "ram usage",
-                "memory usage",
-                "who is using ram",
-            )
-        )
-        is_battery_check = any(
-            p in lower_cmd
-            for p in (
-                "battery health",
-                "check battery",
-                "battery status",
-                "battery percentage",
-                "is laptop charging",
-                "how much battery",
-            )
-        )
-        is_brightness_req = any(
-            p in lower_cmd
-            for p in (
-                "dim screen",
-                "dim monitor",
-                "increase brightness",
-                "lower brightness",
-                "set brightness",
-                "screen brightness",
-            )
-        )
+        is_ram_check = routing.any_phrase(lower_cmd, RAM_CHECK_PHRASES)
+        is_battery_check = routing.any_phrase(lower_cmd, BATTERY_CHECK_PHRASES)
+        is_brightness_req = routing.any_phrase(lower_cmd, BRIGHTNESS_PHRASES)
         is_kill_req = (
             lower_cmd.startswith("kill ")
             or lower_cmd.startswith("terminate ")
             or lower_cmd.startswith("force kill ")
         ) and len(lower_cmd.split()) <= 4
-        is_diag_req = any(
-            p in lower_cmd
-            for p in (
-                "system status",
-                "system diagnostics",
-                "hardware status",
-                "computer vitals",
-                "pc diagnostics",
-            )
-        )
+        is_diag_req = routing.any_phrase(lower_cmd, DIAGNOSTIC_PHRASES)
 
         if is_ram_check:
             host.speak("Scanning memory consumers...")
@@ -824,38 +867,10 @@ class TextTurnController:
             thread_cls(target=_run_diag, daemon=True).start()
             return
 
-        is_trigger_bug = any(
-            p in lower_cmd
-            for p in (
-                "trigger test bug",
-                "simulate bug",
-                "test bug",
-                "create bug",
-                "simulate error",
-                "trigger error",
-                "break test",
-            )
-        )
-        is_heal_cmd = any(
-            p in lower_cmd
-            for p in (
-                "fix that bug",
-                "fix the bug",
-                "heal yourself",
-                "auto heal",
-                "patch yourself",
-                "fix error",
-                "fix this error",
-            )
-        )
-        is_rollback_cmd = any(
-            p in lower_cmd
-            for p in ("undo last patch", "rollback patch", "revert patch", "undo patch")
-        )
-        is_patch_history = any(
-            p in lower_cmd
-            for p in ("patch history", "patch log", "show patches", "auto heal status")
-        )
+        is_trigger_bug = routing.any_phrase(lower_cmd, BUG_TRIGGER_PHRASES)
+        is_heal_cmd = routing.any_phrase(lower_cmd, HEAL_PHRASES)
+        is_rollback_cmd = routing.any_phrase(lower_cmd, ROLLBACK_PHRASES)
+        is_patch_history = routing.any_phrase(lower_cmd, PATCH_HISTORY_PHRASES)
         is_learn_rule = (
             lower_cmd.startswith("remember to ")
             or lower_cmd.startswith("remember that ")
@@ -965,22 +980,11 @@ class TextTurnController:
             thread_cls(target=_run_learn, daemon=True).start()
             return
 
-        is_volume_cmd = any(
-            p in lower_cmd
-            for p in (
-                "volume up",
-                "volume down",
-                "mute volume",
-                "mute audio",
-                "unmute",
-                "set volume",
-                "increase volume",
-                "decrease volume",
-                "lower volume",
-            )
-        ) or (lower_cmd in ("mute", "unmute", "volume max"))
-        if is_volume_cmd and not any(
-            d in lower_cmd for d in ("phone", "mobile", "android", "tablet")
+        is_volume_cmd = routing.any_phrase(lower_cmd, VOLUME_PHRASES) or (
+            lower_cmd in ("mute", "unmute", "volume max")
+        )
+        if is_volume_cmd and not routing.any_phrase(
+            lower_cmd, ("phone", "mobile", "android", "tablet")
         ):
             def _run_volume():
                 import re
@@ -1013,33 +1017,13 @@ class TextTurnController:
             thread_cls(target=_run_volume, daemon=True).start()
             return
 
-        has_mobile_target = any(
-            d in lower_cmd
-            for d in (
-                "on phone",
-                "on my phone",
-                "on mobile",
-                "on my mobile",
-                "on android",
-                "on tablet",
-            )
-        )
+        has_mobile_target = routing.any_phrase(lower_cmd, MOBILE_TARGET_PHRASES)
         is_open_app_cmd = (
-            any(
-                lower_cmd.startswith(prefix)
-                for prefix in (
-                    "open app ",
-                    "open ",
-                    "launch app ",
-                    "launch ",
-                    "start app ",
-                    "start ",
-                )
-            )
+            any(lower_cmd.startswith(prefix) for prefix in OPEN_APP_PREFIXES)
             and not has_mobile_target
-            and not any(
-                p in lower_cmd
-                for p in (
+            and not routing.any_phrase(
+                lower_cmd,
+                (
                     "website",
                     "url",
                     "http",
@@ -1049,27 +1033,24 @@ class TextTurnController:
                     "project",
                     "code",
                     "game",
-                )
+                ),
             )
         )
         if is_open_app_cmd:
             from actions.open_app import _APP_ALIASES, open_app
 
             clean_app_candidate = lower_cmd
-            for prefix in (
-                "open app ",
-                "open ",
-                "launch app ",
-                "launch ",
-                "start app ",
-                "start ",
-            ):
+            for prefix in OPEN_APP_PREFIXES:
                 if clean_app_candidate.startswith(prefix):
                     clean_app_candidate = clean_app_candidate[len(prefix) :].strip()
                     break
-            if clean_app_candidate in _APP_ALIASES or any(
-                clean_app_candidate in k for k in _APP_ALIASES
-            ):
+            # Exact alias only: a near miss ("chrome browser") goes to the
+            # model, which has the same open_app tool. The old substring test
+            # also matched an empty candidate, so a bare "open" claimed a turn.
+            app_alias = routing.exact_alias(clean_app_candidate, _APP_ALIASES)
+            if app_alias:
+                clean_app_candidate = app_alias
+
                 def _run_open_local_app():
                     open_app({"app_name": clean_app_candidate}, player=host.ui)
                     host.speak(f"Opening {clean_app_candidate}, sir.")
@@ -1088,7 +1069,10 @@ class TextTurnController:
                 "(SYSTEM: If this is an action like opening an app or running a command, "
                 "you MUST execute it using your tools rather than just replying with text.)"
             )
-        if text.lower() in {"stop meeting mode", "end meeting mode", "close meeting mode"}:
+        if any(
+            routing.is_phrase(text, phrase)
+            for phrase in ("stop meeting mode", "end meeting mode", "close meeting mode")
+        ):
             host._stop_meeting_mode("Meeting mode closed.")
             return
         if host._handle_attention_response(text):
@@ -1102,8 +1086,9 @@ class TextTurnController:
             text, source=source or "local"
         ):
             return
-        if host._handle_smart_home_command(text, source=source or "local"):
-            return
+        # Smart-home is a model tool choice, not a pre-LLM utterance route.
+        # See docs/ROUTING-AUDIT.md — a pre-LLM device matcher claimed semantic
+        # authority it cannot have and could not fall through on a false match.
         looks_screen = getattr(m, "_looks_like_screen_request", lambda _t: False)
         if looks_screen(text):
             try:

@@ -487,7 +487,13 @@ class SessionLifecycle:
         # the handshake failed with 1007 / Invalid Argument. Gemini Live also
         # cannot swap tools mid-session, so the surface must be small *and* the
         # rest reachable through search_tools / call_tool.
-        last_intent = (getattr(self, "_last_user_text", "") or "")
+        # The last utterance lives on the host (core/audio_io.py writes it when
+        # input transcription arrives); this seam is a separate object, so the
+        # old ``getattr(self, ...)`` always read "" and every reconnect started
+        # cold. Reading it here is still connect-time state: the first socket
+        # has no prior turn, a reconnect is seeded with what the user asked
+        # before the drop. It never re-seeds an open live session.
+        last_intent = (getattr(self._host, "_last_user_text", "") or "")
         try:
             from core import tool_bridge
 
