@@ -350,9 +350,15 @@ class SessionLifecycle:
             tg.create_task(self._host._play_audio())
             if not self._host._startup_briefing_started:
                 self._host._startup_briefing_started = True
+                # The startup briefing is unprompted speech, so it follows the
+                # same Identity & Profile toggle as idle check-ins. The panel
+                # and log line still render through `_speak_daily_briefing`.
                 threading.Thread(
                     target=_speak_daily_briefing,
-                    args=(self._host.ui, self._host.speak),
+                    args=(
+                        self._host.ui,
+                        lambda text: self._host.speak(text, proactive=True),
+                    ),
                     daemon=True,
                     name="daily-briefing",
                 ).start()
@@ -368,6 +374,7 @@ class SessionLifecycle:
             except Exception:
                 pass
     def _idle_speech_loop(self):
+        from core.identity import identity
         try:
             from actions.proactive import ProactiveEngine
             engine = ProactiveEngine(min_silence_secs=300, check_cooldown=600)  # Shorter defaults for testing
@@ -378,26 +385,36 @@ class SessionLifecycle:
             time.sleep(60.0)
             if not engine:
                 continue
-            
+
             try:
                 if self._host.ui.muted or self._host._is_speaking or self._host._meeting_active or self._host._pending_attention:
                     continue
-                
+
                 # Check if it should trigger using the engine's time monotonic logic
-                if engine.should_trigger(self._host._last_activity):
-                    engine.mark_triggered()
-                    prompt = engine.build_prompt(memory={})
-                    
-                    if self._host.session and self._host._loop:
-                        import asyncio
-                        async def _send():
-                            try:
-                                await self._host.session.send_client_content(turns={"parts": [{"text": prompt}]}, turn_complete=True)
-                            except Exception as e:
-                                print(f"[Proactive] Error: {e}")
-                        asyncio.run_coroutine_threadsafe(_send(), self._host._loop)
-                        self._host._reset_idle_activity()
-                    
+                if not engine.should_trigger(self._host._last_activity):
+                    continue
+
+                # The "Proactive Spoken Interjections" toggle in Identity &
+                # Profile must gate every proactive voice path, including this
+                # idle check-in. It sends straight to the live socket (there is
+                # no speak(proactive=True) call to enforce it), so an unchecked
+                # toggle used to keep starting `[PROACTIVE_CHECK]` turns.
+                if not identity.is_proactive():
+                    continue
+
+                engine.mark_triggered()
+                prompt = engine.build_prompt(memory={})
+
+                if self._host.session and self._host._loop:
+                    import asyncio
+                    async def _send():
+                        try:
+                            await self._host.session.send_client_content(turns={"parts": [{"text": prompt}]}, turn_complete=True)
+                        except Exception as e:
+                            print(f"[Proactive] Error: {e}")
+                    asyncio.run_coroutine_threadsafe(_send(), self._host._loop)
+                    self._host._reset_idle_activity()
+
             except Exception as e:
                 print(f"[Proactive] Error: {e}")
     def _connect_tool_voice(self, name: str, raw_result: str) -> str | None:

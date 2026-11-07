@@ -156,8 +156,9 @@ def test_a_migrated_action_runs_with_a_recording_host(registered, tmp_path: Path
 
     assert out.exists() and out.stat().st_size > 0
     assert "PDF created" in result
-    # The HUD came from the runtime's events, not from the action.
-    assert host.spoken and "pdf document" in host.spoken[0]
+    # The HUD came from the runtime's events, not from the action, and start
+    # status is display-only: the model owns the spoken answer.
+    assert host.spoken == []
     assert host.ui.operations[0]["tool"] == "pdf_document"
     assert host.ui.deliverables[-1]["file_path"] == str(out)
     assert host.ui.states[0] == "THINKING" and host.ui.states[-1] == "LISTENING"
@@ -326,6 +327,9 @@ def test_the_event_sink_renders_only_desktop_tools():
     sink({"type": "tool_start", "name": "pdf_document", "args": {"title": "Report"}})
     assert host.ui.operations[0]["tool"] == "pdf_document"
     assert host.ui.states == ["THINKING"]
+    # Status is display-only. Speaking it here used to inject a live client
+    # turn ahead of the tool response and duplicate the model's answer.
+    assert host.spoken == []
 
     sink(
         {

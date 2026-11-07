@@ -38,6 +38,11 @@ class AudioIO:
         self._LiveReconnect = LiveReconnect
         self._wakeword_detected = wakeword_detected
         self._update_memory_async = update_memory_async
+        # True from the moment a live tool call arrives until its
+        # send_tool_response is away. Speaking through the live socket in that
+        # window would inject a client turn ahead of the tool response and make
+        # Gemini answer twice; see speak() and _receive_audio().
+        self._live_tool_pending = False
 
 
     async def _listen_audio(self):
@@ -275,33 +280,40 @@ class AudioIO:
                     if response.tool_call:
                         self._host.ui.set_state("EXECUTING")
                         fn_responses = []
-                        for fc in response.tool_call.function_calls:
-                            print(f"[BRAHMA EVO] 📞 {fc.name}")
-                            try:
-                                fr = await self._host._execute_tool(fc)
-                                fn_responses.append(fr)
-                            except Exception as exc:
-                                print(f"[BRAHMA EVO] ⚠️ Tool call error for {fc.name}: {exc}")
-                                # Don't proxy - let it fail cleanly to avoid loops
-                                try:
-                                    from google.genai import types
-                                    fn_responses.append(types.FunctionResponse(name=fc.name, id=getattr(fc, "id", None), response={"result": f"Tool execution failed: {exc}"}))
-                                except Exception:
-                                    fn_responses.append({"name": fc.name, "id": getattr(fc, "id", None), "response": {"result": f"Tool execution failed: {exc}"}})
-                                continue
-                                try:
-                                    from google.genai import types
-                                    fn_responses.append(types.FunctionResponse(name=fc.name, id=getattr(fc, "id", None), response={"result": f"Tool execution failed: {exc}"}))
-                                except Exception:
-                                    fn_responses.append({"name": fc.name, "id": getattr(fc, "id", None), "response": {"result": f"Tool execution failed: {exc}"}})
-                        self._host.ui.set_state("THINKING")
+                        # Keep speak() off the live socket until the tool
+                        # response is sent: a client turn injected in between
+                        # starts a second model turn and duplicates the answer.
+                        self._live_tool_pending = True
                         try:
-                            await self._host.session.send_tool_response(
-                                function_responses=fn_responses
-                            )
-                        except Exception as exc:
-                            print(f"[BRAHMA EVO] ⚠️ Failed to send tool responses: {exc}")
-                            raise
+                            for fc in response.tool_call.function_calls:
+                                print(f"[BRAHMA EVO] 📞 {fc.name}")
+                                try:
+                                    fr = await self._host._execute_tool(fc)
+                                    fn_responses.append(fr)
+                                except Exception as exc:
+                                    print(f"[BRAHMA EVO] ⚠️ Tool call error for {fc.name}: {exc}")
+                                    # Don't proxy - let it fail cleanly to avoid loops
+                                    try:
+                                        from google.genai import types
+                                        fn_responses.append(types.FunctionResponse(name=fc.name, id=getattr(fc, "id", None), response={"result": f"Tool execution failed: {exc}"}))
+                                    except Exception:
+                                        fn_responses.append({"name": fc.name, "id": getattr(fc, "id", None), "response": {"result": f"Tool execution failed: {exc}"}})
+                                    continue
+                                    try:
+                                        from google.genai import types
+                                        fn_responses.append(types.FunctionResponse(name=fc.name, id=getattr(fc, "id", None), response={"result": f"Tool execution failed: {exc}"}))
+                                    except Exception:
+                                        fn_responses.append({"name": fc.name, "id": getattr(fc, "id", None), "response": {"result": f"Tool execution failed: {exc}"}})
+                            self._host.ui.set_state("THINKING")
+                            try:
+                                await self._host.session.send_tool_response(
+                                    function_responses=fn_responses
+                                )
+                            except Exception as exc:
+                                print(f"[BRAHMA EVO] ⚠️ Failed to send tool responses: {exc}")
+                                raise
+                        finally:
+                            self._live_tool_pending = False
 
         except self._LiveReconnect:
             raise
@@ -353,8 +365,8 @@ class AudioIO:
 
         if proactive:
             try:
-                from core.identity import IdentityService
-                if not IdentityService().is_proactive():
+                from core.identity import identity
+                if not identity.is_proactive():
                     return
             except Exception:
                 pass
@@ -368,6 +380,14 @@ class AudioIO:
             pass
 
         if self._host.session and self._host._loop and backend == "gemini_live":
+            # A live tool call is outstanding: its response has not been sent
+            # yet, so injecting a client turn here would make the model answer
+            # twice (once from this content, once from the tool result). Drop
+            # the utterance; status chatter no longer reaches this path, and a
+            # real error travels back inside the tool response.
+            if getattr(self, "_live_tool_pending", False):
+                print(f"[BRAHMA EVO] 🔇 Live tool pending; suppressed speak: {text[:80]}")
+                return
             # Route text through Gemini Live API for the unified native Charon voice
             import asyncio
             async def _speak_send():

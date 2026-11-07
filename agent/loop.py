@@ -589,6 +589,8 @@ class AgentLoop:
         chosen: Sequence[Any],
         turns: int,
         batch_readonly: bool = False,
+        template: str = "",
+        template_name: str = "",
     ) -> str:
         prompt = task if not context_text else f"{task}\n\nContext:\n{context_text}"
         names = tool_names(chosen)
@@ -598,7 +600,21 @@ class AgentLoop:
             task=task,
             tools=names,
             max_turns=turns,
+            template=template_name or None,
         )
+
+        extra = SUBAGENT_SYSTEM
+        if template:
+            extra = (
+                f"{SUBAGENT_SYSTEM}\n\n"
+                f"You are running the '{template_name or 'specialist'}' template "
+                "from the subagent library. Its tool names may not match this "
+                "runtime's names; use the equivalent tool from the surface you "
+                "were given, and ignore any instruction that requires a tool you "
+                "do not have.\n\n"
+                "--- template ---\n"
+                f"{template}"
+            )
 
         child = AgentLoop(
             self._complete,
@@ -608,7 +624,8 @@ class AgentLoop:
             system=build_system_prompt(
                 self._runtime.workspace,
                 permission_note=policy_note(self._runtime),
-                extra=SUBAGENT_SYSTEM,
+                extra=extra,
+                include_subagents=False,
             ),
             session=None,
             max_turns=turns,
@@ -675,6 +692,39 @@ class AgentLoop:
         task = str(args.get("task") or "").strip()
         if not task:
             return "Not run: run_subagent needs a non-empty 'task'."
+        template = ""
+        template_name = ""
+        requested_type = str(args.get("subagent_type") or "").strip()
+        if requested_type:
+            from . import subagent_library
+
+            catalog = subagent_library.load()
+            if catalog is None:
+                return (
+                    "error: no subagent template library is installed, so "
+                    f"{requested_type!r} cannot be loaded. Call list_subagents "
+                    "for the built-in delegation options, or omit "
+                    "'subagent_type' to run a generic child."
+                )
+            entry = catalog.get(requested_type)
+            if entry is None:
+                closest = ", ".join(
+                    f"`{hit.slug}`" for hit in catalog.suggest(requested_type)
+                ) or "none"
+                return (
+                    f"error: no subagent template named {requested_type!r}. "
+                    f"Closest slugs: {closest}. Call list_subagents with a "
+                    "keyword to search, or omit 'subagent_type' for a generic "
+                    "child."
+                )
+            try:
+                template = catalog.template_body(entry)
+            except OSError as exc:
+                return (
+                    f"error: template {entry.slug!r} could not be read: {exc}. "
+                    "Omit 'subagent_type' to run a generic child."
+                )
+            template_name = entry.slug
         requested = args.get("tools")
         if isinstance(requested, str):
             requested = [requested]
@@ -698,6 +748,8 @@ class AgentLoop:
             chosen=chosen,
             turns=turns,
             batch_readonly=False,
+            template=template,
+            template_name=template_name,
         )
 
     def _run_subagent_batch(self, args: Dict[str, Any]) -> str:

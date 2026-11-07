@@ -730,16 +730,22 @@ async def _stream_completions(
                             done = True
                             break
 
-                        for delta_text in split_text_chunks(result.text):
-                            yield sse_data(
-                                text_delta_chunk(
-                                    run_id=run_id,
-                                    model_id=resolved.model_id,
-                                    content=delta_text,
-                                    created=created,
-                                    system_fingerprint=fingerprint,
+                        # The passthrough lane already uses this guard: when
+                        # the loop streamed the text as deltas, re-sending
+                        # ``result.text`` here would pipe the answer to the
+                        # client twice. The agent lane does not stream today,
+                        # but the guard keeps that true if it ever does.
+                        if not deltas_streamed:
+                            for delta_text in split_text_chunks(result.text):
+                                yield sse_data(
+                                    text_delta_chunk(
+                                        run_id=run_id,
+                                        model_id=resolved.model_id,
+                                        content=delta_text,
+                                        created=created,
+                                        system_fingerprint=fingerprint,
+                                    )
                                 )
-                            )
 
                         finish_reason = translate.FINISH_REASONS.get(result.stop_reason, "stop")
                         yield sse_data(

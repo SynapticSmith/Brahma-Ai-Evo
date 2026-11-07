@@ -92,6 +92,7 @@ Three invariants make the rest of the design work:
 | `agent/permissions.py` | Policy document, defaults, `evaluate()`, path scoping, headless rules | …a call was allowed/denied and you need to know why. |
 | `agent/code_tools.py` | `read_file`, `write_file`, `edit_file`, `glob_files`, `grep_files`, `run_command` | …you are changing a primitive's behaviour. |
 | `agent/subagent.py` | `run_subagent` contract: schema, turn clamp, child tool selection, handler that refuses without a loop; the child loop itself lives in `AgentLoop._run_subagent` | …delegation is too broad, recursive, or returns a useless report. |
+| `agent/subagent_library.py` | Discovered specialist-template index: catalogue load/cache, keyword+category search, slug resolution, bounded template bodies, the resident category block and the `list_subagents` tool | …a specialist was not found, the index is missing, or the prompt grew. |
 | `agent/runtime.py` | The single dispatch boundary; approval callbacks; process-wide `configure()` | …you are wiring the harness into a new host. |
 | `agent/approval_detail.py` | Banner text: rule, command/cwd, unified diffs, and the ALWAYS ALLOW label | …an approval banner is unhelpful or names the wrong thing. |
 | `agent/usage.py` | Provider-reported token counts, normalised and summed | …you need real cost numbers instead of the local estimate. |
@@ -259,9 +260,10 @@ The child is an `AgentLoop` with:
   shared system prompt plus `SUBAGENT_SYSTEM` and one user message containing
   the task and an optional briefing;
 * **a filtered surface** — `select_tools` intersects the requested names with
-  the parent's own tools, dedupes, and always removes `run_subagent`, so
-  delegation cannot recurse. With no request the default is the parent's
-  `read`-class tools, which cannot mutate the workspace;
+  the parent's own tools, dedupes, and always removes the delegation tools
+  (`run_subagent`, `run_subagent_batch`, `list_subagents`), so delegation
+  cannot recurse. With no request the default is the parent's `read`-class
+  tools, which cannot mutate the workspace;
 * **its own budget** — `max_turns` defaults to 8 and is clamped to 12; it does
   not inherit the parent's limit. The child also gets no session row.
 
@@ -272,6 +274,33 @@ events are relayed as `subagent_event` inside `subagent_start` /
 `subagent_end`, so a host can show progress without mixing the child's turns
 into the parent transcript. The voice socket does not advertise the tool: its
 Gemini session owns the only transport and cannot build a text child loop.
+
+#### Specialist templates
+
+`agent/subagent_library.py` makes a corpus of agent definitions addressable
+without paying for it in context. The corpus ships in the repository at
+`subagents/` (a `catalog.json` index plus ~600 markdown bodies), so a checkout
+is self-contained and the Obsidian vault it was ported from is only a legacy
+fallback. `BRAHMA_SUBAGENT_LIBRARY` or `config/subagents.json` overrides the
+bundled tree, and an empty value disables it.
+
+Disclosure is tiered, the same shape as project skills:
+
+| Tier | Where | What it costs |
+| --- | --- | --- |
+| Category index | System prompt (`## Subagent library`) | ~1.4 KB: counts, a few example slugs, the tool name |
+| Lookup | `list_subagents(query=…, category=…)` | One read-class tool call; returns slugs plus one-line descriptions |
+| Body | `run_subagent(subagent_type=<slug>)` | Exactly one template, clamped to 24 KB, appended to the child's brief |
+
+The index is machine configuration, not workspace context, so it is appended by
+`build_system_prompt(include_subagents=True)` rather than by
+`project_context`. Child loops pass `include_subagents=False`: they never have
+the delegation tools, so a catalogue would be noise. The GUI text path appends
+the same block explicitly. An unknown slug returns an `error:` observation with
+the closest slugs instead of the `Not run:` denial prefix, so the model can
+retry rather than ending its turn. `python -m agent subagents [--query …]`
+prints the same inventory for a human.
+
 
 ### Streaming output
 
@@ -396,7 +425,8 @@ ToolSpec(
 | `glob_files` | read | Newest first; skips `node_modules`, `.venv`, `.git`, build dirs, caches. |
 | `grep_files` | read | Python regex; `path:line: text`; glob filter; caps files and matches. |
 | `run_command` | exec | Shell in the workspace; **stdin is closed**; exit code + stdout + stderr; timeout (default 120 s, max 1800 s) terminates the **whole process tree**; output capped; `exec.sandbox` controls credential scrubbing, an optional sandbox prefix and resource limits. |
-| `run_subagent` | native | Bounded child loop with a filtered read-default surface; returns a report; never recursive; refuses outside a loop. |
+| `run_subagent` | native | Bounded child loop with a filtered read-default surface; returns a report; never recursive; refuses outside a loop. `subagent_type=<slug>` swaps the generic brief for one library template (clamped to 24 KB). |
+| `list_subagents` | read | Category/keyword lookup over the specialist-template catalogue; returns slugs and descriptions, never bodies. Excluded from every child surface. |
 | `load_project_skill` | read | Loads one project skill body by name from `.brahma/skills`; the resident prompt lists names and descriptions only. `allowed-tools` is advisory — the policy remains the boundary. Deliberately **not** named `load_skill`, which belongs to the app's Skills Library. |
 | `mcp_<server>_<tool>` | mcp | One spec per tool discovered from a configured MCP server; the handler is the server's `tools/call`; output is text, resources or a binary summary. Names are sanitised to the function-name grammar. |
 
@@ -933,7 +963,7 @@ Every event is a dict with `type` plus fields. The same objects go to
 | `stream_fallback` | `reason` | Once per run, when streaming was requested but the provider has no transport, or the stream was rejected before producing output. |
 | `policy_reload` | `ok`, `source`, `error` (when `ok=False`) | When an edited policy file was adopted or rejected. |
 | `instructions` | `loaded[labels]`, `chars`, `truncated` | When a turn touched a directory whose instruction file was not in the prompt yet. |
-| `subagent_start` | `subagent`, `task`, `tools[names]`, `max_turns` | Before a child loop is built. |
+| `subagent_start` | `subagent`, `task`, `tools[names]`, `max_turns`, `template?` | Before a child loop is built; `template` is the library slug when one was selected. |
 | `subagent_event` | `subagent`, `event` | A child loop event, relayed verbatim (`tool_call`, `permission`, …). |
 | `subagent_end` | `subagent`, `stop_reason`, `turns`, `chars` | After the child stops; `chars` is the report length. |
 | `error` | `error` | Loop-level fatal. |
@@ -1084,6 +1114,7 @@ emit `instructions` when they actually add a file.
 | `tests/test_agent_streaming.py` | Delta assembly (text, fragmented tool calls, usage tails, error chunks), SSE parsing and HTTP error bodies, endpoint normalisation, stub streaming, loop delta/`reset`/`stream_fallback` events, rejection fallback vs retry, and the CLI printer's no-duplicate rule. |
 | `tests/test_agent_providers.py` | Custom/OpenRouter adapters build against the shipped `llm_client.client` name; custom streaming payload, URL normalisation, auth headers and per-call settings reload. |
 | `tests/test_agent_subagent.py` | Child completion and report-only return, read-only default surface, no recursion, requested-tool intersection, fresh child context, shared policy/denial, exception-to-report, turn clamp, handler refusal without a loop, relayed events, empty-task and unknown-tool refusals. |
+| `tests/test_agent_subagent_library.py` | The vendored `subagents/` tree loads by default and its bodies are present; env/config overrides win over it; an empty override disables it; the resident block is a category index with no bodies; keyword/category search ranking; slug prefix ambiguity; frontmatter stripping and body clamp; `list_subagents` overview/matches; `subagent_type` puts exactly one template in the child prompt; an unknown slug returns suggestions and does not end the turn. |
 | `tests/test_confirmation_overlay.py` | HUD banner: ALWAYS ALLOW only for session-approvable calls, remembers-what hint, diff box, diff summary and CHANGES ONLY fold/restore, irreversible header. |
 
 They do not need a model. The `test_agent_*` files are pure-Python and need

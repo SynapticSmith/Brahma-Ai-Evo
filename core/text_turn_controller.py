@@ -1343,6 +1343,19 @@ class TextTurnController:
         if project:
             system_prompt = f"{system_prompt}\n\n{project}"
 
+        # The specialist-template catalogue is machine configuration rather
+        # than workspace context, so ``project_context`` does not carry it. It
+        # is a compact index (categories + examples), not the 600 bodies; the
+        # model calls list_subagents for detail and run_subagent to dispatch.
+        try:
+            from agent.subagent_library import prompt_block as subagent_prompt_block
+
+            subagent_index = subagent_prompt_block()
+        except Exception:
+            subagent_index = ""
+        if subagent_index:
+            system_prompt = f"{system_prompt}\n\n{subagent_index}"
+
         try:
             from core import instruction_injector
 

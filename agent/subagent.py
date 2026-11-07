@@ -25,13 +25,16 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from .spec import ToolContext, ToolSpec, get as get_spec, register
+from .subagent_library import LIBRARY_TOOL
 
 #: The single-child tool's model-facing name. Excluded from every child's surface.
 SUBAGENT_TOOL = "run_subagent"
 #: The read-only fan-out batch tool's model-facing name. Also excluded from every child's surface (I-08).
 SUBAGENT_BATCH_TOOL = "run_subagent_batch"
-#: All delegation tools that must never appear on a child's surface.
-DELEGATION_TOOLS: Tuple[str, ...] = (SUBAGENT_TOOL, SUBAGENT_BATCH_TOOL)
+#: All delegation tools that must never appear on a child's surface. The
+#: library lookup is included: a child cannot spawn a subagent, so a catalogue
+#: of specialists would only tempt it to try.
+DELEGATION_TOOLS: Tuple[str, ...] = (SUBAGENT_TOOL, SUBAGENT_BATCH_TOOL, LIBRARY_TOOL)
 
 DEFAULT_SUBAGENT_TURNS = 8
 #: A child is a bounded run, not a second agent that can spend the night. The
@@ -66,6 +69,15 @@ SUBAGENT_SCHEMA: Dict[str, Any] = {
             "description": (
                 "Optional facts the child needs (paths, commands already run, "
                 "constraints). Keep it short; this is a briefing, not a dump."
+            ),
+        },
+        "subagent_type": {
+            "type": "string",
+            "description": (
+                "Optional specialist template slug from the subagent library "
+                "(call list_subagents to find one). The template becomes the "
+                "child's brief, so the child does your project's version of "
+                "that role instead of a generic one. Omit for a generic child."
             ),
         },
         "tools": {
@@ -323,7 +335,9 @@ register(
             "searches or reviews out of this conversation. The child cannot "
             "see this conversation, cannot ask questions, and cannot create "
             "another subagent; it returns a report. Its tool calls still go "
-            "through the same permission policy."
+            "through the same permission policy. Pass `subagent_type` with a "
+            "slug from list_subagents to run a specialist template instead of "
+            "a generic child."
         ),
         parameters=SUBAGENT_SCHEMA,
         tool_class="native",

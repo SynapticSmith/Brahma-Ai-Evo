@@ -44,6 +44,8 @@ config/ppt_template_cache/
 # agent_permissions.json is user data (machine-local policy). Only the example
 # template is tracked: config/agent_permissions.example.json.
 agent_permissions.json
+# subagents.json points at a machine-local template corpus; the example is tracked.
+config/subagents.json
 config/api_keys.json
 config/email_credentials.json
 config/ig_session.json

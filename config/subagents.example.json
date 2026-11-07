@@ -1,0 +1,4 @@
+{
+  "_comment": "Optional override. The harness defaults to the bundled subagents/ folder; copy this file to config/subagents.json only to use a different corpus.",
+  "library": "C:/path/to/a/custom/subagent-library"
+}

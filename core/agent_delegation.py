@@ -138,7 +138,9 @@ class TaskDelegationManager:
                 )
             ]
 
-            sys_prompt = prompts.build_system_prompt(task.workspace)
+            sys_prompt = prompts.build_system_prompt(
+                task.workspace, include_subagents=False
+            )
             context = ConversationContext(system=sys_prompt)
             context.append_user(task.prompt)
 

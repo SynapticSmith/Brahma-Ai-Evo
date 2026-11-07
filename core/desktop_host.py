@@ -123,12 +123,17 @@ def _sources(name: str, args: Mapping[str, Any]) -> List[str]:
 
 
 def present_start(host: HostServices, name: str, args: Mapping[str, Any]) -> None:
-    """Announce that a desktop action is running (the "Working on ..." moment)."""
+    """Announce that a desktop action is running (the HUD status moment).
+
+    Status is shown, never spoken. The "Working on ..." banner used to call
+    ``host.speak`` here, which is wrong on both voice paths: with Gemini Live it
+    injected a ``send_client_content(turn_complete=True)`` *before*
+    ``send_tool_response``, starting a second model turn that repeated the
+    answer; on the local loop it raced the real reply as a separate TTS
+    utterance. The tool result already reaches the model, which owns the spoken
+    answer (ADR-019 consequence 4).
+    """
     print(f"[BRAHMA EVO] 🔧 {name}  {dict(args or {})}")
-    try:
-        host.speak(f"Working on {name.replace('_', ' ')}...")
-    except Exception:
-        pass
     try:
         host.ui.set_state("THINKING")
     except Exception:

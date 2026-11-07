@@ -202,12 +202,13 @@ Three small harness/host extensions keep the wave on the single dispatch path:
    are treated as fences so multi-path/shortcut arguments never overlap.
 2. **Silent tool responses (`ToolSpec.silent: bool = False`).** `save_memory`
    returns `{"result": "ok", "silent": True}` on the voice `FunctionResponse`
-   and suppresses the `"Working on …"` utterance and deliverable card while
-   still restoring the UI state to `LISTENING` on `tool_end`. `AgentRuntime`
+   and suppresses the HUD operation, task-workspace churn and deliverable card
+   while still restoring the UI state to `LISTENING` on `tool_end`. `AgentRuntime`
    propagates `silent` on `tool_start`/`tool_end` events, `HostEventSink`
    suppresses `present_start`/`present_end` when `silent` is set, and
    `core/tool_exec.py` adds `"silent": True` to the `FunctionResponse` payload
-   when `spec.silent` is true.
+   when `spec.silent` is true. (Tool-start status is display-only for every
+   tool; see amendment 4.)
 3. **`connect_*` spoken summaries in `core/desktop_host.py`.** The wave-1 open
    question on `_connect_tool_voice` was resolved without widening
    `HostServices`: `connect_tool_voice(name, raw_result)` moved into
@@ -216,6 +217,16 @@ Three small harness/host extensions keep the wave on the single dispatch path:
    helper). Moving `ig_gemini_reply` into `core/reply_flow.py` and removing the
    redundant wrapper on `BrahmaLive` also shrank `main.py` (`4,811 → 4,784`
    lines).
+4. **Tool-start status is display-only (duplicate-response fix).** `present_start`
+   used to call `host.speak("Working on ...")`. On the Gemini Live path that
+   injected a `send_client_content(turn_complete=True)` *before*
+   `send_tool_response`, so the model answered the injected turn and then
+   answered the tool result — the same reply appeared twice in the chat feed and
+   in speech. On the local loop it raced the real reply as a second TTS
+   utterance. `present_start` now paints the HUD only, and `AudioIO.speak` drops
+   live speech while `_live_tool_pending` is set (from receiving `tool_call`
+   through sending `send_tool_response`) so no other caller can recreate the
+   extra turn.
 
 `core/tool_exec.py` dropped 16 `elif` branches plus the `save_memory` block
 (`716 → 527` lines, `70 → 54` `elif`s); all three ratchets in

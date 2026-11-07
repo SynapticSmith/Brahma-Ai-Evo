@@ -1710,10 +1710,10 @@ class WorkspaceSidebar(QWidget):
                 percent=data.get("percent"),
                 footer=data.get("footer"),
             )
-            chunks = [data.get("status") or "", data.get("output") or "", data.get("footer") or ""]
-            text = "\n".join(chunk for chunk in chunks if chunk)
-            if text:
-                self.record_chat_event({"role": "system", "text": text, "source": data.get("source") or "local"})
+            # The card is the status display. Mirroring it into the feed added
+            # a second, "system"-role copy of lines the assistant turn already
+            # speaks (user note 3: the answer appeared twice). Only a real
+            # chat event, with a real role, belongs in the transcript.
         elif action == "finish":
             self._task_card.show()
             self._task_card.finish_workspace(
@@ -1721,13 +1721,11 @@ class WorkspaceSidebar(QWidget):
                 data.get("status") or "Task completed.",
                 int(data.get("percent") or 100),
             )
-            self.record_chat_event({
-                "role": "system",
-                "text": data.get("result") or data.get("output") or "Done.",
-                "source": data.get("source") or "local",
-            })
-            # The card owns its own dismiss timer (Settings-aware); do not
-            # schedule a second hide here.
+            # As above: the result is already the assistant message (or the
+            # live voice turn's transcript). Do not replay it as a system
+            # bubble; that was the duplicate response in user note 3. The card
+            # owns its own dismiss timer (Settings-aware); do not schedule a
+            # second hide here.
         elif action == "clear":
             self._task_card.clear_workspace()
 
@@ -2237,23 +2235,21 @@ class InlineChatWorkspace(QFrame):
                 percent=data.get("percent"),
                 footer=data.get("footer"),
             )
-            chunks = [data.get("status") or "", data.get("output") or "", data.get("footer") or ""]
-            text = "\n".join(chunk for chunk in chunks if chunk)
-            if text:
-                self.record_chat_event({"role": "system", "text": text, "source": data.get("source") or "local"})
+            # The card is the status display. Mirroring it into the feed added
+            # a second, "system"-role copy of lines the assistant turn already
+            # speaks (user note 3: the answer appeared twice). Only a real
+            # chat event, with a real role, belongs in the transcript.
         elif action == "finish":
             self._task_card.finish_workspace(
                 data.get("result") or data.get("output") or "Done.",
                 data.get("status") or "Task completed.",
                 int(data.get("percent") or 100),
             )
-            self.record_chat_event({
-                "role": "system",
-                "text": data.get("result") or data.get("output") or "Done.",
-                "source": data.get("source") or "local",
-            })
-            # The card owns its own dismiss timer (Settings-aware); do not
-            # schedule a second hide here.
+            # As above: the result is already the assistant message (or the
+            # live voice turn's transcript). Do not replay it as a system
+            # bubble; that was the duplicate response in user note 3. The card
+            # owns its own dismiss timer (Settings-aware); do not schedule a
+            # second hide here.
         elif action == "clear":
             self._task_card.clear_workspace()
 

@@ -428,6 +428,20 @@ def project_context(
     return "\n\n".join(block for block in blocks if block)
 
 
+def _subagent_prompt_block() -> str:
+    """The compact specialist-template index, when the library is installed.
+
+    Imported lazily and guarded: a missing or malformed optional library must
+    never take the system prompt down with it.
+    """
+    try:
+        from .subagent_library import prompt_block
+
+        return prompt_block()
+    except Exception:
+        return ""
+
+
 def build_system_prompt(
     workspace: Optional[Path] = None,
     *,
@@ -435,6 +449,7 @@ def build_system_prompt(
     permission_note: str = "",
     max_parents: Optional[int] = None,
     trusted: Optional[bool] = None,
+    include_subagents: bool = True,
 ) -> str:
     parts = [BASE_SYSTEM]
     if workspace is not None:
@@ -444,6 +459,13 @@ def build_system_prompt(
     project = project_context(workspace, max_parents=max_parents, trusted=trusted)
     if project:
         parts.append(project)
+    if include_subagents:
+        # The index is machine configuration, not workspace context, so it is
+        # not part of project_context. A child loop turns it off: children never
+        # have run_subagent, and a catalogue they cannot act on is noise.
+        block = _subagent_prompt_block()
+        if block:
+            parts.append(block)
     if extra:
         parts.append(extra)
     return "\n\n".join(part for part in parts if part)

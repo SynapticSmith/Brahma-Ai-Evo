@@ -7,6 +7,7 @@ Everything the GUI can do with an agent, without starting a GUI:
     python -m agent sessions
     python -m agent tools
     python -m agent skills
+    python -m agent subagents --query "code review"
     python -m agent mcp list
     python -m agent permissions init
 
@@ -489,6 +490,53 @@ def _cmd_tools(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_subagents(args: argparse.Namespace) -> int:
+    """Show the specialist-template library the model can address by slug."""
+    from .subagent_library import LIBRARY_ENV, load
+
+    catalog = load()
+    if catalog is None:
+        sys.stdout.write("Subagent template library: not installed.\n")
+        sys.stdout.write(
+            f"Set {LIBRARY_ENV} (or config/subagents.json) to the folder that "
+            "holds catalog.json.\n"
+        )
+        return EXIT_OK
+
+    rows = catalog.search(
+        args.query or "",
+        category=args.category or "",
+        limit=args.limit,
+    )
+    if args.json:
+        payload = {
+            "root": str(catalog.root),
+            "source": str(catalog.source),
+            "categories": [
+                {"name": name, "count": count}
+                for name, count in catalog.categories()
+            ],
+            "templates": [row.to_dict() for row in rows],
+        }
+        sys.stdout.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+        return EXIT_OK
+
+    sys.stdout.write(f"root: {catalog.root}\n")
+    sys.stdout.write(f"{len(catalog.agents)} templates\n")
+    if not (args.query or args.category) and args.limit is None:
+        for name, count in catalog.categories():
+            sys.stdout.write(f"  {name:<16} {count}\n")
+        sys.stdout.write(
+            "\nPass --query or --category to list slugs, or --json for the whole index.\n"
+        )
+        return EXIT_OK
+    for row in rows:
+        sys.stdout.write(f"{row.slug:<36} [{row.category}] {row.description}\n")
+    if not rows:
+        sys.stdout.write("No template matched that query/category.\n")
+    return EXIT_OK
+
+
 def _cmd_skills(args: argparse.Namespace) -> int:
     """Show what discovery found before blaming the model for ignoring a skill."""
     from .skills import discover
@@ -700,6 +748,14 @@ def build_parser() -> argparse.ArgumentParser:
     skills.add_argument("--cwd", help="Workspace root used for discovery")
     skills.add_argument("--json", action="store_true")
 
+    subagents = sub.add_parser(
+        "subagents", help="List specialist subagent templates"
+    )
+    subagents.add_argument("--query", help="Keyword(s) to match")
+    subagents.add_argument("--category", help="Filter by category")
+    subagents.add_argument("--limit", type=int, help="Max rows (default: all)")
+    subagents.add_argument("--json", action="store_true")
+
     mcp = sub.add_parser("mcp", help="List configured MCP servers and their tools")
     mcp.add_argument("action", nargs="?", choices=("list",), default="list")
     mcp.add_argument("--config", help="MCP config file (default: discovery)")
@@ -753,7 +809,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # `python -m agent "do the thing"` -> treat the first bare word as a run.
     known = {
-        "run", "resume", "sessions", "tools", "skills", "mcp", "mcp-server", "permissions", "sandbox",
+        "run", "resume", "sessions", "tools", "skills", "subagents", "mcp", "mcp-server", "permissions", "sandbox",
         "-h", "--help",
     }
     if argv and argv[0] not in known:
@@ -775,6 +831,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             return _cmd_tools(args)
         if args.command == "skills":
             return _cmd_skills(args)
+        if args.command == "subagents":
+            return _cmd_subagents(args)
         if args.command == "mcp":
             return _cmd_mcp(args)
         if args.command == "permissions":

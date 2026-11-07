@@ -41,6 +41,37 @@ def test_proactive_speech_respects_identity_setting(monkeypatch):
     assert host.set_speaking.call_count > 0
 
 
+def test_speak_does_not_inject_a_live_turn_while_a_tool_is_pending(monkeypatch):
+    """A client turn before send_tool_response starts a second model turn."""
+    from core import audio_io as audio_mod
+
+    host = MagicMock()
+    host._voice_backend = lambda: "gemini_live"
+    host.session = object()
+    host._loop = object()
+
+    audio = AudioIO.__new__(AudioIO)
+    audio._host = host
+    audio._live_tool_pending = True
+
+    sent = []
+
+    def fake_run(coro, loop):
+        sent.append(coro)
+        coro.close()
+
+    monkeypatch.setattr(audio_mod.asyncio, "run_coroutine_threadsafe", fake_run)
+
+    audio.speak("Working on web search...")
+    assert sent == []
+    assert host.set_speaking.call_count == 0
+
+    # Once the tool response is away the live path is usable again.
+    audio._live_tool_pending = False
+    audio.speak("Working on web search...")
+    assert len(sent) == 1
+
+
 def test_chat_bubble_and_event_card_layout_spacing():
     _app()
     detail = "A" * 300

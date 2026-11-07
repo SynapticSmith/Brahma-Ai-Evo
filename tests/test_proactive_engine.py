@@ -181,6 +181,85 @@ def test_clipboard_sentry_classification():
 
 # ── Proactive Engine Prompting Tests ───────────────────────────────────────────
 
+class _StopIdleLoop(Exception):
+    pass
+
+
+def _run_idle_loop_once(monkeypatch, *, proactive: bool):
+    """Drive one iteration of the idle check-in loop without sleeping.
+
+    Returns the coroutines it scheduled and the fake host, so a test can prove
+    whether a ``[PROACTIVE_CHECK]`` turn reached the live socket.
+    """
+    from core import identity as identity_mod
+    from core import session_lifecycle as lifecycle_mod
+    from core.session_lifecycle import SessionLifecycle
+    import actions.proactive as proactive_mod
+
+    class _Engine:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def should_trigger(self, last_activity):
+            return True
+
+        def mark_triggered(self):
+            pass
+
+        def build_prompt(self, memory):
+            return "[PROACTIVE_CHECK]"
+
+    monkeypatch.setattr(proactive_mod, "ProactiveEngine", _Engine)
+    monkeypatch.setattr(
+        identity_mod.IdentityService, "is_proactive", lambda self: proactive
+    )
+
+    host = MagicMock()
+    host.ui.muted = False
+    host._is_speaking = False
+    host._meeting_active = False
+    host._pending_attention = None
+    host._last_activity = 0.0
+    host.session = MagicMock()
+    host._loop = MagicMock()
+
+    sent = []
+
+    def fake_run(coro, loop):
+        sent.append(coro)
+        coro.close()
+
+    monkeypatch.setattr(lifecycle_mod.asyncio, "run_coroutine_threadsafe", fake_run)
+
+    lifecycle = SessionLifecycle(host, deps={})
+    sleeps = {"n": 0}
+
+    def fake_sleep(_seconds):
+        sleeps["n"] += 1
+        if sleeps["n"] > 1:
+            raise _StopIdleLoop
+
+    monkeypatch.setattr(lifecycle_mod.time, "sleep", fake_sleep)
+
+    try:
+        lifecycle._idle_speech_loop()
+    except _StopIdleLoop:
+        pass
+    return sent, host
+
+
+def test_idle_proactive_prompt_is_gated_by_identity_toggle(monkeypatch):
+    sent, host = _run_idle_loop_once(monkeypatch, proactive=False)
+    assert sent == []
+    host._reset_idle_activity.assert_not_called()
+
+
+def test_idle_proactive_prompt_fires_when_identity_allows_it(monkeypatch):
+    sent, host = _run_idle_loop_once(monkeypatch, proactive=True)
+    assert len(sent) == 1
+    host._reset_idle_activity.assert_called_once()
+
+
 def test_proactive_engine_rotation_and_sensors():
     engine = ProactiveEngine(min_silence_secs=10, check_cooldown=20)
     memory = {"name": "Developer", "topics": ["AI", "Robotics"]}

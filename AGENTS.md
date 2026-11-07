@@ -149,9 +149,20 @@ they govern; `agent/prompts.py` owns discovery and its budgets.
   add a second path that constructs a child.
 - A child shares the parent's runtime (policy, approvals, workspace, cancel
   event) and completer, gets a filtered tool surface that never contains
-  `run_subagent`, a fresh context, no session row, and a turn budget clamped to
-  12. Its transcript is discarded; only the report crosses back, so a child
-  exception becomes tool text and must not abort the parent.
+  `run_subagent`, `run_subagent_batch` or `list_subagents`, a fresh context, no
+  session row, and a turn budget clamped to 12. Its transcript is discarded;
+  only the report crosses back, so a child exception becomes tool text and must
+  not abort the parent.
+- Specialist templates are vendored in the repo at `subagents/` (`catalog.json`
+  plus ~600 bodies), loaded by `agent/subagent_library.py`; the Obsidian vault
+  they were ported from is only a legacy fallback and must never be required.
+  `BRAHMA_SUBAGENT_LIBRARY` or `config/subagents.json` overrides the bundled
+  tree (an empty value disables it). Disclosure is tiered — a ~1.4 KB category
+  index in the prompt, `list_subagents` for slugs/descriptions,
+  `run_subagent(subagent_type=…)` for exactly one body (clamped to 24 KB). Never
+  put template bodies in the resident prompt or add a second discovery path.
+  The index is machine config, so it is appended by
+  `build_system_prompt(include_subagents=True)`, not by `project_context`.
 - The voice surface deliberately omits `run_subagent`: the Gemini live session
   has no text completer to build a child loop. Text and CLI advertise it.
 
@@ -163,6 +174,7 @@ they govern; `agent/prompts.py` owns discovery and its budgets.
 | `core/` | Seams: `tool_exec.py` (dispatch), `tool_index.py` (advertised surface), `confirm.py` (approval banner), `undo.py`, `user_paths.py`. |
 | `actions/` | One module per capability. |
 | `agent/` | The agentic harness: loop, code tools, subagents, permissions, context, sessions. Docs in `docs/AGENTIC-HARNESS.md`. |
+| `subagents/` | Vendored subagent library: `catalog.json` plus ~600 template bodies. Data, not code; do not lint or import it. |
 | `tests/` | Pytest suite; no display or model required for the portable tests. |
 | `docs/` | Design records and build logs. |
 

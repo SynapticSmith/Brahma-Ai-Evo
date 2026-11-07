@@ -185,12 +185,14 @@ class AgentRunner:
         if resolved.profile == "chat":
             # No workspace and no instruction files: a public bot must not be
             # able to read AGENTS.md just because the process happens to live
-            # in a repository.
-            harness = build_system_prompt(None)
+            # in a repository. It also gets no subagent catalogue: the chat
+            # profile is a single call, not a delegating agent.
+            harness = build_system_prompt(None, include_subagents=False)
         else:
             harness = build_system_prompt(
                 workspace,
                 permission_note=policy_note(runtime),
+                include_subagents=bool(resolved.tools),
             )
         system = compose_system(harness, seed.directives)
 
