@@ -331,27 +331,50 @@ class SubagentCatalog:
 
     # -- resident prompt ---------------------------------------------------
 
-    def prompt_block(self, *, max_chars: int = MAX_PROMPT_CHARS) -> str:
+    def prompt_block(
+        self,
+        *,
+        max_chars: int = MAX_PROMPT_CHARS,
+        dispatch_available: bool = True,
+    ) -> str:
         """The compact category index placed in the system prompt.
 
         Counts and example slugs only. The names are the model's hint about
         *what to ask for*, and ``list_subagents`` is how it gets the full
         picture without paying for 600 descriptions on every turn.
+
+        ``dispatch_available=False`` is for a surface that can look the library
+        up but has no text completer to build a child loop (Gemini Live). It
+        must not promise ``run_subagent`` there: a tool the model cannot call
+        is worse than no hint at all.
         """
         agents = self.agents
         if not agents:
             return ""
+
+        if dispatch_available:
+            guidance = (
+                f"Call `{LIBRARY_TOOL}` with a keyword or a category to get "
+                "slugs and one-line descriptions, then delegate with "
+                "`run_subagent(subagent_type=\"<slug>\", task=\"...\")`; the "
+                "child then runs with that template as its brief. Prefer a "
+                "specialist over a generic child when the work matches."
+            )
+        else:
+            guidance = (
+                f"Call `{LIBRARY_TOOL}` with a keyword or a category to get "
+                "slugs and one-line descriptions. This surface cannot dispatch "
+                "a specialist: `run_subagent` exists only in the text/CLI "
+                "harness. Use the lookup to answer what is available and never "
+                "claim you can run one here."
+            )
 
         lines = [
             "## Subagent library",
             "",
             f"{len(agents)} specialist subagent templates are installed. The "
             "resident prompt cannot list them all.",
-            f"Call `{LIBRARY_TOOL}` with a keyword or a category to get slugs "
-            "and one-line descriptions, then delegate with "
-            "`run_subagent(subagent_type=\"<slug>\", task=\"...\")`; the child "
-            "then runs with that template as its brief. Prefer a specialist "
-            "over a generic child when the work matches.",
+            guidance,
             "",
             "Categories: "
             + ", ".join(f"{name} ({count})" for name, count in self.categories())
@@ -548,10 +571,12 @@ def clear_cache() -> None:
     _CACHE.clear()
 
 
-def prompt_block() -> str:
+def prompt_block(*, dispatch_available: bool = True) -> str:
     """The resident category index, or ``""`` when the library is not installed."""
     catalog = load()
-    return catalog.prompt_block() if catalog is not None else ""
+    if catalog is None:
+        return ""
+    return catalog.prompt_block(dispatch_available=dispatch_available)
 
 
 # --------------------------------------------------------------------------- #
@@ -559,12 +584,14 @@ def prompt_block() -> str:
 # --------------------------------------------------------------------------- #
 
 BUILTIN_INVENTORY = (
-    "Built-in delegation this system already has:\n"
+    "Built-in delegation in the text and CLI harness:\n"
     "- `run_subagent`: one bounded child agent with its own context and a "
     "filtered tool surface. Without `subagent_type` it is a generic child; "
     "with one it runs that library template.\n"
     "- `run_subagent_batch`: 1-8 independent read-only children in parallel. "
-    "Batch children are always generic."
+    "Batch children are always generic.\n"
+    "A voice session can look templates up with `list_subagents`, but it has "
+    "no child loop and cannot dispatch one."
 )
 
 
@@ -615,7 +642,8 @@ def _listing(rows: Sequence[SubagentTemplate], total: int, label: str) -> str:
     lines.extend(
         [
             "",
-            'Run one with `run_subagent(subagent_type="<slug>", task="...")`.',
+            "The text/CLI harness runs one with "
+            '`run_subagent(subagent_type="<slug>", task="...")`.',
         ]
     )
     return "\n".join(lines)
@@ -656,10 +684,11 @@ register(
         name=LIBRARY_TOOL,
         description=(
             "Look up the installed specialist subagent templates by keyword or "
-            "category. Returns slugs and one-line descriptions; pass a slug as "
-            "`subagent_type` to `run_subagent` to run that specialist. With no "
-            "arguments it lists the categories and the built-in delegation "
-            "tools. Bodies are never loaded by this call."
+            "category. Returns slugs and one-line descriptions; the text/CLI "
+            "harness can pass a slug as `subagent_type` to `run_subagent` to "
+            "run that specialist. With no arguments it lists the categories "
+            "and the built-in delegation tools. Bodies are never loaded by "
+            "this call."
         ),
         parameters={
             "type": "object",

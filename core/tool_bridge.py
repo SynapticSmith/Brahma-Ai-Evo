@@ -95,6 +95,23 @@ INTENT_HINTS: Tuple[Dict[str, Tuple[str, ...]], ...] = (
         "prefixes": ("mcp_Synapse", "cdp"),
         "contains": ("cdp",),
     },
+    {
+        # Questions about the specialist catalogue ("are you aware of the
+        # subagent library?", "delegate this to a specialist") must surface the
+        # lookup on the first call. Voice advertises only `list_subagents`;
+        # text also exposes the dispatch tools.
+        "keywords": (
+            "subagent",
+            "sub-agent",
+            "sub agent",
+            "delegate",
+            "delegation",
+            "specialist",
+            "agent library",
+        ),
+        "prefixes": (),
+        "contains": ("subagent",),
+    },
 )
 
 #: How many recently learned tool names to remember for a Live connection.

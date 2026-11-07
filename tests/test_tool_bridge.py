@@ -407,6 +407,27 @@ def test_intent_hints_are_capped(bridge):
     assert tool_bridge.intent_pins("send an email", idx) == []
 
 
+def test_subagent_questions_pin_the_library_lookup(bridge):
+    """The first call must know the catalogue exists, not only a follow-up."""
+    idx, _ = bridge
+    idx.upsert(ToolEntry(
+        name="list_subagents",
+        description="Look up specialist subagent templates by keyword or category.",
+        source="native",
+    ))
+    for i in range(10):
+        idx.upsert(ToolEntry(name=f"unrelated_{i}", description="Unrelated.", source="native"))
+
+    pins = tool_bridge.intent_pins("are you aware of the subagent library?", idx)
+    assert "list_subagents" in pins
+    assert tool_bridge.intent_pins("what is the weather", idx) == []
+
+    payload = tool_bridge.build_session_payload("delegate this to a specialist")
+    names = [d["name"] for d in payload["declarations"]]
+    assert "list_subagents" in names
+    assert len(names) <= tool_bridge.budget()
+
+
 def test_learned_tools_are_readvertised_on_reconnect(bridge):
     """A tool found via search_tools survives a 1008 reconnect, no turn replay."""
     idx, _ = bridge

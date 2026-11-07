@@ -163,8 +163,11 @@ they govern; `agent/prompts.py` owns discovery and its budgets.
   put template bodies in the resident prompt or add a second discovery path.
   The index is machine config, so it is appended by
   `build_system_prompt(include_subagents=True)`, not by `project_context`.
-- The voice surface deliberately omits `run_subagent`: the Gemini live session
-  has no text completer to build a child loop. Text and CLI advertise it.
+- The voice surface advertises `list_subagents` but omits the dispatch tools
+  (`run_subagent`, `run_subagent_batch`): the Gemini live session has no text
+  completer to build a child loop. Its prompt carries the same library index
+  with `dispatch_available=False`, so it can answer what exists without
+  promising a run. Text and CLI advertise all three.
 
 ## Layout
 

@@ -66,3 +66,14 @@ def test_the_live_prompt_without_project_files_adds_no_section(tmp_path, monkeyp
 
     assert "VOICE-PROJECT-RULE" not in instruction
     assert "## Project skills" not in instruction
+
+
+def test_the_live_prompt_advertises_the_subagent_library_lookup(tmp_path, monkeypatch):
+    instruction = _instruction(tmp_path, monkeypatch)
+
+    assert "## Subagent library" in instruction
+    # The lookup is advertised on the Live surface; dispatch is not, so the
+    # wording has to say so rather than promising `run_subagent`.
+    assert "`list_subagents`" in instruction
+    assert "cannot dispatch" in instruction
+    assert "exists only in the text/CLI harness" in instruction

@@ -490,6 +490,25 @@ class SessionLifecycle:
             )
             parts.append(project_ctx)
 
+        # Specialist-template index. main.py advertises ``list_subagents`` on the
+        # Live surface but never the dispatch tools, so this block must be part
+        # of the voice instruction or the model cannot know the library exists.
+        # ``dispatch_available=False`` keeps the wording honest: a lookup is
+        # possible here, a child loop is not.
+        subagent_ctx = ""
+        try:
+            from agent.subagent_library import prompt_block as subagent_prompt_block
+
+            subagent_ctx = subagent_prompt_block(dispatch_available=False)
+        except Exception:
+            subagent_ctx = ""
+        if subagent_ctx:
+            print(
+                f"[BRAHMA EVO] \U0001f9e9 live prompt += {len(subagent_ctx)} "
+                "chars of subagent library index"
+            )
+            parts.append(subagent_ctx)
+
         # Optional instruction blocks for the LIVE layer. This is the only place
         # Gemini Live's system instruction is assembled, so anything a voice
         # session is meant to follow has to be composed here.

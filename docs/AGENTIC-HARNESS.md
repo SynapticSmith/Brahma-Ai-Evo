@@ -272,8 +272,10 @@ tool result. A non-`completed` stop appends a "partial, verify this" note. A
 child exception is caught and reported; it cannot abort the parent. The child's
 events are relayed as `subagent_event` inside `subagent_start` /
 `subagent_end`, so a host can show progress without mixing the child's turns
-into the parent transcript. The voice socket does not advertise the tool: its
-Gemini session owns the only transport and cannot build a text child loop.
+into the parent transcript. The voice socket does not advertise the dispatch
+tools (`run_subagent`, `run_subagent_batch`): its Gemini session owns the only
+transport and cannot build a text child loop. It does advertise
+`list_subagents`, so a voice session can say what the library contains.
 
 #### Specialist templates
 
@@ -296,8 +298,11 @@ The index is machine configuration, not workspace context, so it is appended by
 `build_system_prompt(include_subagents=True)` rather than by
 `project_context`. Child loops pass `include_subagents=False`: they never have
 the delegation tools, so a catalogue would be noise. The GUI text path appends
-the same block explicitly. An unknown slug returns an `error:` observation with
-the closest slugs instead of the `Not run:` denial prefix, so the model can
+the same block explicitly. The Gemini Live instruction appends it with
+`dispatch_available=False`; that wording still names `list_subagents` but says
+plainly that `run_subagent` exists only in the text/CLI harness, matching the
+surface `main.py` advertises. An unknown slug returns an `error:` observation
+with the closest slugs instead of the `Not run:` denial prefix, so the model can
 retry rather than ending its turn. `python -m agent subagents [--query …]`
 prints the same inventory for a human.
 

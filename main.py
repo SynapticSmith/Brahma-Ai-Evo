@@ -2138,9 +2138,10 @@ def _harness_mcp_manager():
 # The harness describes its tools once in ``agent/spec.py``; append their
 # Gemini declarations so the live function-calling surface advertises them
 # too. Importing ``agent.code_tools`` / ``agent.subagent`` is what performs
-# registration. The voice socket has no text completer for a child loop, so
-# `run_subagent` is deliberately left off the live surface; the text and CLI
-# loops advertise it.
+# registration. The voice socket has no text completer for a child loop, so the
+# dispatch tools (`run_subagent`, `run_subagent_batch`) are deliberately left
+# off the live surface while `list_subagents` stays: a voice session should be
+# able to look the library up and say what exists.
 try:
     from agent import code_tools as _agent_code_tools  # noqa: F401
     from agent import subagent as _agent_subagent  # noqa: F401
@@ -2154,7 +2155,7 @@ try:
                 for spec in _agent_specs()
                 if (
                     desktop_tools.DESKTOP_TAG not in spec.tags
-                    and spec.name not in _agent_subagent.DELEGATION_TOOLS
+                    and spec.name not in _agent_subagent.DISPATCH_TOOLS
                 )
             ]
         )

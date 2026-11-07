@@ -31,10 +31,14 @@ from .subagent_library import LIBRARY_TOOL
 SUBAGENT_TOOL = "run_subagent"
 #: The read-only fan-out batch tool's model-facing name. Also excluded from every child's surface (I-08).
 SUBAGENT_BATCH_TOOL = "run_subagent_batch"
+#: The tools that actually build a child loop. A surface without a text
+#: completer (Gemini Live) cannot honour either one, so main.py leaves just
+#: these off the voice declaration list.
+DISPATCH_TOOLS: Tuple[str, ...] = (SUBAGENT_TOOL, SUBAGENT_BATCH_TOOL)
 #: All delegation tools that must never appear on a child's surface. The
 #: library lookup is included: a child cannot spawn a subagent, so a catalogue
 #: of specialists would only tempt it to try.
-DELEGATION_TOOLS: Tuple[str, ...] = (SUBAGENT_TOOL, SUBAGENT_BATCH_TOOL, LIBRARY_TOOL)
+DELEGATION_TOOLS: Tuple[str, ...] = DISPATCH_TOOLS + (LIBRARY_TOOL,)
 
 DEFAULT_SUBAGENT_TURNS = 8
 #: A child is a bounded run, not a second agent that can spend the night. The

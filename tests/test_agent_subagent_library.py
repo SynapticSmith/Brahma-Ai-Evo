@@ -224,6 +224,25 @@ def test_prompt_block_is_a_category_index_not_a_body(library):
     assert len(catalog.agents) == 3
 
 
+def test_prompt_block_is_voice_honest_when_dispatch_is_unavailable(library):
+    catalog = subagent_library.load()
+
+    block = catalog.prompt_block(dispatch_available=False)
+
+    assert "## Subagent library" in block
+    # It must still name the lookup, or a voice session cannot ask about it...
+    assert f"`{subagent_library.LIBRARY_TOOL}`" in block
+    # ...but it must not promise a tool this surface does not advertise.
+    assert "cannot dispatch" in block
+    assert "exists only in the text/CLI harness" in block
+    assert "then delegate with" not in block
+
+
+def test_module_prompt_block_forwards_the_surface_flag(library):
+    assert "cannot dispatch" in subagent_library.prompt_block(dispatch_available=False)
+    assert "cannot dispatch" not in subagent_library.prompt_block()
+
+
 def test_search_matches_slug_description_and_category(library):
     catalog = subagent_library.load()
 

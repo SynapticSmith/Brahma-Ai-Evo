@@ -16,6 +16,15 @@ from agent.spec import all_specs
 from core import desktop_tools
 
 
+def test_live_surface_advertises_the_library_lookup_but_not_dispatch():
+    """A voice session can say what the library contains; it cannot run a child."""
+    names = {d["name"] for d in main.TOOL_DECLARATIONS if "name" in d}
+
+    assert "list_subagents" in names
+    assert "run_subagent" not in names
+    assert "run_subagent_batch" not in names
+
+
 def test_all_main_declarations_have_registered_tool_specs():
     """Every native tool declared in main.TOOL_DECLARATIONS must map to a ToolSpec."""
     desktop_tools.register(main.TOOL_DECLARATIONS)
