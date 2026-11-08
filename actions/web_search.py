@@ -19,6 +19,14 @@ def _get_api_key() -> str:
     return str(load_api_keys(API_CONFIG_PATH)["gemini_api_key"]).strip()
 
 
+def _gemini_search_available() -> bool:
+    try:
+        from core import provider_router
+        return bool(provider_router.is_enabled("gemini"))
+    except Exception:
+        return True
+
+
 def _gemini_search(query: str) -> str:
     from core import llm_gateway
 
@@ -165,20 +173,26 @@ def web_search(
                     pass
             print(f"[WebSearch] DDG OK: {len(results)} result(s).")
             return result
-        print("[WebSearch] DDG returned no results, trying Gemini...")
+        if _gemini_search_available():
+            print("[WebSearch] DDG returned no results, trying Gemini...")
+        else:
+            return f"No search results found for: '{query}'."
     except Exception as e:
-        print(f"[WebSearch] DDG search failed ({e}) - trying Gemini...")
+        if _gemini_search_available():
+            print(f"[WebSearch] DDG search failed ({e}) - trying Gemini...")
+            try:
+                result = _gemini_search(query)
+                print("[WebSearch] Gemini search OK.")
+                return result
+            except Exception as gemini_error:
+                print(f"[WebSearch] Gemini search failed ({gemini_error})")
+        return f"No search results found for: '{query}'."
+
+    if _gemini_search_available():
         try:
             result = _gemini_search(query)
             print("[WebSearch] Gemini search OK.")
             return result
-        except Exception as gemini_error:
-            print(f"[WebSearch] Gemini search failed ({gemini_error})")
-            return f"Search failed, sir: {gemini_error}"
-
-    try:
-        result = _gemini_search(query)
-        print("[WebSearch] Gemini search OK.")
-        return result
-    except Exception:
-        return _format_ddg(query, results)
+        except Exception:
+            pass
+    return _format_ddg(query, results)

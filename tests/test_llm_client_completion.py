@@ -148,3 +148,41 @@ def test_openai_chat_completion_sends_stream_false_and_handles_done_suffix(monke
     res = c._openai_chat_completion([], "http://example.com/v1", "test-model")
     assert captured["payload"]["stream"] is False
     assert res == "hello"
+
+
+def test_tools_flat_declarations_normalized_to_openai_shape(monkeypatch):
+    """Flat Gemini-style declarations and uppercase types are normalized to OpenAI function tools."""
+    import requests
+
+    c = UnifiedAIClient()
+    monkeypatch.setattr(c, "reload_settings", lambda: None)
+    captured = {}
+
+    class FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+    monkeypatch.setattr(requests, "post", lambda endpoint, json=None, **kw: captured.update(payload=json) or FakeResp())
+    flat_tools = [
+        {
+            "name": "lookup_weather",
+            "description": "Get weather",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "city": {"type": "STRING"},
+                },
+            },
+        }
+    ]
+    c._openai_chat_completion([], "http://example.com/v1", "test-model", tools=flat_tools)
+    normalized = captured["payload"]["tools"]
+    assert len(normalized) == 1
+    assert normalized[0]["type"] == "function"
+    assert normalized[0]["function"]["name"] == "lookup_weather"
+    assert normalized[0]["function"]["description"] == "Get weather"
+    assert normalized[0]["function"]["parameters"]["type"] == "object"
+    assert normalized[0]["function"]["parameters"]["properties"]["city"]["type"] == "string"
+

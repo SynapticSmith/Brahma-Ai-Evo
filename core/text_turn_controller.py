@@ -1610,6 +1610,7 @@ class TextTurnController:
                 request_text, m.TOOL_DECLARATIONS
             )
             tools = host._with_agent_mcp(tools)
+            tools = local_brain.format_tools_for_local(tools)
         try:
             msg = openrouter_client.chat_as_completion(
                 "custom", "", full_messages=messages, tools=tools

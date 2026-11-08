@@ -59,6 +59,21 @@ def _strip_json_fence(raw: str) -> str:
     return clean.strip().rstrip("`").strip()
 
 
+def _normalize_tool_schema(schema: Any) -> Any:
+    """Ensure JSON schema types are lowercased for OpenAI compatibility."""
+    if isinstance(schema, dict):
+        out = {}
+        for k, v in schema.items():
+            if k == "type" and isinstance(v, str):
+                out[k] = v.lower()
+            else:
+                out[k] = _normalize_tool_schema(v)
+        return out
+    if isinstance(schema, list):
+        return [_normalize_tool_schema(item) for item in schema]
+    return schema
+
+
 class UnifiedAIClient:
     def __init__(self):
         self._provider = "OpenRouter"
@@ -140,7 +155,27 @@ class UnifiedAIClient:
         if response_format:
             payload["response_format"] = response_format
         if tools:
-            payload["tools"] = tools
+            formatted_tools: List[Dict[str, Any]] = []
+            for t in tools:
+                if isinstance(t, dict) and t.get("type") == "function" and isinstance(t.get("function"), dict):
+                    fn = dict(t["function"])
+                    if "parameters" in fn:
+                        fn["parameters"] = _normalize_tool_schema(fn["parameters"])
+                    formatted_tools.append({"type": "function", "function": fn})
+                elif isinstance(t, dict) and "name" in t:
+                    formatted_tools.append({
+                        "type": "function",
+                        "function": {
+                            "name": t["name"],
+                            "description": t.get("description", ""),
+                            "parameters": _normalize_tool_schema(
+                                t.get("parameters", {"type": "object", "properties": {}})
+                            ),
+                        },
+                    })
+                else:
+                    formatted_tools.append(t)
+            payload["tools"] = formatted_tools
 
         base_url = (url or "").rstrip("/")
         if base_url.endswith("/chat/completions"):
