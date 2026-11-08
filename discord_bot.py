@@ -2,11 +2,8 @@ from __future__ import annotations
 from core.user_paths import get_user_data_dir
 
 import asyncio
-import json
 import logging
 from collections import deque
-import subprocess
-import sys
 import threading
 from pathlib import Path
 from typing import Callable, Optional
@@ -16,17 +13,7 @@ def _load_discord_module():
         import discord as mod
         return mod
     except Exception:
-        try:
-            subprocess.run(
-                [sys.executable, "-m", "pip", "install", "discord.py"],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            import discord as mod
-            return mod
-        except Exception:
-            return None
+        return None
 
 
 discord = _load_discord_module()
@@ -47,7 +34,8 @@ API_KEYS_FILE = get_user_data_dir() / "config" / "api_keys.json"
 
 def _load_api_keys() -> dict:
     try:
-        data = json.loads(API_KEYS_FILE.read_text(encoding="utf-8"))
+        from core.secret_store import load_api_keys
+        data = load_api_keys(API_KEYS_FILE)
         if isinstance(data, dict):
             return data
     except Exception:
@@ -423,6 +411,8 @@ class DiscordBotService:
 
         if openrouter_key:
             try:
+                from core import provider_router
+                provider_router.guard("openrouter", "Discord reply")
                 return openrouter_client.chat(
                     prompt,
                     system=system_prompt,

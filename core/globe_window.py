@@ -245,7 +245,7 @@ class GlobeWindow(QWidget):
         if getattr(self, "_pending_mode", None) and self._web_view:
             pm = self._pending_mode
             self._pending_mode = None
-            self._web_view.page().runJavaScript(f"if (window.BrahmaGlobe && window.BrahmaGlobe.switchMode) window.BrahmaGlobe.switchMode('{pm}');")
+            self._web_view.page().runJavaScript(f"if (window.BrahmaGlobe && window.BrahmaGlobe.switchMode) window.BrahmaGlobe.switchMode({json.dumps(str(pm))});")
         if self._pending_route:
             d = self._pending_route
             self._pending_route = None
@@ -440,7 +440,7 @@ class GlobeWindow(QWidget):
             carto_fix = 'if (window.BrahmaGlobe && window.BrahmaGlobe.updateCartoKey) { window.BrahmaGlobe.updateCartoKey("cb1_3xgr_1_35c1dc6a9a9b23cb25386cb6"); }'
             self._web_view.page().runJavaScript(carto_fix)
             if mode:
-                self._web_view.page().runJavaScript(f"if (window.BrahmaGlobe && window.BrahmaGlobe.switchMode) window.BrahmaGlobe.switchMode('{mode}');")
+                self._web_view.page().runJavaScript(f"if (window.BrahmaGlobe && window.BrahmaGlobe.switchMode) window.BrahmaGlobe.switchMode({json.dumps(str(mode))});")
         elif mode:
             self._pending_mode = mode
         if focus_location:

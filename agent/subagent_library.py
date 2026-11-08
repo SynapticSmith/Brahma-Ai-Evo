@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
@@ -152,10 +153,18 @@ def library_root() -> Optional[Path]:
             continue
     # The bundled tree is the deployment default; the vault is only a fallback
     # for a checkout that predates the port (or had its `subagents/` removed).
-    candidates = [
+    candidates: List[Path] = []
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            candidates.append(Path(meipass) / BUNDLED_LIBRARY)
+        exe_dir = Path(sys.executable).resolve().parent
+        candidates.append(exe_dir / BUNDLED_LIBRARY)
+        candidates.append(exe_dir / "_internal" / BUNDLED_LIBRARY)
+    candidates.extend([
         Path(__file__).resolve().parent.parent / BUNDLED_LIBRARY,
         Path.home().joinpath(*DEFAULT_LIBRARY),
-    ]
+    ])
     for candidate in candidates:
         root = _as_library_root(candidate)
         if root is not None:

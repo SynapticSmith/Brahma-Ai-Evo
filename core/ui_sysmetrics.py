@@ -154,19 +154,6 @@ class _SysMetrics:
             except Exception:
                 pass
 
-        if _OS == "Windows":
-            try:
-                r = _quiet_run(
-                    ["powershell", "-Command",
-                     "(Get-WmiObject MSAcpi_ThermalZoneTemperature -Namespace root/wmi).CurrentTemperature"],
-                    capture_output=True, text=True, timeout=3
-                )
-                if r.returncode == 0 and r.stdout.strip():
-                    raw = float(r.stdout.strip().split("\n")[0])
-                    return (raw / 10.0) - 273.15
-            except Exception:
-                pass
-
         return -1.0
 
     def snapshot(self) -> dict:

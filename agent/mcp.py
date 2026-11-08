@@ -922,6 +922,7 @@ class MCPSession:
     """
 
     def __init__(self) -> None:
+        self._lock = threading.RLock()
         self._servers: Dict[str, StdioServer] = {}
         self._specs: List[str] = []
         self._calls: Dict[str, Tuple[str, str]] = {}
@@ -938,72 +939,74 @@ class MCPSession:
         *,
         on_event: Optional[Any] = None,
     ) -> List[MCPServerStatus]:
-        taken = {spec.name for spec in all_specs()}
-        for config in configs:
-            server = StdioServer(config)
-            try:
-                server.start()
-                tools = server.list_tools()
-            except MCPError as exc:
-                server.close()
+        with self._lock:
+            taken = {spec.name for spec in all_specs()}
+            for config in configs:
+                server = StdioServer(config)
+                try:
+                    server.start()
+                    tools = server.list_tools()
+                except MCPError as exc:
+                    server.close()
+                    status = MCPServerStatus(
+                        name=config.name,
+                        command=config.command,
+                        ok=False,
+                        error=str(exc),
+                    )
+                    self.statuses.append(status)
+                    self._emit(on_event, status)
+                    continue
+
+                caps = server.capabilities or {}
+                num_prompts = 0
+                prompt_specs: List[str] = []
+                if "prompts" in caps:
+                    try:
+                        p_list = server.list_prompts()
+                        num_prompts = len(p_list)
+                        prompt_specs = self._register_prompts(config, p_list, taken)
+                    except MCPError:
+                        pass
+
+                num_resources = 0
+                resource_specs: List[str] = []
+                if "resources" in caps:
+                    try:
+                        r_list = server.list_resources()
+                        num_resources = len(r_list)
+                        resource_specs = self._register_resources(config, r_list, taken)
+                    except MCPError:
+                        pass
+
+                self._servers[config.name] = server
+                tool_specs = self._register_tools(config, tools, taken)
+                names = tool_specs + prompt_specs + resource_specs
+                self._by_server[config.name] = names
                 status = MCPServerStatus(
                     name=config.name,
                     command=config.command,
-                    ok=False,
-                    error=str(exc),
+                    ok=True,
+                    tools=len(tool_specs),
+                    prompts=num_prompts,
+                    resources=num_resources,
                 )
                 self.statuses.append(status)
                 self._emit(on_event, status)
-                continue
-
-            caps = server.capabilities or {}
-            num_prompts = 0
-            prompt_specs: List[str] = []
-            if "prompts" in caps:
-                try:
-                    p_list = server.list_prompts()
-                    num_prompts = len(p_list)
-                    prompt_specs = self._register_prompts(config, p_list, taken)
-                except MCPError:
-                    pass
-
-            num_resources = 0
-            resource_specs: List[str] = []
-            if "resources" in caps:
-                try:
-                    r_list = server.list_resources()
-                    num_resources = len(r_list)
-                    resource_specs = self._register_resources(config, r_list, taken)
-                except MCPError:
-                    pass
-
-            self._servers[config.name] = server
-            tool_specs = self._register_tools(config, tools, taken)
-            names = tool_specs + prompt_specs + resource_specs
-            self._by_server[config.name] = names
-            status = MCPServerStatus(
-                name=config.name,
-                command=config.command,
-                ok=True,
-                tools=len(tool_specs),
-                prompts=num_prompts,
-                resources=num_resources,
-            )
-            self.statuses.append(status)
-            self._emit(on_event, status)
-        return list(self.statuses)
+            return list(self.statuses)
 
     def close(self) -> None:
-        for name in list(self._specs):
-            unregister(name)
-            self._unindex(name)
-        self._specs.clear()
-        self._calls.clear()
-        self._by_server.clear()
-        self._indexed.clear()
-        for server in self._servers.values():
-            server.close()
-        self._servers.clear()
+        with self._lock:
+            for name in list(self._specs):
+                unregister(name)
+                self._unindex(name)
+            self._specs.clear()
+            self._calls.clear()
+            self._by_server.clear()
+            self._indexed.clear()
+            for server in list(self._servers.values()):
+                server.close()
+            self._servers.clear()
 
     def __enter__(self) -> "MCPSession":
         return self
@@ -1013,28 +1016,32 @@ class MCPSession:
 
     @property
     def tools(self) -> List[str]:
-        return list(self._specs)
+        with self._lock:
+            return list(self._specs)
 
     def call(self, spec_name: str, arguments: Optional[Mapping[str, Any]]) -> str:
         """Invoke one discovered tool by its namespaced spec name."""
-        target = self._calls.get(spec_name)
-        if target is None:
-            raise MCPError(f"no MCP tool named {spec_name!r}")
-        server_name, tool_name = target
-        server = self._servers.get(server_name)
-        if server is None:
-            raise MCPError(f"MCP server {server_name!r} is not running")
+        with self._lock:
+            target = self._calls.get(spec_name)
+            if target is None:
+                raise MCPError(f"no MCP tool named {spec_name!r}")
+            server_name, tool_name = target
+            server = self._servers.get(server_name)
+            if server is None:
+                raise MCPError(f"MCP server {server_name!r} is not running")
         return server.call_tool(tool_name, arguments)
 
     def list_resources(self, server: Optional[str] = None) -> List[Dict[str, Any]]:
         """List resources from a specific server or all running servers."""
-        if server is not None:
-            s = self._servers.get(server)
-            if s is None:
-                raise MCPError(f"MCP server {server!r} is not running")
-            return s.list_resources()
+        with self._lock:
+            if server is not None:
+                s = self._servers.get(server)
+                if s is None:
+                    raise MCPError(f"MCP server {server!r} is not running")
+                return s.list_resources()
+            servers = list(self._servers.items())
         all_res: List[Dict[str, Any]] = []
-        for s_name, s in self._servers.items():
+        for s_name, s in servers:
             if "resources" in s.capabilities:
                 try:
                     for item in s.list_resources():
@@ -1047,20 +1054,23 @@ class MCPSession:
 
     def read_resource(self, server: str, uri: str) -> str:
         """Read a resource by URI from the named server."""
-        s = self._servers.get(server)
-        if s is None:
-            raise MCPError(f"MCP server {server!r} is not running")
+        with self._lock:
+            s = self._servers.get(server)
+            if s is None:
+                raise MCPError(f"MCP server {server!r} is not running")
         return s.read_resource(uri)
 
     def list_prompts(self, server: Optional[str] = None) -> List[Dict[str, Any]]:
         """List prompts from a specific server or all running servers."""
-        if server is not None:
-            s = self._servers.get(server)
-            if s is None:
-                raise MCPError(f"MCP server {server!r} is not running")
-            return s.list_prompts()
+        with self._lock:
+            if server is not None:
+                s = self._servers.get(server)
+                if s is None:
+                    raise MCPError(f"MCP server {server!r} is not running")
+                return s.list_prompts()
+            servers = list(self._servers.items())
         all_prompts: List[Dict[str, Any]] = []
-        for s_name, s in self._servers.items():
+        for s_name, s in servers:
             if "prompts" in s.capabilities:
                 try:
                     for item in s.list_prompts():
@@ -1073,9 +1083,10 @@ class MCPSession:
 
     def get_prompt(self, server: str, name: str, arguments: Optional[Mapping[str, Any]] = None) -> str:
         """Get a prompt template from the named server."""
-        s = self._servers.get(server)
-        if s is None:
-            raise MCPError(f"MCP server {server!r} is not running")
+        with self._lock:
+            s = self._servers.get(server)
+            if s is None:
+                raise MCPError(f"MCP server {server!r} is not running")
         return s.get_prompt(name, arguments)
 
     # -- refresh -----------------------------------------------------------
@@ -1089,10 +1100,11 @@ class MCPSession:
         ``alive``: the reader thread sees EOF before ``poll()`` necessarily
         reports the exit, and a closed transport can never answer again.
         """
-        return any(
-            server.tools_changed or server.closed or not server.alive
-            for server in self._servers.values()
-        )
+        with self._lock:
+            return any(
+                server.tools_changed or server.closed or not server.alive
+                for server in self._servers.values()
+            )
 
     def refresh(self, *, on_event: Optional[Any] = None) -> bool:
         """Re-list tools for the stale servers, restarting dead processes.
@@ -1102,86 +1114,87 @@ class MCPSession:
         that cannot work) and is reported once; it is not retried on every
         turn, which keeps a broken command from spawning a process per turn.
         """
-        restarted_any = False
-        for name in list(self._servers):
-            server = self._servers.get(name)
-            if server is None:
-                continue
-            if not (server.tools_changed or server.closed or not server.alive):
-                continue
+        with self._lock:
+            restarted_any = False
+            for name in list(self._servers):
+                server = self._servers.get(name)
+                if server is None:
+                    continue
+                if not (server.tools_changed or server.closed or not server.alive):
+                    continue
 
-            old_tools = self._tool_names(name)
-            self._unregister_server(name)
-            # Clear before the request: a notification that arrives *during*
-            # the re-list must schedule another refresh, not be swallowed.
-            server.tools_changed = False
-            restarted = server.closed or not server.alive
-            if restarted:
-                server.close()
-                server = StdioServer(server.config)
-                restarted_any = True
+                old_tools = self._tool_names(name)
+                self._unregister_server(name)
+                # Clear before the request: a notification that arrives *during*
+                # the re-list must schedule another refresh, not be swallowed.
+                server.tools_changed = False
+                restarted = server.closed or not server.alive
+                if restarted:
+                    server.close()
+                    server = StdioServer(server.config)
+                    restarted_any = True
+                    try:
+                        server.start()
+                    except MCPError as exc:
+                        self._report_failed_refresh(name, server.config, exc, on_event)
+                        continue
                 try:
-                    server.start()
+                    tools = server.list_tools()
                 except MCPError as exc:
+                    server.close()
                     self._report_failed_refresh(name, server.config, exc, on_event)
                     continue
-            try:
-                tools = server.list_tools()
-            except MCPError as exc:
-                server.close()
-                self._report_failed_refresh(name, server.config, exc, on_event)
-                continue
 
-            self._servers[name] = server
-            taken = {spec.name for spec in all_specs()}
-            caps = server.capabilities or {}
-            num_prompts = 0
-            prompt_specs: List[str] = []
-            if "prompts" in caps:
-                try:
-                    p_list = server.list_prompts()
-                    num_prompts = len(p_list)
-                    prompt_specs = self._register_prompts(server.config, p_list, taken)
-                except MCPError:
-                    pass
+                self._servers[name] = server
+                taken = {spec.name for spec in all_specs()}
+                caps = server.capabilities or {}
+                num_prompts = 0
+                prompt_specs: List[str] = []
+                if "prompts" in caps:
+                    try:
+                        p_list = server.list_prompts()
+                        num_prompts = len(p_list)
+                        prompt_specs = self._register_prompts(server.config, p_list, taken)
+                    except MCPError:
+                        pass
 
-            num_resources = 0
-            resource_specs: List[str] = []
-            if "resources" in caps:
-                try:
-                    r_list = server.list_resources()
-                    num_resources = len(r_list)
-                    resource_specs = self._register_resources(server.config, r_list, taken)
-                except MCPError:
-                    pass
+                num_resources = 0
+                resource_specs: List[str] = []
+                if "resources" in caps:
+                    try:
+                        r_list = server.list_resources()
+                        num_resources = len(r_list)
+                        resource_specs = self._register_resources(server.config, r_list, taken)
+                    except MCPError:
+                        pass
 
-            tool_specs = self._register_tools(server.config, tools, taken)
-            names = tool_specs + prompt_specs + resource_specs
-            self._by_server[name] = names
-            new_tools = {self._calls[spec][1] for spec in tool_specs}
-            self._replace_status(
-                MCPServerStatus(
-                    name=name,
-                    command=server.config.command,
-                    ok=True,
-                    tools=len(tool_specs),
-                    prompts=num_prompts,
-                    resources=num_resources,
+                tool_specs = self._register_tools(server.config, tools, taken)
+                names = tool_specs + prompt_specs + resource_specs
+                self._by_server[name] = names
+                new_tools = {self._calls[spec][1] for spec in tool_specs}
+                self._replace_status(
+                    MCPServerStatus(
+                        name=name,
+                        command=server.config.command,
+                        ok=True,
+                        tools=len(tool_specs),
+                        prompts=num_prompts,
+                        resources=num_resources,
+                    )
                 )
-            )
-            _emit_event(
-                on_event,
-                {
-                    "type": "mcp_refresh",
-                    "server": name,
-                    "ok": True,
-                    "tools": len(names),
-                    "restarted": restarted,
-                    "added": sorted(new_tools - old_tools),
-                    "removed": sorted(old_tools - new_tools),
-                },
-            )
-        return restarted_any
+                _emit_event(
+                    on_event,
+                    {
+                        "type": "mcp_refresh",
+                        "server": name,
+                        "ok": True,
+                        "tools": len(names),
+                        "restarted": restarted,
+                        "added": sorted(new_tools - old_tools),
+                        "removed": sorted(old_tools - new_tools),
+                    },
+                )
+            return restarted_any
 
     # -- internals ---------------------------------------------------------
 

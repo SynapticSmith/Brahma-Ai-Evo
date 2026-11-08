@@ -326,10 +326,11 @@ def capture_screen_image() -> Optional[bytes]:
 def get_api_key() -> str:
     """Loads Gemini API key from user config."""
     try:
-        if API_CONFIG_PATH.exists():
-            with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-                d = json.load(f)
-                return d.get("gemini_api_key", "").strip()
+        from core.secret_store import load_api_keys
+        d = load_api_keys(API_CONFIG_PATH)
+        key = str(d.get("gemini_api_key") or "").strip()
+        if key:
+            return key
     except Exception:
         pass
     return os.environ.get("GEMINI_API_KEY", "")

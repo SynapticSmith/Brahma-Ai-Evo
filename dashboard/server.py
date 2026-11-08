@@ -49,9 +49,16 @@ def _get_static_dir() -> Path:
             return candidate
     return Path(__file__).resolve().parent / "static"
 
-STATIC_DIR  = _get_static_dir()
-PORT        = 8000
-MAX_UPLOAD_MB = 500
+STATIC_DIR   = _get_static_dir()
+DEFAULT_HOST = "127.0.0.1"
+PORT         = 8000
+MAX_UPLOAD_MB = 25
+BLOCKED_UPLOAD_SUFFIXES = {
+    ".bat", ".cmd", ".com", ".cpl", ".dll", ".exe", ".hta", ".inf",
+    ".ins", ".isp", ".js", ".jse", ".lnk", ".msc", ".msi", ".msp",
+    ".mst", ".pif", ".ps1", ".py", ".pyw", ".reg", ".scr", ".sct",
+    ".shb", ".sys", ".vb", ".vbe", ".vbs", ".ws", ".wsc", ".wsf", ".wsh",
+}
 
 
 def _make_uploads_dir() -> Path:
@@ -82,9 +89,9 @@ def _quiet_run(*args, **kwargs):
 
 def _get_gemini_key() -> str | None:
     try:
-        import json as _json
-        with open(get_user_data_dir() / "config" / "api_keys.json", "r", encoding="utf-8") as f:
-            return _json.load(f).get("gemini_api_key")
+        from core.secret_store import get_secret
+        key = get_secret("gemini_api_key")
+        return key or None
     except Exception:
         return None
 
@@ -118,215 +125,11 @@ _CRYPTOJS_CDN  = ("https://cdnjs.cloudflare.com/ajax/libs/"
 _CRYPTOJS_FILE = STATIC_DIR / "crypto-js.min.js"
 
 
-def _ensure_network_access(port: int) -> None:
-    """Cross-platform, best-effort: open port in the OS firewall for LAN access.
-
-    Runs in a background thread — never blocks uvicorn startup.
-
-    Windows : writes a .bat file, runs it elevated via Windows ShellExecuteW
-              (native UAC dialog, guaranteed to appear). One-time setup.
-    macOS   : osascript admin dialog if the Application Firewall is on.
-    Linux   : pkexec GUI → sudo -n → prints manual command as fallback.
+def _ensure_network_access(port: int = PORT) -> None:
+    """No-op: automatic UAC elevation and firewall/network-profile mutation
+    are disabled for security (FIND-007).
     """
-    import sys, os, tempfile, threading
-
-    # ── Windows ──────────────────────────────────────────────────────────────
-    if sys.platform == "win32":
-        import ctypes, time
-
-        port_rule = f"Brahma Dashboard Port {port}"
-        prog_rule  = "Brahma Dashboard Python"
-        py_exe     = sys.executable
-
-        def _netsh_rule_exists(name: str) -> bool:
-            try:
-                r = _quiet_run(
-                    ["netsh", "advfirewall", "firewall", "show", "rule", f"name={name}"],
-                    capture_output=True, text=True, timeout=5,
-                )
-                return r.returncode == 0 and "No rules match" not in r.stdout
-            except Exception:
-                return False
-
-        def _network_is_public() -> bool:
-            try:
-                r = _quiet_run(
-                    ["powershell", "-NoProfile", "-NonInteractive", "-Command",
-                     "(Get-NetConnectionProfile | "
-                     "Where-Object {$_.NetworkCategory -eq 'Public'} | "
-                     "Measure-Object).Count"],
-                    capture_output=True, text=True, timeout=6,
-                )
-                return r.stdout.strip() not in ("", "0")
-            except Exception:
-                return False
-
-        need_port    = not _netsh_rule_exists(port_rule)
-        need_prog    = not _netsh_rule_exists(prog_rule)
-        need_private = _network_is_public()
-
-        if not need_port and not need_prog and not need_private:
-            return  # already fully configured
-
-        # Build a .bat file — netsh + powershell, runs fast when elevated
-        bat_lines = ["@echo off"]
-        if need_private:
-            bat_lines.append(
-                'powershell -NoProfile -NonInteractive -Command "'
-                'Get-NetConnectionProfile | '
-                "Where-Object {$_.NetworkCategory -eq 'Public'} | "
-                'Set-NetConnectionProfile -NetworkCategory Private"'
-            )
-        if need_port:
-            bat_lines.append(
-                f'netsh advfirewall firewall add rule '
-                f'name="{port_rule}" protocol=TCP dir=in '
-                f'localport={port} action=allow'
-            )
-        if need_prog:
-            bat_lines.append(
-                f'netsh advfirewall firewall add rule '
-                f'name="{prog_rule}" dir=in action=allow '
-                f'program="{py_exe}" enable=yes'
-            )
-
-        bat_body = "\r\n".join(bat_lines) + "\r\n"
-        fd, bat_path = tempfile.mkstemp(suffix=".bat", prefix="brahma_fw_")
-        try:
-            os.write(fd, bat_body.encode("mbcs"))   # Windows cmd.exe expects ANSI
-            os.close(fd)
-        except Exception:
-            try:
-                os.close(fd)
-            except Exception:
-                pass
-            return
-
-        # ── Try running directly (succeeds when already admin) ────────────────
-        try:
-            r = _quiet_run(
-                [bat_path], capture_output=True, timeout=8, shell=True
-            )
-            if r.returncode == 0:
-                print(f"[Dashboard] Firewall configured for port {port}.")
-                try:
-                    os.unlink(bat_path)
-                except Exception:
-                    pass
-                return
-        except Exception:
-            pass
-
-        # ── ShellExecuteW: native UAC elevation (most reliable on Windows) ────
-        # ShellExecuteW with verb "runas" always shows the UAC dialog regardless
-        # of UAC level settings. Non-blocking — uvicorn is already running.
-        print("[Dashboard] One-time network setup required.")
-        print("[Dashboard] >>> A Windows security dialog will appear — click 'Yes' <<<")
-        try:
-            ret = ctypes.windll.shell32.ShellExecuteW(
-                None,       # hwnd  (no parent window)
-                "runas",    # verb  (request elevation)
-                bat_path,   # file  (our .bat)
-                None,       # params
-                None,       # working dir
-                0,          # SW_HIDE (run without a visible cmd window)
-            )
-            if int(ret) > 32:
-                # ShellExecuteW returns immediately; bat finishes in ~1 second.
-                # Sleep briefly so the rules are in place before the first retry.
-                time.sleep(2)
-                print(f"[Dashboard] Network setup complete — port {port} is open.")
-                print("[Dashboard] Refresh your phone browser to connect.")
-            else:
-                print("[Dashboard] Setup was not allowed.")
-                print("[Dashboard] Phone connections may fail until Brahma is run as Administrator.")
-        except Exception as e:
-            print(f"[Dashboard] Firewall setup error: {e}")
-        finally:
-            # Cleanup after the bat has had time to run
-            def _cleanup(path: str) -> None:
-                time.sleep(5)
-                try:
-                    os.unlink(path)
-                except Exception:
-                    pass
-            threading.Thread(target=_cleanup, args=(bat_path,), daemon=True).start()
-        return
-
-    # ── macOS ─────────────────────────────────────────────────────────────────
-    if sys.platform == "darwin":
-        fw_ctl = "/usr/libexec/ApplicationFirewall/socketfilterfw"
-        try:
-            r = _quiet_run(
-                [fw_ctl, "--getglobalstate"], capture_output=True, text=True, timeout=5,
-            )
-            if "disabled" in r.stdout.lower():
-                return  # firewall off — nothing to do
-
-            py = sys.executable
-            listed = _quiet_run(
-                [fw_ctl, "--listapps"], capture_output=True, text=True, timeout=5,
-            )
-            if py in listed.stdout:
-                return  # already allowed
-
-            print("[Dashboard] One-time network setup — enter your password in the macOS dialog.")
-            _quiet_run(
-                ["osascript", "-e",
-                 f'do shell script "{fw_ctl} --add {py} && {fw_ctl} --unblockapp {py}"'
-                 f' with administrator privileges'],
-                timeout=60,
-            )
-        except Exception:
-            pass  # macOS firewall is off by default — silent failure is fine
-        return
-
-    # ── Linux ─────────────────────────────────────────────────────────────────
-    def _privileged(cmd: list[str]) -> bool:
-        for prefix in (["pkexec"], ["sudo", "-n"]):
-            try:
-                r = _quiet_run(prefix + cmd, capture_output=True, timeout=30)
-                if r.returncode == 0:
-                    return True
-            except Exception:
-                pass
-        return False
-
-    try:  # ufw
-        r = _quiet_run(["ufw", "status"], capture_output=True, text=True, timeout=5)
-        if "active" in r.stdout.lower():
-            if _privileged(["ufw", "allow", f"{port}/tcp"]):
-                print(f"[Dashboard] ufw: port {port} allowed.")
-            else:
-                print(f"[Dashboard] Run manually:  sudo ufw allow {port}/tcp")
-            return
-    except FileNotFoundError:
-        pass
-
-    try:  # firewalld
-        r = _quiet_run(
-            ["firewall-cmd", "--state"], capture_output=True, text=True, timeout=5,
-        )
-        if "running" in r.stdout.lower():
-            ok = (_privileged(["firewall-cmd", "--add-port", f"{port}/tcp", "--permanent"])
-                  and _privileged(["firewall-cmd", "--reload"]))
-            if ok:
-                print(f"[Dashboard] firewalld: port {port} allowed.")
-            else:
-                print(f"[Dashboard] Run manually:  sudo firewall-cmd --add-port={port}/tcp --permanent && sudo firewall-cmd --reload")
-            return
-    except FileNotFoundError:
-        pass
-
-    try:  # iptables (not persistent but works until reboot)
-        r = _quiet_run(["iptables", "-L", "INPUT", "-n"], capture_output=True, timeout=5)
-        if r.returncode == 0:
-            if _privileged(["iptables", "-A", "INPUT", "-p", "tcp", "--dport", str(port), "-j", "ACCEPT"]):
-                print(f"[Dashboard] iptables: port {port} opened.")
-            else:
-                print(f"[Dashboard] Run manually:  sudo iptables -A INPUT -p tcp --dport {port} -j ACCEPT")
-    except FileNotFoundError:
-        pass  # no iptables means firewall is probably off — nothing to do
+    return None
 
 
 def _ensure_crypto_js() -> None:
@@ -510,6 +313,7 @@ class DashboardServer:
         self._wake_callback               = None
         self._connect_callback            = None
         self._pending_keys: dict[str, float] = {}
+        self._login_failures: dict[str, list[float]] = {}
         self._device_sessions: dict[str, dict] = {}  # device_token → {session_key}
         self._phone_audio_queue: asyncio.Queue    = asyncio.Queue(maxsize=200)
         self._uploads_dir                 = UPLOADS_DIR
@@ -572,6 +376,22 @@ class DashboardServer:
 
     def _build_app(self) -> "FastAPI":
         app = FastAPI(docs_url=None, redoc_url=None)
+        try:
+            from fastapi.middleware.cors import CORSMiddleware
+            app.add_middleware(
+                CORSMiddleware,
+                allow_origins=[
+                    f"http://127.0.0.1:{PORT}",
+                    f"http://localhost:{PORT}",
+                    f"https://127.0.0.1:{PORT + 1}",
+                    f"https://localhost:{PORT + 1}",
+                ],
+                allow_credentials=True,
+                allow_methods=["GET", "POST"],
+                allow_headers=["Authorization", "Content-Type"],
+            )
+        except Exception:
+            pass
 
         def _auth(req: Request) -> bool:
             tok = req.headers.get("authorization", "").removeprefix("Bearer ").strip()
@@ -602,10 +422,19 @@ class DashboardServer:
 
         @app.post("/login")
         async def login(req: Request):
+            client_ip = (req.client.host if req.client else "unknown") or "unknown"
+            now = time.time()
+            attempts = [ts for ts in self._login_failures.get(client_ip, []) if now - ts < 60.0]
+            if len(attempts) >= 5:
+                self._login_failures[client_ip] = attempts
+                return JSONResponse(
+                    {"ok": False, "error": "Too many failed attempts. Please wait 60 seconds."},
+                    status_code=429,
+                )
             body    = await req.json()
             entered = str(body.get("pin", "")).strip().upper()
-            now     = time.time()
             if entered in self._pending_keys and self._pending_keys[entered] > now:
+                self._login_failures.pop(client_ip, None)
                 del self._pending_keys[entered]          # one-time use
                 tok = secrets.token_urlsafe(32)
                 self._tokens.add(tok)
@@ -618,6 +447,8 @@ class DashboardServer:
                 ))
                 # Bearer token in response body — no cookies needed (works on any browser/HTTP)
                 return JSONResponse({"ok": True, "token": tok})
+            attempts.append(now)
+            self._login_failures[client_ip] = attempts
             return JSONResponse({"ok": False, "error": "Invalid or expired key"},
                                 status_code=401)
 
@@ -768,8 +599,13 @@ class DashboardServer:
                     return JSONResponse({"error": "Unauthorized"}, status_code=401)
 
                 safe = _safe_filename(file.filename or "upload")
-                dest = self._uploads_dir / safe
                 stem, suffix = Path(safe).stem, Path(safe).suffix
+                if suffix.lower() in BLOCKED_UPLOAD_SUFFIXES:
+                    return JSONResponse(
+                        {"error": f"Executable file type '{suffix}' is not permitted."},
+                        status_code=400,
+                    )
+                dest = self._uploads_dir / safe
                 counter = 1
                 while dest.exists():
                     dest = self._uploads_dir / f"{stem}_{counter}{suffix}"
@@ -836,18 +672,22 @@ class DashboardServer:
             tok = token.strip()
             if not tok or tok not in self._tokens:
                 return JSONResponse({"error": "Unauthorized"}, status_code=401)
-            safe = re.sub(r'[/\\]', '', filename)
-            path = self._uploads_dir / safe
-            if not path.exists() or not path.is_file():
+            safe = _safe_filename(filename)
+            uploads_root = self._uploads_dir.resolve()
+            path = (uploads_root / safe).resolve()
+            if not path.is_relative_to(uploads_root) or not path.exists() or not path.is_file():
                 return JSONResponse({"error": "Not found"}, status_code=404)
             return FileResponse(str(path), filename=safe)
 
         @app.get("/web_background/{filename:path}")
         async def web_background_static(filename: str):
-            bg_dir = BASE_DIR / "assets" / "web_background"
+            bg_dir = (BASE_DIR / "assets" / "web_background").resolve()
             safe = filename if filename else "index.html"
-            target = bg_dir / safe
-            if target.exists() and target.is_file():
+            try:
+                target = (bg_dir / safe).resolve()
+            except Exception:
+                return JSONResponse({"error": "Not found"}, status_code=404)
+            if target.is_relative_to(bg_dir) and target.exists() and target.is_file():
                 return FileResponse(str(target))
             return JSONResponse({"error": "Not found"}, status_code=404)
 
@@ -884,15 +724,16 @@ class DashboardServer:
     # ── serve ─────────────────────────────────────────────────────────────
     async def _serve_alias(self) -> None:
         """Legacy HTTPS alias server kept for compatibility, but not used for QR pairing."""
+        import os
+        bind_host = os.environ.get("BRAHMA_DASHBOARD_HOST", DEFAULT_HOST).strip() or DEFAULT_HOST
         ssl_key  = get_user_data_dir() / "config" / "certs" / "brahma.key"
         ssl_cert = get_user_data_dir() / "config" / "certs" / "brahma.crt"
-        asyncio.get_event_loop().run_in_executor(None, _ensure_network_access, PORT + 1)
         cfg = uvicorn.Config(
-            self.app, host="0.0.0.0", port=PORT + 1, log_level="warning",
+            self.app, host=bind_host, port=PORT + 1, log_level="warning",
             ssl_keyfile=str(ssl_key), ssl_certfile=str(ssl_cert),
             log_config=None, access_log=False,
         )
-        print(f"[Dashboard] Manual entry:  {self._ip}:{PORT + 1}  (legacy HTTPS alias)")
+        print(f"[Dashboard] Manual entry:  {bind_host}:{PORT + 1}  (legacy HTTPS alias)")
         await uvicorn.Server(cfg).serve()
     async def serve(self) -> None:
         if not _DEPS_OK:
@@ -900,15 +741,13 @@ class DashboardServer:
             print("[Dashboard] Run:  pip install fastapi 'uvicorn[standard]' cryptography")
             return
 
-        # Firewall setup runs in a thread - uvicorn starts immediately,
-        # no waiting for UAC dialogs or subprocess timeouts.
-        asyncio.get_event_loop().run_in_executor(None, _ensure_network_access, PORT)
-
+        import os
+        bind_host = os.environ.get("BRAHMA_DASHBOARD_HOST", DEFAULT_HOST).strip() or DEFAULT_HOST
         cfg = uvicorn.Config(
-            self.app, host="0.0.0.0", port=PORT, log_level="warning",
+            self.app, host=bind_host, port=PORT, log_level="warning",
             log_config=None, access_log=False,
         )
 
-        print(f"[Dashboard] http://{self._ip}:{PORT}")
+        print(f"[Dashboard] http://{bind_host}:{PORT}")
         print("[Dashboard] Press 'Mobile Connect' in Brahma UI to get the QR code.")
         await uvicorn.Server(cfg).serve()

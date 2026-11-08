@@ -58,6 +58,8 @@ class _WiringMixin:
 
     def set_brahma_connect_service(self, service):
         self._brahma_connect = service
+        if service is not None:
+            service.on_chat_message = lambda text: self._run_on_ui(lambda: self.submit_command(text, source="mobile"))
         if hasattr(self, "_devices_page"):
             self._devices_page.set_service(service)
             if service is not None:

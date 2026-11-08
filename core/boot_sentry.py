@@ -1,4 +1,4 @@
-from core.user_paths import get_user_data_dir
+from core.user_paths import atomic_write_json, get_user_data_dir
 """
 Boot Sentry for Brahma AI
 Runs at absolute startup before any heavy modules or UI to guarantee boot resilience.
@@ -54,8 +54,7 @@ def check_and_recover_on_boot() -> bool:
         last_patch["status"] = "rolled_back_on_boot"
         last_patch["rollback_reason"] = "App crashed on startup after patch."
 
-        with open(PATCH_HISTORY_FILE, "w", encoding="utf-8") as f:
-            json.dump(history, f, indent=4)
+        atomic_write_json(PATCH_HISTORY_FILE, history)
 
         # Archive the crash log
         crash_archive = BASE_DIR / "FATAL_CRASH_RECOVERED.log"

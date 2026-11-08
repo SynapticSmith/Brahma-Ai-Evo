@@ -153,9 +153,10 @@ class _RuntimeMixin:
             "text": f"Attached file: {name}",
             "attachments": [{"path": path, "name": name, "size": size}],
         }
-        if hasattr(self, "_on_chat_event"):
+        on_chat = getattr(self, "on_chat_event", None) or getattr(self, "_on_chat_event", None)
+        if callable(on_chat):
             try:
-                self._on_chat_event(event)
+                on_chat(event)
             except Exception:
                 pass
 

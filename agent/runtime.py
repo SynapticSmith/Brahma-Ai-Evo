@@ -279,6 +279,7 @@ class AgentRuntime:
         args: Optional[Mapping[str, Any]] = None,
         *,
         batch_readonly: bool = False,
+        default_class: str = "native",
     ) -> tuple[ToolSpec | None, PolicyResult]:
         spec = get_spec(name)
         call_args = dict(args or {})
@@ -353,7 +354,7 @@ class AgentRuntime:
                 return spec, PolicyResult(DENY, base_res.reason, base_res.rule)
             return spec, base_res
 
-        tool_class = spec.class_for(call_args) if spec else "native"
+        tool_class = spec.class_for(call_args) if spec else (default_class or "native")
         # "Headless" means *no human can be asked*. An injected approver makes
         # that false, whatever the flag says: the CLI passes headless=True and
         # approver=None, the TTY passes headless=False and a prompt, and the
@@ -394,7 +395,10 @@ class AgentRuntime:
         # Cheap, throttled check: a policy edit lands without a restart.
         self.reload_policy()
         batch_readonly = bool((extra or {}).get("batch_readonly"))
-        spec, decision = self.decide(name, args, batch_readonly=batch_readonly)
+        default_class = str((extra or {}).get("tool_class") or "native")
+        spec, decision = self.decide(
+            name, args, batch_readonly=batch_readonly, default_class=default_class
+        )
         key = self._approval_key(name, args, spec, decision.rule)
 
         if decision.needs_approval:

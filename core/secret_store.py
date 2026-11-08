@@ -232,3 +232,35 @@ def save_api_keys(
     """Save API keys to user data or specified path with DPAPI encryption."""
     target = Path(path) if path is not None else default_api_keys_path()
     save_secret_json(target, data, encrypt=True)
+
+
+def get_secret(
+    key: str,
+    default: str = "",
+    *,
+    path: Optional[str | Path] = None,
+) -> str:
+    """Return a single secret string from ``api_keys.json`` (or ``default``)."""
+    try:
+        data = load_api_keys(path=path)
+    except Exception:
+        return default
+    val = data.get(key)
+    if val is None:
+        return default
+    return str(val).strip() if isinstance(val, str) else str(val)
+
+
+def set_secret(
+    key: str,
+    value: Any,
+    *,
+    path: Optional[str | Path] = None,
+) -> None:
+    """Update a single key in ``api_keys.json`` atomically with DPAPI encryption."""
+    try:
+        data = load_api_keys(path=path)
+    except Exception:
+        data = {}
+    data[key] = value
+    save_api_keys(data, path=path)

@@ -40,6 +40,84 @@ BANNED_AST_PATTERNS = [
     "build_exe",
 ]
 
+BANNED_IMPORTS = {
+    "builtins",
+    "code",
+    "codeop",
+    "ctypes",
+    "gc",
+    "importlib",
+    "marshal",
+    "msvcrt",
+    "pickle",
+    "pty",
+    "runpy",
+    "shelve",
+    "subprocess",
+    "winreg",
+}
+
+BANNED_CALLS = {
+    "__import__",
+    "breakpoint",
+    "compile",
+    "delattr",
+    "eval",
+    "exec",
+    "getattr",
+    "globals",
+    "input",
+    "locals",
+    "setattr",
+    "vars",
+}
+
+BANNED_ATTR_CALLS = {
+    "chmod",
+    "chown",
+    "execl",
+    "execle",
+    "execlp",
+    "execlpe",
+    "execv",
+    "execve",
+    "execvp",
+    "execvpe",
+    "kill",
+    "killpg",
+    "popen",
+    "remove",
+    "removedirs",
+    "rmdir",
+    "rmtree",
+    "spawnl",
+    "spawnle",
+    "spawnlp",
+    "spawnlpe",
+    "spawnv",
+    "spawnve",
+    "spawnvp",
+    "spawnvpe",
+    "startfile",
+    "system",
+    "unlink",
+}
+
+BANNED_DUNDER_ATTRS = {
+    "__bases__",
+    "__builtins__",
+    "__class__",
+    "__closure__",
+    "__code__",
+    "__dict__",
+    "__globals__",
+    "__import__",
+    "__loader__",
+    "__mro__",
+    "__spec__",
+    "__subclasses__",
+}
+
 STANDARD_LIB_MODULES = {
     "abc", "argparse", "array", "ast", "asyncio", "base64", "binascii", "bisect",
     "calendar", "cmath", "collections", "colorsys", "concurrent", "configparser",
@@ -119,13 +197,30 @@ class SkillCrucible:
         if not has_execute:
             return False, "Skill code must define an 'execute(**kwargs)' or 'async def execute(**kwargs)' function."
 
-        # Safety scans for banned keywords in string literals or function calls
+        # Safety scans for banned keywords, imports, calls, and dunder access
         for node in ast.walk(tree):
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
                 val_lower = node.value.lower()
                 for banned in BANNED_AST_PATTERNS:
                     if banned in val_lower:
                         return False, f"Security Violation: Prohibited term or system path '{banned}' detected."
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    root = alias.name.split(".")[0]
+                    if root in BANNED_IMPORTS:
+                        return False, f"Security Violation: Prohibited module import '{root}' detected."
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    root = node.module.split(".")[0]
+                    if root in BANNED_IMPORTS:
+                        return False, f"Security Violation: Prohibited module import '{root}' detected."
+            elif isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name) and node.func.id in BANNED_CALLS:
+                    return False, f"Security Violation: Prohibited builtin call '{node.func.id}()' detected."
+                elif isinstance(node.func, ast.Attribute) and node.func.attr in BANNED_ATTR_CALLS:
+                    return False, f"Security Violation: Prohibited method call '.{node.func.attr}()' detected."
+            elif isinstance(node, ast.Attribute) and node.attr in BANNED_DUNDER_ATTRS:
+                return False, f"Security Violation: Prohibited dunder attribute '{node.attr}' detected."
 
         return True, None
 
@@ -195,6 +290,10 @@ class SkillCrucible:
         Executes test cases in an isolated child process to verify runtime correctness.
         Returns: (passed: bool, message: str, telemetry: dict)
         """
+        ok_ast, ast_err = cls.validate_ast(skill_code)
+        if not ok_ast:
+            return False, f"Sandbox AST Validation Failed: {ast_err}", {"elapsed_s": 0}
+
         py_exe = _get_python_executable()
 
         # Build runner harness
@@ -252,15 +351,22 @@ def run_tests():
 if __name__ == '__main__':
     run_tests()
 """
+        import tempfile
+        from agent.sandbox import SandboxConfig, build_env
+
+        scrubbed_env, _ = build_env(SandboxConfig())
         start_time = time.time()
         try:
-            proc = subprocess.run(
-                [py_exe, "-c", harness_script],
-                capture_output=True,
-                text=True,
-                stdin=subprocess.DEVNULL,
-                timeout=timeout
-            )
+            with tempfile.TemporaryDirectory(prefix="brahma_crucible_") as tmp_dir:
+                proc = subprocess.run(
+                    [py_exe, "-I", "-c", harness_script],
+                    capture_output=True,
+                    text=True,
+                    stdin=subprocess.DEVNULL,
+                    timeout=timeout,
+                    env=scrubbed_env,
+                    cwd=tmp_dir,
+                )
             elapsed = time.time() - start_time
             if proc.returncode != 0:
                 err_text = proc.stderr.strip() or proc.stdout.strip() or "Process exited with error code."

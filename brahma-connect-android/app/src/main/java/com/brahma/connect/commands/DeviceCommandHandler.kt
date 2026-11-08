@@ -166,8 +166,13 @@ class DeviceCommandHandler(private val context: Context) {
         if (url.isBlank()) {
             return CommandResult(false, errorCode = "INVALID_ARGUMENT", error = "URL is required.")
         }
+        val parsed = runCatching { Uri.parse(url) }.getOrNull()
+        val scheme = parsed?.scheme?.lowercase()
+        if (parsed == null || (scheme != "http" && scheme != "https")) {
+            return CommandResult(false, errorCode = "INVALID_SCHEME", error = "Only http and https URLs are permitted.")
+        }
         return try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val intent = Intent(Intent.ACTION_VIEW, parsed).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
             CommandResult(true, data = mapOf("url" to url))
         } catch (exc: Exception) {
@@ -217,26 +222,36 @@ class DeviceCommandHandler(private val context: Context) {
         }
     }
 
-    private fun resolveFileTarget(path: String?): java.io.File {
+    private fun resolveFileTarget(path: String?): java.io.File? {
         val storage = android.os.Environment.getExternalStorageDirectory()
-        if (path.isNullOrBlank() || path.equals("home", ignoreCase = true)) {
-            return storage
+        val candidate = if (path.isNullOrBlank() || path.equals("home", ignoreCase = true)) {
+            storage
+        } else {
+            val lower = path.lowercase().trim()
+            when (lower) {
+                "downloads" -> android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                "documents" -> android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS)
+                "pictures" -> android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES)
+                "music" -> android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MUSIC)
+                "movies", "videos" -> android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MOVIES)
+                else -> java.io.File(storage, path)
+            }
         }
-        val lower = path.lowercase().trim()
-        val baseDir = when (lower) {
-            "downloads" -> android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
-            "documents" -> android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS)
-            "pictures" -> android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES)
-            "music" -> android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MUSIC)
-            "movies", "videos" -> android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MOVIES)
-            else -> java.io.File(storage, path)
-        }
-        return baseDir
+        return runCatching {
+            val rootCanonical = storage.canonicalPath
+            val targetCanonical = candidate.canonicalPath
+            if (targetCanonical == rootCanonical || targetCanonical.startsWith(rootCanonical + java.io.File.separator)) {
+                java.io.File(targetCanonical)
+            } else {
+                null
+            }
+        }.getOrNull()
     }
 
     private fun fileList(parameters: Map<String, Any?>): CommandResult {
         val path = parameters["path"]?.toString()
         val dir = resolveFileTarget(path)
+            ?: return CommandResult(false, errorCode = "PATH_OUTSIDE_STORAGE", error = "Access outside shared storage is denied.")
         if (!dir.exists() || !dir.isDirectory) {
             return CommandResult(false, errorCode = "NOT_FOUND", error = "Directory not found: ${dir.absolutePath}")
         }
@@ -254,6 +269,7 @@ class DeviceCommandHandler(private val context: Context) {
     private fun fileRead(parameters: Map<String, Any?>): CommandResult {
         val path = parameters["path"]?.toString()
         val file = resolveFileTarget(path)
+            ?: return CommandResult(false, errorCode = "PATH_OUTSIDE_STORAGE", error = "Access outside shared storage is denied.")
         if (!file.exists() || !file.isFile) {
             return CommandResult(false, errorCode = "NOT_FOUND", error = "File not found: ${file.absolutePath}")
         }
@@ -270,6 +286,7 @@ class DeviceCommandHandler(private val context: Context) {
         val content = parameters["content"]?.toString() ?: ""
         val append = parameters["append"] as? Boolean ?: false
         val file = resolveFileTarget(path)
+            ?: return CommandResult(false, errorCode = "PATH_OUTSIDE_STORAGE", error = "Access outside shared storage is denied.")
         return try {
             file.parentFile?.mkdirs()
             if (append) {
@@ -286,6 +303,7 @@ class DeviceCommandHandler(private val context: Context) {
     private fun fileDelete(parameters: Map<String, Any?>): CommandResult {
         val path = parameters["path"]?.toString()
         val file = resolveFileTarget(path)
+            ?: return CommandResult(false, errorCode = "PATH_OUTSIDE_STORAGE", error = "Access outside shared storage is denied.")
         if (!file.exists()) {
             return CommandResult(false, errorCode = "NOT_FOUND", error = "File or directory not found: ${file.absolutePath}")
         }

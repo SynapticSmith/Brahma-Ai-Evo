@@ -2,7 +2,6 @@ from core.user_paths import get_user_data_dir
 import asyncio
 import base64
 import io
-import json
 import re
 import sys
 import time
@@ -52,9 +51,9 @@ SYSTEM_PROMPT = (
 
 def _get_api_key() -> str:
     try:
-        with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-            keys = json.load(f)
-        key = keys.get("gemini_api_key", "")
+        from core.secret_store import load_api_keys
+        keys = load_api_keys(API_CONFIG_PATH)
+        key = str(keys.get("gemini_api_key") or "").strip()
         if not key:
             raise ValueError("gemini_api_key not found")
         return key
@@ -64,8 +63,8 @@ def _get_api_key() -> str:
 
 def _get_camera_index() -> int:
     try:
-        with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-            cfg = json.load(f)
+        from core.secret_store import load_api_keys
+        cfg = load_api_keys(API_CONFIG_PATH)
         if "camera_index" in cfg:
             return int(cfg["camera_index"])
     except Exception:
@@ -91,13 +90,10 @@ def _get_camera_index() -> int:
             print(f"[Camera] [WARN]  Index {idx}: no valid frame.")
 
     try:
-        cfg = {}
-        if API_CONFIG_PATH.exists():
-            with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
+        from core.secret_store import load_api_keys, save_api_keys
+        cfg = load_api_keys(API_CONFIG_PATH) if API_CONFIG_PATH.exists() else {}
         cfg["camera_index"] = best_index
-        with open(API_CONFIG_PATH, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=4)
+        save_api_keys(cfg, API_CONFIG_PATH)
         print(f"[Camera] [SAVE] Camera index {best_index} saved to config.")
     except Exception as e:
         print(f"[Camera] [WARN]  Could not save camera index: {e}")
@@ -346,6 +342,9 @@ _start_lock = threading.Lock()
 
 
 def _ensure_started(player=None):
+    from core import provider_router
+
+    provider_router.guard("gemini")
     global _started
     with _start_lock:
         if not _started:

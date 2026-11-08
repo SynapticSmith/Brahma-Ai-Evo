@@ -23,13 +23,28 @@ class _DiscordMixin:
                     settings.update(data)
             except Exception:
                 pass
+        try:
+            from core.secret_store import get_secret
+            sec_token = get_secret("discord_bot_token")
+            if sec_token:
+                settings["bot_token"] = sec_token
+        except Exception:
+            pass
         if (settings.get("bot_token") or "").strip():
             settings["enabled"] = True
         return dict(settings)
 
     def _save_discord_settings(self, settings: dict):
+        from core.atomic_io import atomic_write_json
         os.makedirs(CONFIG_DIR, exist_ok=True)
-        DISCORD_SETTINGS_FILE.write_text(json.dumps(settings, indent=4), encoding="utf-8")
+        to_write = dict(settings)
+        token = str(to_write.pop("bot_token", "") or "").strip()
+        try:
+            from core.secret_store import set_secret
+            set_secret("discord_bot_token", token)
+        except Exception:
+            to_write["bot_token"] = token
+        atomic_write_json(DISCORD_SETTINGS_FILE, to_write)
 
     def _emit_discord_settings(self):
         if not hasattr(self, "_discord_token_input"):

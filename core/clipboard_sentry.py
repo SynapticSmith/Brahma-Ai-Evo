@@ -14,6 +14,32 @@ import json
 import re
 from typing import Optional, Callable
 
+_SECRET_PATTERNS = (
+    re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----"),
+    re.compile(r"\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_\-]{20,}|AIza[0-9A-Za-z_\-]{35}|gh[pousr]_[A-Za-z0-9]{25,}|xox[baprs]-[A-Za-z0-9\-]{15,}|AKIA[0-9A-Z]{16})\b"),
+    re.compile(r"(?i)\b(bearer\s+)[A-Za-z0-9_\-\.=]{16,}"),
+    re.compile(r"(?i)\b((?:api[_-]?key|secret|password|passwd|access[_-]?token|auth[_-]?token)\s*[:=]\s*['\"]?)([^\s'\"]{8,})"),
+)
+
+
+def redact_secrets(text: str) -> str:
+    """Redact recognizable API keys, bearer tokens, passwords, and private keys."""
+    if not text:
+        return ""
+    out = text
+    out = _SECRET_PATTERNS[0].sub("[REDACTED_PRIVATE_KEY]", out)
+    out = _SECRET_PATTERNS[1].sub("[REDACTED_KEY]", out)
+    out = _SECRET_PATTERNS[2].sub(r"\1[REDACTED_TOKEN]", out)
+    out = _SECRET_PATTERNS[3].sub(r"\1[REDACTED_SECRET]", out)
+    return out
+
+
+def contains_secret(text: str) -> bool:
+    """True if `text` matches any known credential/secret pattern."""
+    if not text:
+        return False
+    return any(p.search(text) is not None for p in _SECRET_PATTERNS)
+
 
 class ClipboardSentry:
     def __init__(self, callback: Optional[Callable[[str, str], None]] = None):
@@ -82,6 +108,6 @@ class ClipboardSentry:
                     self._last_clip = current
                     category = self._classify_content(current)
                     if category and self._callback:
-                        self._callback(category, current)
+                        self._callback(category, redact_secrets(current))
             except Exception:
                 pass

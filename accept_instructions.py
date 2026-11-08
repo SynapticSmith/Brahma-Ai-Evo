@@ -26,13 +26,20 @@ def main() -> int:
 
     from core import instruction_injector as inj
 
-    # Snapshot and restore every setting this test touches.
+    # Snapshot and restore every setting this test touches in a sandboxed temp file.
+    import tempfile
     from memory import config_manager
 
-    touched = [f"instruction_block_{n}" for n in list(inj._BLOCKS)]
-    touched += [f"instruction_layer_{layer}" for layer in inj.LAYERS]
-    touched += ["instruction_block_custom", "instruction_block_never"]
-    original = {k: config_manager.get_setting(k) for k in touched}
+    _sandbox_dir = tempfile.TemporaryDirectory()
+    _real_cm_settings = config_manager.SETTINGS_FILE
+    config_manager.SETTINGS_FILE = Path(_sandbox_dir.name) / "app_settings.json"
+    if _real_cm_settings.exists():
+        try:
+            config_manager.SETTINGS_FILE.write_text(
+                _real_cm_settings.read_text(encoding="utf-8"), encoding="utf-8"
+            )
+        except Exception:
+            pass
 
     def _wipe():
         """Remove EVERY instruction_* key, not a hand-kept list.
@@ -446,21 +453,14 @@ def main() -> int:
               "your existing choices are kept" in ui_src2)
 
     finally:
-        # Restore settings exactly.
-        _wipe()
+        # Restore sandboxed settings path and clean up temp directory.
         import memory.config_manager as cm
 
-        settings_path = cm.SETTINGS_FILE
+        cm.SETTINGS_FILE = _real_cm_settings
         try:
-            data = json.loads(settings_path.read_text(encoding="utf-8"))
+            _sandbox_dir.cleanup()
         except Exception:
-            data = {}
-        for key, value in original.items():
-            if value is None:
-                data.pop(key, None)
-            else:
-                data[key] = value
-        settings_path.write_text(json.dumps(data, indent=4), encoding="utf-8")
+            pass
 
     print("\n" + "=" * 74)
     return report()

@@ -381,10 +381,46 @@ def _classify_flowstate(args: Mapping[str, Any]) -> str:
         return "read"
     return "device"
 
+
+def _classify_desktop_control(args: Mapping[str, Any]) -> str:
+    action = str((args or {}).get("action") or "").strip().lower()
+    if (args or {}).get("task") or action == "task":
+        return "exec"
+    if action in (
+        "list",
+        "stats",
+        "current_wallpaper",
+        "preview",
+        "preview_organize",
+        "dry_run",
+        "dryrun",
+        "inspect",
+        "find_duplicates",
+        "duplicates",
+        "dupes",
+    ):
+        return "read"
+    if action in (
+        "organize",
+        "organize_desktop",
+        "clean",
+        "clean_empty_folders",
+        "clean_empty",
+        "archive",
+        "archive_old",
+        "undo",
+        "rollback",
+        "revert",
+    ):
+        return "write"
+    return "device"
+
+
 CLASSIFIERS: Dict[str, Callable[[Mapping[str, Any]], str]] = {
     "file_controller": _classify_file_controller,
     "smart_organizer": _classify_smart_organizer,
     "desktop_organizer": _classify_smart_organizer,
+    "desktop_control": _classify_desktop_control,
     "undo": _classify_undo,
     "manage_local_model": _classify_manage_local_model,
     "system_manager": _classify_system_manager,

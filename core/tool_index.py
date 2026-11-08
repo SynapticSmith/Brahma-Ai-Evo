@@ -492,35 +492,42 @@ class _Fts5Backend:
     def __init__(self) -> None:
         self._conn: Optional[sqlite3.Connection] = None
         self._rows: List[Tuple[int, str, str]] = []
+        self._lock = threading.Lock()
         self.available = False
 
     def build(self, entries: Sequence[ToolEntry]) -> None:
-        self._rows = []
-        self._conn = None
-        self.available = False
-        if not entries:
-            return
-        try:
-            conn = sqlite3.connect(":memory:")
-            conn.execute(
-                "CREATE VIRTUAL TABLE tools USING fts5("
-                "  name, body, tokenize='unicode61 remove_diacritics 2')"
-            )
-            rows = []
-            for idx, entry in enumerate(entries):
-                rows.append((idx, entry.name, entry.search_text()))
-            conn.executemany("INSERT INTO tools(rowid, name, body) VALUES (?, ?, ?)", rows)
-            conn.commit()
-        except sqlite3.Error as exc:
-            # FTS5 not compiled in — degrade to "this backend is unavailable".
-            logger.warning("[ToolIndex] FTS5 unavailable, keyword backend disabled: %s", exc)
-            return
-        self._conn = conn
-        self._rows = rows
-        self.available = True
+        with self._lock:
+            if self._conn is not None:
+                try:
+                    self._conn.close()
+                except sqlite3.Error:
+                    pass
+            self._rows = []
+            self._conn = None
+            self.available = False
+            if not entries:
+                return
+            try:
+                conn = sqlite3.connect(":memory:", check_same_thread=False)
+                conn.execute(
+                    "CREATE VIRTUAL TABLE tools USING fts5("
+                    "  name, body, tokenize='unicode61 remove_diacritics 2')"
+                )
+                rows = []
+                for idx, entry in enumerate(entries):
+                    rows.append((idx, entry.name, entry.search_text()))
+                conn.executemany("INSERT INTO tools(rowid, name, body) VALUES (?, ?, ?)", rows)
+                conn.commit()
+            except sqlite3.Error as exc:
+                # FTS5 not compiled in — degrade to "this backend is unavailable".
+                logger.warning("[ToolIndex] FTS5 unavailable, keyword backend disabled: %s", exc)
+                return
+            self._conn = conn
+            self._rows = rows
+            self.available = True
 
     def rank(self, query: str, k: int) -> List[Tuple[str, float]]:
-        if self._conn is None or not query:
+        if not query:
             return []
         # Quote each token so user speech containing FTS operators (", "*", "-")
         # cannot produce a syntax error mid-conversation.
@@ -528,27 +535,31 @@ class _Fts5Backend:
         if not terms:
             return []
         match = " OR ".join(terms)
-        try:
-            cur = self._conn.execute(
-                "SELECT rowid, bm25(tools) FROM tools WHERE tools MATCH ? "
-                "ORDER BY bm25(tools) LIMIT ?",
-                (match, max(k * 4, 20)),
-            )
-            rows = cur.fetchall()
-        except sqlite3.Error as exc:
-            logger.debug("[ToolIndex] FTS5 query failed (%s) for %r", exc, query)
-            return []
-        # bm25() returns "smaller is better"; negate so every backend's score is
-        # a larger-is-better affinity before RRF fusion.
-        return [(self._rows[r][1], -float(score)) for r, score in rows]
+        with self._lock:
+            if self._conn is None:
+                return []
+            try:
+                cur = self._conn.execute(
+                    "SELECT rowid, bm25(tools) FROM tools WHERE tools MATCH ? "
+                    "ORDER BY bm25(tools) LIMIT ?",
+                    (match, max(k * 4, 20)),
+                )
+                rows = cur.fetchall()
+            except sqlite3.Error as exc:
+                logger.debug("[ToolIndex] FTS5 query failed (%s) for %r", exc, query)
+                return []
+            # bm25() returns "smaller is better"; negate so every backend's score is
+            # a larger-is-better affinity before RRF fusion.
+            return [(self._rows[r][1], -float(score)) for r, score in rows]
 
     def close(self) -> None:
-        if self._conn is not None:
-            try:
-                self._conn.close()
-            except sqlite3.Error:
-                pass
-            self._conn = None
+        with self._lock:
+            if self._conn is not None:
+                try:
+                    self._conn.close()
+                except sqlite3.Error:
+                    pass
+                self._conn = None
 
 
 # --------------------------------------------------------------------------- #

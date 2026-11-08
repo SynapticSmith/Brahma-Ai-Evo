@@ -14,6 +14,7 @@ byte-for-byte or a resumed session fails on the first follow-up request.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 import threading
@@ -21,7 +22,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, Iterator, List, Optional
 
 
 class SessionNotFound(LookupError):
@@ -33,9 +34,12 @@ def _now_ms() -> int:
 
 
 def _default_db_path() -> Path:
-    from workspace_store import STORE_FILE  # local import: keeps headless CLI fast
+    try:
+        from workspace_store import STORE_FILE  # local import: keeps headless CLI fast
 
-    return Path(STORE_FILE)
+        return Path(STORE_FILE)
+    except Exception:
+        return Path.home() / ".brahma" / "sessions.db"
 
 
 _SCHEMA = """
@@ -131,13 +135,44 @@ class AgentSession:
         conn.execute("PRAGMA journal_mode=WAL;")
         return conn
 
+    def _recover_corrupt_db(self) -> None:
+        stamp = _now_ms()
+        for suffix in ("", "-wal", "-shm"):
+            p = Path(str(self._db_path) + suffix)
+            if p.exists():
+                backup = Path(f"{self._db_path}.corrupted.{stamp}{suffix}")
+                with contextlib.suppress(OSError):
+                    p.replace(backup)
+
+    @contextlib.contextmanager
+    def _connection(self) -> Iterator[sqlite3.Connection]:
+        with self._lock:
+            conn: Optional[sqlite3.Connection] = None
+            try:
+                try:
+                    conn = self._connect()
+                except sqlite3.DatabaseError:
+                    self._recover_corrupt_db()
+                    conn = self._connect()
+                with conn:
+                    yield conn
+            finally:
+                if conn is not None:
+                    with contextlib.suppress(Exception):
+                        conn.close()
+
     def _ensure_db(self) -> None:
-        with self._lock, self._connect() as conn:
-            conn.executescript(_SCHEMA)
+        try:
+            with self._connection() as conn:
+                conn.executescript(_SCHEMA)
+        except sqlite3.DatabaseError:
+            self._recover_corrupt_db()
+            with self._connection() as conn:
+                conn.executescript(_SCHEMA)
 
     def _ensure_row(self) -> None:
         stamp = _now_ms()
-        with self._lock, self._connect() as conn:
+        with self._connection() as conn:
             conn.execute(
                 """
                 INSERT INTO agent_sessions(id, title, cwd, model, status, summary,
@@ -173,7 +208,7 @@ class AgentSession:
         path = Path(db_path) if db_path else _default_db_path()
         if not path.is_file():
             raise SessionNotFound(f"no session database at {path}")
-        with sqlite3.connect(path, timeout=10) as conn:
+        with contextlib.closing(sqlite3.connect(path, timeout=10)) as conn, conn:
             conn.row_factory = sqlite3.Row
             try:
                 row = conn.execute(
@@ -196,15 +231,15 @@ class AgentSession:
         path = Path(db_path) if db_path else _default_db_path()
         if not path.is_file():
             return []
-        with sqlite3.connect(path, timeout=10) as conn:
-            conn.row_factory = sqlite3.Row
-            try:
+        try:
+            with contextlib.closing(sqlite3.connect(path, timeout=10)) as conn, conn:
+                conn.row_factory = sqlite3.Row
                 rows = conn.execute(
                     "SELECT * FROM agent_sessions ORDER BY updated_at DESC LIMIT ?",
                     (max(1, int(limit)),),
                 ).fetchall()
-            except sqlite3.OperationalError:
-                return []
+        except sqlite3.DatabaseError:
+            return []
         return [
             SessionRecord(
                 id=row["id"],
@@ -224,7 +259,7 @@ class AgentSession:
     def append_message(self, message: Dict[str, Any]) -> None:
         role = str(message.get("role") or "unknown")
         payload = json.dumps(message, ensure_ascii=False, default=str)
-        with self._lock, self._connect() as conn:
+        with self._connection() as conn:
             seq = conn.execute(
                 "SELECT COALESCE(MAX(seq), 0) + 1 FROM agent_messages WHERE session_id = ?",
                 (self.id,),
@@ -242,7 +277,7 @@ class AgentSession:
             )
 
     def messages(self) -> List[Dict[str, Any]]:
-        with self._lock, self._connect() as conn:
+        with self._connection() as conn:
             rows = conn.execute(
                 "SELECT payload_json FROM agent_messages WHERE session_id = ? ORDER BY seq ASC",
                 (self.id,),
@@ -262,7 +297,7 @@ class AgentSession:
         resume cheap: opening a long session does not re-send everything it
         already summarised.
         """
-        with self._lock, self._connect() as conn:
+        with self._connection() as conn:
             conn.execute("DELETE FROM agent_messages WHERE session_id = ?", (self.id,))
             for seq, message in enumerate(messages, start=1):
                 conn.execute(
@@ -288,7 +323,7 @@ class AgentSession:
 
     def log_event(self, kind: str, payload: Optional[Dict[str, Any]] = None) -> None:
         try:
-            with self._lock, self._connect() as conn:
+            with self._connection() as conn:
                 seq = conn.execute(
                     "SELECT COALESCE(MAX(seq), 0) + 1 FROM agent_events WHERE session_id = ?",
                     (self.id,),
@@ -311,7 +346,7 @@ class AgentSession:
             pass
 
     def events(self) -> List[Dict[str, Any]]:
-        with self._lock, self._connect() as conn:
+        with self._connection() as conn:
             rows = conn.execute(
                 "SELECT kind, payload_json, created_at FROM agent_events "
                 "WHERE session_id = ? ORDER BY seq ASC",
@@ -329,7 +364,7 @@ class AgentSession:
     # -- metadata ----------------------------------------------------------
 
     def set_status(self, status: str, *, turns: Optional[int] = None) -> None:
-        with self._lock, self._connect() as conn:
+        with self._connection() as conn:
             if turns is None:
                 conn.execute(
                     "UPDATE agent_sessions SET status = ?, updated_at = ? WHERE id = ?",
@@ -342,7 +377,7 @@ class AgentSession:
                 )
 
     def set_summary(self, summary: str) -> None:
-        with self._lock, self._connect() as conn:
+        with self._connection() as conn:
             conn.execute(
                 "UPDATE agent_sessions SET summary = ?, updated_at = ? WHERE id = ?",
                 (summary or "", _now_ms(), self.id),

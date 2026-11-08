@@ -10,26 +10,15 @@ Equipped with cross-platform WebEngine safety flags.
 
 from __future__ import annotations
 
+import importlib.util as _importlib_util
 import json
 import logging
-import os
-import sys
 from pathlib import Path
 from typing import List, Optional
 
-# Configure cross-platform Chromium flags before WebEngine imports
-CHROMIUM_FLAGS = [
-    "--enable-gpu-rasterization",
-    "--enable-zero-copy",
-    "--ignore-gpu-blocklist",
-    "--enable-webgl",
-]
-if sys.platform == "win32":
-    CHROMIUM_FLAGS.append("--use-angle=d3d11")
-elif sys.platform.startswith("linux"):
-    CHROMIUM_FLAGS.extend(["--no-sandbox", "--disable-dev-shm-usage"])
+from core.qt_bootstrap import bootstrap
 
-os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = " ".join(CHROMIUM_FLAGS)
+bootstrap()
 
 try:
     from PyQt6.QtCore import QObject, Qt, QUrl, pyqtSignal as Signal, pyqtSlot as Slot
@@ -42,13 +31,8 @@ try:
         QVBoxLayout,
         QWidget,
     )
-    try:
-        from PyQt6.QtWebChannel import QWebChannel
-        from PyQt6.QtWebEngineWidgets import QWebEngineView
-        _WEBENGINE_OK = True
-    except Exception:
-        QWebEngineView = None
-        _WEBENGINE_OK = False
+    _WEBENGINE_OK = _importlib_util.find_spec("PyQt6.QtWebEngineWidgets") is not None
+    _QT_BINDING = "PyQt6"
 except ImportError:
     from PySide6.QtCore import QObject, Qt, QUrl, Signal, Slot
     from PySide6.QtGui import QColor
@@ -60,13 +44,8 @@ except ImportError:
         QVBoxLayout,
         QWidget,
     )
-    try:
-        from PySide6.QtWebChannel import QWebChannel
-        from PySide6.QtWebEngineWidgets import QWebEngineView
-        _WEBENGINE_OK = True
-    except Exception:
-        QWebEngineView = None
-        _WEBENGINE_OK = False
+    _WEBENGINE_OK = _importlib_util.find_spec("PySide6.QtWebEngineWidgets") is not None
+    _QT_BINDING = "PySide6"
 
 from core.space_cleaner import get_space_cleaner
 
@@ -187,7 +166,14 @@ class SpaceCleanerPopupOverlay(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        if _WEBENGINE_OK and QWebEngineView is not None:
+        if _WEBENGINE_OK:
+            if _QT_BINDING == "PyQt6":
+                from PyQt6.QtWebChannel import QWebChannel
+                from PyQt6.QtWebEngineWidgets import QWebEngineView
+            else:
+                from PySide6.QtWebChannel import QWebChannel
+                from PySide6.QtWebEngineWidgets import QWebEngineView
+
             self.web_view = QWebEngineView(self._frame)
             self.web_view.setStyleSheet("background: transparent;")
             self.web_view.page().setBackgroundColor(QColor("#07090e"))
@@ -225,8 +211,8 @@ class SpaceCleanerPopupOverlay(QWidget):
     def set_scan_status(self, msg: str, percent: int) -> None:
         """Pushes scan status ticker update to JS."""
         if hasattr(self, "web_view") and self.web_view:
-            safe_msg = msg.replace("'", "\\'")
-            js = f"if (window.setStatus) window.setStatus('{safe_msg}', true);"
+            safe_msg = json.dumps(str(msg))
+            js = f"if (window.setStatus) window.setStatus({safe_msg}, true);"
             self.web_view.page().runJavaScript(js)
 
     def notify_scan_finished(self, json_payload: str) -> None:

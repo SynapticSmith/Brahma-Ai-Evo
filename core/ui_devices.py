@@ -520,7 +520,14 @@ class SmartDevicesSection(QFrame):
 
     def showEvent(self, event):
         super().showEvent(event)
+        if hasattr(self, "_poll_tmr") and not self._poll_tmr.isActive():
+            self._poll_tmr.start(2500)
         self.refresh(force=True)
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        if hasattr(self, "_poll_tmr") and self._poll_tmr.isActive():
+            self._poll_tmr.stop()
 
     def _position_panel(self):
         panel_w = min(330, max(270, int(self.width() * 0.28)))
@@ -1277,17 +1284,22 @@ class BrahmaConnectDevicesPage(QFrame):
         pin, ok = QInputDialog.getText(self, "Set Device PIN", "Enter device PIN:", QLineEdit.EchoMode.Password)
         if ok and pin.strip():
             try:
-                settings = {}
+                from core.secret_store import load_api_keys, save_api_keys
+                from core.atomic_io import atomic_write_json
+                secrets = load_api_keys()
+                pins = secrets.get("device_pins", {})
+                if not isinstance(pins, dict):
+                    pins = {}
+                pins[device_id] = pin.strip()
+                secrets["device_pins"] = pins
+                save_api_keys(secrets)
+
                 if APP_SETTINGS_FILE.exists():
                     with open(APP_SETTINGS_FILE, "r", encoding="utf-8") as f:
                         settings = json.load(f)
-                
-                device_pins = settings.get("device_pins", {})
-                device_pins[device_id] = pin.strip()
-                settings["device_pins"] = device_pins
-                
-                with open(APP_SETTINGS_FILE, "w", encoding="utf-8") as f:
-                    json.dump(settings, f, indent=4)
+                    if isinstance(settings, dict) and "device_pins" in settings:
+                        settings.pop("device_pins", None)
+                        atomic_write_json(APP_SETTINGS_FILE, settings)
             except Exception as e:
                 print(f"Error saving pin: {e}")
 
@@ -1309,4 +1321,11 @@ class BrahmaConnectDevicesPage(QFrame):
 
     def showEvent(self, event):
         super().showEvent(event)
+        if hasattr(self, "_poll_tmr") and not self._poll_tmr.isActive():
+            self._poll_tmr.start(2500)
         self.refresh(force=True)
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        if hasattr(self, "_poll_tmr") and self._poll_tmr.isActive():
+            self._poll_tmr.stop()

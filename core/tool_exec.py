@@ -124,15 +124,10 @@ class ToolExecutor:
             from core.dynamic_registry import DynamicToolRegistry
 
             if name and DynamicToolRegistry.has_tool(name):
-                loop = asyncio.get_event_loop()
-                run_res = await loop.run_in_executor(
-                    None, lambda: DynamicToolRegistry.execute_sync(name, args or {})
+                call_id = getattr(fc, "id", None) or f"call_{name}"
+                out_text = await asyncio.to_thread(
+                    DynamicToolRegistry.execute_guarded, name, args or {}, call_id=call_id
                 )
-                out_text = (
-                    str(run_res.get("summary") or run_res.get("output") or run_res.get("text") or run_res)
-                    if isinstance(run_res, dict)
-                    else str(run_res)
-                ).strip()
                 self._host.ui.write_log(f"Brahma Evo [{name}]:\n{out_text}")
                 result = out_text
         except Exception as e:

@@ -96,11 +96,21 @@ def _selected_id() -> Optional[str]:
         return None
 
 
+def _auto_switch() -> bool:
+    try:
+        from memory import config_manager
+
+        return bool((config_manager.load_settings() or {}).get("auto_provider_switch", True))
+    except Exception:
+        return True
+
+
 def _chain() -> List[str]:
     """Enabled providers in failover order; offline mode drops the cloud links.
 
     The provider selected in Settings is placed first (when it is enabled),
-    mirroring the reply ladder's ordering.
+    mirroring the reply ladder's ordering. When ``auto_provider_switch`` is
+    disabled in Settings, only the selected provider is returned.
     """
     try:
         from core import provider_router
@@ -112,7 +122,11 @@ def _chain() -> List[str]:
         chain = [p for p in chain if p in ("local", "custom")]
     selected = _selected_id()
     if selected in chain:
+        if not _auto_switch():
+            return [selected]
         chain = [selected] + [p for p in chain if p != selected]
+    elif selected is not None and not _auto_switch():
+        return []
     return chain
 
 

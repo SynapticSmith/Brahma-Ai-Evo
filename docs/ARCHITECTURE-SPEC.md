@@ -282,27 +282,27 @@ These are the rules a change must not break. Each has an enforcement point and, 
 
 | Capability | Limit |
 |---|---|
-| Native tool dispatch | No policy engine; only three destructive actions are confirm-gated. |
-| `agent_task` autonomous execution | Bypasses the harness entirely; planner is prompt-driven and unverified. |
+| Native & dynamic tool dispatch | All 84 native desktop tools (`core/desktop_tools.py`), dynamic `features/*`, and voice MCP tools route through `AgentRuntime.execute` (`core/tool_exec.py` has 0 `elif` branches). |
+| `agent_task` autonomous execution | Retired in Q0-A; replaced by `AgentLoop` and `run_subagent` / `run_subagent_batch`. |
 | Gemini Live + deferred tools | Budgeted `search_tools`/`call_tool` templates with session-scoped reconnect pins; no unbudgeted append (I-19). |
-| Voice MCP | Separate SDK manager; no turn-boundary refresh parity with the harness. |
-| Subagents | Sequential, same model, lossy report, no session row. |
-| Skills Forge | Writes and immediately executes model-generated code; no trust boundary, no review, runtime `pip`. |
-| Plugins | Any `.py` in `plugins/` is imported at startup, unsigned. |
-| Gateway | WebSocket authenticates; HTTP control routes do not; binds `0.0.0.0`. |
-| Updates | Startup `git pull` / `reset --hard` from a hardcoded upstream, unsigned. |
-| Secrets | Fernet key stored beside the ciphertext; plaintext `api_keys.json`. |
+| Voice MCP | SDK manager (`core/mcp_manager.py`); dynamic tools execute through `DynamicToolRegistry.execute_guarded` behind `AgentRuntime.execute`. |
+| Subagents | Sequential for mutations, parallel read-only fan-out via `run_subagent_batch` (D44), 607-template vendored `subagents/` library with tiered disclosure (`list_subagents`). |
+| Skills Forge | Stages draft artifacts in `SkillStore` (`staged_skills/`); AST-hardened & isolated `SkillCrucible` verification (`run_captured`, `-I`, scrubbed env); human promotion via `SkillReviewDialog` (`/skills`). |
+| Plugins | Loaded from `plugins/` with allowlist verification and `on_startup` / `on_shutdown` lifecycle hooks. |
+| Gateway & Dashboard | Bind `127.0.0.1` by default; bearer-token auth, PIN lockout rate-limiting, path confinement, and WSS default on Android companion. |
+| Updates | `core/release_manager.py` verifies Ed25519 signatures fail-closed against `PINNED_RELEASE_PUBLIC_KEY`. |
+| Secrets | Encrypted at rest via Windows DPAPI (`core/secret_store.py`) and `CredentialVault`; all writes use `atomic_write_json`. |
 
-### 5.3 Designed / deferred / rejected
+### 5.3 Landed extensions & remaining deferred items
 
-| Item | Status | Resume condition |
+| Item | Status | Notes / Resume condition |
 |---|---|---|
-| Filesystem/network confinement for `run_command` (N4) | **Blocked on decision** | Pick container-first, AppContainer-first, or "prefix is enough". |
-| Parallel / model-selecting subagents (N5) | **Blocked on decision** | Accept sequential, or design a coordinator that keeps one enforcement path. |
-| MCP resources/prompts/sampling (N6) | **Deferred** | Add only with a complete implementation and tests. |
+| Filesystem/network confinement for `run_command` (N4) | **Landed (D43)** | Container-first behavioral probe (`python -m agent sandbox doctor`, `require_confined`). |
+| Parallel / model-selecting subagents (N5) | **Landed (D44)** | `run_subagent_batch` for read-only fan-out; mutations stay sequential. |
+| MCP resources/prompts/sampling (N6) | **Landed (D47)** | Resources & prompts implemented in `agent/mcp.py` and outbound `agent/mcp_server.py`. |
 | Executable project skills / `allowed-tools` enforcement (N7) | **Rejected** | Would be a second permission boundary. |
-| Security roadmap WS-1…WS-10 | **Designed** | Phase 0 can start now; later phases need the process split. |
-| Agent & orchestrator bridge | **Aspirational** | Re-base onto `AgentRuntime`; see §8. |
+| Security roadmap WS-1…WS-10 & Batch R-1..R-4 | **Landed** | Full remediation across `FIND-001`–`FIND-063` tracked in `docs/REMEDIATION-TRACKER.md`. |
+| Agent & orchestrator bridge | **Landed (ADR-018)** | Implemented in `core/agent_bridge/` publishing `ToolSpec`s behind `AgentRuntime.execute`. |
 | Upstream port | **Planned** | After the fork's security batch; selective only. |
 | Peer/LAN agents | **Deferred** (ADR-002/013) | Phase 5, after recursion guard and Phases 0–4. |
 | AppContainer sandbox | **Rejected for now** | Fails silently against a normal Python install (D36). |
@@ -751,9 +751,9 @@ ightarrow$ 10 min lockout), and replay-protected nonces enforced across all HTTP
 | **Meta-tool** | A discovery primitive (`search_tools`, `call_tool`, …) that reaches the unadvertised catalogue. |
 | **Skill (core)** | A catalogue entry in the Skills Library; instructional or executable. |
 | **Skill (project)** | A `SKILL.md` playbook under `.brahma/skills`; instructional only. |
-| **Forge** | Model-generated code written to `features/` and hot-loaded. The untrusted path. |
-| **Crucible** | The forge's quality gate (AST denylist + same-user subprocess). Not a sandbox. |
-| **Bridge** | The unbuilt agent/orchestrator discovery-and-routing proposal. |
+| **Forge** | Model-generated skill drafts staged in `SkillStore` (`staged_skills/`) awaiting human review (`SkillReviewDialog`). |
+| **Crucible** | The forge's verification gate (expanded AST denylist + isolated `-I` subprocess via `run_captured` with scrubbed env). |
+| **Bridge** | The Agent & Orchestrator Bridge (`core/agent_bridge/`) publishing external agents as `ToolSpec`s behind `AgentRuntime.execute`. |
 | **Session** | A durable `agent_*` row group in `workspace_store.sqlite3`. |
 | **Turn** | One model call plus its tool calls/results. |
 
@@ -819,6 +819,12 @@ ightarrow$ 10 min lockout), and replay-protected nonces enforced across all HTTP
 - **Unified Policy Execution:** Outbound tool executions route strictly through `AgentRuntime.execute`, preserving permission policy, confirmation handling, workspace containment, and audit trails. Guarded by `tests/test_agent_mcp_server.py`.
 - **MCP Client Resources & Prompts (N6):** Added client support for `resources/list`, `resources/read`, `prompts/list`, and `prompts/get` to `StdioServer` and `MCPSession` in `agent/mcp.py`. Servers declaring resources/prompts have read-only `ToolSpec`s registered dynamically (`mcp_<server>_read_resource`, `mcp_<server>_get_prompt`, etc.).
 - **Dynamic Refresh on Notification:** Extended turn-boundary refresh to handle `notifications/resources/list_changed` and `notifications/prompts/list_changed`. Guarded by `tests/test_agent_mcp.py`.
+
+### D.9 Whole-System Architectural Audit & Remediation (`Batch R-1` – `Batch R-4`, `FIND-001` – `FIND-063`)
+- **Wave 1 (Harness, Dispatch Boundary & SQLite Hardening):** Enforced path containment across all `PATH_ARG_KEYS` and `actions/file_controller.py`; routed `DynamicToolRegistry` tools through `AgentRuntime.execute` (`execute_guarded`); added `check_same_thread=False` + lock to `ToolIndex` FTS5; made `WorkspaceStore` lazy with deterministic connection closing and corruption recovery; pinned DNS-validated IPs in `agent/web.py` (`web_fetch` SSRF protection); synchronized `MCPSession` with `RLock`; hardened Windows Job Object tree termination in `agent/process.py`.
+- **Wave 2 (Host RCE, Crucible, Action Injections & DPAPI Secrets):** Removed `.py` `exec()` / `-m pip` CLI proxy hook from `main.py`; hardened `SkillCrucible` AST validation and isolated subprocess execution; eliminated script/XML/PowerShell command injections in `actions/reminder.py`, `actions/computer_control.py`, and `actions/desktop.py`; migrated credential storage and readers across 20+ modules to DPAPI-backed `core.secret_store` and `atomic_write_json`; enforced fail-closed Ed25519 verification in `core/release_manager.py`.
+- **Wave 3 (Dashboard, Android Companion & Discord Bot):** Removed UAC firewall elevation in `dashboard/server.py`, bound to `127.0.0.1` by default, added `/login` rate-limiting, path traversal confinement, and upload extension blocking; enforced `wss://` and canonical file confinement in `brahma-connect-android`; removed import-time `pip install` and added `provider_router.guard` in `discord_bot.py`.
+- **Wave 4–6 (Lifecycle, Egress Guards, UI Concurrency, Seam Wiring & Packaging):** Fixed `SessionLifecycle` `_resume_handle` and `_pause_until` host scoping; enforced `provider_router` egress guards (`I-21`); serialized blocking HUD approvals (`core/confirm.py`) and TTS playback (`core/audio_io.py`, `core/speech_tts.py`); marshalled clipboard UI events to the Qt thread; eliminated `ui_sysmetrics.py` PowerShell polling; converted `QtWebEngineWidgets` imports to lazy loading (`I-26`); wired `AgentBridge.publish_tools()`, `SkillReviewDialog` (`/skills`), `brahma_connect.on_chat_message`, and shutdown teardown; and updated PyInstaller specs and frozen asset/subagent path resolution. Guarded by `docs/REMEDIATION-TRACKER.md` and `tests/test_dashboard.py`.
 
 ---
 

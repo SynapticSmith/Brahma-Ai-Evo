@@ -39,9 +39,14 @@ class AttentionFlow:
         msg = self.attention_message(event)
         self._host.ui.write_log(f"Brahma Evo: {msg}")
         if self._host.session and self._host._loop:
-            self._host.speak(msg)
+            self._host.speak(msg, proactive=True)
         else:
-            threading.Thread(target=speak_native, args=(msg,), daemon=True).start()
+            threading.Thread(
+                target=speak_native,
+                args=(msg,),
+                kwargs={"proactive": True},
+                daemon=True,
+            ).start()
         self._host.ui.show_attention_alert(event)
 
     def on_external_notification(self, event: dict):

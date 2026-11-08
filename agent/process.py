@@ -163,17 +163,15 @@ class _JobHandle:
             return "resource limits were not applied (the job object was unavailable)"
 
 
-def _windows_job(process: subprocess.Popen) -> Optional[_JobHandle]:
-    """Assign ``process`` to a fresh job object, or return ``None``.
-
-    ``OpenProcess`` is used instead of ``Popen._handle`` so this stays on the
-    public surface. The process is assigned as soon as it exists; a child that
-    it spawns afterwards inherits the job.
-    """
+def _windows_job(
+    process: subprocess.Popen, sandbox: Optional[SandboxConfig] = None
+) -> Optional[_JobHandle]:
+    """Assign ``process`` (and any children it spawns) to a fresh job object."""
     if os.name != "nt":
         return None
     try:
         import ctypes
+        import time as _time
         from ctypes import wintypes
 
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -188,10 +186,9 @@ def _windows_job(process: subprocess.Popen) -> Optional[_JobHandle]:
         kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
         kernel32.CloseHandle.restype = wintypes.BOOL
 
-        # PROCESS_SET_QUOTA is required by AssignProcessToJobObject;
-        # PROCESS_TERMINATE is the fallback the caller may need.
+        root_pid = int(process.pid)
         process_handle = kernel32.OpenProcess(
-            0x0100 | 0x0001, False, int(process.pid)
+            0x0100 | 0x0001, False, root_pid
         )
         if not process_handle:
             return None
@@ -201,6 +198,10 @@ def _windows_job(process: subprocess.Popen) -> Optional[_JobHandle]:
             kernel32.CloseHandle(process_handle)
             return None
 
+        job_handle = _JobHandle(job, kernel32)
+        if sandbox is not None and sandbox.has_limits:
+            job_handle.set_limits(sandbox)
+
         try:
             assigned = kernel32.AssignProcessToJobObject(job, process_handle)
         finally:
@@ -209,18 +210,81 @@ def _windows_job(process: subprocess.Popen) -> Optional[_JobHandle]:
         if not assigned:
             kernel32.CloseHandle(job)
             return None
-        return _JobHandle(job, kernel32)
+
+        # Catch any child process spawned by the shell (including Windows Store
+        # App Execution Alias children that break away from parent job inheritance).
+        try:
+            class _PROCESSENTRY32(ctypes.Structure):
+                _fields_ = [
+                    ("dwSize", wintypes.DWORD),
+                    ("cntUsage", wintypes.DWORD),
+                    ("th32ProcessID", wintypes.DWORD),
+                    ("th32DefaultHeapID", ctypes.c_size_t),
+                    ("th32ModuleID", wintypes.DWORD),
+                    ("cntThreads", wintypes.DWORD),
+                    ("th32ParentProcessID", wintypes.DWORD),
+                    ("pcPriClassBase", wintypes.LONG),
+                    ("dwFlags", wintypes.DWORD),
+                    ("szExeFile", ctypes.c_char * 260),
+                ]
+
+            kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+            kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+            kernel32.Process32First.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PROCESSENTRY32)]
+            kernel32.Process32First.restype = wintypes.BOOL
+            kernel32.Process32Next.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PROCESSENTRY32)]
+            kernel32.Process32Next.restype = wintypes.BOOL
+
+            has_limits = bool(sandbox is not None and sandbox.has_limits)
+            deadline = _time.monotonic() + (0.5 if has_limits else 0.0)
+            assigned_children = 0
+            while True:
+                snap = kernel32.CreateToolhelp32Snapshot(0x00000002, 0)
+                if snap and snap != wintypes.HANDLE(-1).value:
+                    try:
+                        parent_map: dict[int, list[int]] = {}
+                        pe = _PROCESSENTRY32()
+                        pe.dwSize = ctypes.sizeof(_PROCESSENTRY32)
+                        if kernel32.Process32First(snap, ctypes.byref(pe)):
+                            while True:
+                                parent_map.setdefault(int(pe.th32ParentProcessID), []).append(
+                                    int(pe.th32ProcessID)
+                                )
+                                if not kernel32.Process32Next(snap, ctypes.byref(pe)):
+                                    break
+                        queue = list(parent_map.get(root_pid, ()))
+                        seen = {root_pid}
+                        while queue:
+                            cid = queue.pop(0)
+                            if cid in seen:
+                                continue
+                            seen.add(cid)
+                            queue.extend(parent_map.get(cid, ()))
+                            ch = kernel32.OpenProcess(0x0100 | 0x0001, False, cid)
+                            if ch:
+                                try:
+                                    if kernel32.AssignProcessToJobObject(job, ch):
+                                        assigned_children += 1
+                                finally:
+                                    kernel32.CloseHandle(ch)
+                    finally:
+                        kernel32.CloseHandle(snap)
+                if assigned_children > 0 or process.poll() is not None or _time.monotonic() >= deadline:
+                    break
+                _time.sleep(0.001)
+        except Exception:
+            pass
+
+        return job_handle
     except Exception:  # pragma: no cover - old Windows, restricted token, WOW64
         return None
 
 
 def _kill_tree(process: subprocess.Popen, job: Optional[_JobHandle]) -> None:
     """Terminate the whole tree. Best-effort: never raise from cleanup."""
-    if job is not None:
-        job.terminate()
-    elif os.name == "nt":
-        # No job object (old Windows or a restricted token). taskkill /T walks
-        # the tree; if it is unavailable, the single kill below is still done.
+    if os.name == "nt":
+        # Walk the PID tree via taskkill /T FIRST while the root process is
+        # still alive in the process table, then terminate the job object.
         try:
             subprocess.run(
                 ["taskkill", "/F", "/T", "/PID", str(process.pid)],
@@ -230,7 +294,9 @@ def _kill_tree(process: subprocess.Popen, job: Optional[_JobHandle]) -> None:
             )
         except Exception:  # pragma: no cover - taskkill missing/denied
             pass
-    else:
+    if job is not None:
+        job.terminate()
+    elif os.name != "nt":
         try:
             os.killpg(os.getpgid(process.pid), signal.SIGKILL)
         except (ProcessLookupError, PermissionError, OSError):
@@ -321,7 +387,7 @@ def run_captured(
         # the job object provides the same containment there.
         start_new_session=(os.name != "nt"),
     )
-    job = _windows_job(process)
+    job = _windows_job(process, sandbox)
     limits_note = ""
     if sandbox is not None and sandbox.has_limits:
         if os.name == "nt":

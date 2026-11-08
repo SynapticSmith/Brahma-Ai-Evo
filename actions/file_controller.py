@@ -105,6 +105,21 @@ def _is_safe_path(target: Path) -> bool:
     except Exception:
         return False
 
+
+def _is_safe_subpath(base: Path, name: str) -> bool:
+    """Ensure ``base / name`` stays within ``base`` and inside ``_SAFE_ROOTS``."""
+    target = (base / name) if name else base
+    if not _is_safe_path(target):
+        return False
+    if not name:
+        return True
+    try:
+        base_res = base.resolve()
+        target_res = target.resolve()
+        return target_res != base_res and target_res.is_relative_to(base_res)
+    except Exception:
+        return False
+
 def _get_desktop() -> Path:
     if _OS == "Linux":
         xdg = os.environ.get("XDG_DESKTOP_DIR", "")
@@ -230,7 +245,7 @@ def create_file(path: str, name: str = "", content: str = "") -> str:
     try:
         base   = _resolve_path(path)
         target = (base / name) if name else base
-        if not _is_safe_path(target):
+        if not _is_safe_subpath(base, name):
             return f"Access denied: {target}"
         target.parent.mkdir(parents=True, exist_ok=True)
         existed = target.exists()
@@ -252,7 +267,7 @@ def create_folder(path: str, name: str = "") -> str:
     try:
         base   = _resolve_path(path)
         target = (base / name) if name else base
-        if not _is_safe_path(target):
+        if not _is_safe_subpath(base, name):
             return f"Access denied: {target}"
         already = target.exists()
         target.mkdir(parents=True, exist_ok=True)
@@ -270,7 +285,7 @@ def delete_file(path: str, name: str = "") -> str:
     try:
         base   = _resolve_path(path)
         target = (base / name) if name else base
-        if not _is_safe_path(target):
+        if not _is_safe_subpath(base, name):
             return f"Access denied: {target}"
         if not target.exists():
             return f"Not found: {target.name}"
@@ -302,12 +317,12 @@ def move_file(path: str, name: str = "", destination: str = "") -> str:
         src    = (base / name) if name else base
         dst    = _resolve_path(destination) if destination else None
 
+        if not _is_safe_subpath(base, name):
+            return f"Access denied (source): {src}"
         if not src.exists():
             return f"Source not found: {src.name}"
         if dst is None:
             return "No destination specified."
-        if not _is_safe_path(src):
-            return f"Access denied (source): {src}"
         if not _is_safe_path(dst):
             return f"Access denied (destination): {dst}"
 
@@ -331,12 +346,12 @@ def copy_file(path: str, name: str = "", destination: str = "") -> str:
         src  = (base / name) if name else base
         dst  = _resolve_path(destination) if destination else None
 
+        if not _is_safe_subpath(base, name):
+            return f"Access denied (source): {src}"
         if not src.exists():
             return f"Source not found: {src.name}"
         if dst is None:
             return "No destination specified."
-        if not _is_safe_path(src):
-            return f"Access denied (source): {src}"
         if not _is_safe_path(dst):
             return f"Access denied (destination): {dst}"
 
@@ -372,7 +387,7 @@ def rename_file(path: str, name: str = "", new_name: str = "") -> str:
     try:
         base     = _resolve_path(path)
         target   = (base / name) if name else base
-        if not _is_safe_path(target):
+        if not _is_safe_subpath(base, name):
             return f"Access denied: {target}"
         if not target.exists():
             return f"Not found: {target.name}"
@@ -380,6 +395,8 @@ def rename_file(path: str, name: str = "", new_name: str = "") -> str:
             return "No new name provided."
 
         new_path = target.parent / new_name
+        if not _is_safe_subpath(target.parent, new_name):
+            return f"Access denied: {new_path}"
         if new_path.exists():
             return f"A file named '{new_name}' already exists here."
 
@@ -397,7 +414,7 @@ def read_file(path: str, name: str = "", max_chars: int = 4000) -> str:
     try:
         base   = _resolve_path(path)
         target = (base / name) if name else base
-        if not _is_safe_path(target):
+        if not _is_safe_subpath(base, name):
             return f"Access denied: {target}"
         if not target.exists():
             return f"File not found: {target.name}"
@@ -418,7 +435,7 @@ def write_file(path: str, name: str = "", content: str = "",
     try:
         base   = _resolve_path(path)
         target = (base / name) if name else base
-        if not _is_safe_path(target):
+        if not _is_safe_subpath(base, name):
             return f"Access denied: {target}"
         target.parent.mkdir(parents=True, exist_ok=True)
 
@@ -553,7 +570,7 @@ def get_file_info(path: str, name: str = "") -> str:
     try:
         base   = _resolve_path(path)
         target = (base / name) if name else base
-        if not _is_safe_path(target):
+        if not _is_safe_subpath(base, name):
             return f"Access denied: {target}"
         if not target.exists():
             return f"Not found: {target.name}"

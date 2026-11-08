@@ -1,9 +1,11 @@
 # actions/reminder.py
 
+import json
 import subprocess
 import os
 import sys
 from datetime import datetime
+from xml.sax.saxutils import escape as xml_escape
 
 
 def reminder(
@@ -37,8 +39,10 @@ def reminder(
         if target_dt <= datetime.now():
             return "That time is already in the past."
 
-        task_name    = f"MARKReminder_{target_dt.strftime('%Y%m%d_%H%M')}"
-        safe_message = message.replace('"', '').replace("'", "").strip()[:200]
+        task_name = f"MARKReminder_{target_dt.strftime('%Y%m%d_%H%M')}"
+        clean_message = str(message or "Reminder").strip()[:200]
+        encoded_message = json.dumps(clean_message)
+        xml_safe_message = xml_escape(clean_message, {'"': "&quot;", "'": "&apos;"})
 
         python_exe = sys.executable
         if python_exe.lower().endswith("python.exe"):
@@ -51,9 +55,11 @@ def reminder(
         project_root  = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "..")
         )
+        encoded_root = json.dumps(project_root)
 
         script_code = f'''import sys, os, time
-sys.path.insert(0, r"{project_root}")
+sys.path.insert(0, {encoded_root})
+REMINDER_MESSAGE = {encoded_message}
 
 try:
     import winsound
@@ -67,14 +73,14 @@ try:
     from win10toast import ToastNotifier
     ToastNotifier().show_toast(
         "MARK Reminder",
-        "{safe_message}",
+        REMINDER_MESSAGE,
         duration=15,
         threaded=False
     )
 except Exception:
     try:
         import subprocess
-        subprocess.run(["msg", "*", "/TIME:30", "{safe_message}"])
+        subprocess.run(["msg", "*", "/TIME:30", REMINDER_MESSAGE])
     except Exception:
         pass
 
@@ -87,10 +93,13 @@ except Exception:
         with open(notify_script, "w", encoding="utf-8") as f:
             f.write(script_code)
 
+        xml_safe_cmd = xml_escape(python_exe, {'"': "&quot;", "'": "&apos;"})
+        xml_safe_arg = xml_escape(f'"{notify_script}"', {'"': "&quot;", "'": "&apos;"})
+
         xml_content = f'''<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>MARK Reminder: {safe_message}</Description>
+    <Description>MARK Reminder: {xml_safe_message}</Description>
   </RegistrationInfo>
   <Triggers>
     <TimeTrigger>
@@ -100,8 +109,8 @@ except Exception:
   </Triggers>
   <Actions>
     <Exec>
-      <Command>{python_exe}</Command>
-      <Arguments>"{notify_script}"</Arguments>
+      <Command>{xml_safe_cmd}</Command>
+      <Arguments>{xml_safe_arg}</Arguments>
     </Exec>
   </Actions>
   <Settings>

@@ -76,6 +76,7 @@ class _Pending:
 
 _pending: Optional[_Pending] = None
 _lock = threading.Lock()
+_blocking_lock = threading.Lock()
 
 # Set once at startup by main.py. Signature: (title, detail) -> None for show,
 # and () -> None for hide. Both are marshalled onto the Qt thread by the UI.
@@ -137,54 +138,55 @@ def ask_blocking_choice(
     if _show_cb is None or _on_qt_main_thread():
         return "deny"
 
-    pending = _Pending(
-        key=str(key),
-        title=str(heading).strip() or f"Approve {key}?",
-        detail=str(detail),
-        run=lambda: "approved",
-        at=time.monotonic(),
-        waiter=threading.Event(),
-        allow_always=True,
-        remember=str(remember),
-    )
-    # Approval is the one popup that must still expire. The Settings value is
-    # clamped to a finite range; an explicit caller timeout (the API's
-    # ``limits.approval_timeout_s``) is clamped to the same ceiling.
-    try:
-        from core.popup_settings import clamp_approval_timeout
+    with _blocking_lock:
+        pending = _Pending(
+            key=str(key),
+            title=str(heading).strip() or f"Approve {key}?",
+            detail=str(detail),
+            run=lambda: "approved",
+            at=time.monotonic(),
+            waiter=threading.Event(),
+            allow_always=True,
+            remember=str(remember),
+        )
+        # Approval is the one popup that must still expire. The Settings value is
+        # clamped to a finite range; an explicit caller timeout (the API's
+        # ``limits.approval_timeout_s``) is clamped to the same ceiling.
+        try:
+            from core.popup_settings import clamp_approval_timeout
 
-        wait_for = clamp_approval_timeout(timeout)
-    except Exception:
-        wait_for = TIMEOUT_SECONDS if timeout is None else max(1.0, float(timeout))
-    pending.timeout = wait_for
-    with _lock:
-        _pending = pending
-
-    try:
-        _show_cb(pending.title, pending.detail)
-    except Exception as e:
+            wait_for = clamp_approval_timeout(timeout)
+        except Exception:
+            wait_for = TIMEOUT_SECONDS if timeout is None else max(1.0, float(timeout))
+        pending.timeout = wait_for
         with _lock:
-            if _pending is pending:
-                _pending = None
-        _log(f"ERR: Could not ask for approval — {e}")
-        return "deny"
+            _pending = pending
 
-    _log(f"SYS: Awaiting approval — {key}")
-    answered = pending.waiter.wait(wait_for)
-    if not answered:
-        with _lock:
-            if _pending is pending:
-                _pending = None
-        if _hide_cb:
-            try:
-                _hide_cb()
-            except Exception:
-                pass
-        _log(f"SYS: Approval timed out — {key}")
-        return "deny"
-    if not pending.verdict:
-        return "deny"
-    return "always" if pending.always else "allow"
+        try:
+            _show_cb(pending.title, pending.detail)
+        except Exception as e:
+            with _lock:
+                if _pending is pending:
+                    _pending = None
+            _log(f"ERR: Could not ask for approval — {e}")
+            return "deny"
+
+        _log(f"SYS: Awaiting approval — {key}")
+        answered = pending.waiter.wait(wait_for)
+        if not answered:
+            with _lock:
+                if _pending is pending:
+                    _pending = None
+            if _hide_cb:
+                try:
+                    _hide_cb()
+                except Exception:
+                    pass
+            _log(f"SYS: Approval timed out — {key}")
+            return "deny"
+        if not pending.verdict:
+            return "deny"
+        return "always" if pending.always else "allow"
 
 
 def ask_blocking(key: str, detail: str, timeout: Optional[float] = None) -> bool:

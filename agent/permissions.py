@@ -463,10 +463,20 @@ class PermissionPolicy:
             if not headless:
                 trusted_roots, _ = self.resolve_trusted_roots()
 
-            for key in PATH_ARG_KEYS:
-                raw = args.get(key)
-                if not isinstance(raw, str) or not raw.strip():
-                    continue
+            raw_paths: List[str] = [
+                raw
+                for key in PATH_ARG_KEYS
+                if isinstance((raw := args.get(key)), str) and raw.strip()
+            ]
+            if tool_class in ("read", "write"):
+                base_raw = args.get("path")
+                base_str = base_raw.strip() if isinstance(base_raw, str) and base_raw.strip() else "."
+                for sub_key in ("name", "new_name"):
+                    sub_raw = args.get(sub_key)
+                    if isinstance(sub_raw, str) and sub_raw.strip():
+                        raw_paths.append(str(Path(base_str) / sub_raw.strip()))
+
+            for raw in raw_paths:
                 candidate = Path(raw).expanduser()
                 if not candidate.is_absolute():
                     candidate = ws_root / candidate

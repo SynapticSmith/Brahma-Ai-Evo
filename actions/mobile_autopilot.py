@@ -40,12 +40,11 @@ def mobile_autopilot(parameters: dict, response=None, player=None, session_memor
         return json.dumps({"success": False, "error": "Missing instruction."})
 
     try:
+        from core.secret_store import get_secret
         from core.user_paths import get_user_data_dir
 
         config_path = get_user_data_dir() / "config" / "api_keys.json"
-        api_key = str(
-            json.loads(config_path.read_text(encoding="utf-8")).get("gemini_api_key") or ""
-        ).strip()
+        api_key = get_secret("gemini_api_key", path=config_path)
         if not api_key:
             raise RuntimeError(f'No "gemini_api_key" in {config_path}')
     except Exception as e:

@@ -78,11 +78,17 @@ class UnifiedAIClient:
             raw_local = (data.get("local_ai_url") or DEFAULT_LOCAL_URL).rstrip("/")
             self._local_url = raw_local[:-len("/chat/completions")].rstrip("/") if raw_local.endswith("/chat/completions") else raw_local
             self._local_model = data.get("local_ai_model") or DEFAULT_LOCAL_MODEL
-            self._local_api_key = (data.get("local_api_key") or "").strip()
+            try:
+                from core.secret_store import get_secret
+                sec_local = get_secret("local_api_key")
+                sec_custom = get_secret("custom_api_key")
+            except Exception:
+                sec_local, sec_custom = "", ""
+            self._local_api_key = (sec_local or data.get("local_api_key") or "").strip()
             raw_custom = (data.get("custom_ai_url") or "").rstrip("/")
             self._custom_url = raw_custom[:-len("/chat/completions")].rstrip("/") if raw_custom.endswith("/chat/completions") else raw_custom
             self._custom_model = (data.get("custom_ai_model") or "").strip()
-            self._custom_api_key = (data.get("custom_api_key") or "").strip()
+            self._custom_api_key = (sec_custom or data.get("custom_api_key") or "").strip()
         except Exception as e:
             logger.error(f"[LLM Client] Failed to load settings: {e}")
 

@@ -59,6 +59,13 @@ PLUGIN = {
 }
 
 def _get_api_config() -> dict:
+    try:
+        from core.secret_store import load_api_keys
+        keys = load_api_keys()
+        if keys:
+            return keys
+    except Exception:
+        pass
     for cfg_path in [
         get_user_data_dir() / "config" / "api_keys.json",
         get_user_data_dir() / "config" / "app_settings.json",

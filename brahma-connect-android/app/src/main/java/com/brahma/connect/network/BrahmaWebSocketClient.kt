@@ -58,8 +58,20 @@ class BrahmaWebSocketClient(
         AgentStateStore.setStatus("Connecting to ${endpoint.name}")
 
         socket?.close(1000, "Reconnecting")
+        val rawHost = endpoint.host.trim()
+        val wsUrl = when {
+            rawHost.startsWith("wss://") || rawHost.startsWith("ws://") ->
+                "${rawHost.trimEnd('/')}:${endpoint.port}/ws"
+            else -> "wss://$rawHost:${endpoint.port}/ws"
+        }
+        val reqBuilder = Request.Builder().url(wsUrl)
+        val bearer = credential?.deviceSecret?.takeIf { it.isNotBlank() }
+            ?: offer?.pairingToken?.takeIf { it.isNotBlank() }
+        if (bearer != null) {
+            reqBuilder.header("Authorization", "Bearer $bearer")
+        }
         socket = client.newWebSocket(
-            Request.Builder().url("ws://${endpoint.host}:${endpoint.port}/ws").build(),
+            reqBuilder.build(),
             BrahmaSocketListener(),
         )
     }

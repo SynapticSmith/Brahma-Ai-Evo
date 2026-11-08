@@ -541,7 +541,18 @@ class AgentLoop:
         )
         if not decision.allowed:
             return None
-        raw = item["args"].get("path")
+        if item["name"] in ("glob_files", "grep_files") and ".." in str(
+            item["args"].get("pattern") or ""
+        ):
+            return None
+        raw_paths = [
+            val
+            for key in PATH_ARG_KEYS
+            if isinstance((val := item["args"].get(key)), str) and val.strip()
+        ]
+        if len(raw_paths) > 1:
+            return None
+        raw = raw_paths[0] if raw_paths else None
         if spec.tool_class == "write" and (
             not isinstance(raw, str) or not raw.strip()
         ):

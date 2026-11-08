@@ -113,6 +113,9 @@ class ScanningOverlay(QWidget):
         
         if pixmap is not None:
             try:
+                import cv2
+                import numpy as np
+
                 # Convert QPixmap to CV2
                 qimg = pixmap.toImage().convertToFormat(QImage.Format.Format_RGB888)
                 width = qimg.width()

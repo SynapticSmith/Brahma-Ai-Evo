@@ -1,11 +1,29 @@
 from datetime import datetime, timezone
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 TRUSTED_WORKSPACES_FILENAME = "trusted_workspaces.json"
+
+
+def get_asset_path(rel_path: str | Path = "") -> Path:
+    """Resolve a bundled read-only asset across dev checkouts and PyInstaller builds."""
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            cand = Path(meipass) / rel_path
+            if cand.exists():
+                return cand
+        exe_dir = Path(sys.executable).resolve().parent
+        for base in (exe_dir, exe_dir / "_internal"):
+            cand = base / rel_path
+            if cand.exists():
+                return cand
+        return exe_dir / rel_path
+    return Path(__file__).resolve().parent.parent / rel_path
 
 
 def get_user_data_dir() -> Path:

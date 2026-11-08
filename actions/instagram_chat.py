@@ -7,7 +7,6 @@ Listens for incoming DMs on Instagram and replies using Brahma's core generation
 """
 
 import time
-import json
 from pathlib import Path
 
 # Provide a fallback if instagrapi fails to install or load
@@ -29,7 +28,9 @@ def ig_log(msg):
         print(msg)
     except Exception:
         print(msg.encode('ascii', 'replace').decode('ascii'))
-    with open("ig_debug.log", "a", encoding="utf-8") as f:
+    log_path = get_user_data_dir() / "logs" / "ig_debug.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as f:
         f.write(msg + "\n")
 
 def get_base_dir():
@@ -60,9 +61,9 @@ def get_recent_messages(amount=5) -> str:
 
 def _load_credentials():
     try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return data.get("instagram_username", ""), data.get("instagram_password", "")
+        from core.secret_store import load_api_keys
+        data = load_api_keys(CONFIG_PATH)
+        return str(data.get("instagram_username", "")), str(data.get("instagram_password", ""))
     except Exception:
         return "", ""
 

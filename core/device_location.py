@@ -1,4 +1,4 @@
-from core.user_paths import get_user_data_dir
+from core.user_paths import atomic_write_json, get_user_data_dir
 # core/device_location.py
 
 import json
@@ -50,11 +50,9 @@ def _read_disk_cache() -> Optional[Dict[str, Any]]:
 def _write_disk_cache(data: Dict[str, Any]) -> None:
     """Writes detected location to disk cache."""
     try:
-        _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         data_copy = dict(data)
         data_copy["timestamp"] = time.time()
-        with open(_CACHE_FILE, "w", encoding="utf-8") as f:
-            json.dump(data_copy, f, indent=2)
+        atomic_write_json(_CACHE_FILE, data_copy)
     except Exception:
         pass
 
@@ -123,7 +121,6 @@ def _detect_via_ip_services() -> Optional[Dict[str, Any]]:
     """Fast, accurate IP geolocation using multi-provider cascade."""
     endpoints = [
         ("ipwho.is", "https://ipwho.is/", "city", "latitude", "longitude", "region"),
-        ("ip-api.com", "http://ip-api.com/json", "city", "lat", "lon", "regionName"),
         ("freeipapi.com", "https://freeipapi.com/api/json", "cityName", "latitude", "longitude", "regionName"),
     ]
 

@@ -43,6 +43,7 @@ class AudioIO:
         # window would inject a client turn ahead of the tool response and make
         # Gemini answer twice; see speak() and _receive_audio().
         self._live_tool_pending = False
+        self._tts_lock = threading.Lock()
 
 
     async def _listen_audio(self):
@@ -424,15 +425,16 @@ class AudioIO:
             # Skipping the sink here breaks the re-entry; the engine selection
             # and the offline_mode -> SAPI routing below are unchanged.
             def _speak_thread():
-                try:
-                    self._host.set_speaking(True)
-                    from core import speech_tts
+                with self._tts_lock:
+                    try:
+                        self._host.set_speaking(True)
+                        from core import speech_tts
 
-                    speech_tts.speak(text, use_sink=False)
-                except Exception as exc:
-                    print(f"[Brahma Speak] Unified TTS failed: {exc}")
-                finally:
-                    self._host.set_speaking(False)
+                        speech_tts.speak(text, use_sink=False)
+                    except Exception as exc:
+                        print(f"[Brahma Speak] Unified TTS failed: {exc}")
+                    finally:
+                        self._host.set_speaking(False)
             threading.Thread(target=_speak_thread, daemon=True).start()
 
     def speak_error(self, tool_name: str, error: str):

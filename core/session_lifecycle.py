@@ -85,14 +85,14 @@ class SessionLifecycle:
         (and we return now) or sets the event after the clear (and ``wait``
         returns now). Sampling first would let a change be cleared away unseen.
         """
-        event = getattr(self, "_control_wake", None)
+        event = getattr(self._host, "_control_wake", None)
         if event is None:
             await asyncio.sleep(seconds)
             return
         event.clear()
         with self._host._control_lock:
-            seen = getattr(self, "_control_seq", 0)
-        if seen != getattr(self, "_pause_seen", 0):
+            seen = getattr(self._host, "_control_seq", 0)
+        if seen != getattr(self._host, "_pause_seen", 0):
             # A control change arrived while we were connecting; honour it now
             # instead of sleeping through the whole backoff.
             self._host._pause_seen = seen
@@ -102,7 +102,7 @@ class SessionLifecycle:
         except asyncio.TimeoutError:
             pass
         with self._host._control_lock:
-            self._host._pause_seen = getattr(self, "_control_seq", 0)
+            self._host._pause_seen = getattr(self._host, "_control_seq", 0)
     async def _run_local_voice_session(self):
         """Voice session for a local provider: mic -> whisper STT -> local model -> TTS.
 
@@ -560,7 +560,7 @@ class SessionLifecycle:
             input_audio_transcription={},
             system_instruction="\n".join(parts),
             tools=[{"function_declarations": tool_declarations}],
-            session_resumption=types.SessionResumptionConfig(handle=getattr(self, '_resume_handle', None)),
+            session_resumption=types.SessionResumptionConfig(handle=getattr(self._host, '_resume_handle', None)),
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(
@@ -884,6 +884,12 @@ class SessionLifecycle:
             cfg = {}
         if cfg.get("offline_mode_enabled", False):
             return "local_loop"
+        try:
+            from core import provider_router
+            if not provider_router.is_enabled("gemini"):
+                return "local_loop"
+        except Exception:
+            pass
         provider = str(cfg.get("default_ai_provider", "") or "").strip().lower()
         if provider in ("local", "custom", "openrouter"):
             return "local_loop"

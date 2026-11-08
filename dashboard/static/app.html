@@ -600,7 +600,7 @@
     }
 
     // ── Local session encryption (CryptoJS) ──────────────────────────────────
-    const _AES_SALT = 'BRAHMA EVO-DASHBOARD-v1';
+    const _AES_SALT = 'BRAHMA-DASHBOARD-v1';
     let _aesKey = null;
 
     function _initCrypto(key) {
@@ -866,7 +866,6 @@
 
     function _showVoiceSetup() {
       if (document.getElementById('voice-setup')) return; // show once
-      const origin = location.origin;
       const card = document.createElement('div');
       card.id = 'voice-setup';
       card.style.cssText = [
@@ -876,20 +875,10 @@
         'animation:pop 0.18s ease'
       ].join(';');
       card.innerHTML =
-        '<div style="font-weight:700;color:#818cf8;letter-spacing:.5px;margin-bottom:10px">🎤 One-time voice setup</div>' +
-        '<ol style="padding-left:18px;color:#8899aa;margin:0;display:flex;flex-direction:column;gap:4px">' +
-        '<li>Open a new tab → go to <span style="background:rgba(255,255,255,0.07);padding:1px 6px;border-radius:4px;font-family:monospace;font-size:12px">chrome://flags</span></li>' +
-        '<li>Search: <strong style="color:#dde3ed">Insecure origins treated as secure</strong></li>' +
-        '<li>Paste this URL into the box:<br><span id="flags-url" style="background:rgba(255,255,255,0.07);padding:2px 8px;border-radius:4px;font-family:monospace;font-size:11px;user-select:all;cursor:pointer">' + esc(origin) + '</span></li>' +
-        '<li>Set to <strong style="color:#ffffff">Enabled</strong> → tap <strong style="color:#ffffff">Relaunch</strong></li>' +
-        '<li>Return here and tap 🎤</li>' +
-        '</ol>';
+        '<div style="font-weight:700;color:#818cf8;letter-spacing:.5px;margin-bottom:6px">🎤 Secure microphone context required</div>' +
+        '<div style="color:#8899aa">Browser microphone access requires an HTTPS or localhost connection.</div>';
       feed.appendChild(card);
       feed.scrollTop = feed.scrollHeight;
-      // tap to copy
-      card.querySelector('#flags-url').addEventListener('click', () => {
-        navigator.clipboard?.writeText(origin).then(() => toast('URL copied!')).catch(() => {});
-      });
     }
 
     async function doMic() {

@@ -41,7 +41,7 @@ BASE_DIR = _get_base_dir()
 CONFIG_PATH = get_user_data_dir() / "config" / "api_keys.json"
 SESSION_PATH = get_user_data_dir() / "config" / "ig_session.json"
 BROWSER_PROFILE_DIR = get_user_data_dir() / "config" / "ig_browser_profile"
-LOG_PATH = BASE_DIR / "ig_debug.log"
+LOG_PATH = get_user_data_dir() / "logs" / "ig_debug.log"
 
 
 def ig_log(msg: str):
@@ -52,6 +52,7 @@ def ig_log(msg: str):
     except Exception:
         pass
     try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(LOG_PATH, "a", encoding="utf-8") as f:
             f.write(entry + "\n")
     except Exception:
@@ -348,11 +349,9 @@ class InstagramService:
         try:
             if not (BROWSER_PROFILE_DIR.exists() and (BROWSER_PROFILE_DIR / "Default").exists()):
                 return False
-            if CONFIG_PATH.exists():
-                with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    return bool(data.get("instagram_browser_authenticated") and data.get("instagram_sessionid"))
-            return False
+            from core.secret_store import load_api_keys
+            data = load_api_keys(CONFIG_PATH)
+            return bool(data.get("instagram_browser_authenticated") and data.get("instagram_sessionid"))
         except Exception:
             return False
 
@@ -365,10 +364,9 @@ class InstagramService:
 
     def load_credentials(self) -> Tuple[str, str]:
         try:
-            if CONFIG_PATH.exists():
-                with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    return data.get("instagram_username", "").strip(), data.get("instagram_password", "").strip()
+            from core.secret_store import load_api_keys
+            data = load_api_keys(CONFIG_PATH)
+            return str(data.get("instagram_username", "")).strip(), str(data.get("instagram_password", "")).strip()
         except Exception as e:
             ig_log(f"Error reading credentials: {e}")
         return "", ""
@@ -948,17 +946,14 @@ def launch_browser_login():
                     except Exception:
                         pass
 
-                    cfg = {}
-                    if CONFIG_PATH.exists():
-                        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                            cfg = json.load(f)
+                    from core.secret_store import load_api_keys, save_api_keys
+                    cfg = load_api_keys(CONFIG_PATH)
                     if detected_username:
                         cfg["instagram_username"] = detected_username
                     cfg["instagram_sessionid"] = sid
                     cfg["instagram_user_id"] = uid
                     cfg["instagram_browser_authenticated"] = True
-                    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-                        json.dump(cfg, f, indent=4)
+                    save_api_keys(cfg, CONFIG_PATH)
                     print(f"\n[SUCCESS] Instagram connected as @{detected_username or 'user'}!")
                     break
             except Exception:

@@ -27,11 +27,16 @@ class _ShellActionsMixin:
             "sql_query": "SQL Query copied — optimize/review?",
             "code_snippet": "Code snippet copied — review?",
         }.get(category, "Clipboard item copied")
-        self._workspace_sidebar.record_chat_event({
-            "role": "system",
-            "text": f"💡 {label}",
-            "source": "clipboard",
-        })
+        from core.ui_thread import run_on_ui
+
+        run_on_ui(
+            getattr(self, "_win", self._workspace_sidebar),
+            lambda: self._workspace_sidebar.record_chat_event({
+                "role": "system",
+                "text": f"💡 {label}",
+                "source": "clipboard",
+            }),
+        )
 
     def _submit_command(self, text: str):
         self._win.submit_command(text)

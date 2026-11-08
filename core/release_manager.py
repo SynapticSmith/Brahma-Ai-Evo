@@ -25,10 +25,13 @@ from core.user_paths import atomic_write_json, get_user_data_dir
 
 logger = logging.getLogger("ReleaseManager")
 
-# Well-known embedded public key for production BrahmaEvo releases (hex-encoded Ed25519)
-PINNED_RELEASE_PUBLIC_KEY = (
+# Well-known embedded public key for production BrahmaEvo releases (hex-encoded Ed25519).
+# Must be provisioned via BRAHMA_RELEASE_PUBLIC_KEY or explicit trusted_keys;
+# the empty-string SHA-256 placeholder is explicitly rejected (fail-closed).
+_EMPTY_SHA256_PLACEHOLDER = (
     "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 )
+PINNED_RELEASE_PUBLIC_KEY = os.getenv("BRAHMA_RELEASE_PUBLIC_KEY", "").strip()
 
 
 class ReleaseValidationError(ValueError):
@@ -138,8 +141,11 @@ class ReleaseManager:
 
         canonical = canonical_json_bytes(manifest)
 
-        # Check signature against any trusted public key
+        # Check signature against any trusted public key (fail-closed on empty/placeholder keys)
         for pub_key in self.trusted_keys:
+            clean_key = (pub_key or "").strip().lower()
+            if not clean_key or clean_key == _EMPTY_SHA256_PLACEHOLDER:
+                continue
             if verify_signature(pub_key, signature_hex, canonical):
                 return True
 

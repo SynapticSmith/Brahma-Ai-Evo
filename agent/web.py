@@ -22,11 +22,13 @@ no key falls back to DuckDuckGo and says so rather than failing the turn.
 from __future__ import annotations
 
 import html
+import http.client
 import ipaddress
 import json
 import os
 import re
 import socket
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -111,23 +113,20 @@ def _address_is_public(text: str) -> bool:
     )
 
 
-def _check_host(hostname: str) -> None:
+def _resolve_checked_host(hostname: str) -> str:
     host = (hostname or "").strip().lower().rstrip(".")
     if not host:
         raise ValueError("URL has no host")
     if host in _BLOCKED_HOSTNAMES or any(host.endswith(s) for s in _BLOCKED_SUFFIXES):
         raise ValueError(f"refusing to fetch non-public host {host!r}")
     if _allow_private():
-        return
+        return host
 
-    # A literal address needs no DNS. A name is resolved once for the check;
-    # urllib resolves it again when connecting, so this is a strong filter
-    # rather than a defence against a hostile DNS server that changes answers.
     try:
         infos = socket.getaddrinfo(host, None)
     except socket.gaierror as exc:
         raise ValueError(f"could not resolve {host!r}: {exc}") from exc
-    addresses = {str(info[4][0]) for info in infos if info[4]}
+    addresses = [str(info[4][0]) for info in infos if info[4]]
     if not addresses:
         raise ValueError(f"could not resolve {host!r}")
     for address in addresses:
@@ -135,6 +134,11 @@ def _check_host(hostname: str) -> None:
             raise ValueError(
                 f"refusing to fetch {host!r}: {address} is not a public address"
             )
+    return addresses[0]
+
+
+def _check_host(hostname: str) -> None:
+    _resolve_checked_host(hostname)
 
 
 def validate_url(url: str) -> str:
@@ -153,6 +157,42 @@ def validate_url(url: str) -> str:
     return urllib.parse.urlunsplit(parsed)
 
 
+class _GuardedHTTPConnection(http.client.HTTPConnection):
+    """Connects only to an IP validated by ``_resolve_checked_host`` (prevents DNS rebinding)."""
+
+    def connect(self) -> None:
+        target_ip = _resolve_checked_host(self.host)
+        self.sock = socket.create_connection(
+            (target_ip, self.port), self.timeout, self.source_address
+        )
+
+
+class _GuardedHTTPSConnection(http.client.HTTPSConnection):
+    """Connects only to an IP validated by ``_resolve_checked_host`` while keeping SNI/Host."""
+
+    def connect(self) -> None:
+        target_ip = _resolve_checked_host(self.host)
+        sock = socket.create_connection(
+            (target_ip, self.port), self.timeout, self.source_address
+        )
+        server_hostname = self._tunnel_host if self._tunnel_host else self.host
+        self.sock = self._context.wrap_socket(sock, server_hostname=server_hostname)
+
+
+class _GuardedHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req):  # noqa: ANN001
+        return self.do_open(_GuardedHTTPConnection, req)
+
+
+class _GuardedHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):  # noqa: ANN001
+        return self.do_open(
+            _GuardedHTTPSConnection,
+            req,
+            context=getattr(self, "_context", None) or ssl.create_default_context(),
+        )
+
+
 class _GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
     """Validate every redirect target, not only the URL the model supplied."""
 
@@ -164,7 +204,11 @@ class _GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 
 def _opener() -> urllib.request.OpenerDirector:
-    return urllib.request.build_opener(_GuardedRedirectHandler())
+    return urllib.request.build_opener(
+        _GuardedHTTPHandler(),
+        _GuardedHTTPSHandler(),
+        _GuardedRedirectHandler(),
+    )
 
 
 # --------------------------------------------------------------------------- #

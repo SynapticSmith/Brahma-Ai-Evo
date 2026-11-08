@@ -36,13 +36,25 @@ GOOGLE_WORKSPACE_TOKEN_FILE = CONFIG_DIR / "google_workspace_token.json"
 def _get_fernet_cipher():
     try:
         from cryptography.fernet import Fernet
+        from core.secret_store import DPAPI_BINARY_PREFIX, dpapi_protect, dpapi_unprotect, is_dpapi_available
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         if not EMAIL_KEY_FILE.exists():
             key = Fernet.generate_key()
-            with open(EMAIL_KEY_FILE, "wb") as f:
-                f.write(key)
+            if is_dpapi_available():
+                EMAIL_KEY_FILE.write_bytes(DPAPI_BINARY_PREFIX + dpapi_protect(key))
+            else:
+                EMAIL_KEY_FILE.write_bytes(key)
         else:
-            with open(EMAIL_KEY_FILE, "rb") as f:
-                key = f.read().strip()
+            raw = EMAIL_KEY_FILE.read_bytes()
+            if raw.startswith(DPAPI_BINARY_PREFIX):
+                key = dpapi_unprotect(raw[len(DPAPI_BINARY_PREFIX):])
+            else:
+                key = raw.strip()
+                if is_dpapi_available():
+                    try:
+                        EMAIL_KEY_FILE.write_bytes(DPAPI_BINARY_PREFIX + dpapi_protect(key))
+                    except Exception:
+                        pass
         return Fernet(key)
     except Exception as e:
         logger.warning(f"[Workspace] Cryptography initialization error: {e}")
@@ -84,8 +96,8 @@ def save_stored_gmail_credentials(email_addr: str, app_password: str) -> bool:
             "password_encrypted": enc_pw,
             "updated_at": datetime.now().isoformat()
         }
-        with open(EMAIL_CREDENTIALS_FILE, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2)
+        from core.atomic_io import atomic_write_json
+        atomic_write_json(EMAIL_CREDENTIALS_FILE, payload)
         return True
     except Exception as e:
         logger.error(f"[Workspace] Failed to save email credentials: {e}")

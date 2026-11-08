@@ -35,6 +35,13 @@ _MEMORY_PATH  = _BASE / "memory" / "long_term.json"
 
 def _load_config() -> dict:
     try:
+        from core.secret_store import load_api_keys
+        data = load_api_keys()
+        if data:
+            return data
+    except Exception:
+        pass
+    try:
         return json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
     except Exception:
         return {}
@@ -238,14 +245,17 @@ def _clear_field() -> str:
     return "Field cleared"
 
 def _focus_window(title: str) -> str:
+    import os
     os_name = _get_os()
+    env = os.environ.copy()
+    env["BRAHMA_TARGET_TITLE"] = str(title or "")
 
     if os_name == "windows":
         try:
-            script = f'(New-Object -ComObject WScript.Shell).AppActivate("{title}")'
+            script = "(New-Object -ComObject WScript.Shell).AppActivate($env:BRAHMA_TARGET_TITLE)"
             subprocess.run(
                 ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-                capture_output=True, timeout=5,
+                capture_output=True, timeout=5, env=env, stdin=subprocess.DEVNULL,
             )
             time.sleep(0.3)
             return f"Focused window: {title}"
@@ -254,13 +264,14 @@ def _focus_window(title: str) -> str:
 
     if os_name == "mac":
         script = (
-            f'tell application "System Events" to '
-            f'set frontmost of (first process whose name contains "{title}") to true'
+            'set targetTitle to system attribute "BRAHMA_TARGET_TITLE"\n'
+            'tell application "System Events" to '
+            'set frontmost of (first process whose name contains targetTitle) to true'
         )
         try:
             subprocess.run(
                 ["osascript", "-e", script],
-                capture_output=True, timeout=5,
+                capture_output=True, timeout=5, env=env, stdin=subprocess.DEVNULL,
             )
             time.sleep(0.3)
             return f"Focused window: {title}"

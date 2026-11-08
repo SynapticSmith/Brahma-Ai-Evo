@@ -1,6 +1,7 @@
 from __future__ import annotations
 from core.user_paths import get_user_data_dir
 
+import contextlib
 import json
 import os
 import re
@@ -9,7 +10,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import warnings
 with warnings.catch_warnings():
@@ -76,61 +77,117 @@ def _deserialize_attachments(raw: str | None) -> list[dict[str, Any]]:
 
 class WorkspaceStore:
     def __init__(self, db_path: Path | None = None):
-        _ensure_dir()
         self._db_path = Path(db_path or STORE_FILE)
         self._lock = threading.RLock()
-        self._init_db()
+        self._initialized = False
+        if db_path is not None:
+            self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
+        os.makedirs(self._db_path.parent, exist_ok=True)
         conn = sqlite3.connect(self._db_path, timeout=10, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA synchronous=NORMAL;")
         return conn
 
+    def _recover_corrupt_db(self) -> None:
+        stamp = _now_ms()
+        for suffix in ("", "-wal", "-shm"):
+            p = Path(str(self._db_path) + suffix)
+            if p.exists():
+                backup = Path(f"{self._db_path}.corrupted.{stamp}{suffix}")
+                with contextlib.suppress(OSError):
+                    p.replace(backup)
+
+    @staticmethod
+    def _init_schema(conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS conversations (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                pinned INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS messages (
+                id TEXT PRIMARY KEY,
+                conversation_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                timestamp INTEGER NOT NULL,
+                attachments_json TEXT NOT NULL DEFAULT '[]',
+                FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS memories (
+                id TEXT PRIMARY KEY,
+                content TEXT NOT NULL UNIQUE,
+                created_at INTEGER NOT NULL,
+                source_conversation TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS state (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            """
+        )
+
     def _init_db(self) -> None:
-        with self._lock, self._connect() as conn:
-            conn.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS conversations (
-                    id TEXT PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    created_at INTEGER NOT NULL,
-                    updated_at INTEGER NOT NULL,
-                    pinned INTEGER NOT NULL DEFAULT 0
-                );
+        with self._lock:
+            for attempt in range(2):
+                conn: sqlite3.Connection | None = None
+                try:
+                    conn = self._connect()
+                    with conn:
+                        self._init_schema(conn)
+                    self._initialized = True
+                    return
+                except sqlite3.DatabaseError:
+                    if conn is not None:
+                        with contextlib.suppress(Exception):
+                            conn.close()
+                        conn = None
+                    if attempt == 0:
+                        self._recover_corrupt_db()
+                    else:
+                        raise
+                finally:
+                    if conn is not None:
+                        with contextlib.suppress(Exception):
+                            conn.close()
 
-                CREATE TABLE IF NOT EXISTS messages (
-                    id TEXT PRIMARY KEY,
-                    conversation_id TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    timestamp INTEGER NOT NULL,
-                    attachments_json TEXT NOT NULL DEFAULT '[]',
-                    FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
-                );
-
-                CREATE TABLE IF NOT EXISTS memories (
-                    id TEXT PRIMARY KEY,
-                    content TEXT NOT NULL UNIQUE,
-                    created_at INTEGER NOT NULL,
-                    source_conversation TEXT
-                );
-
-                CREATE TABLE IF NOT EXISTS state (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL
-                );
-                """
-            )
+    @contextlib.contextmanager
+    def _connection(self) -> Iterator[sqlite3.Connection]:
+        with self._lock:
+            if not self._initialized:
+                self._init_db()
+            conn: sqlite3.Connection | None = None
+            try:
+                try:
+                    conn = self._connect()
+                except sqlite3.DatabaseError:
+                    self._recover_corrupt_db()
+                    self._initialized = False
+                    self._init_db()
+                    conn = self._connect()
+                with conn:
+                    yield conn
+            finally:
+                if conn is not None:
+                    with contextlib.suppress(Exception):
+                        conn.close()
 
     def _get_state(self, key: str) -> str | None:
-        with self._lock, self._connect() as conn:
+        with self._connection() as conn:
             row = conn.execute("SELECT value FROM state WHERE key = ?", (key,)).fetchone()
             return row["value"] if row else None
 
     def _set_state(self, key: str, value: str) -> None:
-        with self._lock, self._connect() as conn:
+        with self._connection() as conn:
             conn.execute(
                 "INSERT INTO state(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (key, value),
@@ -146,7 +203,7 @@ class WorkspaceStore:
     def create_conversation(self, title: str = "New Conversation") -> str:
         conversation_id = str(uuid.uuid4())
         stamp = _now_ms()
-        with self._lock, self._connect() as conn:
+        with self._connection() as conn:
             conn.execute(
                 """
                 INSERT INTO conversations(id, title, created_at, updated_at, pinned)
@@ -160,7 +217,7 @@ class WorkspaceStore:
     def conversation_exists(self, conversation_id: str) -> bool:
         if not conversation_id:
             return False
-        with self._lock, self._connect() as conn:
+        with self._connection() as conn:
             row = conn.execute(
                 "SELECT 1 FROM conversations WHERE id = ? LIMIT 1",
                 (conversation_id,),
@@ -174,7 +231,7 @@ class WorkspaceStore:
         return self.create_conversation(_title_from_message(first_user_message or "New Conversation"))
 
     def get_conversation(self, conversation_id: str, limit: int | None = None) -> dict[str, Any] | None:
-        with self._lock, self._connect() as conn:
+        with self._connection() as conn:
             convo = conn.execute(
                 "SELECT * FROM conversations WHERE id = ?",
                 (conversation_id,),
@@ -226,7 +283,7 @@ class WorkspaceStore:
     def conversation_has_messages(self, conversation_id: str) -> bool:
         if not conversation_id:
             return False
-        with self._lock, self._connect() as conn:
+        with self._connection() as conn:
             row = conn.execute(
                 "SELECT 1 FROM messages WHERE conversation_id = ? LIMIT 1",
                 (conversation_id,),
@@ -248,10 +305,13 @@ class WorkspaceStore:
             
         def _do_summary():
             try:
-                from core import llm_gateway
-                key_path = get_user_data_dir() / "config" / "api_keys.json"
-                with open(key_path, "r", encoding="utf-8") as f:
-                    api_key = json.load(f)["gemini_api_key"]
+                from core import llm_gateway, provider_router
+                from core.secret_store import get_secret
+                if not provider_router.is_enabled("gemini"):
+                    return
+                api_key = get_secret("gemini_api_key")
+                if not api_key:
+                    return
                 
                 prompt = (
                     "Summarize the following user conversation into 1-2 short, conversational sentences "
@@ -306,7 +366,7 @@ class WorkspaceStore:
             {where}
             ORDER BY pinned DESC, updated_at DESC, created_at DESC
         """
-        with self._lock, self._connect() as conn:
+        with self._connection() as conn:
             rows = conn.execute(query, params).fetchall()
             return [
                 {
@@ -344,21 +404,21 @@ class WorkspaceStore:
 
     def rename_conversation(self, conversation_id: str, title: str) -> None:
         title = _clean_text(title) or "Conversation"
-        with self._lock, self._connect() as conn:
+        with self._connection() as conn:
             conn.execute(
                 "UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?",
                 (title[:80], _now_ms(), conversation_id),
             )
 
     def pin_conversation(self, conversation_id: str, pinned: bool = True) -> None:
-        with self._lock, self._connect() as conn:
+        with self._connection() as conn:
             conn.execute(
                 "UPDATE conversations SET pinned = ?, updated_at = ? WHERE id = ?",
                 (1 if pinned else 0, _now_ms(), conversation_id),
             )
 
     def delete_conversation(self, conversation_id: str) -> None:
-        with self._lock, self._connect() as conn:
+        with self._connection() as conn:
             conn.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
             current = self.get_active_conversation_id()
             if current == conversation_id:
@@ -377,22 +437,21 @@ class WorkspaceStore:
         if not content:
             return
         stamp = int(timestamp or _now_ms())
-        with self._lock, self._connect() as conn:
+        with self._connection() as conn:
             convo = conn.execute("SELECT id, title FROM conversations WHERE id = ?", (conversation_id,)).fetchone()
             if convo is None:
                 conversation_id = self.create_conversation(_title_from_message(content) if role == "user" else "New Conversation")
-                with self._connect() as conn2:
-                    conn2.execute(
-                        """
-                        INSERT INTO messages(id, conversation_id, role, content, timestamp, attachments_json)
-                        VALUES(?, ?, ?, ?, ?, ?)
-                        """,
-                        (str(uuid.uuid4()), conversation_id, role, content, stamp, _serialize_attachments(attachments)),
-                    )
-                    if role == "user" and (convo_title := _title_from_message(content)):
-                        conn2.execute("UPDATE conversations SET title = ? WHERE id = ?", (convo_title, conversation_id))
-                    self._touch_conversation(conn2, conversation_id)
-                    return
+                conn.execute(
+                    """
+                    INSERT INTO messages(id, conversation_id, role, content, timestamp, attachments_json)
+                    VALUES(?, ?, ?, ?, ?, ?)
+                    """,
+                    (str(uuid.uuid4()), conversation_id, role, content, stamp, _serialize_attachments(attachments)),
+                )
+                if role == "user" and (convo_title := _title_from_message(content)):
+                    conn.execute("UPDATE conversations SET title = ? WHERE id = ?", (convo_title, conversation_id))
+                self._touch_conversation(conn, conversation_id)
+                return
             conn.execute(
                 """
                 INSERT INTO messages(id, conversation_id, role, content, timestamp, attachments_json)
@@ -452,7 +511,7 @@ class WorkspaceStore:
         if not candidates:
             if any(trigger in text_low for trigger in ("prefers", "uses", "uses firebase", "likes", "owns", "working on")):
                 candidates.append(text[:220])
-        with self._lock, self._connect() as conn:
+        with self._connection() as conn:
             for item in candidates:
                 normalized = _clean_text(item)
                 if not normalized:
@@ -470,7 +529,7 @@ class WorkspaceStore:
         if not query:
             return []
         tokens = [t for t in re.split(r"\s+", query.lower()) if len(t) > 2][:8]
-        with self._lock, self._connect() as conn:
+        with self._connection() as conn:
             rows = conn.execute(
                 "SELECT id, content, created_at, source_conversation FROM memories ORDER BY created_at DESC"
             ).fetchall()
@@ -524,7 +583,7 @@ class WorkspaceStore:
         return target
 
     def all_memories(self) -> list[dict[str, Any]]:
-        with self._lock, self._connect() as conn:
+        with self._connection() as conn:
             rows = conn.execute(
                 "SELECT id, content, created_at, source_conversation FROM memories ORDER BY created_at DESC"
             ).fetchall()

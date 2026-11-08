@@ -150,6 +150,9 @@ def _load_settings() -> Dict[str, Any]:
         return {}
 
 
+_DEFAULT_LOAD_SETTINGS = _load_settings
+
+
 def _ps_load_speed(data: Any, model: str) -> Optional[str]:
     """Interpret an Ollama ``GET /api/ps`` body as a speed verdict.
 
@@ -454,7 +457,29 @@ class LocalBrain:
         except OSError as e:
             raise LocalBrainError(f"{req.full_url}: {e}") from e
 
+    def _guard_enabled(self) -> None:
+        data = _load_settings()
+        if "provider_enabled_local" in data:
+            val = data["provider_enabled_local"]
+            enabled = (
+                val.strip().lower() not in ("0", "false", "no", "off")
+                if isinstance(val, str)
+                else bool(val)
+            )
+            if not enabled:
+                from core import provider_router
+
+                raise provider_router.ProviderDisabled(
+                    "provider 'local' is disabled in Settings; refusing to call it"
+                )
+            return
+        if _load_settings is _DEFAULT_LOAD_SETTINGS:
+            from core import provider_router
+
+            provider_router.guard("local")
+
     def _post_json(self, payload: Dict[str, Any], timeout: float) -> str:
+        self._guard_enabled()
         self.reload_settings()
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
@@ -652,6 +677,7 @@ class LocalBrain:
         Yields parsed stream delta chunks or tool calls.
         """
         active_model = model or self.default_model
+        self._guard_enabled()
         self.reload_settings()
         payload: Dict[str, Any] = {
             "model": active_model,
@@ -730,6 +756,7 @@ class LocalBrain:
         silent empty response can never masquerade as an answer upstream.
         """
         active_model = model or self.default_model
+        self._guard_enabled()
         self.reload_settings()
         payload: Dict[str, Any] = {
             "model": active_model,

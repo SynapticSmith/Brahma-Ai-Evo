@@ -730,7 +730,13 @@ def _update_memory_async(user_text: str, brahma_text: str) -> None:
         pass
 
     try:
-        api_key = _get_api_key()
+        from core import provider_router
+        if not provider_router.chain():
+            return
+        try:
+            api_key = _get_api_key()
+        except Exception:
+            api_key = ""
         if not should_extract_memory(user_text, brahma_text, api_key):
             return
         data = extract_memory(user_text, brahma_text, api_key)
@@ -3044,6 +3050,11 @@ def main():
         plugin_manager.load_plugins()
     except Exception:
         plugin_manager = None
+    try:
+        from core.agent_bridge.bridge import get_agent_bridge
+        get_agent_bridge().publish_tools()
+    except Exception:
+        pass
 
     def runner():
         _startup_log("runner waiting api key")
@@ -3111,7 +3122,7 @@ def main():
                     msg = f"You received a new Instagram message from {username}{snippet}. What should I reply, or should I take over the chat?"
                     ui.write_log(f"📱 Insta (@{username}): {clean_text or '[Media/Attachment]'}")
                     ui.write_log(f"Brahma Evo: {msg}")
-                    brahma_evo.speak(msg)
+                    brahma_evo.speak(msg, proactive=True)
                     return None
                 
             set_ig_prompt_callback(_ig_handler)
@@ -3132,7 +3143,7 @@ def main():
                     msg = f"You received a new email from {sender} with subject: {subj_preview}."
                     ui.write_log(f"📧 Email ({sender}): {clean_subj}")
                     ui.write_log(f"Brahma Evo: {msg}")
-                    brahma_evo.speak(msg)
+                    brahma_evo.speak(msg, proactive=True)
 
                 set_email_prompt_callback(_email_handler)
                 start_email_daemon(poll_interval=25)
@@ -3149,17 +3160,18 @@ def main():
                 time.sleep(1.0)
                 try:
                     from core.tool_index import get_index
+                    from core.clipboard_sentry import redact_secrets
                     curr_clip = pyperclip.paste()
                     if get_index().is_disabled("clipboard_processor"):
                         last_clip = curr_clip
                         continue
                     if curr_clip != last_clip:
                         last_clip = curr_clip
-                        text = (curr_clip or "").strip()
-                        if text and len(text) > 3:
+                        text = redact_secrets((curr_clip or "").strip())
+                        if text and len(text) > 3 and text != "[REDACTED_KEY]":
                             reply = _clipboard_gemini_reply(text[:1000])
                             ui.write_log(f"Brahma Evo (Clipboard): {reply}")
-                            brahma_evo.speak(reply)
+                            brahma_evo.speak(reply, proactive=True)
                 except Exception:
                     pass
 
@@ -3195,35 +3207,19 @@ def main():
                 brahma_api_server.should_exit = True
         except Exception as exc:
             _startup_log(f"brahma_api shutdown skipped: {exc}")
+        for _stop_fn in (
+            lambda: brahma_connect.stop() if brahma_connect is not None else None,
+            lambda: sensorium.stop(),
+            lambda: plugin_manager.dispatch("on_shutdown", None) if plugin_manager is not None else None,
+        ):
+            try:
+                _stop_fn()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
-    import sys
-    import os
     import traceback
-
-    # Intercept subprocess calls when running as PyInstaller .exe
-    if len(sys.argv) >= 2:
-        if sys.argv[1].endswith(".py") and os.path.exists(sys.argv[1]):
-            # A bundled helper may re-invoke this executable with a generated
-            # .py script; running it here keeps those helpers working when the
-            # app is frozen (sys.executable is the app, not a Python).
-            try:
-                with open(sys.argv[1], 'r', encoding='utf-8') as f:
-                    code = f.read()
-                namespace = {"__name__": "__main__", "__file__": sys.argv[1]}
-                exec(code, namespace)
-                sys.exit(0)
-            except Exception:
-                traceback.print_exc()
-                sys.exit(1)
-        elif sys.argv[1] == "-m" and len(sys.argv) >= 3 and sys.argv[2] == "pip":
-            try:
-                from pip._internal.cli.main import main as pip_main
-                sys.exit(pip_main(sys.argv[3:]))
-            except ImportError:
-                print("pip is not available in the compiled executable.")
-                sys.exit(1)
 
     try:
         main()

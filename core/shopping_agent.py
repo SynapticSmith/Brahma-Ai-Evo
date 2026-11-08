@@ -76,14 +76,21 @@ class ShoppingAgent:
     def _get_llm_client(self):
         """Initializes Gemini API client using Brahma's configured API key."""
         try:
+            from core import provider_router
+
+            if not provider_router.is_enabled("gemini"):
+                return None
+        except Exception:
+            pass
+        try:
+            from core.secret_store import load_api_keys
+
             key_file = self.user_data_dir / "config" / "api_keys.json"
-            if key_file.exists():
-                with open(key_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                api_key = data.get("gemini_api_key", "").strip()
-                if api_key:
-                    from google import genai
-                    return genai.Client(api_key=api_key)
+            data = load_api_keys(key_file)
+            api_key = str(data.get("gemini_api_key") or "").strip()
+            if api_key:
+                from google import genai
+                return genai.Client(api_key=api_key)
         except Exception as exc:
             logger.debug(f"Could not load Gemini API key from config: {exc}")
 
@@ -400,18 +407,17 @@ class ShoppingAgent:
         )
 
         try:
-            client = self._get_llm_client()
-            if not client:
-                raise RuntimeError("Gemini Client not available for synthesis.")
+            from core import llm_gateway
 
-            resp = client.models.generate_content(
-                model="gemini-2.5-flash",
+            resp = llm_gateway.generate_content(
                 contents=f"User Search: {query}\n\nRetrieved Products:\n{json.dumps(items_payload, indent=2)}",
+                model="gemini-2.5-flash",
                 config={
                     "system_instruction": system_instruction,
                     "response_mime_type": "application/json",
                     "temperature": 0.2,
-                }
+                },
+                purpose="shopping recommendation synthesis",
             )
             raw = (resp.text or "").strip()
             raw = re.sub(r"^```(?:json)?\s*", "", raw)

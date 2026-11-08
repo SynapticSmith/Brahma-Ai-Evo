@@ -7,7 +7,6 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout,
                              QLabel, QPushButton, QProgressBar, QGraphicsDropShadowEffect, QStackedWidget)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QUrl
 from PyQt6.QtGui import QFont, QColor
-from PyQt6.QtWebEngineWidgets import QWebEngineView
 
 class InstallThread(QThread):
     progress = pyqtSignal(int)
@@ -120,6 +119,8 @@ class InstallWizard(QWidget):
         self.bg_container.resize(self.size())
         
         # Web Engine View for Orb
+        from PyQt6.QtWebEngineWidgets import QWebEngineView
+
         self.web_view = QWebEngineView(self.bg_container)
         self.web_view.resize(self.size())
         

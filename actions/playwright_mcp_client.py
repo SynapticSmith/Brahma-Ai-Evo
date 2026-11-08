@@ -430,6 +430,17 @@ class PlaywrightMCPClient:
                 pass
             self._running = False
             if self._proc:
+                if os.name == "nt" and getattr(self._proc, "pid", None):
+                    try:
+                        subprocess.run(
+                            ["taskkill", "/F", "/T", "/PID", str(self._proc.pid)],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            timeout=5,
+                            check=False,
+                        )
+                    except Exception:
+                        pass
                 try:
                     self._proc.terminate()
                     self._proc.wait(timeout=3)

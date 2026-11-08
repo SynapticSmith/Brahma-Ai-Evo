@@ -400,6 +400,11 @@ def discover(
                 continue
             existing = by_name.get(skill.name)
             if existing is not None:
+                try:
+                    if existing.path.read_bytes() == path.read_bytes():
+                        continue
+                except OSError:
+                    pass
                 diagnostics.append(
                     f"{path}: skill {skill.name!r} is already defined by "
                     f"{existing.path}; this copy is ignored"

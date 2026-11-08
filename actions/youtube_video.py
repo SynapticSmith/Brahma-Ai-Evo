@@ -98,20 +98,8 @@ def _is_valid_youtube_url(url: str) -> bool:
 
 
 def _ask_for_url(prompt_text: str = "YouTube video URL:") -> str | None:
-    try:
-        import tkinter as tk
-        from tkinter import simpledialog
-
-        root = tk._default_root
-        if root is None:
-            root = tk.Tk()
-            root.withdraw()
-
-        url = simpledialog.askstring("J.A.R.V.I.S", prompt_text, parent=root)
-        return url.strip() if url else None
-    except Exception as e:
-        print(f"[YouTube] ⚠️ URL dialog failed: {e}")
-        return None
+    """Never open a blocking Tkinter dialog from a background tool worker thread."""
+    return None
 
 
 def _get_transcript(video_id: str) -> str | None:

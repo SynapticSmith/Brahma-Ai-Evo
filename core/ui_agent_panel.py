@@ -44,6 +44,10 @@ class _AsyncBridgeWorker(QThread):
             bridge = get_agent_bridge()
             if self.action == "scan":
                 records = bridge.discover()
+                try:
+                    bridge.publish_tools()
+                except Exception:
+                    pass
                 self.finished_scan.emit(records)
             elif self.action == "probe" and self.agent_id:
                 probe_res = bridge.probe(self.agent_id)
@@ -292,6 +296,11 @@ class AgentBridgeCard(QFrame):
     def _on_toggle_agent(self, agent_id: str, enabled: bool):
         bridge = get_agent_bridge()
         bridge.registry.set_enabled(agent_id, enabled)
+        try:
+            bridge.unpublish_tools()
+            bridge.publish_tools()
+        except Exception:
+            pass
         logger.info("Agent %s enabled set to %s", agent_id, enabled)
         # Update summary counter
         records = bridge.list_records()

@@ -311,8 +311,8 @@ def run(parameters: dict, player=None, session_memory=None) -> str:
 
 def get_spotify_config() -> dict:
     try:
-        if SPOTIFY_CONFIG_PATH.exists():
-            return json.loads(SPOTIFY_CONFIG_PATH.read_text(encoding="utf-8"))
+        from core.secret_store import load_secret_json
+        return load_secret_json(SPOTIFY_CONFIG_PATH)
     except Exception:
         pass
     return {}
@@ -328,6 +328,7 @@ def is_spotify_configured() -> bool:
 
 def save_spotify_credentials(client_id: str, client_secret: str) -> bool:
     try:
+        from core.secret_store import save_secret_json
         SPOTIFY_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         data = get_spotify_config()
         if data.get("clientId") != client_id.strip():
@@ -339,7 +340,7 @@ def save_spotify_credentials(client_id: str, client_secret: str) -> bool:
             "clientSecret": client_secret.strip(),
             "redirectUri": "http://127.0.0.1:8888/callback",
         })
-        SPOTIFY_CONFIG_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        save_secret_json(SPOTIFY_CONFIG_PATH, data)
         return True
     except Exception:
         return False

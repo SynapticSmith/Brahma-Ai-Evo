@@ -26,12 +26,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-try:
-    from PyQt6.QtWebChannel import QWebChannel
-    from PyQt6.QtWebEngineWidgets import QWebEngineView
-    _WEBENGINE_OK = True
-except Exception:
-    _WEBENGINE_OK = False
+import importlib.util as _importlib_util
+
+_WEBENGINE_OK = _importlib_util.find_spec("PyQt6.QtWebEngineWidgets") is not None
 
 from core.net_sentinel import get_net_sentinel
 
@@ -196,6 +193,9 @@ class RadarPopupOverlay(QWidget):
 
         # Setup WebEngine & WebChannel
         if _WEBENGINE_OK:
+            from PyQt6.QtWebChannel import QWebChannel
+            from PyQt6.QtWebEngineWidgets import QWebEngineView
+
             self._web = QWebEngineView(self._frame)
             self._web.setStyleSheet("background: transparent;")
             self._web.page().setBackgroundColor(QColor("#050811"))
@@ -275,8 +275,9 @@ class RadarPopupOverlay(QWidget):
 
     def set_latency_result(self, ip: str, latency_ms: float) -> None:
         """Updates real-time ping readout for a target."""
+        safe_ip = json.dumps(str(ip))
         self._run_js(
-            f"if (selectedDevice && selectedDevice.ip === '{ip}') {{ "
+            f"if (selectedDevice && selectedDevice.ip === {safe_ip}) {{ "
             f"document.getElementById('insLatency').innerText = '{latency_ms:.1f} ms'; }}"
         )
 
@@ -291,8 +292,9 @@ class RadarPopupOverlay(QWidget):
 
     def set_device_notified(self, ip: str, res: dict) -> None:
         """Pushes single device notification confirmation to JS."""
+        safe_ip = json.dumps(str(ip))
         clean_json = json.dumps(res)
-        self._run_js(f"if (window.onDeviceNotified) onDeviceNotified('{ip}', {clean_json});")
+        self._run_js(f"if (window.onDeviceNotified) onDeviceNotified({safe_ip}, {clean_json});")
 
     def _do_close(self) -> None:
         self.closed.emit()

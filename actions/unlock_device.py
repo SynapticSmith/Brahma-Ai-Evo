@@ -26,7 +26,14 @@ def unlock_device(parameters: dict, response=None, player=None, session_memory=N
         return "Error: You must specify a target device to unlock."
 
     settings = _get_settings()
-    device_pins = settings.get("device_pins", {})
+    device_pins = dict(settings.get("device_pins") or {})
+    try:
+        from core.secret_store import load_api_keys
+        sec_pins = load_api_keys().get("device_pins")
+        if isinstance(sec_pins, dict):
+            device_pins.update(sec_pins)
+    except Exception:
+        pass
     
     # Try to find pin by exact target match first
     pin = device_pins.get(target)

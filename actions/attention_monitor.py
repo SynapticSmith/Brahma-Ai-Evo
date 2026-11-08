@@ -459,13 +459,24 @@ def _speak_edge_native(text: str, force_edge: bool = False) -> None:
             _cleanup_current_audio()
 
 
-def speak_native(text: str, force_edge: bool = False) -> None:
+def speak_native(text: str, force_edge: bool = False, proactive: bool = False) -> None:
     text = (text or "").strip()
     if not text:
         return
+    if proactive:
+        try:
+            from core.identity import identity
+
+            if not identity.is_proactive():
+                return
+        except Exception:
+            pass
     if _speech_sink is not None:
         try:
-            _speech_sink(text)
+            try:
+                _speech_sink(text, proactive=proactive)
+            except TypeError:
+                _speech_sink(text)
         except Exception:
             _speak_edge_native(text, force_edge=force_edge)
     else:
@@ -473,6 +484,13 @@ def speak_native(text: str, force_edge: bool = False) -> None:
 
 
 def stop_native_speech() -> None:
+    if os.name == "nt":
+        try:
+            import winsound
+
+            winsound.PlaySound(None, winsound.SND_PURGE)
+        except Exception:
+            pass
     _cleanup_current_audio()
 
 

@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 from typing import Dict, Any, List
 
+from core.user_paths import atomic_write_json, get_user_data_dir
+
 def get_base_dir() -> Path:
     import sys
     if getattr(sys, "frozen", False):
@@ -35,7 +37,8 @@ BEHAVIOR_DIRECTIVES: Dict[str, str] = {
 
 class IdentityService:
     def __init__(self):
-        self.config_file = get_base_dir() / "config" / "identity.json"
+        self.config_file = get_user_data_dir() / "config" / "identity.json"
+        self._legacy_config_file = get_base_dir() / "config" / "identity.json"
         self.data: Dict[str, Any] = {
             "owner": {
                 "name": "",
@@ -62,9 +65,12 @@ class IdentityService:
         self.load()
 
     def load(self):
-        if self.config_file.exists():
+        source = self.config_file if self.config_file.exists() else (
+            self._legacy_config_file if self._legacy_config_file.exists() else None
+        )
+        if source is not None:
             try:
-                with open(self.config_file, "r", encoding="utf-8") as f:
+                with open(source, "r", encoding="utf-8") as f:
                     loaded_data = json.load(f)
                     
                     # Deep merge to preserve defaults for missing keys
@@ -75,14 +81,10 @@ class IdentityService:
                             self.data[section] = values
             except Exception as e:
                 print(f"Error loading identity config: {e}")
-        else:
-            self.save()
 
     def save(self):
         try:
-            self.config_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.config_file, "w", encoding="utf-8") as f:
-                json.dump(self.data, f, indent=4)
+            atomic_write_json(self.config_file, self.data)
         except Exception as e:
             print(f"Error saving identity config: {e}")
 

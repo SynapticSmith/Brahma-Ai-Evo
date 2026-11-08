@@ -42,15 +42,14 @@ DELIVERABLES_DIR = get_user_data_dir() / "deliverables"
 
 
 def _get_api_key() -> str:
-    if API_CONFIG_PATH.exists():
-        try:
-            with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                key = data.get("gemini_api_key", "").strip()
-                if key:
-                    return key
-        except Exception:
-            pass
+    try:
+        from core.secret_store import load_api_keys
+        data = load_api_keys(API_CONFIG_PATH)
+        key = str(data.get("gemini_api_key") or "").strip()
+        if key:
+            return key
+    except Exception:
+        pass
     return (os.environ.get("GEMINI_API_KEY", "") or os.environ.get("GOOGLE_API_KEY", "")).strip()
 
 

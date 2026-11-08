@@ -316,9 +316,9 @@ class BrahmaDevAgent:
         from core import llm_gateway
 
         try:
-            with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-                keys = json.load(f)
-            gemini_key = keys.get("gemini_api_key", "").strip()
+            from core.secret_store import load_api_keys
+            keys = load_api_keys(API_CONFIG_PATH)
+            gemini_key = str(keys.get("gemini_api_key") or "").strip()
 
             import time
             from google.genai import types

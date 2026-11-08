@@ -236,28 +236,18 @@ def _synthesize_web_remake(
     )
 
     generated_code = ""
-    api_key = _get_api_key()
-    if api_key:
-        try:
-            from google import genai
-            client = genai.Client(api_key=api_key)
-            resp = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt,
-                config={"temperature": 0.4},
-            )
-            for part in resp.candidates[0].content.parts:
-                if hasattr(part, "text") and part.text:
-                    generated_code += part.text
-        except Exception as e_llm:
-            logger.warning(f"[RE Remake] Gemini error: {e_llm}")
+    try:
+        from core import llm_gateway
 
-    if not generated_code:
-        try:
-            from llm_client import client as or_client
-            generated_code = or_client.chat(prompt)
-        except Exception:
-            pass
+        resp = llm_gateway.generate_content(
+            contents=prompt,
+            model="gemini-2.5-flash",
+            config={"temperature": 0.4},
+            purpose="reverse engineer web remake",
+        )
+        generated_code = (resp.text or "").strip()
+    except Exception as e_llm:
+        logger.warning(f"[RE Remake] LLM gateway error: {e_llm}")
 
     # Parse and write files
     created_files = []

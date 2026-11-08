@@ -76,6 +76,13 @@ class _MuteSendMixin:
             txt_norm = (txt or "").strip()
             if not txt_norm:
                 return
+            if txt_norm.lower() in ("/skills", "/skill-review"):
+                try:
+                    from core.ui_skill_review import SkillReviewDialog
+                    SkillReviewDialog(parent=self).exec()
+                except Exception as exc:
+                    self._log_sig.emit(f"ERR: Could not open Skill Review dialog: {exc}")
+                return
             self._chat_source_queue.append(source or "local")
             if hasattr(self, "_command_card"):
                 preview = txt_norm[:60] + ("…" if len(txt_norm) > 60 else "")

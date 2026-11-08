@@ -1682,16 +1682,21 @@ class TextTurnController:
                 for p in active_chain
                 if not (is_offline_mode and p in ("gemini", "openrouter"))
             ]
+            auto_switch = bool(app_settings.get("auto_provider_switch", True))
             order: list = []
-            if (
-                selected == "gemini"
-                and host._prefer_openrouter()
-                and "openrouter" in eligible
-            ):
-                order.append("openrouter")
-            if selected is not None and selected in eligible:
-                order.append(selected)
-            order.extend(p for p in eligible if p not in order)
+            if not auto_switch and selected is not None:
+                if selected in eligible:
+                    order.append(selected)
+            else:
+                if (
+                    selected == "gemini"
+                    and host._prefer_openrouter()
+                    and "openrouter" in eligible
+                ):
+                    order.append("openrouter")
+                if selected is not None and selected in eligible:
+                    order.append(selected)
+                order.extend(p for p in eligible if p not in order)
 
             attempt_errors: list = []
             host._custom_tools_broken = False

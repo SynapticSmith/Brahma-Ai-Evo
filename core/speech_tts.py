@@ -872,8 +872,9 @@ def speak(text: str, engine_id: Optional[str] = None, use_sink: bool = True) -> 
         except Exception:
             continue
         try:
-            if fn(text):
-                return True
+            with _speak_lock:
+                if fn(text):
+                    return True
         except Exception:
             continue
     return False

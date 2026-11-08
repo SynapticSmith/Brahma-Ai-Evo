@@ -21,7 +21,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from core.user_paths import get_user_data_dir
+from core.user_paths import atomic_write_json, get_user_data_dir
 
 logger = logging.getLogger("flowstate")
 logger.setLevel(logging.INFO)
@@ -84,7 +84,7 @@ class FlowStateManager:
     def _ensure_storage(self) -> None:
         self.storage_file.parent.mkdir(parents=True, exist_ok=True)
         if not self.storage_file.exists():
-            self.storage_file.write_text("{}", encoding="utf-8")
+            atomic_write_json(self.storage_file, {})
 
     def _load_all(self) -> Dict[str, Any]:
         try:
@@ -95,7 +95,7 @@ class FlowStateManager:
         return {}
 
     def _save_all(self, data: Dict[str, Any]) -> None:
-        self.storage_file.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        atomic_write_json(self.storage_file, data)
 
     # =========================================================================
     # EXTRACTORS: BROWSER TABS & WORKSPACES

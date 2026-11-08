@@ -612,6 +612,46 @@ class DynamicToolRegistry:
             raise
 
     @classmethod
+    def execute_guarded(
+        cls,
+        name: str,
+        args: Dict[str, Any],
+        *,
+        call_id: Optional[str] = None,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Dispatches a dynamic skill or external MCP tool through ``agent.runtime`` (I-01)."""
+        skill = cls.get_skill(name)
+        if not skill or not skill.active:
+            return f"Error: Feature '{name}' is unavailable or deactivated."
+
+        if cls.is_external_tool(name) or str(name).startswith("mcp_"):
+            tool_class = "mcp"
+        else:
+            raw_cls = str(skill.manifest.get("tool_class") or "exec").strip().lower()
+            tool_class = raw_cls if raw_cls in ("read", "write", "exec", "network", "device", "mcp", "native") else "exec"
+
+        def _dispatch(n: str, a: Dict[str, Any]) -> str:
+            run_res = cls.execute_sync(n, a or {})
+            return (
+                str(run_res.get("summary") or run_res.get("output") or run_res.get("text") or run_res)
+                if isinstance(run_res, dict)
+                else str(run_res)
+            ).strip()
+
+        from agent import runtime as agent_runtime
+
+        merged_extra = dict(extra or {})
+        merged_extra["tool_class"] = tool_class
+        return agent_runtime.execute(
+            name,
+            args or {},
+            native_dispatch=_dispatch,
+            call_id=call_id or f"call_{name}",
+            extra=merged_extra,
+        )
+
+    @classmethod
     async def execute_async(cls, name: str, args: Dict[str, Any]) -> Any:
         """Dispatches an async execution to a loaded synthetic skill."""
         skill = cls.get_skill(name)

@@ -5,7 +5,7 @@ and habits, then injecting them dynamically into the core LLM prompt without mod
 """
 
 from __future__ import annotations
-from core.user_paths import get_user_data_dir
+from core.user_paths import atomic_write_json, get_user_data_dir
 
 import json
 import logging
@@ -39,9 +39,7 @@ class LearnedRulesEngine:
     @staticmethod
     def _save_raw(rules: List[Dict[str, Any]]) -> bool:
         try:
-            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-            with open(RULES_FILE, "w", encoding="utf-8") as f:
-                json.dump(rules, f, indent=4)
+            atomic_write_json(RULES_FILE, rules)
             return True
         except Exception as e:
             logger.error(f"[LearnedRules] Failed to save rules: {e}")

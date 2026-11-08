@@ -1,9 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
-cwd = 'D:\\TiTech Prabha Solution\\Brahma AI\\Brahma AI\\Brahma-AI---Lite-main\\Brahma-AI---Lite-main'
+cwd = os.path.abspath(os.getcwd())
 
 a = Analysis(
-    ['D:\\TiTech Prabha Solution\\Brahma AI\\Brahma AI\\Brahma-AI---Lite-main\\Brahma-AI---Lite-main\\main.py'],
+    [os.path.join(cwd, 'main.py')],
     pathex=[],
     binaries=[],
     datas=[

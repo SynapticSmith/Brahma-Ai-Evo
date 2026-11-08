@@ -18,6 +18,7 @@ the stored spec canonical.
 from __future__ import annotations
 
 import json
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
@@ -41,9 +42,12 @@ PATH_ARG_KEYS: Tuple[str, ...] = (
     "cwd",
     "dir",
     "directory",
+    "folder",
+    "folder_path",
     "target",
     "source",
     "destination",
+    "dest",
     "root",
     "workspace",
 )
@@ -220,6 +224,7 @@ class ToolSpec:
 # --------------------------------------------------------------------------- #
 
 _REGISTRY: Dict[str, ToolSpec] = {}
+_REGISTRY_LOCK = threading.RLock()
 
 
 def register(spec: ToolSpec, *, replace: bool = False) -> ToolSpec:
@@ -229,11 +234,12 @@ def register(spec: ToolSpec, *, replace: bool = False) -> ToolSpec:
     registration is intentionally strict so a duplicate name fails loudly
     instead of silently shadowing an existing capability.
     """
-    existing = _REGISTRY.get(spec.name)
-    if existing is not None and not replace and existing is not spec:
-        raise ToolRegistrationError(f"tool {spec.name!r} is already registered")
-    _REGISTRY[spec.name] = spec
-    return spec
+    with _REGISTRY_LOCK:
+        existing = _REGISTRY.get(spec.name)
+        if existing is not None and not replace and existing is not spec:
+            raise ToolRegistrationError(f"tool {spec.name!r} is already registered")
+        _REGISTRY[spec.name] = spec
+        return spec
 
 
 def tool(
@@ -271,7 +277,8 @@ def tool(
 
 
 def get(name: str) -> Optional[ToolSpec]:
-    return _REGISTRY.get(name)
+    with _REGISTRY_LOCK:
+        return _REGISTRY.get(name)
 
 
 def unregister(name: str) -> Optional[ToolSpec]:
@@ -281,16 +288,19 @@ def unregister(name: str) -> Optional[ToolSpec]:
     for tests: a closed session must not leave the model looking at a tool
     whose server is gone.
     """
-    return _REGISTRY.pop(name, None)
+    with _REGISTRY_LOCK:
+        return _REGISTRY.pop(name, None)
 
 
 def is_registered(name: str) -> bool:
-    return name in _REGISTRY
+    with _REGISTRY_LOCK:
+        return name in _REGISTRY
 
 
 def all_specs() -> List[ToolSpec]:
     """Registered tools, stable-sorted by name for reproducible prompts."""
-    return [_REGISTRY[k] for k in sorted(_REGISTRY)]
+    with _REGISTRY_LOCK:
+        return [_REGISTRY[k] for k in sorted(_REGISTRY)]
 
 
 def openai_tools(names: Optional[Iterable[str]] = None) -> List[Dict[str, Any]]:
@@ -319,10 +329,16 @@ def execute(spec: ToolSpec, args: Dict[str, Any], context: ToolContext) -> str:
     text = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, default=str)
     cap = spec.max_output_chars or context.max_output_chars
     if cap and len(text) > cap:
-        head = cap - 1200
-        text = (
-            text[:head]
-            + f"\n... [{len(text) - cap + 1200} chars truncated; narrow the request] ...\n"
-            + text[-1100:]
-        )
+        if cap <= 1400:
+            text = (
+                text[:cap]
+                + f"\n... [{len(text) - cap} chars truncated; narrow the request] ..."
+            )
+        else:
+            head = cap - 1200
+            text = (
+                text[:head]
+                + f"\n... [{len(text) - cap + 1200} chars truncated; narrow the request] ...\n"
+                + text[-1100:]
+            )
     return text

@@ -30,7 +30,7 @@ except ImportError:
     mp = None
     _MEDIAPIPE_AVAILABLE = False
 
-from core.user_paths import get_user_data_dir
+from core.user_paths import atomic_write_json, get_user_data_dir
 
 logger = logging.getLogger("StudyGuard")
 
@@ -627,8 +627,7 @@ class StudyGuardManager:
                 with open(HISTORY_FILE, "r", encoding="utf-8") as f:
                     history = json.load(f)
             history.append(stats.to_dict())
-            with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-                json.dump(history, f, indent=2)
+            atomic_write_json(HISTORY_FILE, history)
         except Exception as e:
             logger.error(f"Failed to save study history: {e}")
 

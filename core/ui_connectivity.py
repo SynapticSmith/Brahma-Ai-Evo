@@ -1197,6 +1197,19 @@ class SystemConnectivityPage(QWidget):
         btn_refresh.setFixedWidth(90)
         btn_refresh.clicked.connect(lambda: _rebuild(force=True))
         btn_row.addWidget(btn_refresh)
+
+        btn_review = QPushButton("🛡️ Review Staged Skills…")
+        btn_review.setToolTip("Inspect and approve model-synthesized skills staged by SkillForge.")
+        def _open_skill_review():
+            try:
+                from core.ui_skill_review import SkillReviewDialog
+                dlg = SkillReviewDialog(parent=self)
+                dlg.exec()
+                _rebuild(force=True)
+            except Exception as exc:
+                footer.setText(f"Could not open Skill Review dialog: {exc}")
+        btn_review.clicked.connect(_open_skill_review)
+        btn_row.addWidget(btn_review)
         btn_row.addStretch(1)
         lay.addLayout(btn_row)
 
@@ -3170,9 +3183,12 @@ class SystemConnectivityPage(QWidget):
 
         # Optional API key: only sent when non-empty, so unauthenticated local
         # servers (Ollama / LM Studio) keep working unchanged.
+        from core.secret_store import get_secret
         key_row = QHBoxLayout()
         key_row.addWidget(QLabel("Local API Key"))
-        self._local_api_key_input = QLineEdit(self._load_app_settings().get("local_api_key", ""))
+        self._local_api_key_input = QLineEdit(
+            get_secret("local_api_key") or self._load_app_settings().get("local_api_key", "")
+        )
         self._local_api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
         self._local_api_key_input.setPlaceholderText("Optional - leave blank for Ollama / LM Studio")
         self._local_api_key_input.textChanged.connect(lambda t: self._set_setting("local_api_key", t))
@@ -3284,7 +3300,9 @@ class SystemConnectivityPage(QWidget):
 
         custom_key_row = QHBoxLayout()
         custom_key_row.addWidget(QLabel("API Key"))
-        self._custom_api_key_input = QLineEdit(self._load_app_settings().get("custom_api_key", ""))
+        self._custom_api_key_input = QLineEdit(
+            get_secret("custom_api_key") or self._load_app_settings().get("custom_api_key", "")
+        )
         self._custom_api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
         self._custom_api_key_input.setPlaceholderText("Optional - leave blank if the endpoint is unauthenticated")
         self._custom_api_key_input.textChanged.connect(lambda t: self._set_setting("custom_api_key", t))
@@ -4443,27 +4461,16 @@ class SystemConnectivityPage(QWidget):
             self._change_theme(color.name())
 
     def _change_theme(self, new_theme: str):
-        settings = {}
-        try:
-            if APP_SETTINGS_FILE.exists():
-                with open(APP_SETTINGS_FILE, "r", encoding="utf-8") as f:
-                    settings = json.load(f)
-        except Exception:
-            pass
+        settings = self._load_app_settings()
         old_theme = settings.get("app_theme", "Gold")
-        if new_theme.lower() == old_theme.lower():
+        if new_theme.lower() == str(old_theme).lower():
             return
-        settings["app_theme"] = new_theme
-        try:
-            with open(APP_SETTINGS_FILE, "w", encoding="utf-8") as f:
-                json.dump(settings, f, indent=4)
-        except Exception as e:
-            print(f"Error saving theme: {e}")
-        import subprocess
-        import sys
+        self._set_setting("app_theme", new_theme)
         QMessageBox.information(self, "Restart Required", "The application will now restart to apply the new theme.")
-        subprocess.Popen([sys.executable, "main.py"])
-        QApplication.quit()
+        if self._ctrl() and hasattr(self._ctrl(), "_restart_app"):
+            self._ctrl()._restart_app()
+        else:
+            QApplication.quit()
 
     def _build_summary_card(self):
         card = self._card("")
@@ -4609,19 +4616,31 @@ class SystemConnectivityPage(QWidget):
         self._set_setting("sound_effects_volume", val)
 
     def _set_setting(self, key: str, value):
+        if key in ("local_api_key", "custom_api_key"):
+            try:
+                from core.secret_store import set_secret
+                set_secret(key, str(value or ""))
+            except Exception:
+                pass
+            if self._ctrl() and hasattr(self._ctrl(), "_win"):
+                settings = self._ctrl()._win._load_app_settings()
+                if key in settings:
+                    settings.pop(key, None)
+                    self._ctrl()._win._save_app_settings(settings)
+            return
         if self._ctrl() and hasattr(self._ctrl(), "_win"):
             settings = self._ctrl()._win._load_app_settings()
             settings[key] = value
             self._ctrl()._win._save_app_settings(settings)
         else:
             try:
+                from core.atomic_io import atomic_write_json
                 data = {}
                 if APP_SETTINGS_FILE.exists():
                     with open(APP_SETTINGS_FILE, "r", encoding="utf-8") as f:
                         data = json.load(f)
                 data[key] = value
-                with open(APP_SETTINGS_FILE, "w", encoding="utf-8") as f:
-                    json.dump(data, f, indent=4)
+                atomic_write_json(APP_SETTINGS_FILE, data)
             except Exception:
                 pass
 
