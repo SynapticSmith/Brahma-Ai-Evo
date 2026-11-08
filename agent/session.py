@@ -105,6 +105,16 @@ class SessionRecord:
         }
 
 
+def _recover_corrupt_path(db_path: Path) -> None:
+    stamp = _now_ms()
+    for suffix in ("", "-wal", "-shm"):
+        p = Path(str(db_path) + suffix)
+        if p.exists():
+            backup = Path(f"{db_path}.corrupted.{stamp}{suffix}")
+            with contextlib.suppress(OSError):
+                p.replace(backup)
+
+
 class AgentSession:
     """One resumable agent conversation."""
 
@@ -131,18 +141,17 @@ class AgentSession:
     def _connect(self) -> sqlite3.Connection:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self._db_path, timeout=10, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL;")
-        return conn
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL;")
+            return conn
+        except BaseException:
+            with contextlib.suppress(Exception):
+                conn.close()
+            raise
 
     def _recover_corrupt_db(self) -> None:
-        stamp = _now_ms()
-        for suffix in ("", "-wal", "-shm"):
-            p = Path(str(self._db_path) + suffix)
-            if p.exists():
-                backup = Path(f"{self._db_path}.corrupted.{stamp}{suffix}")
-                with contextlib.suppress(OSError):
-                    p.replace(backup)
+        _recover_corrupt_path(self._db_path)
 
     @contextlib.contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
@@ -165,6 +174,9 @@ class AgentSession:
         try:
             with self._connection() as conn:
                 conn.executescript(_SCHEMA)
+                res = conn.execute("PRAGMA quick_check;").fetchone()
+                if not res or res[0] != "ok":
+                    raise sqlite3.DatabaseError("PRAGMA quick_check failed")
         except sqlite3.DatabaseError:
             self._recover_corrupt_db()
             with self._connection() as conn:
@@ -172,16 +184,30 @@ class AgentSession:
 
     def _ensure_row(self) -> None:
         stamp = _now_ms()
-        with self._connection() as conn:
-            conn.execute(
-                """
-                INSERT INTO agent_sessions(id, title, cwd, model, status, summary,
-                                           turn_count, created_at, updated_at)
-                VALUES(?, ?, ?, ?, 'active', '', 0, ?, ?)
-                ON CONFLICT(id) DO NOTHING
-                """,
-                (self.id, self.title or "Agent session", self.cwd, self.model, stamp, stamp),
-            )
+        try:
+            with self._connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO agent_sessions(id, title, cwd, model, status, summary,
+                                               turn_count, created_at, updated_at)
+                    VALUES(?, ?, ?, ?, 'active', '', 0, ?, ?)
+                    ON CONFLICT(id) DO NOTHING
+                    """,
+                    (self.id, self.title or "Agent session", self.cwd, self.model, stamp, stamp),
+                )
+        except sqlite3.DatabaseError:
+            self._recover_corrupt_db()
+            self._ensure_db()
+            with self._connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO agent_sessions(id, title, cwd, model, status, summary,
+                                               turn_count, created_at, updated_at)
+                    VALUES(?, ?, ?, ?, 'active', '', 0, ?, ?)
+                    ON CONFLICT(id) DO NOTHING
+                    """,
+                    (self.id, self.title or "Agent session", self.cwd, self.model, stamp, stamp),
+                )
 
     # -- construction ------------------------------------------------------
 
@@ -208,14 +234,17 @@ class AgentSession:
         path = Path(db_path) if db_path else _default_db_path()
         if not path.is_file():
             raise SessionNotFound(f"no session database at {path}")
-        with contextlib.closing(sqlite3.connect(path, timeout=10)) as conn, conn:
-            conn.row_factory = sqlite3.Row
-            try:
+        try:
+            with contextlib.closing(sqlite3.connect(path, timeout=10)) as conn, conn:
+                conn.row_factory = sqlite3.Row
                 row = conn.execute(
                     "SELECT * FROM agent_sessions WHERE id = ?", (session_id,)
                 ).fetchone()
-            except sqlite3.OperationalError as exc:
-                raise SessionNotFound(f"session {session_id} not found") from exc
+        except sqlite3.OperationalError as exc:
+            raise SessionNotFound(f"session {session_id} not found") from exc
+        except sqlite3.DatabaseError as exc:
+            _recover_corrupt_path(path)
+            raise SessionNotFound(f"session {session_id} not found") from exc
         if row is None:
             raise SessionNotFound(f"session {session_id} not found")
         return cls(

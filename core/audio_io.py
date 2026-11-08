@@ -22,6 +22,8 @@ import sounddevice as sd
 class AudioIO:
     """Encapsulates microphone capture, audio reception/playback, and speech."""
 
+    _tts_lock = threading.Lock()
+
     def __init__(self, host, *,
                  channels: int,
                  send_sample_rate: int,

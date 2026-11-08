@@ -677,7 +677,6 @@ class LocalBrain:
         Yields parsed stream delta chunks or tool calls.
         """
         active_model = model or self.default_model
-        self._guard_enabled()
         self.reload_settings()
         payload: Dict[str, Any] = {
             "model": active_model,
@@ -756,7 +755,6 @@ class LocalBrain:
         silent empty response can never masquerade as an answer upstream.
         """
         active_model = model or self.default_model
-        self._guard_enabled()
         self.reload_settings()
         payload: Dict[str, Any] = {
             "model": active_model,

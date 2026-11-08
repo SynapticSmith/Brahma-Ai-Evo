@@ -153,7 +153,12 @@ class _RuntimeMixin:
             "text": f"Attached file: {name}",
             "attachments": [{"path": path, "name": name, "size": size}],
         }
-        on_chat = getattr(self, "on_chat_event", None) or getattr(self, "_on_chat_event", None)
+        on_chat = self.__dict__.get("_on_chat_event") or self.__dict__.get("on_chat_event")
+        if on_chat is None:
+            try:
+                on_chat = getattr(self, "_on_chat_event", None) or getattr(self, "on_chat_event", None)
+            except RuntimeError:
+                on_chat = None
         if callable(on_chat):
             try:
                 on_chat(event)

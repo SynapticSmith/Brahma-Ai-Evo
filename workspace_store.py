@@ -86,10 +86,15 @@ class WorkspaceStore:
     def _connect(self) -> sqlite3.Connection:
         os.makedirs(self._db_path.parent, exist_ok=True)
         conn = sqlite3.connect(self._db_path, timeout=10, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA synchronous=NORMAL;")
-        return conn
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA synchronous=NORMAL;")
+            return conn
+        except BaseException:
+            with contextlib.suppress(Exception):
+                conn.close()
+            raise
 
     def _recover_corrupt_db(self) -> None:
         stamp = _now_ms()
