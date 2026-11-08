@@ -139,13 +139,13 @@ flowchart TD
 | `actions/reminder.py` | 156 | Windows Task Scheduler reminder creator | `I-12`, `I-24` | 🔴 CRITICAL | Remote code execution via Python string interpolation into `%TEMP%/*.pyw` and XML injection into `schtasks`. |
 | `actions/spotify_controller.py` | 479 | Spotify playback controller & MCP host | `I-01`, `I-12`, `I-14` | ⚠️ WARNING | Saves OAuth tokens and client secret in plaintext JSON; launches unmanaged Node auth server. |
 | `actions/spotify_mcp_server/package.json` | 42 | Embedded Spotify MCP Node.js package manifest | `I-12` | 🟢 HEALTHY | Standard MCP TypeScript server manifest targeting Model Context Protocol SDK. |
-| `actions/spotify_mcp_server/src/auth.ts` | 68 | Spotify OAuth local callback HTTP server | `I-14` | ⚠️ WARNING | Runs ephemeral HTTP server on port 8888 for OAuth exchange; writes tokens to plaintext config. |
-| `actions/spotify_mcp_server/src/utils.ts` | 402 | Spotify Web API client & config manager | `I-14` | ⚠️ WARNING | Hardcoded path to `config/spotify-config.json`; reads and writes client secret and tokens in plaintext. |
-| `actions/spotify_mcp_server/src/index.ts` | 33 | Spotify MCP entrypoint (stdio transport) | `I-12` | 🟢 HEALTHY | Clean StdioServerTransport connection. |
-| `actions/spotify_mcp_server/src/server.ts` | 89 | Spotify MCP server setup & tool registration | `I-01` | 🟢 HEALTHY | Exposes 20+ Spotify playback and search tools. |
-| `actions/spotify_mcp_server/src/play.ts` | 134 | Spotify playback control handlers | `I-01` | 🟢 HEALTHY | Standard Spotify Web API endpoint calls. |
-| `actions/spotify_mcp_server/src/tool.ts` | 358 | Tool execution dispatch logic for Spotify | `I-01` | 🟢 HEALTHY | Validates tool arguments and invokes Spotify API. |
-| `actions/spotify_mcp_server/src/types.ts` | 88 | TypeScript interfaces for Spotify MCP | N/A | 🟢 HEALTHY | Type definitions only. |
+| `actions/spotify_mcp_server/src/auth.ts` | 14 | Spotify OAuth CLI entrypoint invoking `authorizeSpotify()` | `I-14` | ⚠️ WARNING | Launches local OAuth flow implemented in `utils.ts`. |
+| `actions/spotify_mcp_server/src/utils.ts` | 522 | Spotify Web API client, OAuth callback server (port 8888), & config manager | `I-14` | ⚠️ WARNING | Hardcoded path to `config/spotify-config.json`; reads and writes client secret and tokens in plaintext. |
+| `actions/spotify_mcp_server/src/index.ts` | 22 | Spotify MCP entrypoint (stdio transport) | `I-12` | 🟢 HEALTHY | Clean `StdioServerTransport` connection. |
+| `actions/spotify_mcp_server/src/server.ts` | 20 | Spotify MCP `McpServer` instantiation & tool registration loop | `I-01` | 🟢 HEALTHY | Registers `playTools` and `toolTools` onto `McpServer`. |
+| `actions/spotify_mcp_server/src/play.ts` | 591 | Spotify playback, search, queue, and playlist tool definitions | `I-01` | 🟢 HEALTHY | Exposes 20+ Spotify Web API tool handlers. |
+| `actions/spotify_mcp_server/src/tool.ts` | 31 | Spotify user/profile tool definitions | `I-01` | 🟢 HEALTHY | Validates tool arguments and invokes Spotify API. |
+| `actions/spotify_mcp_server/src/types.ts` | 75 | TypeScript interfaces for Spotify MCP | N/A | 🟢 HEALTHY | Type definitions only. |
 | `actions/youtube_video.py` | 414 | YouTube search, playback & download helper | `I-01`, `I-21` | ⚠️ WARNING | Synchronous `tkinter.simpledialog` freezes dispatch thread; uses legacy `llm_client`. |
 | `actions/upload_video.py` | 231 | Browser-guided video upload automation | `I-01`, `I-12` | 🟢 HEALTHY | Directs user through existing browser session; no credentials stored. |
 | `actions/attention_monitor.py` | 742 | OpenCV webcam face tracker & window monitor | `I-12`, `I-24` | ⚠️ WARNING | Spawns PowerShell via `subprocess.Popen` with `-Command` string interpolation; unsolicited speech. |

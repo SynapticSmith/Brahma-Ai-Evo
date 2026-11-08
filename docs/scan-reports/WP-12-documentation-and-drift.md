@@ -69,7 +69,7 @@ The documentation connects directly to machine-enforced gates:
 
 | File Path | Lines | Primary Symbols / Role | Status | Risk Level | Notes |
 |---|---:|---|---|---|---|
-| [`AGENTS.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/AGENTS.md) | 272 | Root agent instructions, invariant enforcement, dev gates | Active | Low | Accurate; mandatory rules for harness and tool developers. |
+| [`AGENTS.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/AGENTS.md) | 205 | Root agent instructions, invariant enforcement, dev gates | Active | Low | Accurate; mandatory rules for harness and tool developers. |
 | [`README.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/README.md) | 251 | Public project overview, quickstart, architecture map | Active | Medium | Inaccurate Crucible sandbox claim; missing `brahma_api`, `subagents/`; stale Python launcher syntax. |
 | [`SECURITY.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/SECURITY.md) | 74 | Vulnerability disclosure, SLA, 6 defense layers | Active | Low | Up to date with DPAPI, AppContainer, and Job Object descriptions. |
 | [`PRIVACY_POLICY.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/PRIVACY_POLICY.md) | 52 | Privacy policy, zero-tracking, on-device storage | Active | Low | Google Play / upstream compliance document. |

@@ -73,7 +73,7 @@ The **WP-03** subsystem forms the operational backbone and execution core of Bra
 
 | File | Lines | Primary Symbols / Classes | Status | Risk Level | Notes |
 |---|---:|---|---|---|---|
-| [main.py](file:///C:/Users/Admin/Brahma-Ai-Evo/main.py) | 3,236 | `BrahmaLive`, `TOOL_DECLARATIONS`, `main`, `_update_memory_async`, `_gemini_text_reply` | Active | **High** | Core composition root. Within ratchet ceiling (3,236 $\le$ 3,265). Memory extraction bypasses kill switch. |
+| [main.py](file:///C:/Users/Admin/Brahma-Ai-Evo/main.py) | 3,236 | `BrahmaLive`, `TOOL_DECLARATIONS`, `main`, `_update_memory_async`, `_gemini_text_reply` | Active | **Critical** | Core composition root. Within ratchet ceiling (3,236 $\le$ 3,265). `__main__` block (`3206-3226`) executes arbitrary `.py` via `exec()` and `-m pip`; memory extraction bypasses kill switch; `finally` block (`3180-3198`) omits `brahma_connect.stop()` and `sensorium.stop()`. |
 | [core/session_lifecycle.py](file:///C:/Users/Admin/Brahma-Ai-Evo/core/session_lifecycle.py) | 1,013 | `SessionLifecycle`, `run`, `_serve_live_session`, `_build_config`, `_pause_until` | Active | **High** | Extracted from `main.py`. Carries object scoping regressions: `_resume_handle` and `_control_wake` lookups on `self` instead of `self._host`. |
 | [core/text_turn_controller.py](file:///C:/Users/Admin/Brahma-Ai-Evo/core/text_turn_controller.py) | 1,791 | `TextTurnController`, `on_text_command`, `finish_tool_turn`, `fallback_reply`, `local_brain_reply` | Active | **Medium** | Extracted from `main.py`. Coordinates Plane-A checks, `AgentLoop` execution, and fallback ladder. |
 | [core/agent_delegation.py](file:///C:/Users/Admin/Brahma-Ai-Evo/core/agent_delegation.py) | 366 | `TaskDelegationManager`, `DelegatedTask`, `delegate_agent_task`, `register_delegation_tools` | Active | **Low** | Robust recursion prevention. Top-level spec registration at import violates `I-26`. |
@@ -404,6 +404,46 @@ The **WP-03** subsystem forms the operational backbone and execution core of Bra
 
 ---
 
+### [WP-03-F12] Unrestricted `.py` Script `exec()` & `-m pip` Execution in `main.py` `__main__` Block (Signed-Binary Proxy / LOLBin Vector)
+- **Severity:** `Critical`
+- **Category:** `Security` / `Architecture/Invariant` (`I-01`)
+- **Location:** [main.py:3206-3226](file:///C:/Users/Admin/Brahma-Ai-Evo/main.py#L3206-L3226) (`if __name__ == "__main__":`)
+- **Evidence & Mechanism:**
+  At the very bottom of `main.py` (lines 3206–3226), before `main()` is invoked:
+  ```python
+  if len(sys.argv) >= 2 and sys.argv[1].endswith(".py") and os.path.isfile(sys.argv[1]):
+      script_path = os.path.abspath(sys.argv[1])
+      sys.argv = sys.argv[1:]
+      with open(script_path, "rb") as _f:
+          code = compile(_f.read(), script_path, "exec")
+      exec(code, {"__name__": "__main__", "__file__": script_path})
+      sys.exit(0)
+  if len(sys.argv) >= 3 and sys.argv[1] == "-m" and sys.argv[2] == "pip":
+      from pip._internal.cli.main import main as pip_main
+      sys.exit(pip_main(sys.argv[3:]))
+  ```
+  This hook was originally written so that code calling `subprocess.run([sys.executable, "some_script.py"])` or `subprocess.run([sys.executable, "-m", "pip", ...])` would still work when `sys.executable` is the frozen PyInstaller binary `BrahmaEvo.exe`.
+- **Impact:**
+  1. Turns the packaged and signed `BrahmaEvo.exe` binary into a full, unrestricted Python interpreter and `pip` installer ("Living Off the Land Binary" / LOLBin).
+  2. Any process or script on the host can invoke `BrahmaEvo.exe malicious.py` or `BrahmaEvo.exe -m pip install ...` to execute arbitrary code under the signed executable's identity, completely bypassing Windows AppLocker/WDAC policies and `AgentRuntime.execute` (`I-01`).
+- **Recommended Fix:** Remove the arbitrary `.py` `exec()` and `-m pip` CLI hooks from `main.py:3206-3226`. Never use the frozen GUI executable as a general-purpose Python interpreter or package installer.
+
+---
+
+### [WP-03-F13] Incomplete Background Service Teardown in `main()`'s `finally` Block
+- **Severity:** `Medium`
+- **Category:** `Performance/Resource` / `Lifecycle`
+- **Location:** [main.py:3180-3198](file:///C:/Users/Admin/Brahma-Ai-Evo/main.py#L3180-L3198) (`main`)
+- **Evidence & Mechanism:**
+  When the Qt event loop exits, `main()`'s `finally` block (lines 3180–3198) shuts down `MCPServerManager`, `_HARNESS_MCP`, and `brahma_api_server`, and runs `atexit._run_exitfuncs()`. However, it never stops:
+  1. `brahma_connect.stop()` (started at `main.py:2958-2982`), leaving the mobile gateway event loop and mDNS `zeroconf` broadcaster unclosed.
+  2. `sensorium.stop()` (started at `main.py:3009`), leaving the passive perception thread running during shutdown.
+  3. `plugin_manager.dispatch("on_shutdown")` (paired with `on_startup` at `main.py:3002`).
+- **Impact:** Unclean shutdown of background sockets, mDNS advertisements, and daemon threads when the user exits the desktop app.
+- **Recommended Fix:** Explicitly invoke `brahma_connect.stop()`, `sensorium.stop()`, and `plugin_manager.dispatch("on_shutdown")` inside `main()`'s `finally` block.
+
+---
+
 ## 5. Cross-Package Seams & Handoff Notes for Orchestrator
 
 1. **Handoff to WP-01 (Agent Harness):**
@@ -420,6 +460,8 @@ The **WP-03** subsystem forms the operational backbone and execution core of Bra
 ## 6. Prioritized Action Queue for This Subsystem
 
 ### 1. Immediate (P0/P1)
+- **Remove Unrestricted `.py` `exec()` & `-m pip` Hooks in `main.py` ([WP-03-F12]):**
+  - Delete lines 3206–3226 in `main.py` so `BrahmaEvo.exe` cannot be abused as an unrestricted Python interpreter or `pip` installer (LOLBin).
 - **Fix Scoping Regressions in `SessionLifecycle` ([WP-03-F01], [WP-03-F02]):**
   - Update `core/session_lifecycle.py:563` to `handle=getattr(self._host, '_resume_handle', None)`.
   - Update `core/session_lifecycle.py:88, 94` to inspect `_control_wake`, `_control_seq`, and `_pause_seen` on `self._host`.
@@ -429,6 +471,8 @@ The **WP-03** subsystem forms the operational backbone and execution core of Bra
   - Replace raw `json.load` in `_summarize_session_async` with `core.secret_store.load_api_keys()`.
 
 ### 2. Near-Term (P2)
+- **Complete Shutdown Teardown in `main()`'s `finally` Block ([WP-03-F13]):**
+  - Add `brahma_connect.stop()`, `sensorium.stop()`, and `plugin_manager.dispatch("on_shutdown")` to `main.py:3180-3198`.
 - **Enforce Egress Kill Switches (`I-21`) ([WP-03-F03]):**
   - Gate `_update_memory_async` in `main.py` on `provider_router.is_enabled("gemini")`.
   - Gate `voice_backend()` in `core/session_lifecycle.py` on `provider_router.is_enabled("gemini")`.

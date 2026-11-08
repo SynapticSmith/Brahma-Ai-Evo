@@ -17,8 +17,8 @@ While the low-level Windows hardware integrations (such as direct Win32/NT memor
 2. **Proactive Voice Commentary Gating Breaches:** The user's explicit preference to disable unsolicited speech (`proactive_voice_comments_enabled: false` in `config/identity.json`) is violated across multiple background daemons. In `core/audio_io.py:361`, `speak()` defaults to `proactive=False`, allowing background triggers like the clipboard sentry (`main.py:3162`) and attention monitor (`core/attention_flow.py`) to broadcast unprompted speech over the speakers.
 3. **Dead / Orphaned Subsystems:** `core/live_voice_engine.py` (663 lines) and `core/memory_cortex.py` (409 lines) represent completely duplicate, orphaned engines that have zero active consumers in the production desktop runtime.
 4. **Audio & TTS Resource Leaks / Re-entrancy Failures:** Local TTS engines (`piper`, `kokoro`, `gemini`) rely on synchronous `winsound.PlaySound` calls that block execution threads and cannot be cancelled mid-sentence, while Edge TTS spawns untracked detached PowerShell processes.
-5. **Plaintext Credential Storage in Smart Home:** IoT credentials, passwords, and API secrets are stored unencrypted in plain JSON inside SQLite (`smart_home/storage.py`), violating `I-18`.
-6. **Widespread Invariant I-17 Violations:** Configuration files (`config/identity.json`, `learned_rules.json`, `app_settings.json`, `flowstate_snapshots.json`) are modified using non-atomic `open(..., "w")` writes and bare `write_text()`, presenting serious risk of corruption on sudden power loss or crashes.
+5. **Import-Time Disk Mutation & Source-Tree Pollution in `core/identity.py`:** `IdentityService` (`core/identity.py:38, 79-86, 205`) resolves `IDENTITY_FILE = get_base_dir() / "config" / "identity.json"` inside the repository/install tree instead of `get_user_data_dir()`, and instantiates `identity = IdentityService()` at module import scope—immediately reading and writing `config/identity.json` on import (violating Invariant `I-26`). *(Note: `smart_home/storage.py:42-105, 184-225` properly encrypts IoT credentials via `CredentialVault` using Fernet + Windows DPAPI).*
+6. **Widespread Invariant I-17 Violations:** Configuration files (`config/identity.json`, `learned_rules.json`, `sound_settings.json`, `flowstate_snapshots.json`) are modified using non-atomic `open(..., "w")` writes and bare `write_text()`, presenting serious risk of corruption on sudden power loss or crashes.
 
 ---
 
@@ -114,11 +114,11 @@ While the low-level Windows hardware integrations (such as direct Win32/NT memor
 | `vendor_vrm_runtime.py` | 172 | `vendor_runtime` | Clean | Low | Vendors JavaScript runtime libraries into local web root. |
 | `vrm_license_report.py` | 242 | `VRMLicenseAuditor` | Clean | Low | Reads glTF JSON metadata; parses VRM 0.0 and 1.0 redistribution permissions. |
 | `core/mcp_manager.py` | 1149 | `MCPServerManager`, `MCPClientConnection` | **Vulnerable** | **Critical** | **Bypasses `AgentRuntime.execute`** (`I-01`); lacks ADR-020 workspace trust gate. |
-| `core/identity.py` | 205 | `BrahmaIdentity`, `identity` | Degraded | **High** | Non-atomic JSON writes (`I-17`); writes to repo tree rather than user data dir (`I-15`). |
+| `core/identity.py` | 205 | `IdentityService`, `identity` | Degraded | **High** | Non-atomic JSON writes (`I-17`); writes to repo `get_base_dir() / "config"` rather than `get_user_data_dir()`; instantiates `identity = IdentityService()` (calling `save()`) at module import time (`I-26`). |
 | `core/instruction_injector.py` | 215 | `InstructionInjector` | Clean | Low | Clean prompt injection and contextual rule formatting. |
 | `core/prompt.txt` | 122 | System prompt text | Clean | Low | Resident voice prompt instructions. |
 | `core/prompt_parts.py` | 125 | `assemble_system_prompt` | Clean | Low | Modular assembly of identity, capabilities, and system vitals. |
-| `core/learned_rules.py` | 122 | `LearnedRulesManager` | Degraded | Medium | Non-atomic write in `save_rules()` (`I-17`); hardcoded config path (`I-15`). |
+| `core/learned_rules.py` | 122 | `LearnedRulesEngine` | Degraded | Medium | Uses `get_user_data_dir() / "config"`, but writes non-atomically in `_save()` (`line 43`, `I-17`). |
 | `config/identity.json` | 23 | User identity configuration | Clean | Low | Default user preferences file. |
 | `core/memory_cortex.py` | 409 | `MemoryCortex` | **Dead Code** | Medium | Standalone SQLite BM25 episodic memory engine; orphaned, unused by main runtime. |
 | `memory/__init__.py` | 1 | Memory package root | Clean | Low | Empty initialization stub. |
@@ -133,7 +133,7 @@ While the low-level Windows hardware integrations (such as direct Win32/NT memor
 | `smart_home/__init__.py` | 3 | Smart home package root | Clean | Low | Package initialization. |
 | `smart_home/service.py` | 390 | `SmartHomeService` | Clean | Low | High-level orchestrator for IoT device actions and queries. |
 | `smart_home/smart_device_manager.py` | 82 | `SmartDeviceManager` | Clean | Low | Bridge between smart home service and tool execution layer. |
-| `smart_home/storage.py` | 387 | `SmartHomeStorage` | **Vulnerable** | **High** | **Plaintext storage of account secrets/passwords in SQLite** (`I-18`). |
+| `smart_home/storage.py` | 387 | `SmartHomeStore`, `CredentialVault` | Clean | Low | Encrypts IoT provider credentials at rest (`credentials_encrypted`) via `CredentialVault` (Fernet + DPAPI-protected `smart_home.key`, lines 42–105, 184–225). |
 | `smart_home/providers/base.py` | 40 | `SmartHomeProvider`, `ProviderField` | Clean | Low | Abstract base class defining provider auth fields and execution protocol. |
 | `smart_home/providers/builtin.py` | 717 | `AtombergProvider`, `KasaProvider`, `HueProvider`, etc. | Clean | Low | Built-in providers; includes mock fallbacks for Tuya, Daikin, Nest. |
 | `core/sensorium.py` | 333 | `PassiveSensorium`, `sensorium` | Clean | Medium | Omnipresent background perception daemon; handles missing psutil gracefully. |
@@ -160,38 +160,38 @@ While the low-level Windows hardware integrations (such as direct Win32/NT memor
 
 ## 3. Invariant & Specific Audit Question Verdicts
 
-### 3.1 Invariants Coverage Matrix (I-01 through I-28)
+### 3.1 Invariants Coverage Matrix (`I-01` through `I-28` per `docs/ARCHITECTURE-SPEC.md` §4.1)
 
-| Invariant | Name | Verdict | Direct Evidence & File:Line Citation |
+| Invariant | Authoritative Specification (`docs/ARCHITECTURE-SPEC.md` §4.1) | Verdict | Direct Evidence & File:Line Citation |
 | :--- | :--- | :--- | :--- |
-| **I-01** | Single Permission Boundary | **FAIL** | `core/mcp_manager.py:814` registers voice MCP tools directly in `DynamicToolRegistry`. In `core/tool_exec.py:120-144`, calls matching dynamic tools bypass `AgentRuntime.execute` and call `DynamicToolRegistry.execute_sync`, bypassing all policy and approvals. |
-| **I-02** | Complete Transcript Serialization | **PASS** | Completed Gemini Live turns are recorded into `agent/session.py` via `record_voice_turn` in `main.py`. (Orphaned `core/live_voice_engine.py` does not run). |
-| **I-03** | Stdlib-Only Harness Boundary | **PASS** | Modules in `core/` properly import external dependencies (e.g. `psutil`, `cv2`, `pyaudio`, `mcp`), while `agent/` remains strictly stdlib-only. |
-| **I-04** | Process Tree Termination | **FAIL** | `core/mcp_manager.py:649` spawns MCP processes via `asyncio.create_subprocess_exec` without a Windows Job Object; `actions/attention_monitor.py:447` spawns untracked `powershell.exe` for Edge TTS. |
-| **I-05** | Parallel Tool Dispatch Fences | **WARN** | Audio speech output in `core/attention_flow.py:44` and `core/audio_io.py:426` spawns detached threads running local TTS concurrently without observing tool fences. |
-| **I-06** | Subagent Construction Path | **PASS** | No child subagents are spawned from audio, perception, or sentinel modules. |
-| **I-07** | Subagent Prompt Tiers | **PASS** | `core/prompt_parts.py` assembles resident live voice prompt cleanly without embedding subagent bodies. |
-| **I-08** | Single MCP Client | **FAIL** | Repository contains dual MCP implementations: `core/mcp_manager.py` (external SDK for live voice) vs `agent/mcp.py` (stdlib-only for agent harness). |
-| **I-09** | Session File Storage Layout | **PASS** | Memory and sentinel stores use user data directory paths (`get_user_data_dir()`). |
-| **I-10** | Voice Subagent Exclusion | **PASS** | Voice prompt omits `run_subagent` and `run_subagent_batch`. |
-| **I-11** | Non-persisted System Prompt | **PASS** | Prompts are built dynamically in memory; only transcripts are persisted. |
-| **I-12** | Cancel Token Polling | **FAIL** | `core/speech_tts.py:182, 230, 290`: `winsound.PlaySound` is synchronous and blocks the thread; mid-sentence cancellation cannot stop local playback in progress. |
-| **I-13** | Safe Terminal ANSI Emission | **PASS** | Sentinel and audio modules use standard logging or Qt UI log calls; no raw ANSI sequences written to stdout. |
-| **I-14** | Meta-Tool Name Shadowing | **PASS** | Sentinel tools do not shadow core meta-tool names (`load_skill`, `search_tools`). |
-| **I-15** | User-Facing Path Portability | **FAIL** | `core/identity.py:84` and `core/learned_rules.py:41` resolve paths relative to `Path(__file__).parent.parent / "config"` inside the repo directory rather than `get_user_data_dir()`. |
-| **I-16** | Cross-Platform Compatibility | **PASS** | Windows Win32 ctypes and COM APIs are guarded with `sys.platform == "win32"` or `os.name == "nt"`. |
-| **I-17** | Atomic Disk Writes | **FAIL** | `core/identity.py:85`, `core/learned_rules.py:43`, `sound_manager.py:183`, `core/device_location.py:56`, `core/study_guard.py:630`, and `core/flowstate.py:98` write directly with `open(..., "w")` without atomic rename. |
-| **I-18** | Sensitive Data Redaction | **FAIL** | `smart_home/storage.py:180` stores plain account passwords and tokens in SQLite; `core/clipboard_sentry.py:80` passively captures clipboard secrets and sends them to external LLMs; `core/device_location.py:125` uses unencrypted HTTP. |
-| **I-19** | Secret Masking in Tool Output | **WARN** | Smart home device discovery and execution outputs raw dictionary contents that may mirror stored credentials. |
-| **I-20** | Single Source of Truth for Models | **FAIL** | `core/reply_flow.py:57, 212` and `core/shopping_agent.py:408` hardcode `"gemini-2.5-flash"`. |
-| **I-21** | Provider Kill-Switch & Fallback | **FAIL** | `core/reply_flow.py` and `core/shopping_agent.py` directly invoke Gemini models without evaluating active provider router or kill-switches. |
-| **I-22** | Error Resilience & Degradation | **PASS** | `core/sensorium.py`, `core/study_guard.py`, and `core/file_download.py` degrade gracefully when optional dependencies (`psutil`, `mediapipe`, network) are absent. |
-| **I-23** | No Test Production Side Effects | **PASS** | Sentinel test suites mock out native OS functions and use temporary directory paths. |
-| **I-24** | Audio Device Hotplug Safety | **PASS** | `core/audio_devices.py:get_audio_devices` handles COM and `sounddevice` query exceptions cleanly. |
-| **I-25** | Audio Duplex Synchronization | **PASS** | `core/audio_io.py` strictly chunks input at 512 samples (16kHz 16-bit PCM = 1024 bytes) matching Gemini Live specifications. |
-| **I-26** | Memory Extraction Schema | **PASS** | `memory/memory_manager.py` verifies extraction schema and enforces record deduplication. |
-| **I-27** | Avatar Asset License Tracking | **PASS** | `vrm_license_report.py` audits glTF JSON extensions for commercial usage, avatar permission, and violent/sexual usage tags. |
-| **I-28** | Smart Home Provider Isolation | **PASS** | Provider failures in `smart_home/service.py` are isolated via try-except blocks and do not crash the service. |
+| **I-01** | Every harness tool call on every door passes through `AgentRuntime.execute` | **FAIL** | `core/mcp_manager.py:814` registers voice MCP tools directly in `DynamicToolRegistry`. In `core/tool_exec.py:120-144`, calls matching dynamic tools bypass `AgentRuntime.execute` and call `DynamicToolRegistry.execute_sync`, bypassing all policy and approvals. |
+| **I-02** | *(Scoped, superseded by ADR-019)* Native tools migrated to `ToolSpec`s behind `AgentRuntime.execute` | **PARTIAL** | Sentinel/audio tools in `core/desktop_tools.py` are `ToolSpec`s, but `features/*.py` and voice MCP tools in `DynamicToolRegistry` remain outside `AgentRuntime.execute`. |
+| **I-03** | A policy `deny` is final; session "always allow" is consulted only after `evaluate()` when decision was `ask` | **N/A (WP-01)** | Enforced in `agent/runtime.py`; bypassed only when `I-01` is bypassed by `DynamicToolRegistry`. |
+| **I-04** | A `requires_approval` spec is never remembered and asks every time | **N/A (WP-01)** | Enforced in `agent/runtime.py`. |
+| **I-05** | The GUI approver (`core/confirm.py:ask_blocking_choice`) refuses to run on the Qt main thread | **N/A (WP-06)** | Enforced in `core/confirm.py`. |
+| **I-06** | A malformed policy never widens access; last good policy stays and `policy_reload(ok=False)` is emitted | **N/A (WP-01)** | Enforced in `agent/runtime.py`. |
+| **I-07** | No harness tool is registered under a core meta-tool name (`load_skill`, `search_tools`, `recall_memory`, …) | **PASS** | Sentinel, smart home, and memory tools do not shadow core meta-tool names. |
+| **I-08** | Delegation is one bounded child (max 12 turns), never recursive, sharing parent's runtime | **PASS** | No child subagents are constructed from audio, perception, or sentinel modules. |
+| **I-09** | Every `assistant` `tool_calls` message is followed by one `tool` message per call, in order | **PASS** | Completed Gemini Live turns are recorded into `agent/session.py` via `record_voice_turn` in `main.py`. |
+| **I-10** | Transcript is always OpenAI-shaped; Gemini declarations converted only at the edge; schemas lowercase | **PASS** | `core/mcp_manager.py` normalizes MCP tool input schemas for Gemini Live setup declarations. |
+| **I-11** | Compaction never orphans a tool result: cut walks forward past `tool` messages | **N/A (WP-01)** | Handled in `agent/context.py`. |
+| **I-12** | Shell commands run with closed stdin; timeout terminates whole tree (Windows job object / POSIX session group) | **FAIL** | `core/mcp_manager.py:649` spawns MCP server processes via `asyncio.create_subprocess_exec` without a Windows Job Object; `actions/attention_monitor.py:447` spawns untracked `powershell.exe` for Edge TTS. |
+| **I-13** | `exec.sandbox` (`agent/sandbox.py`) is the only isolation path: env scrub, prefix, resource limits | **N/A (WP-01)** | Handled in `agent/sandbox.py`. |
+| **I-14** | Credential-shaped env vars are withheld by default and their count is reported | **N/A (WP-01)** | Handled in `agent/sandbox.py`. |
+| **I-15** | `agent/` imports with only pytest installed: no PyQt, provider SDK, or Windows COM at module scope | **PASS** | Modules in `core/` properly hold external dependencies (`psutil`, `cv2`, `pyaudio`, `mcp`), while `agent/` remains stdlib-only. |
+| **I-16** | System prompt is never persisted; resume appends only the new tail (`messages_after`) | **PASS** | `core/prompt_parts.py` and `core/instruction_injector.py` build prompts dynamically in memory; only transcripts are persisted. |
+| **I-17** | Writes are atomic where user data is persisted (`core/user_paths.atomic_write_json`) | **FAIL** | `core/identity.py:85`, `core/learned_rules.py:43`, `sound_manager.py:183`, `core/device_location.py:56`, `core/study_guard.py:630`, and `core/flowstate.py:98` write directly with `open(..., "w")` without atomic rename. |
+| **I-18** | One MCP client per layer: `agent/mcp.py` (stdlib) for harness, `core/mcp_manager.py` (SDK) for voice path. No third client | **PASS** (in WP-08) | `core/mcp_manager.py` is the designated SDK MCP client for the voice path (though its tools must route through `AgentRuntime.execute` per `I-01`). |
+| **I-19** | Advertised Gemini surface is small and constant ($\le 24$ declarations): pinned tools + meta-tools + top-k | **PASS** | Voice prompt and setup payload respect the $\le 24$ declaration budget via `core/tool_bridge.py`. |
+| **I-20** | Gemini Live tools cannot be swapped mid-session; no code may assume a second setup frame | **PASS** | `core/mcp_manager.py` discovers tools prior to live session setup; mid-session calls dispatch through `call_tool`. |
+| **I-21** | Every provider egress is gated by its kill switch before the call (`core/provider_router.guard`, `core/llm_gateway.py`) | **FAIL** | `core/shopping_agent.py:408` instantiates `genai.Client` directly without checking `provider_router.guard`, and `core/llm_gateway.py:108-110` falls back to `["gemini", ...]` on router error. |
+| **I-22** | Token usage comes from provider; "unknown" is never rendered as zero (`agent/usage.py`) | **N/A (WP-01)** | Handled in `agent/usage.py`. |
+| **I-23** | Cancellation is a flag (`agent/runtime.cancel_event`), never a killed thread | **FAIL** | `core/speech_tts.py:182, 230, 290`: `winsound.PlaySound(..., SND_FILENAME)` blocks synchronously and does not poll or respond to cancellation events. |
+| **I-24** | One subprocess path per concern (`run_captured`); do not add a second `subprocess.run(shell=True, timeout=...)` | **PASS** | `core/game_sentinel.py` and `core/net_sentinel.py` use argument lists (`shell=False`) for `powercfg`, `arp`, and `ping`. |
+| **I-25** | One marshaller per boundary: Qt-thread-only calls emitted through queued signals, never inline from worker/asyncio threads | **FAIL** | `core/clipboard_sentry.py:80` invokes `_on_clipboard_actionable` on its daemon thread, which mutates Qt widgets in `core/ui_shell_actions.py:23-35` off the main thread. |
+| **I-26** | No import-time side effects: importing a UI/core module must not start a thread, open a socket, or read/write user data | **FAIL** | `core/identity.py:79, 205` executes `identity = IdentityService()` at module import scope, reading `config/identity.json` and immediately calling `self.save()` (writing to disk on import!). |
+| **I-27** | Prefer a targeted edit over a whole-file rewrite; run project's own gates | **PASS** | Followed throughout audit. |
+| **I-28** | A new harness tool is a `ToolSpec` plus tests—never a new `elif` in `core/tool_exec.py` (ratchet: 0 `elif`, $\le 147$ lines) | **PASS** | `core/tool_exec.py` has 0 `elif` branches. |
 
 ---
 
@@ -323,21 +323,16 @@ While the low-level Windows hardware integrations (such as direct Win32/NT memor
 
 ---
 
-### FINDING WP08-03 (HIGH) — Plaintext Storage of Smart Home Account Credentials in SQLite
+### FINDING WP08-03 (HIGH) — Import-Time Disk Mutation & Source-Tree Pollution in `core/identity.py` (`I-17`, `I-26`)
 - **Severity:** High
-- **Category:** Secrets & Sensitive Data Redaction (`I-18`)
-- **Location:** `smart_home/storage.py:180-184`
+- **Category:** Import-Time Side Effects & File Hygiene (`I-17`, `I-26`)
+- **Location:** `core/identity.py:38, 79-86, 205` (`IdentityService`)
 - **Evidence & Mechanism:**
-  `smart_home/storage.py:180` executes:
-  ```python
-  cursor.execute("""
-      INSERT OR REPLACE INTO accounts (id, provider, account_label, credentials, updated_at)
-      VALUES (?, ?, ?, ?, ?)
-  """, (account_id, provider, label, json.dumps(credentials), now))
-  ```
-  `credentials` dictionary contains plaintext passwords (e.g. LG ThinQ password, Tuya secret, SmartThings token, Kasa password).
-- **Impact:** Any process or user with access to `%APPDATA%\BrahmaEvo\smart_home.db` can read all plaintext IoT cloud credentials.
-- **Recommended Fix:** Encrypt credentials using Windows DPAPI (`CryptProtectData` via `win32crypt`) before storing in SQLite, or store secrets in the Windows Credential Manager.
+  1. `core/identity.py:38` resolves `IDENTITY_FILE = get_base_dir() / "config" / "identity.json"` inside the repository / installation directory rather than `get_user_data_dir() / "config" / "identity.json"`.
+  2. At module import scope (`line 205`), `identity = IdentityService()` runs `self.load()`, which unconditionally calls `self.save()` (`line 79`) whenever any default key is merged or on initial load—opening `config/identity.json` with raw `open(..., "w")` (`line 85`) at import time!
+  *(Note: By contrast, `core/learned_rules.py:20` (`LearnedRulesEngine`) already resolves `get_user_data_dir() / "config" / "learned_rules.json"`, and `smart_home/storage.py:42-105, 184-225` (`CredentialVault`) properly encrypts IoT account credentials using Fernet + DPAPI).*
+- **Impact:** Importing `core.identity` mutates files inside the repository source tree at import time (violating `I-26`), fails in read-only `Program Files` installations, and risks truncating `identity.json` via non-atomic writes (`I-17`).
+- **Recommended Fix:** Relocate `IDENTITY_FILE` to `get_user_data_dir() / "config" / "identity.json"`, remove `self.save()` from `IdentityService.load()`, and use `core.user_paths.atomic_write_json` in `IdentityService.save()`.
 
 ---
 
@@ -434,11 +429,10 @@ While the low-level Windows hardware integrations (such as direct Win32/NT memor
 - **Handoff to WP-04 (Desktop Tools & Actions Surface):**
   - Resolve dual-exposure redundancy for `game_sentinel`, `net_sentinel`, and `study_guard` between `actions/` and `features/`. Standardize on single tool exposure.
 - **Handoff to WP-06 (Config, Persistence & State Management):**
-  - Migrate all non-atomic file writes in `core/identity.py`, `core/learned_rules.py`, `sound_manager.py`, `core/device_location.py`, `core/study_guard.py`, and `core/flowstate.py` to `core.utils.atomic_write_json`.
-  - Relocate `config/identity.json` and `learned_rules.json` writes from the repository source tree to `get_user_data_dir() / "config"`.
+  - Migrate all non-atomic file writes in `core/identity.py`, `core/learned_rules.py`, `sound_manager.py`, `core/device_location.py`, `core/study_guard.py`, and `core/flowstate.py` to `core.user_paths.atomic_write_json`.
+  - Relocate `config/identity.json` writes in `core/identity.py:38` from `get_base_dir() / "config"` to `get_user_data_dir() / "config"` and remove the import-time `self.save()` side effect (`I-26`).
 - **Handoff to WP-07 (Security, Sandboxing & Process Boundaries):**
-  - Implement DPAPI encryption for `smart_home/storage.py` credential storage.
-  - Wrap MCP server subprocess launches in Windows Job Objects to guarantee full process tree termination on shutdown (`I-04`).
+  - Wrap MCP server subprocess launches in `core/mcp_manager.py` in Windows Job Objects to guarantee full process tree termination on shutdown (`I-12`).
 
 ---
 
@@ -447,7 +441,7 @@ While the low-level Windows hardware integrations (such as direct Win32/NT memor
 ### Priority 0 / Priority 1 (Blocker / High Security Risk)
 - [ ] **P0 — Fix Voice MCP Permission Bypass (`FINDING WP08-01`):** Route all voice MCP tool executions through `AgentRuntime.execute()` in `core/tool_exec.py`.
 - [ ] **P1 — Fix Proactive Voice Commentary Gating (`FINDING WP08-02`):** Pass `proactive=True` in `main.py:3162` and `core/attention_flow.py`; update `core/audio_io.py:361` to enforce proactive checks.
-- [ ] **P1 — Encrypt Smart Home Credentials (`FINDING WP08-03`):** Encrypt credentials in `smart_home/storage.py` using Windows DPAPI before storing in SQLite.
+- [ ] **P1 — Fix `core/identity.py` Import-Time Disk Write & Repo Path (`FINDING WP08-03`):** Move `identity.json` to `get_user_data_dir() / "config"`, remove `save()` from `load()`, and use `atomic_write_json`.
 - [ ] **P1 — Gate Clipboard Sentry Exfiltration (`FINDING WP08-04`):** Add user confirmation and token/secret redaction before sending clipboard text to external LLMs.
 
 ### Priority 2 (Medium / Robustness & Architectural Debt)

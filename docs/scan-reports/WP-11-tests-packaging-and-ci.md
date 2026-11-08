@@ -65,12 +65,12 @@ flowchart TD
 | `tests/test_agent_*.py` (38 files) | 10,124 | 38 agent harness test modules (`test_agent_loop.py`, `test_agent_runtime.py`, etc.) | Active | Low | 547 passing tests. Strictly stdlib-only. 2 timeout/memory failures on WindowsApps Python. |
 | `tests/test_api_*.py` (13 files) | 1,452 | 13 loopback OpenAI API tests (`test_api_chat.py`, `test_api_sessions.py`, etc.) | Active | Medium | 104 passed; 5 failed when host SQLite `workspace_store.sqlite3` is malformed. |
 | `tests/test_*.py` (remaining 91 files) | 15,532 | Integration tests for security, routing, RRF retrieval, audio, UI, memory | Active | Medium | 6 files fail collection when host SQLite database disk image is malformed. |
-| [accept_391.py](file:///C:/Users/Admin/Brahma-Ai-Evo/accept_391.py) | 398 | Acceptance suite for ONE-391 (tools, avatars, voice) | Active | Low | Validates ONE-391 acceptance criteria against live components. |
+| [accept_391.py](file:///C:/Users/Admin/Brahma-Ai-Evo/accept_391.py) | 114 | Acceptance suite for ONE-391 (tools, avatars, voice) | Active | Low | Validates ONE-391 acceptance criteria against live components. |
 | [accept_avatar.py](file:///C:/Users/Admin/Brahma-Ai-Evo/accept_avatar.py) | 1,243 | Acceptance test for 5 avatar backends and emotion pipelines | Active | Low | Sandboxes settings to tempdir; asserts backend availability and error resilience. |
 | [accept_instructions.py](file:///C:/Users/Admin/Brahma-Ai-Evo/accept_instructions.py) | 470 | Instruction injector layer composition and emotion stripping | Active | High | **Mutates live user settings!** Directly modifies `%LOCALAPPDATA%\BrahmaAI\config\app_settings.json`. |
 | [accept_live_toggle.py](file:///C:/Users/Admin/Brahma-Ai-Evo/accept_live_toggle.py) | 625 | Always On / On Call live session lifecycle state machine | Active | Low | Uses `StubUI`; imports `main.BrahmaLive`; asserts session cancellation. |
-| [accept_local_speech.py](file:///C:/Users/Admin/Brahma-Ai-Evo/accept_local_speech.py) | 312 | Offline STT (faster-whisper) and TTS (Piper/Kokoro) harness | Active | Low | Verifies local speech synthesis and transcription when engines installed. |
-| [accept_providers.py](file:///C:/Users/Admin/Brahma-Ai-Evo/accept_providers.py) | 148 | Multi-provider failover and routing verification | Active | Low | Exercises provider adapters with simulated errors. |
+| [accept_local_speech.py](file:///C:/Users/Admin/Brahma-Ai-Evo/accept_local_speech.py) | 559 | Offline STT (faster-whisper) and TTS (Piper/Kokoro) harness | Active | Low | Verifies local speech synthesis and transcription when engines installed. |
+| [accept_providers.py](file:///C:/Users/Admin/Brahma-Ai-Evo/accept_providers.py) | 664 | Multi-provider failover and routing verification | Active | Low | Exercises provider adapters with simulated errors. |
 | [accept_util.py](file:///C:/Users/Admin/Brahma-Ai-Evo/accept_util.py) | 49 | `check`, `section`, `report`, `FAILURES` list | Active | Low | Canonical helper for acceptance harnesses; outputs `RESULT: ALL CRITERIA PASS`. |
 | [accept_voice_downloads.py](file:///C:/Users/Admin/Brahma-Ai-Evo/accept_voice_downloads.py) | 176 | Live downloads of Piper and Kokoro voice models from HuggingFace | Active | Low | Sandboxed `%LOCALAPPDATA%`; downloads ~250 MB; not part of CI. |
 | [accept_wakeword.py](file:///C:/Users/Admin/Brahma-Ai-Evo/accept_wakeword.py) | 297 | Real-hardware microphone wake-word detection harness | Active | Medium | Opens physical PortAudio microphone stream; calls Google Speech API. |
@@ -84,8 +84,8 @@ flowchart TD
 | [installer/BrahmaEvo_Setup.spec](file:///C:/Users/Admin/Brahma-Ai-Evo/installer/BrahmaEvo_Setup.spec) | 51 | PyInstaller spec for onefile `BrahmaEvo_Setup.exe` installer | Active | Medium | Packages `dist/BrahmaEvo` into setup wizard; requires admin elevation. |
 | [installer/BrahmaEcho_Setup.spec](file:///C:/Users/Admin/Brahma-Ai-Evo/installer/BrahmaEcho_Setup.spec) | 46 | Legacy PyInstaller spec for BrahmaEcho Setup | Legacy | High | **Contains hardcoded absolute paths `D:\TiTech Prabha Solution\...`!** |
 | [installer/Uninstall.spec](file:///C:/Users/Admin/Brahma-Ai-Evo/installer/Uninstall.spec) | 44 | PyInstaller spec for standalone `Uninstall.exe` | Active | Low | Packages uninstaller wizard with asset icons. |
-| [installer/install_wizard.py](file:///C:/Users/Admin/Brahma-Ai-Evo/installer/install_wizard.py) | 319 | PyQt6 wizard GUI for installing BrahmaEvo to Program Files | Active | Medium | Eagerly imports `PyQt6.QtWebEngineWidgets` at line 10 (violates I-25). |
-| [installer/uninstall_wizard.py](file:///C:/Users/Admin/Brahma-Ai-Evo/installer/uninstall_wizard.py) | 162 | PyQt6 wizard GUI for uninstallation | Active | Low | Removes program directories, shortcuts, and registry entries. |
+| [installer/install_wizard.py](file:///C:/Users/Admin/Brahma-Ai-Evo/installer/install_wizard.py) | 319 | PyQt6 wizard GUI for installing BrahmaEvo to Program Files | Active | Medium | Eagerly imports `PyQt6.QtWebEngineWidgets` at line 10 (violates I-26 / D46). |
+| [installer/uninstall_wizard.py](file:///C:/Users/Admin/Brahma-Ai-Evo/installer/uninstall_wizard.py) | 444 | PyQt6 wizard GUI for uninstallation | Active | Low | Removes program directories, shortcuts, and registry entries. |
 | [installer/install.sh](file:///C:/Users/Admin/Brahma-Ai-Evo/installer/install.sh) | 182 | Bash script advertising universal macOS and Linux setup | Stale | High | **Fictional multi-platform support;** app cannot run on macOS/Linux. |
 | [installer/uninstall.cmd](file:///C:/Users/Admin/Brahma-Ai-Evo/installer/uninstall.cmd) | 63 | Windows batch uninstallation script | Active | Low | Kills running processes; deletes desktop/start-menu shortcuts and registry. |
 | [installer/uninstall.sh](file:///C:/Users/Admin/Brahma-Ai-Evo/installer/uninstall.sh) | 59 | Bash uninstallation script for macOS/Linux | Stale | Low | Uninstalls from `~/.brahma-evo`. |
@@ -101,7 +101,7 @@ flowchart TD
 | [.github/workflows/ci.yml](file:///C:/Users/Admin/Brahma-Ai-Evo/.github/workflows/ci.yml) | 90 | Main CI workflow (static-gate, lint, unit tests, py311-313 matrix) | Active | Medium | Runs unit suite and harness matrix; lacks acceptance hardware gates. |
 | [.github/workflows/build.yml](file:///C:/Users/Admin/Brahma-Ai-Evo/.github/workflows/build.yml) | 90 | Release packaging workflow for Windows PyInstaller build | Active | Low | Builds `BrahmaEvo.spec`, setup wizard, manifest, and SHA256SUMS. |
 | [.github/workflows/build-all-platforms.yml](file:///C:/Users/Admin/Brahma-Ai-Evo/.github/workflows/build-all-platforms.yml) | 133 | Multi-platform build workflow (Windows, macOS DMG, Linux tar) | Stale | High | **Fictional macOS and Linux jobs;** PyInstaller commands miss critical datas. |
-| [pyproject.toml](file:///C:/Users/Admin/Brahma-Ai-Evo/pyproject.toml) | 39 | Ruff linter configuration | Active | Low | Target py311, line-length 120, ignores F821 in `core/ui_*.py` and `session_lifecycle.py`. |
+| [pyproject.toml](file:///C:/Users/Admin/Brahma-Ai-Evo/pyproject.toml) | 39 | Ruff linter configuration | Active | High | Target py311, line-length 120; **suppresses `F821` (`undefined-name`) across 16 `core/` files (`lines 25-38`), masking runtime `NameError` bugs**. |
 | [pytest.ini](file:///C:/Users/Admin/Brahma-Ai-Evo/pytest.ini) | 7 | Pytest configuration | Active | Low | Restricts collection to `tests/` directory to ignore root demo scripts. |
 | [setup.py](file:///C:/Users/Admin/Brahma-Ai-Evo/setup.py) | 20 | Ad-hoc setup script | Adapter | Medium | Not a `setuptools` build file; simply calls `pip install` and `playwright install`. |
 | [requirements.txt](file:///C:/Users/Admin/Brahma-Ai-Evo/requirements.txt) | 80 | Pinned runtime dependencies | Active | Low | 49 pinned packages. Speech engines and PyYAML uncommented. |
@@ -127,13 +127,14 @@ flowchart TD
 |---|---|---|---|
 | **I-01: Single Permission Boundary** | **PASS** | [tests/test_agent_permissions.py:1-420](file:///C:/Users/Admin/Brahma-Ai-Evo/tests/test_agent_permissions.py#L1-L420), [tests/test_agent_approval.py:1-120](file:///C:/Users/Admin/Brahma-Ai-Evo/tests/test_agent_approval.py#L1-L120) | Comprehensive unit suites assert that all tool executions route through `AgentRuntime.execute`, policy `deny` is irreversible, and session allow never bypasses `requires_approval=True`. |
 | **I-05: Qt Threading Safety** | **PASS** | [tests/test_agent_approval.py:45-75](file:///C:/Users/Admin/Brahma-Ai-Evo/tests/test_agent_approval.py#L45-L75), [core/confirm.py:107-116](file:///C:/Users/Admin/Brahma-Ai-Evo/core/confirm.py#L107-L116) | `confirm.ask_blocking_choice` asserts `_on_qt_main_thread()` and explicitly refuses to block on the Qt main GUI thread. |
-| **I-07: Tool Surface Budget (<= 24)** | **PASS** | [tests/test_tool_index.py:1-180](file:///C:/Users/Admin/Brahma-Ai-Evo/tests/test_tool_index.py#L1-L180), [tests/test_tool_bridge.py:1-150](file:///C:/Users/Admin/Brahma-Ai-Evo/tests/test_tool_bridge.py#L1-L150) | Tool retrieval tests assert that `ToolIndex.resolve` and `build_session_payload` strictly clamp advertised declarations to <= 24. |
+| **I-07: No Meta-Tool Name Shadowing** | **PASS** | [tests/test_architecture_invariants.py:1-62](file:///C:/Users/Admin/Brahma-Ai-Evo/tests/test_architecture_invariants.py#L1-L62), [agent/skills.py:490-540](file:///C:/Users/Admin/Brahma-Ai-Evo/agent/skills.py#L490-L540) | Harness tools register under distinct names (`load_project_skill`), never shadowing core meta-tools (`load_skill`, `search_tools`, `recall_memory`). |
+| **I-19: Tool Surface Budget (<= 24)** | **PASS** | [tests/test_tool_index.py:1-180](file:///C:/Users/Admin/Brahma-Ai-Evo/tests/test_tool_index.py#L1-L180), [tests/test_tool_bridge.py:1-150](file:///C:/Users/Admin/Brahma-Ai-Evo/tests/test_tool_bridge.py#L1-L150) | Tool retrieval tests assert that `ToolIndex.resolve` and `build_session_payload` strictly clamp advertised declarations to <= 24. |
 | **I-09 / I-10 / I-11: OpenAI Protocol & Compaction** | **PASS** | [tests/test_agent_loop.py:1-350](file:///C:/Users/Admin/Brahma-Ai-Evo/tests/test_agent_loop.py#L1-L350), [tests/test_agent_context.py:1-190](file:///C:/Users/Admin/Brahma-Ai-Evo/tests/test_agent_context.py#L1-L190) | Tests assert 1:1 matching between `tool_calls` and `tool` messages, preservation of submission order, and protocol-safe history compaction. |
 | **I-12 / I-13 / I-14: Subprocess & Sandbox Containment** | **PARTIAL** | [tests/test_agent_process.py:70-93,216-227](file:///C:/Users/Admin/Brahma-Ai-Evo/tests/test_agent_process.py#L70-L93) | Windows Job Object containment passes when direct binary paths are used, but fails when Python is invoked via WindowsApps execution aliases (`test_a_timeout_kills_the_whole_process_tree` and `test_a_memory_limit_stops_a_large_allocation` fail). |
 | **I-15: Stdlib-Only Harness Isolation** | **PASS** | [tests/test_architecture_invariants.py:84-122](file:///C:/Users/Admin/Brahma-Ai-Evo/tests/test_architecture_invariants.py#L84-L122) | AST import scanning and restricted runtime execution confirm that all 38 `tests/test_agent_*.py` modules and 11 security test files import cleanly with zero third-party packages installed. |
 | **I-16: Session History Archiving** | **PASS** | [tests/test_agent_session_bridge.py:1-140](file:///C:/Users/Admin/Brahma-Ai-Evo/tests/test_agent_session_bridge.py#L1-L140) | Tests verify `messages_after` transcript slicing and voice turn recording into SQLite. |
 | **I-21: LLM Gateway Kill Switch** | **PARTIAL** | [tests/test_llm_gateway.py:1-120](file:///C:/Users/Admin/Brahma-Ai-Evo/tests/test_llm_gateway.py#L1-L120) | While `llm_gateway.py` is tested, multiple native actions (`actions/screen_processor.py`, `actions/image_generator.py`) and `dashboard/server.py` bypass the gateway entirely. |
-| **I-25 / I-26: Lazy WebEngine & JS Thread Safety** | **PARTIAL** | [installer/install_wizard.py:10](file:///C:/Users/Admin/Brahma-Ai-Evo/installer/install_wizard.py#L10) | Core UI obeys lazy WebEngine import, but `installer/install_wizard.py` eagerly imports `PyQt6.QtWebEngineWidgets` at module scope. |
+| **I-25 / I-26: Qt Thread Marshalling & Zero Import Side Effects (D46)** | **PARTIAL** | [installer/install_wizard.py:10](file:///C:/Users/Admin/Brahma-Ai-Evo/installer/install_wizard.py#L10), [workspace_store.py:542](file:///C:/Users/Admin/Brahma-Ai-Evo/workspace_store.py#L542) | `workspace_store.py:542` opens SQLite at import time (`I-26`), and `installer/install_wizard.py:10`, `core/radar_hud.py:31`, and `core/space_cleaner_hud.py:47` eagerly import `PyQt6.QtWebEngineWidgets` at module scope (`D46`). |
 | **Ratchet Ceilings (`architecture_ratchet.json`)** | **PASS** | [tests/test_architecture_invariants.py:63-82](file:///C:/Users/Admin/Brahma-Ai-Evo/tests/test_architecture_invariants.py#L63-L82) | `main.py` is 3,236 lines (<= 3,265 ceiling); `ui.py` is 820 lines (<= 827 ceiling); `core/tool_exec.py` is 147 lines (<= 147 ceiling) and has 0 `elif` branches (<= 0 ceiling). |
 
 ---
@@ -146,7 +147,7 @@ flowchart TD
 - **Breakdown:**
   * **`actions/` (22 untested modules):** `background_monitor.py`, `brahma_dev_agent.py`, `call_assistant.py`, `calorie_counter.py`, `claude_code_bridge.py`, `clipboard_processor.py`, `code_helper.py`, `dev_agent.py`, `flight_finder.py`, `game_updater.py`, `instagram_chat.py`, `instagram_mcp.py`, `meeting_assistant.py`, `office_builder.py`, `office_generator.py`, `ppt_template_workflow.py`, `pushup_counter.py`, `system_diagnostics_mcp.py`, `unlock_device.py`, `upload_video.py`, `weather_report.py`, `youtube_video.py`.
   * **`dashboard/` (100% untested):** All 6 modules (`dashboard/server.py`, etc.) have zero automated tests. Crucial security logic (unauthenticated DPAPI key reads, `_quiet_run` subprocess executor) operates completely unverified.
-  * **`core/` (59 untested modules):** Includes the 4,538-line settings monolith ([core/ui_connectivity.py](file:///C:/Users/Admin/Brahma-Ai-Evo/core/ui_connectivity.py)), real-time audio/speech engines (`core/live_voice_engine.py`, `core/speech_stt.py`, `core/audio_devices.py`), avatar backends (`core/avatar_catalog.py`, `core/avatar_runtime.py`), and 30+ UI panels and widgets.
+  * **`core/` (59 untested modules):** Includes the 5,090-line settings monolith ([core/ui_connectivity.py](file:///C:/Users/Admin/Brahma-Ai-Evo/core/ui_connectivity.py)), real-time audio/speech engines (`core/live_voice_engine.py`, `core/speech_stt.py`, `core/audio_devices.py`), avatar backends (`core/avatar_catalog.py`, `core/avatar_runtime.py`), and 30+ UI panels and widgets.
   * **Synthetic Mock Limitations:** Tests for file operations and tool dispatch rely on synthetic mocks and do not exercise Windows file locking, `MAX_PATH` overflow, or PortAudio disconnects.
 
 #### Q2: CI Workflow vs Local Gate Parity (`.github/workflows/ci.yml`)
@@ -288,7 +289,7 @@ flowchart TD
   1. `dashboard/server.py`: Local HTTP server with password auth, raw DPAPI key loading, and custom `subprocess.run` helper (`_quiet_run`). 0 tests exist.
   2. `actions/brahma_dev_agent.py` and `actions/dev_agent.py`: Multi-file code generation and scaffolding actions. 0 tests exist.
   3. `actions/system_diagnostics_mcp.py`: System diagnostic action. 0 tests exist.
-  4. `core/ui_connectivity.py`: 4,538-line monolith containing Settings Hub networking, API port management, and bridge integration. 0 tests exist.
+  4. `core/ui_connectivity.py`: 5,090-line monolith containing Settings Hub networking, API port management, and bridge integration. 0 tests exist.
   5. `core/live_voice_engine.py` and `core/speech_stt.py`: Core offline voice pipelines. 0 unit tests exist.
 - **Impact:** Critical security, execution, and user-facing regressions cannot be detected by CI or local test gates.
 - **Recommended Fix:** Author dedicated test suites for `dashboard/` (`tests/test_dashboard.py`), `actions/system_diagnostics_mcp.py`, and `actions/brahma_dev_agent.py`. Add mock-based integration tests for `core/live_voice_engine.py`.
@@ -340,17 +341,31 @@ flowchart TD
 
 ---
 
+### [WP-11-F09] Blanket Ruff `F821` (`undefined-name`) Suppression in `pyproject.toml` Masks Runtime `NameError` Bugs Across 16 Core Modules
+- **Severity:** `High`
+- **Category:** `Test Gap` & `Correctness/Bug`
+- **Location:** [pyproject.toml:25-38](file:///C:/Users/Admin/Brahma-Ai-Evo/pyproject.toml#L25-L38) (`[tool.ruff.lint.per-file-ignores]`)
+- **Evidence & Mechanism:**
+  Lines 25–38 of `pyproject.toml` suppress `F821` (`undefined-name`) across `core/session_lifecycle.py` and 15 `core/ui_*.py` files because those modules populate symbols dynamically at runtime via `globals().update(deps)`.
+- **Impact:**
+  Any genuine missing import or typo in those 16 modules (over 12,000 lines of code) passes `ruff check .` silently and only crashes at runtime when that code path executes—directly explaining why `NameError: name 'np' is not defined` and `NameError: name 'cv2' is not defined` in `core/ui_transients.py:124-126` (`FINDING-WP07-01`) went undetected by CI.
+- **Recommended Fix:**
+  Replace dynamic `globals().update(deps)` injection in `core/ui_*.py` with explicit module imports and remove all `F821` per-file ignores from `pyproject.toml`.
+
+---
+
 ## 5. Cross-Package Seams & Handoff Notes for Orchestrator
 
 1. **Handoff to WP-01 (Agentic Harness Core):**
    - Verify `agent/subagent_library.py:156` path resolution under PyInstaller frozen environments (Finding `[WP-11-F03]`). In a packaged binary, `__file__.resolve().parent.parent` resolves to `_internal/`, breaking subagent discovery.
    - Verify `agent/process.py:166-215` Job Object breakaway behavior when running under WindowsApps Python (Finding `[WP-11-F07]`).
 2. **Handoff to WP-05 (Bridges, APIs & Gateways):**
-   - `dashboard/` has 0 tests across its entire codebase (Finding `[WP-11-F05]`). WP-05 should audit `dashboard/server.py` for authentication, port conflicts with Brahma Connect (both default to port 8000), and raw `json.load("config/api_keys.json")` bypassing `core.secret_store`.
+   - `dashboard/` has 0 tests across its entire codebase (Finding `[WP-11-F05]`). WP-05 should audit `dashboard/server.py` for authentication, port conflicts with `BRAHMA_GATEWAY_PORT` in `core/agent_bridge/adapters/orchestrator.py` (both default to port 8000, whereas `brahma_connect` defaults to port 8765), and raw `json.load("config/api_keys.json")` bypassing `core.secret_store`.
    - `brahma_api/server.py:356` calls `AgentSession.open()` without isolating SQLite DB paths, causing test crashes when `%LOCALAPPDATA%\BrahmaAI\config\workspace_store.sqlite3` is malformed (Finding `[WP-11-F01]`).
 3. **Handoff to WP-06 / WP-07 (UI Shell, Settings & Panels):**
-   - `core/ui_connectivity.py` is a 4,538-line monolith with 0 automated tests. WP-06/WP-07 should assess whether decomposing this module into smaller card components is required before adding regression test fixtures.
-   - `installer/install_wizard.py:10` eagerly imports `PyQt6.QtWebEngineWidgets` at module scope, violating Invariant I-25.
+   - `core/ui_connectivity.py` is a 5,090-line monolith with 0 automated tests. WP-06/WP-07 should assess whether decomposing this module into smaller card components is required before adding regression test fixtures.
+   - `installer/install_wizard.py:10` eagerly imports `PyQt6.QtWebEngineWidgets` at module scope, violating Invariant I-26 / Decision D46.
+   - `pyproject.toml:25-38` suppresses `F821` across 15 `core/ui_*.py` files (Finding `[WP-11-F09]`).
 4. **Handoff to WP-09 / WP-10 (Native Capability Actions):**
    - 22 native actions in `actions/` have zero unit test coverage (Finding `[WP-11-F05]`).
    - `actions/instagram_chat.py` and `actions/instagram_mcp.py` write `ig_debug.log` to the repository root (Finding `[WP-11-F06]`).

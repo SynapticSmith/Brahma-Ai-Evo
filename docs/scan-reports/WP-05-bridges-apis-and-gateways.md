@@ -31,8 +31,8 @@ flowchart TD
         end
 
         subgraph BrahmaAPI ["brahma_api (ADR-022 Loopback API)"]
-            APIServer["FastAPI Server (127.0.0.1:8008)"]
-            APIRunner["APIRunner (Profile Policy Enforcement)"]
+            APIServer["FastAPI Server (127.0.0.1:8010)"]
+            APIRunner["AgentRunner (Profile Policy Enforcement)"]
             APITokens["Token Store (SHA-256 Hashes)"]
         end
 
@@ -107,7 +107,7 @@ flowchart TD
 1. **`brahma_api` (Loopback API)** strictly enforces the ADR-022 Transport-Only Invariant. Incoming tokens are hashed with SHA-256, verified in constant time (`hmac.compare_digest`), mapped to profile constraints (`chat`, `reader`, `worker`, `operator`), and resolved against runtime policies using a downgrade-only intersection algorithm (`models.resolve`). All model/tool execution passes exclusively through `AgentRuntime.execute`.
 2. **`core/agent_bridge` (Bridge v2)** implements rich multi-adapter abstractions (CLI subagents, local model engines, MCP stdio/SSE, orchestrator endpoints, remote APIs). However, **it is completely disconnected from live runtime execution**. Its discovery results and `publish_tools()` methods are never wired to `main.py` or `ToolIndex`, rendering it a dead seam accessible only as an informational card in the Settings UI.
 3. **`dashboard/server.py`** exhibits severe security defects: it binds to `0.0.0.0:8000`, generates an elevated Windows UAC prompt (`runas`) modifying host firewall and changing network profile to `Private`, lacks brute-force lockouts on 6-character PIN logins, exposes unauthenticated arbitrary file read endpoints, allows 500 MB arbitrary file uploads without quotas, and bypasses DPAPI secret storage.
-4. **`brahma_connect` & `brahma-connect-android`** provide robust cryptographic pairing (HMAC-SHA256, replay nonce tracking, timestamp skew validation). However, the mobile companion enables `android:usesCleartextTraffic="true"` and communicates via unencrypted `ws://` sockets, exposing sensitive accessibility dumps, screen text, and keystrokes across local Wi-Fi. Furthermore, the desktop mobile gateway service is not started in `main.py`, and `on_chat_message` is unhandled, dropping mobile chat messages.
+4. **`brahma_connect` & `brahma-connect-android`** provide robust cryptographic pairing (HMAC-SHA256, replay nonce tracking, timestamp skew validation). However, the mobile companion enables `android:usesCleartextTraffic="true"` and communicates via unencrypted `ws://` sockets, exposing sensitive accessibility dumps, screen text, and keystrokes across local Wi-Fi. Furthermore, while `BrahmaConnectService` is instantiated and started in `main.py:2942-2982`, `brahma_connect.on_chat_message` (`brahma_connect/gateway/server.py:115, 631-632`) is never assigned (silently dropping mobile chat messages) and `brahma_connect.stop()` is missing from `main()`'s `finally` block (`main.py:3180-3198`).
 5. **`discord_bot.py`** provides an unbound standalone fallback mode that invokes `llm_gateway` and `openrouter_client` directly without `AgentRuntime.execute` or permission policy enforcement, while executing runtime `pip install` subprocess commands upon module import.
 
 ---
@@ -116,81 +116,82 @@ flowchart TD
 
 | File Path | LOC | Status | Role / Architectural Purpose | Direct Dependencies | Identified Vulnerabilities & Anomalies |
 |:---|:---:|:---:|:---|:---|:---|
-| `core/agent_bridge/__init__.py` | 42 | Healthy | Public facade exporting bridge singletons and models | Python stdlib | None |
-| `core/agent_bridge/constants.py` | 76 | Healthy | Bridge enums: `AgentType`, `AgentStatus`, `AgentCapability`, `BridgeHealth` | Python stdlib (`enum`) | None |
-| `core/agent_bridge/errors.py` | 45 | Healthy | Bridge domain hierarchy (`BridgeError`, `AdapterError`, `DiscoveryError`) | Python stdlib | None |
-| `core/agent_bridge/models.py` | 134 | Healthy | Data contracts: `AgentDescriptor`, `AgentTask`, `BridgeEvent` | `pydantic` | None |
-| `core/agent_bridge/registry.py` | 102 | Healthy | In-memory thread-safe registry of discovered agents | Python stdlib (`threading`) | None |
-| `core/agent_bridge/artifacts.py` | 89 | Healthy | Workspace artifact tracker and metadata parser | Python stdlib (`pathlib`) | None |
-| `core/agent_bridge/adapter.py` | 148 | Healthy | Abstract base class `AgentAdapter` defining lifecycle and dispatch contracts | Python stdlib (`abc`, `asyncio`) | None |
-| `core/agent_bridge/detectors.py` | 162 | Fragile | Process, port, and filesystem heuristics to detect local agents | `psutil`, `socket`, `pathlib` | Broad process/port sweeps; unhandled `psutil.AccessDenied` edge cases |
-| `core/agent_bridge/bridge.py` | 248 | Dead Seam | Central coordinator orchestrating detection, adapters, and tools | `threading`, `asyncio`, `agent_bridge.*` | **Dead Seam:** `publish_tools()` is never called by `main.py` or `ToolIndex`; bridge tools are never exposed to LLM turns |
-| `core/agent_bridge/adapters/__init__.py` | 28 | Healthy | Adapter module export facade | Python stdlib | None |
-| `core/agent_bridge/adapters/cli_agent.py` | 185 | Fragile | Adapter wrapping CLI agents (Aider, Claude Code, Goose) via stdio subprocess | `subprocess`, `asyncio` | Subprocess timeouts present, but spawns outside `agent.process.run_captured` |
-| `core/agent_bridge/adapters/local_model.py` | 192 | Fragile | Adapter connecting to Ollama, LM Studio, vLLM HTTP APIs | `httpx`, `json` | Hardcoded localhost fallbacks; SSRF vulnerability if remote URL configured |
-| `core/agent_bridge/adapters/mcp_server.py` | 215 | Fragile | Adapter managing stdio/SSE Model Context Protocol servers | `asyncio`, `json` | Parallel MCP client implementation conflicting with harness-standard `agent/mcp.py` |
-| `core/agent_bridge/adapters/orchestrator.py` | 176 | Fragile | Adapter integrating Paperclip and Orca multi-agent frameworks | `httpx`, `os` | Hardcodes port 8000 default (`BRAHMA_GATEWAY_PORT`), conflicting with Dashboard |
-| `core/agent_bridge/adapters/remote.py` | 158 | Fragile | Adapter connecting to remote Brahma instances or OpenAI endpoints | `httpx` | Bypasses `core/secret_store.py` for API key management |
-| `brahma_api/__init__.py` | 25 | Healthy | Public facade exporting `APIRunner` and `create_app` | Python stdlib | None |
-| `brahma_api/__main__.py` | 42 | Healthy | CLI launcher for loopback server (`python -m brahma_api`) | `argparse`, `uvicorn` | None |
-| `brahma_api/auth.py` | 118 | Healthy | Constant-time token authentication and scope verification | `hmac`, `hashlib`, `json`, `fastapi` | Conforms to ADR-022; hashes checked with `hmac.compare_digest` |
-| `brahma_api/config.py` | 86 | Healthy | JSON configuration loader and token store manager | `pydantic`, `pathlib` | None |
-| `brahma_api/errors.py` | 64 | Healthy | OpenAI-compatible error formatting and HTTP exception handlers | `fastapi`, `pydantic` | None |
-| `brahma_api/models.py` | 142 | Healthy | Model catalog definitions and token permission downgrading | `pydantic`, `agent.permissions` | Invariant-compliant: `models.resolve()` enforces strict privilege downgrade |
-| `brahma_api/runner.py` | 268 | Healthy | Bridge between FastAPI requests and `AgentRuntime.execute` / `AgentLoop` | `agent.runtime`, `agent.loop` | Invariant-compliant: Dispatches exclusively through `AgentRuntime.execute` |
-| `brahma_api/schemas.py` | 176 | Healthy | Pydantic models for OpenAI chat completion requests/responses | `pydantic` | None |
-| `brahma_api/server.py` | 284 | Healthy | FastAPI application defining `/v1/chat/completions` and `/v1/models` | `fastapi`, `uvicorn` | Invariant-compliant: Loopback-only binding; approval gate enforced |
-| `brahma_api/streaming.py` | 94 | Healthy | Server-Sent Events (SSE) formatter for OpenAI streaming responses | `asyncio`, `json` | None |
-| `brahma_api/translate.py` | 136 | Healthy | Bidirectional message and tool-call schema converter | Python stdlib | None |
-| `config/brahma_api.json` | 28 | Healthy | Default configuration for loopback server | JSON | Localhost binding (`127.0.0.1:8008`) |
-| `config/brahma_api.example.json` | 28 | Healthy | Example configuration template for loopback server | JSON | None |
-| `config/brahma_api/tokens.json` | 14 | Healthy | Active token hash registry | JSON | Contains SHA-256 hashes only; no plaintext secrets |
-| `brahma_connect/__init__.py` | 22 | Healthy | Public facade for mobile connect subsystem | Python stdlib | None |
-| `brahma_connect/service.py` | 58 | Dead Seam | Background service wrapper managing GatewayServer lifecycle | `threading`, `asyncio` | **Dormant Subsystem:** Never instantiated or started in `main.py` |
-| `brahma_connect/README.md` | 65 | Healthy | Documentation for mobile gateway protocol | Markdown | None |
-| `brahma_connect/agents/PROTOCOL.md` | 82 | Healthy | Protocol specification for mobile companion framing | Markdown | None |
-| `brahma_connect/gateway/__init__.py` | 18 | Healthy | Gateway module export facade | Python stdlib | None |
-| `brahma_connect/gateway/models.py` | 112 | Healthy | Gateway data structures (`Device`, `PairingSession`, `GatewayCommand`) | `dataclasses` | None |
-| `brahma_connect/gateway/protocol.py` | 134 | Healthy | Framing, serialization, and opcode constants for companion sync | `json`, `dataclasses` | None |
-| `brahma_connect/gateway/authentication.py` | 146 | Healthy | Cryptographic pairing handshake, token generation, and HMAC verification | `hmac`, `hashlib`, `secrets` | Cryptographically sound: constant-time HMAC, timestamp skew check, nonce registry |
-| `brahma_connect/gateway/capability_manager.py` | 78 | Healthy | Tracks and validates capabilities advertised by mobile device | Python stdlib | None |
-| `brahma_connect/gateway/command_router.py` | 164 | Healthy | Routes gateway commands to connected mobile devices | `asyncio`, `json` | Strictly checks `ALLOWED_GATEWAY_COMMANDS` |
-| `brahma_connect/gateway/websocket.py` | 210 | Fragile | WebSocket connection manager for mobile devices | `websockets`, `asyncio` | Incoming `chat_message` calls `self.on_chat_message`, which is unassigned in desktop |
-| `brahma_connect/gateway/device_manager.py` | 128 | Healthy | Registry of paired and active companion devices | `json`, `pathlib` | None |
-| `brahma_connect/gateway/pairing.py` | 142 | Healthy | Dynamic QR code and 6-digit numeric pairing manager | `secrets`, `time` | Ephemeral pairing codes with 5-minute expiry |
-| `brahma_connect/gateway/discovery.py` | 116 | Healthy | mDNS / DNS-SD advertiser (`zeroconf`) for local discovery (`_BRAHMA._tcp`) | `zeroconf` | Graceful fallback if `zeroconf` is unavailable |
-| `brahma_connect/gateway/mobile_portal.py` | 154 | Healthy | Lightweight HTTP endpoints for pairing offer exchange and web UI | `http.server` | None |
-| `brahma_connect/gateway/server.py` | 312 | Fragile | Central gateway coordinating HTTP, WebSocket, pairing, and dispatch | `asyncio`, `aiohttp` | Unbound `on_chat_message` drops mobile text input |
-| `core/gateway_auth.py` | 248 | Healthy | Centralized authentication and token validation for gateways | `hmac`, `hashlib`, `time` | Includes brute-force lockout (3 failed attempts -> 15 min lock) |
-| `dashboard/__init__.py` | 12 | Healthy | Module export facade | Python stdlib | None |
+| `core/agent_bridge/__init__.py` | 74 | Healthy | Public facade exporting `AgentBridge`, `get_agent_bridge`, and bridge models/errors | Python stdlib | None |
+| `core/agent_bridge/constants.py` | 92 | Healthy | Bridge constants: `BRIDGE_SCHEMA_VERSION`, `AGENT_KINDS`, `AGENT_TIERS`, `DEFAULT_PROBE_TIMEOUT_S`, `TOOL_NAME_TEMPLATE` | Python stdlib | None |
+| `core/agent_bridge/errors.py` | 35 | Healthy | Bridge exception hierarchy (`AgentBridgeError`, `ConnectError`, `AuthRequired`, `CallTimeout`, `SchemaDrift`, `ForbiddenTarget`, `FanoutBudgetExceeded`, `ConfirmationDenied`) | Python stdlib | None |
+| `core/agent_bridge/models.py` | 113 | Healthy | Dataclass contracts: `Capability`, `ProbeResult`, `AgentCallResult`, `AgentTransport`, `AgentRecord` | Python stdlib (`dataclasses`) | None |
+| `core/agent_bridge/registry.py` | 177 | Healthy | In-memory thread-safe `AgentRegistry` of discovered agents | Python stdlib (`threading`, `json`) | None |
+| `core/agent_bridge/artifacts.py` | 386 | Healthy | Workspace artifact tracker and metadata parser | Python stdlib (`pathlib`, `json`, `hashlib`) | None |
+| `core/agent_bridge/adapter.py` | 101 | Healthy | Abstract base class `AgentAdapter` defining lifecycle and dispatch contracts | Python stdlib (`abc`) | None |
+| `core/agent_bridge/detectors.py` | 288 | Fragile | Process, port, and filesystem heuristics to detect local agents | Python stdlib (`socket`, `shutil`, `subprocess`, `urllib.request`) | Broad port sweeps (`11434`, `1234`, `8000`, `3100`) |
+| `core/agent_bridge/bridge.py` | 239 | Dead Seam | Central coordinator `AgentBridge` orchestrating detection, adapters, and tools | Python stdlib (`threading`, `concurrent.futures`) | **Dead Seam:** `publish_tools()` is never called by `main.py` or `ToolIndex`; bridge tools are never exposed to LLM turns |
+| `core/agent_bridge/adapters/__init__.py` | 17 | Healthy | Adapter module export facade | Python stdlib | None |
+| `core/agent_bridge/adapters/cli_agent.py` | 177 | Fragile | `CliAgentAdapter` wrapping CLI agents (Aider, Claude Code, Goose) via subprocess | Python stdlib (`subprocess`, `shutil`) | Subprocess timeouts present, but spawns via `subprocess.run` outside `agent.process.run_captured` (`I-24`) |
+| `core/agent_bridge/adapters/local_model.py` | 174 | Fragile | `LocalModelAdapter` connecting to Ollama, LM Studio, vLLM HTTP APIs | Python stdlib (`urllib.request`, `json`) | Hardcoded localhost fallbacks; unpinned HTTP requests |
+| `core/agent_bridge/adapters/mcp_server.py` | 173 | Fragile | `McpServerAdapter` managing stdio/HTTP JSON-RPC Model Context Protocol servers | Python stdlib (`subprocess`, `urllib.request`, `json`) | **Violates `I-18`:** Implements a 3rd MCP client alongside `agent/mcp.py` and `core/mcp_manager.py` |
+| `core/agent_bridge/adapters/orchestrator.py` | 296 | Fragile | `OrchestratorAdapter` integrating Paperclip and Orca multi-agent frameworks | Python stdlib (`urllib.request`, `os`, `json`) | Hardcodes port 8000 default (`BRAHMA_GATEWAY_PORT`), conflicting with Dashboard |
+| `core/agent_bridge/adapters/remote.py` | 274 | Fragile | `RemoteAdapter` connecting to remote HTTP/JSON-RPC agent endpoints | Python stdlib (`urllib.request`, `json`, `os`) | Reads bearer token from env rather than `core/secret_store.py` |
+| `brahma_api/__init__.py` | 0 | Healthy | Empty package marker (mirrors `agent/__init__.py`) | Python stdlib | None |
+| `brahma_api/__main__.py` | 337 | Healthy | CLI launcher and token manager (`python -m brahma_api serve|token`) | `argparse`, `uvicorn` | None |
+| `brahma_api/auth.py` | 370 | Healthy | Constant-time token authentication, minting, revocation, and scope verification (`TokenStore`) | Python stdlib (`hmac`, `hashlib`, `secrets`, `json`) | Conforms to ADR-022; hashes checked with `hmac.compare_digest` |
+| `brahma_api/config.py` | 332 | Healthy | Dataclass configuration loader (`ServerConfig`, `DEFAULT_PORT = 8010`) | Python stdlib (`dataclasses`, `json`, `pathlib`) | Loopback host check enforced (`is_loopback_host`) |
+| `brahma_api/errors.py` | 150 | Healthy | OpenAI-compatible error envelope formatting (`APIError`) | Python stdlib (`dataclasses`) | None |
+| `brahma_api/models.py` | 254 | Healthy | Model catalog definitions and token permission downgrading (`resolve`, `profile_policy`) | Python stdlib (`dataclasses`), `agent.permissions` | Invariant-compliant: `models.resolve()` enforces strict privilege downgrade |
+| `brahma_api/runner.py` | 490 | Healthy | `AgentRunner` bridging FastAPI requests to `AgentRuntime.execute` / `AgentLoop` | `agent.runtime`, `agent.loop`, `agent.session` | Invariant-compliant: Dispatches exclusively through `AgentRuntime.execute` |
+| `brahma_api/schemas.py` | 136 | Healthy | Dataclasses and validators for OpenAI chat completion requests/responses | Python stdlib (`dataclasses`, `time`, `uuid`) | None |
+| `brahma_api/server.py` | 827 | Healthy | FastAPI application defining `/v1/chat/completions`, `/v1/models`, and `/v1/sessions` | `fastapi`, `starlette` | Invariant-compliant: Loopback-only binding (`127.0.0.1:8010`); approval gate enforced |
+| `brahma_api/streaming.py` | 189 | Healthy | Server-Sent Events (SSE) formatter for OpenAI streaming responses | Python stdlib (`json`, `queue`, `threading`) | None |
+| `brahma_api/translate.py` | 259 | Healthy | Bidirectional message and tool-call schema converter | Python stdlib (`json`, `uuid`) | None |
+| `config/brahma_api.example.json` | 28 | Healthy | Example configuration template for loopback server (`127.0.0.1:8010`) | JSON | Loopback binding (`127.0.0.1:8010`) |
+| `config/brahma_api/tokens.json` | 21 | Healthy | Active token hash registry | JSON | Contains SHA-256 hashes only; no plaintext secrets |
+| `brahma_connect/__init__.py` | 9 | Healthy | Public facade exporting `BrahmaConnectService` and `get_service` | Python stdlib | None |
+| `brahma_connect/service.py` | 126 | Partial Seam | `BrahmaConnectService` managing `GatewayServer` background lifecycle | `threading`, `asyncio` | Started in `main.py:2942-2982`, but `on_chat_message` is never wired and `stop()` is missing in `main()`'s `finally` |
+| `brahma_connect/README.md` | 28 | Healthy | Documentation for mobile gateway protocol | Markdown | None |
+| `brahma_connect/agents/PROTOCOL.md` | 60 | Healthy | Protocol specification for mobile companion framing | Markdown | None |
+| `brahma_connect/gateway/__init__.py` | 22 | Healthy | Gateway module export facade | Python stdlib | None |
+| `brahma_connect/gateway/models.py` | 95 | Healthy | Gateway data structures (`PairedDevice`, `PairingSession`, `CommandRequest`) | Python stdlib (`dataclasses`) | None |
+| `brahma_connect/gateway/protocol.py` | 49 | Healthy | Framing, serialization, and opcode constants for companion sync | Python stdlib (`json`, `dataclasses`) | None |
+| `brahma_connect/gateway/authentication.py` | 27 | Healthy | Token generation and authentication helper | Python stdlib (`secrets`), `core.gateway_auth` | Delegates HMAC/nonce verification to `core.gateway_auth` |
+| `brahma_connect/gateway/capability_manager.py` | 24 | Healthy | Tracks and validates capabilities advertised by mobile device | Python stdlib | None |
+| `brahma_connect/gateway/command_router.py` | 109 | Healthy | Routes gateway commands to connected mobile devices | `asyncio`, `json` | Strictly checks `ALLOWED_GATEWAY_COMMANDS` |
+| `brahma_connect/gateway/websocket.py` | 105 | Fragile | WebSocket connection manager (`ConnectionHub`) for mobile devices | `fastapi`, `asyncio` | Tracks active device sockets and heartbeats |
+| `brahma_connect/gateway/device_manager.py` | 227 | Healthy | Registry of paired and active companion devices (`devices.json`) | `json`, `pathlib`, `threading` | None |
+| `brahma_connect/gateway/pairing.py` | 70 | Healthy | Dynamic QR code and 6-digit numeric pairing manager | `secrets`, `time` | Ephemeral pairing codes with expiry |
+| `brahma_connect/gateway/discovery.py` | 59 | Healthy | UDP broadcast / LAN discovery responder | `socket`, `threading`, `json` | None |
+| `brahma_connect/gateway/mobile_portal.py` | 489 | Healthy | Mobile HTML/JS web portal served by the gateway | HTML/JS in Python | None |
+| `brahma_connect/gateway/server.py` | 675 | Fragile | Central `GatewayServer` coordinating FastAPI HTTP, WebSocket `/ws`, pairing, and dispatch | `fastapi`, `uvicorn`, `asyncio` | Unassigned `self.on_chat_message` (`lines 115, 631-632`) silently drops mobile `chat_message` payloads |
+| `core/gateway_auth.py` | 284 | Healthy | Centralized authentication, HMAC-SHA256 verification, replay nonce cache, and brute-force lockout | Python stdlib (`hmac`, `hashlib`, `time`, `secrets`) | Includes brute-force lockout (5 failed attempts -> 300s lock) and DPAPI secret store integration |
+| `dashboard/__init__.py` | 0 | Healthy | Empty package marker | Python stdlib | None |
 | `dashboard/server.py` | 914 | Vulnerable | Web Dashboard FastAPI server on `0.0.0.0:8000` | `fastapi`, `ctypes`, `json` | **UAC elevation exploit (`runas`), DPAPI bypass, unauthenticated path traversal, 500MB upload, no PIN rate limiting** |
-| `dashboard/static/login.html` | 185 | Vulnerable | Web Dashboard PIN login interface | HTML/JS | Advises users to disable browser security flags (`chrome://flags`) |
-| `dashboard/static/app.html` | 320 | Vulnerable | Web Dashboard main operator interface | HTML/JS | Advises users to disable browser security flags; plain HTTP WebRTC |
-| `dashboard/static/voice.html` | 245 | Fragile | Web Dashboard voice and audio streaming interface | HTML/JS | WebRTC audio over unencrypted HTTP |
-| `discord_bot.py` | 435 | Vulnerable | Discord bot integration bridging messages to Brahma commands | `discord`, `subprocess`, `json` | **Sync `pip install` on import, DPAPI bypass, fallback mode bypasses `AgentRuntime.execute`** |
-| `brahma-connect-android/AndroidManifest.xml` | 68 | Vulnerable | Android application manifest | XML | **`usesCleartextTraffic="true"`, broad accessibility permissions** |
-| `brahma-connect-android/BrahmaAccessibilityService.kt` | 185 | Fragile | Accessibility service for UI automation and screen scraping | Android SDK | Scrapes sensitive screen contents and injects arbitrary gestures |
-| `brahma-connect-android/DeviceCommandHandler.kt` | 240 | Vulnerable | Handles remote commands on Android device | Android SDK | **Path traversal in file operations (`fileRead`/`fileWrite`/`fileDelete`)** |
-| `brahma-connect-android/PairingStorage.kt` | 95 | Healthy | Encrypted storage for pairing credentials | `EncryptedSharedPreferences` | Hardware Keystore-backed AES256-GCM storage |
-| `brahma-connect-android/BrahmaWebSocketClient.kt` | 162 | Vulnerable | WebSocket client connecting to desktop gateway | `okhttp3` | **Connects via cleartext `ws://`, leaking keystrokes and telemetry** |
+| `dashboard/static/login.html` | 225 | Vulnerable | Web Dashboard PIN login interface | HTML/JS | Advises users to disable browser security flags (`chrome://flags`) |
+| `dashboard/static/app.html` | 989 | Vulnerable | Web Dashboard main operator interface | HTML/JS | Advises users to disable browser security flags; plain HTTP WebRTC |
+| `dashboard/static/voice.html` | 932 | Fragile | Web Dashboard voice and audio streaming interface | HTML/JS | WebRTC audio over unencrypted HTTP |
+| `dashboard/static/crypto-js.min.js` | 1 | Healthy | Vendored CryptoJS minified bundle | JS | Minified library |
+| `discord_bot.py` | 435 | Vulnerable | Discord bot integration bridging messages to Brahma commands | `discord`, `subprocess`, `json` | **Sync `pip install` on import (`I-26`), DPAPI bypass, fallback mode bypasses `AgentRuntime.execute` (`I-01`)** |
+| `brahma-connect-android/app/src/main/AndroidManifest.xml` | 57 | Vulnerable | Android application manifest | XML | **`usesCleartextTraffic="true"`, broad accessibility permissions** |
+| `brahma-connect-android/app/src/main/java/com/brahma/connect/accessibility/BrahmaAccessibilityService.kt` | 114 | Fragile | Accessibility service for UI automation and screen scraping | Android SDK | Scrapes sensitive screen contents and injects arbitrary gestures |
+| `brahma-connect-android/app/src/main/java/com/brahma/connect/commands/DeviceCommandHandler.kt` | 360 | Vulnerable | Handles remote commands on Android device | Android SDK | **Path traversal in file operations (`handleFileRead`/`handleFileWrite`/`handleFileDelete` at lines 220–302); unvalidated `handleOpenUrl` at lines 164–176** |
+| `brahma-connect-android/app/src/main/java/com/brahma/connect/pairing/PairingStorage.kt` | 68 | Healthy | Encrypted storage for pairing credentials | `EncryptedSharedPreferences` | Hardware Keystore-backed AES256-GCM storage |
+| `brahma-connect-android/app/src/main/java/com/brahma/connect/network/BrahmaWebSocketClient.kt` | 280 | Vulnerable | WebSocket client connecting to desktop gateway | `okhttp3` | **Connects via cleartext `ws://` (`line 62`), leaking keystrokes, screen dumps, and tokens** |
 
 ---
 
 ## 3. Invariant & Specific Audit Question Verdicts
 
-### 3.1 Core Invariant Verdicts
+### 3.1 Core Invariant Verdicts (`docs/ARCHITECTURE-SPEC.md` §4.1)
 
-- **Invariant I-01 (Single Permission Boundary):**
+- **Invariant I-01 (Single Permission Boundary — `AgentRuntime.execute`):**
   - `brahma_api`: **PASS**. All agentic operations flow strictly through `AgentRuntime.execute`.
   - `brahma_connect`: **PASS (Desktop) / N/A**. Gateway commands route to devices via `CommandRouter` and do not execute desktop tools.
   - `dashboard`: **PASS (Runtime Execution) / FAIL (Administrative Actions)**. Command execution over `/api/command` and `/ws` correctly enqueues into `_command_queue` and reaches `AgentRuntime.execute` via `MainWindow.submit_command()`. However, `_ensure_network_access()` performs administrative firewall and network configuration directly via an elevated shell without passing through `AgentRuntime`.
   - `discord_bot.py`: **FAIL (Unbound Mode)**. When unbound from the GUI (`_app_submitter is None`), `_generate_reply` invokes `llm_gateway.generate_content` and `openrouter_client.chat` directly, completely bypassing `AgentRuntime.execute`.
-- **Invariant I-02 (Canonical Tool Protocol):** **PASS**. `brahma_api/translate.py` and `brahma_api/runner.py` maintain strict OpenAI tool message schemas with compliant tool calls and turn order.
-- **Invariant I-04 (DPAPI Secret Encryption):** **FAIL**. Both `dashboard/server.py:83-89` and `discord_bot.py:48-56` bypass `core/secret_store.py` and perform raw `json.load()` reads on `config/api_keys.json`.
-- **Invariant I-05 (Subprocess Tree Containment):** **FAIL (Adapters & Discord)**. `core/agent_bridge/adapters/cli_agent.py` spawns CLI subprocesses using raw `asyncio.create_subprocess_exec` rather than `agent.process.run_captured`, creating potential orphaned grandchild processes on timeout. `discord_bot.py:20` calls `subprocess.run(["pip", "install", ...])` directly at import time.
-- **Invariant I-20 (No Network/Filesystem Sandbox Pretending):** **FAIL**. `dashboard/server.py` attempts to configure Windows Firewall rules dynamically via UAC prompts while advertising insecure HTTP origins as safe.
+- **Invariant I-09 & I-10 (OpenAI-Shaped Transcript & Canonical Tool Protocol):** **PASS**. `brahma_api/translate.py` and `brahma_api/runner.py` (`AgentRunner`) maintain strict OpenAI tool message schemas with compliant tool calls and turn order.
+- **Invariant I-12 & I-24 (Subprocess Tree Containment & Single `run_captured` Path):** **FAIL (Adapters, Dashboard & Discord)**. `core/agent_bridge/adapters/cli_agent.py` and `mcp_server.py` spawn subprocesses using raw `subprocess.run` / `subprocess.Popen` rather than `agent.process.run_captured`. `dashboard/server.py` spawns elevated `cmd.exe` via `ShellExecuteW("runas")`. `discord_bot.py:20` calls `subprocess.run([sys.executable, "-m", "pip", "install", "discord.py"])` directly.
+- **Invariant I-18 (One MCP Client Per Layer — No Third Client):** **FAIL**. `core/agent_bridge/adapters/mcp_server.py` implements a third standalone stdio/HTTP JSON-RPC MCP client alongside `agent/mcp.py` (harness) and `core/mcp_manager.py` (voice).
+- **Invariant I-26 (No Import-Time Side Effects):** **FAIL**. `discord_bot.py:20` (`_load_discord_module`) runs a synchronous `pip install discord.py` subprocess when imported if `discord` is not installed.
+- **Security Phase 0 (Q0-B DPAPI Secret Encryption):** **FAIL**. Both `dashboard/server.py:83-89` and `discord_bot.py:48-56` bypass `core/secret_store.py` and perform raw `json.load()` reads on `config/api_keys.json`.
 - **ADR-018 (Agent Bridge Runtime Boundary):** **FAIL (Integration)**. ADR-018 specifies that bridged agent tools must be published into the active runtime's tool registry. In the current implementation, `AgentBridge.publish_tools()` is completely uncalled in `main.py` or `ToolIndex`.
-- **ADR-022 (Loopback API Transport-Only Invariant):** **PASS**. Fully compliant. Token permissions can only downgrade privileges, tokens are stored as SHA-256 hashes, and loopback binding is strictly enforced.
+- **ADR-022 (Loopback API Transport-Only Invariant):** **PASS**. Fully compliant. Token permissions can only downgrade privileges, tokens are stored as SHA-256 hashes, and loopback binding (`127.0.0.1:8010`) is strictly enforced.
 
 ---
 
@@ -302,7 +303,7 @@ flowchart TD
 #### [SEC-WP05-03] Arbitrary File Read, Write, and Deletion via Path Traversal in Android Companion
 - **Severity:** Critical
 - **Category:** Security / Path Traversal
-- **Target:** `brahma-connect-android/app/src/main/java/com/brahma/connect/commands/DeviceCommandHandler.kt:127-160` (`handleFileRead`, `handleFileWrite`, `handleFileDelete`)
+- **Target:** `brahma-connect-android/app/src/main/java/com/brahma/connect/commands/DeviceCommandHandler.kt:220-302` (`handleFileRead`, `handleFileWrite`, `handleFileDelete`)
 - **Evidence & Mechanism:**
   The command handler constructs file paths directly from unvalidated parameters sent over WebSocket:
   ```kotlin
@@ -446,23 +447,19 @@ flowchart TD
 
 ---
 
-#### [ARCH-WP05-02] Dormant Subsystem: `brahma_connect` Service Is Unwired in Main Application
+#### [ARCH-WP05-02] Unwired Mobile Chat Callback & Missing Shutdown Teardown in `brahma_connect`
 - **Severity:** High
 - **Category:** Architecture / Integration
-- **Target:** `brahma_connect/service.py:20-58` (`ConnectService`), `main.py`, `brahma_connect/gateway/server.py:115`
+- **Target:** `brahma_connect/service.py:32-37` (`BrahmaConnectService`), `brahma_connect/gateway/server.py:115, 631-632`, `main.py:2942-2982, 3180-3198`
 - **Evidence & Mechanism:**
-  1. `ConnectService` in `brahma_connect/service.py` is the lifecycle container for mDNS discovery, HTTP portal, and WebSocket gateway. It is never imported, instantiated, or started anywhere in `main.py` or `core/`.
-  2. On `GatewayServer` (`brahma_connect/gateway/server.py:115`), `self.on_chat_message = None`. When the Android app sends a `chat_message` over WebSocket, the server executes:
-     ```python
-     if self.on_chat_message:
-         await self.on_chat_message(text)
-     ```
-     Because this callback is never set by `main.py` or `core/`, chat messages from mobile devices are silently dropped.
+  1. `main.py:68` imports `get_service as get_brahma_connect_service` and `main.py:2942-2982` instantiates `brahma_connect = get_brahma_connect_service(BASE_DIR)`, wires `ui.set_brahma_connect_service(brahma_connect)`, and starts `brahma_connect.start_background()`.
+  2. However, on `GatewayServer` (`brahma_connect/gateway/server.py:115, 631-632`) and `BrahmaConnectService` (`brahma_connect/service.py:32-37`), `on_chat_message` is `None` and is never assigned in `main.py` or `core/`. When the Android app sends a `chat_message` over WebSocket, the server checks `if self.on_chat_message:` and silently drops the message!
+  3. Furthermore, `main()`'s `finally` block (`main.py:3180-3198`) never calls `brahma_connect.stop()`, leaving the mobile gateway event loop and UDP discovery listener running at shutdown.
 - **Impact:**
-  The mobile gateway does not run unless manually executed via external scripts. Even if started, mobile chat messages cannot reach the assistant.
+  Mobile companion chat messages (`chat_message`) are silently discarded and never reach the assistant turn pipeline, and the gateway is not cleanly stopped on application exit.
 - **Remediation:**
-  1. Instantiate and start `ConnectService` in `main.py` when mobile connect is enabled in user settings.
-  2. Bind `gateway.on_chat_message = lambda text: ui.submit_external_command(text)` in `core/realtime_flow.py`.
+  1. In `main.py:2942-2982`, bind `brahma_connect.on_chat_message = lambda device_id, text: ui.submit_external_command(text)`.
+  2. Call `brahma_connect.stop()` inside `main()`'s `finally` block (`main.py:3180-3198`).
 
 ---
 
@@ -507,7 +504,7 @@ flowchart TD
   Assign dedicated, distinct default ports:
   - Dashboard: `8080` (or `127.0.0.1:8080`)
   - Mobile Gateway: `8765`
-  - Loopback OpenAI API: `8008`
+  - Loopback OpenAI API: `8010` (`brahma_api/config.py:26`)
   - Orchestrator Bridge: `8000` (external target only)
 
 ---
@@ -542,7 +539,7 @@ flowchart TD
 #### [SEC-WP05-11] Unchecked Intent Redirection & Accessibility Gesture Abuse in Android Companion
 - **Severity:** Medium
 - **Category:** Security / Android Security
-- **Target:** `brahma-connect-android/app/src/main/java/com/brahma/connect/commands/DeviceCommandHandler.kt:185-188`
+- **Target:** `brahma-connect-android/app/src/main/java/com/brahma/connect/commands/DeviceCommandHandler.kt:164-176`
 - **Evidence & Mechanism:**
   `DeviceCommandHandler.kt` executes `openUrl` using raw unvalidated intent targets:
   ```kotlin
@@ -612,10 +609,10 @@ flowchart TD
 ## 5. Cross-Package Seams & Handoff Notes for Orchestrator
 
 1. **Handoff to WP-01 (Agent Harness):**
-   - `brahma_api/runner.py` correctly instantiates `AgentRuntime` with profile policies. Ensure that any future changes to `AgentRuntime.execute` do not break the `APIRunner` wrapper.
+   - `brahma_api/runner.py` (`AgentRunner`) correctly instantiates `AgentRuntime` with profile policies. Ensure that any future changes to `AgentRuntime.execute` do not break the `AgentRunner` wrapper.
    - `discord_bot.py` must be refactored to require an `AgentRuntime` instance instead of falling back to raw `llm_gateway` calls.
 2. **Handoff to WP-02 (Actions & Tool Registry):**
-   - `core/agent_bridge/bridge.py` contains fully functional capability wrappers for CLI agents, local model servers, and MCP servers. However, `publish_tools()` is orphaned. WP-02 and WP-06 must coordinate to add `AgentBridge` discovery results to `core/tool_index.py`.
+   - `core/agent_bridge/bridge.py` contains capability wrappers for CLI agents, local model servers, and MCP servers (though `core/agent_bridge/adapters/mcp_server.py` violates `I-18` by implementing a 3rd MCP client). However, `publish_tools()` is orphaned. WP-02 and WP-06 must coordinate to add `AgentBridge` discovery results to `core/tool_index.py`.
 3. **Handoff to WP-03 (Core Infrastructure & Seams):**
    - Both `dashboard/server.py:83-89` and `discord_bot.py:48-56` bypass DPAPI user encryption (`core/secret_store.py`). WP-03 must ensure all subsystems migrate to `secret_store.get_secret()`.
 4. **Handoff to WP-04 (Security Skills & Forge):**
@@ -623,7 +620,7 @@ flowchart TD
    - The UAC elevation script in `dashboard/server.py:121-255` modifies Windows network categories, exposing the machine on public networks.
 5. **Handoff to WP-06 (Desktop UI & HUD):**
    - `main.py` currently disables the dashboard silently if port 8000 is occupied (`main.py:2917`).
-   - `brahma_connect` service is completely omitted from the startup sequence in `main.py`, and `on_chat_message` is unassigned.
+   - While `BrahmaConnectService` is started in `main.py:2942-2982`, `brahma_connect.on_chat_message` is unassigned and `brahma_connect.stop()` is omitted from `main()`'s `finally` block.
 6. **Handoff to WP-13 (Build, Packaging & Distribution):**
    - The Android companion (`brahma-connect-android`) must be updated with `android:usesCleartextTraffic="false"` and an OkHttp TLS pinning / WSS configuration before distribution.
    - Remove runtime `pip install` side effects in `discord_bot.py`.
@@ -635,16 +632,16 @@ flowchart TD
 | Priority | ID | Subsystem | Action Item | Target File(s) |
 |:---:|:---:|:---|:---|:---|
 | **P0** | `SEC-WP05-01` | Dashboard | **Remove UAC elevation and firewall modification script (`_ensure_network_access`). Bind to `127.0.0.1` by default.** | `dashboard/server.py:121-255` |
-| **P0** | `SEC-WP05-02` | Android | **Disable cleartext traffic in Android manifest and enforce TLS/WSS WebSocket connections.** | `brahma-connect-android/AndroidManifest.xml`, `BrahmaWebSocketClient.kt` |
-| **P0** | `SEC-WP05-03` | Android | **Fix path traversal vulnerabilities in device file read/write/delete handlers.** | `DeviceCommandHandler.kt:127-160` |
+| **P0** | `SEC-WP05-02` | Android | **Disable cleartext traffic in Android manifest and enforce TLS/WSS WebSocket connections.** | `brahma-connect-android/app/src/main/AndroidManifest.xml`, `BrahmaWebSocketClient.kt` |
+| **P0** | `SEC-WP05-03` | Android | **Fix path traversal vulnerabilities in device file read/write/delete handlers.** | `DeviceCommandHandler.kt:220-302` |
 | **P1** | `SEC-WP05-04` | Dashboard / Discord | **Replace raw `config/api_keys.json` reads with `core.secret_store.get_secret()`.** | `dashboard/server.py:83-89`, `discord_bot.py:48-56` |
 | **P1** | `SEC-WP05-05` | Dashboard | **Add path confinement (`is_relative_to`) on `GET /web_background/{filename:path}`.** | `dashboard/server.py:845-853` |
 | **P1** | `SEC-WP05-06` | Dashboard | **Add brute-force rate limiting and lockout logic to `/login` PIN verification.** | `dashboard/server.py:603-623` |
 | **P1** | `SEC-WP05-07` | Dashboard | **Restrict `MAX_UPLOAD_MB` to 25 MB, enforce extension allowlists, and sanitize filenames.** | `dashboard/server.py:54, 765-809` |
 | **P1** | `ARCH-WP05-01` | Agent Bridge | **Wire `AgentBridge.publish_tools()` into `ToolIndex` during application startup.** | `core/agent_bridge/bridge.py`, `core/tool_index.py` |
-| **P1** | `ARCH-WP05-02` | Mobile Gateway | **Instantiate `ConnectService` in `main.py` and bind `on_chat_message` to UI command submitter.** | `brahma_connect/service.py`, `main.py` |
+| **P1** | `ARCH-WP05-02` | Mobile Gateway | **Bind `brahma_connect.on_chat_message` to UI command submitter in `main.py` and call `brahma_connect.stop()` in `finally`.** | `brahma_connect/service.py`, `main.py:2942-2982, 3180-3198` |
 | **P1** | `SEC-WP05-08` | Discord | **Route all message completions through `AgentRuntime.execute` with an explicit permission policy.** | `discord_bot.py:186-218` |
-| **P2** | `ARCH-WP05-03` | Host Config | **Disambiguate default ports (Dashboard: 8080, Gateway: 8765, API: 8008, Orchestrator: 8000).** | `dashboard/server.py`, `orchestrator.py` |
+| **P2** | `ARCH-WP05-03` | Host Config | **Disambiguate default ports (Dashboard: 8080, Gateway: 8765, API: 8010, Orchestrator: 8000).** | `dashboard/server.py`, `orchestrator.py` |
 | **P2** | `SEC-WP05-09` | Dashboard | **Install `CORSMiddleware` restricted to local origin.** | `dashboard/server.py:59` |
 | **P2** | `SEC-WP05-10` | Dashboard | **Remove insecure browser flag advice; implement local TLS / HTTPS.** | `dashboard/static/login.html`, `app.html` |
 | **P2** | `SEC-WP05-11` | Android | **Allowlist URL schemes (`http`, `https`) and restrict accessibility gestures on sensitive apps.** | `DeviceCommandHandler.kt`, `BrahmaAccessibilityService.kt` |

@@ -16,17 +16,17 @@
 |---|---|:---:|:---:|:---:|:---:|:---:|
 | **Agentic Harness & Subagents** | WP-01 | Needs Hardening | 0 | 1 | 3 | 5 |
 | **Tool Surface & Routing** | WP-02 | Needs Hardening | 2 | 2 | 3 | 2 |
-| **App Entry & Provider Chain** | WP-03 | Needs Hardening | 0 | 4 | 4 | 3 |
+| **App Entry & Provider Chain** | WP-03 | Critical Issues Found | 1 | 4 | 5 | 3 |
 | **Security, Secrets & Forge** | WP-04 | Critical Issues Found | 2 | 3 | 3 | 2 |
-| **Bridges, APIs & Gateways** | WP-05 | Critical Issues Found | 3 | 5 | 2 | 1 |
+| **Bridges, APIs & Gateways** | WP-05 | Critical Issues Found | 3 | 5 | 3 | 1 |
 | **UI Shell & Settings Hub** | WP-06 | Critical Issues Found | 1 | 4 | 5 | 5 |
-| **Secondary UI & WebEngine** | WP-07 | Amber / Warning | 2 | 2 | 4 | 3 |
-| **Audio, Memory & Sentinels** | WP-08 | Degraded | 1 | 4 | 2 | 2 |
+| **Secondary UI & WebEngine** | WP-07 | Amber / Warning | 2 | 3 | 4 | 3 |
+| **Audio, Memory & Sentinels** | WP-08 | Degraded | 1 | 3 | 2 | 2 |
 | **Native Actions Part A (OS/Files)** | WP-09 | Critical Issues Found | 2 | 2 | 3 | 2 |
 | **Native Actions Part B (Web/Media)** | WP-10 | Critical Issues Found | 2 | 3 | 3 | 1 |
-| **Tests, Packaging & CI/CD** | WP-11 | Needs Hardening | 2 | 3 | 2 | 1 |
+| **Tests, Packaging & CI/CD** | WP-11 | Needs Hardening | 2 | 4 | 2 | 1 |
 | **Documentation Authority & Drift** | WP-12 | Needs Hardening | 0 | 2 | 3 | 2 |
-| **TOTALS** | **WP-01 – WP-12** | **CRITICAL** | **17** | **35** | **37** | **29** |
+| **TOTALS** | **WP-01 – WP-12** | **CRITICAL** | **18** | **36** | **39** | **29** |
 
 Brahma AI Evo presents a profound architectural dichotomy. The **core agentic harness** (`agent/`), developed over Batches B1–B25 and governed by Decisions D1–D49, is exceptionally robust, stdlib-isolated, and mathematically sound in its path-dependency parallel scheduling, prompt tiers, and transcript integrity.
 
@@ -95,14 +95,15 @@ flowchart TD
 - **Origin:** `WP-03` (`workspace_store.py:252`), `WP-04` (`core/secret_store.py`), `WP-05` (`dashboard/server.py:83`), `WP-06` (`core/ui_connectivity.py:3178`), `WP-09` (`actions/*`), and `WP-10` (`actions/instagram_mcp.py:951`).
 - **Mechanism:** While `core/secret_store.py` implements Windows DPAPI encryption for `config/api_keys.json`, **11 modules across the repository read `api_keys.json` with unencrypted `json.load()`**. When DPAPI is enabled, these modules crash with `json.decoder.JSONDecodeError`. Worse, `actions/instagram_mcp.py` updates session credentials by opening `config/api_keys.json` with `open(..., "w")` and dumping raw JSON, permanently destroying the DPAPI encrypted envelope and exposing all API keys in cleartext. Concurrently, `core/ui_connectivity.py` writes local and custom provider keys directly into `config/app_settings.json` on every UI keystroke.
 
-### Trace 3: Host RCE & Sandbox Escapes in Tools and Synthesis
-- **Origin:** `WP-04` (`core/skill_crucible.py:257`), `WP-09` (`actions/computer_control.py:245`, `actions/desktop.py:76`), and `WP-10` (`actions/reminder.py:55-122`, `actions/browser_control.py:638`).
+### Trace 3: Host RCE & Sandbox Escapes in Tools, Entrypoint, and Synthesis
+- **Origin:** `WP-03` (`main.py:3206-3226`), `WP-04` (`core/skill_crucible.py:257`), `WP-09` (`actions/computer_control.py:245`, `actions/desktop.py:76`), and `WP-10` (`actions/reminder.py:55-122`, `actions/browser_control.py:638`).
 - **Mechanism:** 
   1. `SkillCrucible` runs model-synthesized scripts via `subprocess.run([sys.executable, "-c", ...])` under the interactive user token with zero sandbox containment. An AST denylist of only 12 string tokens is trivially bypassed, allowing synthesized code to execute arbitrary commands during "verification".
   2. `actions/computer_control.py` formats window titles directly into PowerShell command strings (`powershell -Command ...`), allowing immediate command injection.
   3. `actions/reminder.py` formats reminder strings directly into Python `.pyw` scripts and unescaped XML task definitions registered with `schtasks.exe`.
   4. `actions/desktop.py` evaluates Python snippets with `exec()` while explicitly exposing `ctypes`.
   5. `actions/browser_control.py` exposes `run_code_unsafe` to model dispatch without confirmation.
+  6. `main.py:3206-3226` checks `sys.argv[1]` before `main()` starts: if it is a `.py` file on disk, it reads and executes `exec(code, namespace)` with full privileges; if `sys.argv[1:3] == ["-m", "pip"]`, it runs `pip_main(sys.argv[3:])`. This turns the packaged/signed `BrahmaEvo.exe` binary into an unrestricted Python interpreter and package installer (a signed-binary proxy execution / LOLBin vector that bypasses application allowlisting and `AgentRuntime.execute`).
 
 ### Trace 4: Model Egress & Kill-Switch Bypasses (`I-21`)
 - **Origin:** `WP-03` (`main.py:733`, `core/session_lifecycle.py:879`, `core/local_brain.py`), `WP-08` (`core/llm_gateway.py:108`), `WP-09` (`actions/reverse_engineer.py`), and `WP-10` (`actions/screen_processor.py:203`).
@@ -130,12 +131,12 @@ flowchart TD
   - `core/ui_gesture.py` captures webcam frames and executes MediaPipe inference synchronously on the Qt main GUI thread on a 30ms timer, freezing UI responsiveness.
 
 ### Trace 7: Disconnected / Dead Architectural Seams
-- **Origin:** `WP-04`, `WP-05`, `WP-08`, `WP-11`, `WP-12`.
+- **Origin:** `WP-03`, `WP-04`, `WP-05`, `WP-08`, `WP-11`, `WP-12`.
 - **Mechanism:** Multiple extensive subsystems were constructed, tested in isolation, but never wired into production:
   - `AgentBridge.publish_tools()` is never called in `main.py` or `ToolIndex`; discovered CLI agents, MCP servers, and local models are invisible to chat/voice turns.
   - `SkillReviewDialog` (`core/ui_skill_review.py`) has 0 callers in `main.py` or the UI; forged skills are staged into `staged_skills/` but have no UI mechanism for review or promotion.
   - `SecretBroker`, `TaintPolicy`, `QuarantinedReader`, and `AppContainer` have 0 production callers.
-  - `ConnectService` (`brahma_connect`) is never started in `main.py`.
+  - `BrahmaConnectService` (`brahma_connect/service.py`) is instantiated and started in `main.py:2942-2982`, but `brahma_connect.on_chat_message` (`brahma_connect/gateway/server.py:115, 631-632`) is never assigned (silently dropping mobile chat messages) and `brahma_connect.stop()` is omitted from `main()`'s `finally` block (`main.py:3180-3198`).
   - `core/live_voice_engine.py` (663 LOC) and `core/memory_cortex.py` (409 LOC) are completely orphaned dead code.
 
 ---
@@ -160,11 +161,12 @@ Every finding from `WP-01` through `WP-12` has been deduplicated and normalized 
 | **FIND-010** | **Concurrency / Retrieval** | `core/tool_index.py:504` | SQLite `:memory:` connection instantiated without `check_same_thread=False`. | **Silent Retrieval Failure:** `_Fts5Backend.rank()` fails on worker threads and returns `[]`, crippling BM25 tool search. |
 | **FIND-011** | **Architecture / Concurrency** | `workspace_store.py:542` | Eager module-level `_STORE = WorkspaceStore()` executes SQLite WAL pragma at import time. | **Cascading Test & Boot Crash:** Corrupt database disk image or lock crashes 6 test suites and `agent/session.py`. |
 | **FIND-012** | **Concurrency / UI Deadlock** | `core/confirm.py:32`, `core/ui_overlays.py:779` | Global `_pending` overwritten on back-to-back tool approval requests. | **Worker Deadlock:** First approval overlay is destroyed; calling worker thread hangs for 90 seconds. |
-| **FIND-013** | **Threading Safety / Qt** | `core/clipboard_sentry.py:80`, `core/ui_shell_actions.py:23-35` | Background thread mutates `ConversationFeed` layout and `EventCard` widgets off main GUI thread. | **GUI Crash / Corruption:** Heap corruption and crashes (`0xC0000005`) in PyQt6 rendering loop. |
+| **FIND-013** | **Threading Safety / Qt / Invariant I-25** | `core/clipboard_sentry.py:80`, `core/ui_shell_actions.py:23-35` | Background thread mutates `ConversationFeed` layout and `EventCard` widgets off main GUI thread. | **GUI Crash / Corruption:** Heap corruption and crashes (`0xC0000005`) in PyQt6 rendering loop. |
 | **FIND-014** | **Packaging / Build** | `installer/BrahmaEcho.spec:3,6` | Hardcoded developer `D:\TiTech Prabha Solution\...` absolute paths. | **Build Failure:** Installer cannot be built on any other machine or CI pipeline. |
 | **FIND-015** | **Packaging / Subagents** | `agent/subagent_library.py:156` | Resolves subagent library path using `Path(__file__).parent.parent / "subagents"`. | **Total Subagent Failure:** All 607 specialist subagents missing and inaccessible in frozen PyInstaller `.exe`. |
 | **FIND-016** | **Performance / DoS** | `core/ui_sysmetrics.py:160` | Spawns `powershell.exe` every 1,500ms via `subprocess.check_output` for ACPI thermal zones. | **Resource Thrashing:** 25–45% sustained CPU consumption solely for background telemetry. |
-| **FIND-017** | **Correctness / Crash** | `core/ui_transients.py:124` | `ScanningOverlay._generate_layout` calls `np.array` and `cv2.cvtColor` without imports. | **Runtime Crash:** `NameError: name 'np' is not defined` on every overlay invocation. |
+| **FIND-017** | **Correctness / Crash** | `core/ui_transients.py:124` | `ScanningOverlay._generate_layout` calls `np.array` and `cv2.cvtColor` without imports (masked in CI by `pyproject.toml` `F821` suppression). | **Runtime Crash:** `NameError: name 'np' is not defined` on every overlay invocation. |
+| **FIND-061** | **Security / Invariant I-01** | `main.py:3206-3226` | `__main__` entrypoint executes arbitrary `.py` files via `exec(code, namespace)` and arbitrary `pip` commands (`-m pip`) before `main()` starts. | **Signed-Binary Proxy / LOLBin RCE:** Turns packaged `BrahmaEvo.exe` into an unrestricted Python interpreter & package installer bypassing `AgentRuntime.execute` and OS app allowlisting. |
 
 ---
 
@@ -173,10 +175,10 @@ Every finding from `WP-01` through `WP-12` has been deduplicated and normalized 
 | ID | Category | Subsystems / Files Involved | Core Mechanism & Vulnerability | Impact |
 |---|---|---|---|---|
 | **FIND-018** | **Security / SSRF** | `agent/web.py:348-430` | `validate_url` performs pre-flight DNS lookup, but `urllib.request.urlopen` performs unpinned TCP connect. | **TOCTOU DNS Rebinding:** Public domain with TTL=0 redirects to `127.0.0.1:8010` (Brahma API) or cloud metadata. |
-| **FIND-019** | **Security / Invariant I-07** | `core/desktop_tools.py:101`, `actions/desktop.py:76-94` | `desktop_control` classified as `device` (auto-approved by default) yet runs `exec()` with `ctypes`. | **Unchecked Code Execution:** Model executes arbitrary code without triggering `exec` approval fences. |
+| **FIND-019** | **Security / Classification** | `core/desktop_tools.py:101`, `actions/desktop.py:76-94` | `desktop_control` classified as `device` (auto-approved by default) yet runs `exec()` with `ctypes`. | **Unchecked Code Execution:** Model executes arbitrary code without triggering `exec` approval fences. |
 | **FIND-020** | **Security / DPAPI** | 11 Modules across `dashboard`, `workspace_store`, `actions/*` | Direct `open("config/api_keys.json")` with `json.load()` bypassing `core/secret_store.py`. | **Bypassed Encryption / Crashes:** Fails when DPAPI is enabled; reads plaintext keys when disabled. |
 | **FIND-021** | **Security / Plaintext Storage** | `core/ui_connectivity.py:3178, 3290` | Writes `local_api_key` and `custom_api_key` to `config/app_settings.json` on every keystroke. | **Secret Leakage:** Cleartext API keys dumped into unencrypted application settings. |
-| **FIND-022** | **Security / Plaintext Storage** | `smart_home/storage.py:180` | Stores IoT passwords, tokens, and client secrets in cleartext SQLite (`credentials TEXT`). | **Credential Theft:** Smart home account passwords accessible to any process reading user appdata. |
+| **FIND-022** | **Security / Plaintext Storage & I-17** | `core/ui_devices.py:1276-1292`, `actions/unlock_device.py:30-45` | `BrahmaConnectDevicesPage._set_device_pin` stores the user's physical Android phone lockscreen PIN (`device_pins[device_id]`) in cleartext inside `config/app_settings.json` via non-atomic `open(..., "w")`. *(Note: `smart_home/storage.py:42-105` properly encrypts IoT credentials via `CredentialVault` Fernet + DPAPI).* | **Physical Device PIN Theft:** User's phone lockscreen PIN exposed in plaintext to any process or backup reading `app_settings.json`. |
 | **FIND-023** | **Security / Plaintext Storage** | `actions/google_workspace_mcp.py`, `actions/spotify_controller.py` | Google Workspace stores Fernet key in cleartext `.email_key`; Spotify stores tokens in cleartext JSON. | **Credential Theft:** OAuth refresh tokens and email encryption keys exposed on disk. |
 | **FIND-024** | **Security / Invariant I-21** | `actions/screen_processor.py:203-224` | Direct `google.genai` Live WebSocket connect evades `core/llm_gateway.py` and kill switches. | **Uncontrolled Egress:** Audio and screen frames sent to Google bypassing kill switch and accounting. |
 | **FIND-025** | **Security / Invariant I-21** | `main.py:733`, `core/session_lifecycle.py:879`, `core/llm_gateway.py:108` | Background memory extraction, voice backend, and fallback list lack `provider_router.guard` checks. | **Egress Policy Violation:** Outbound model connections open even when providers are disabled. |
@@ -185,16 +187,17 @@ Every finding from `WP-01` through `WP-12` has been deduplicated and normalized 
 | **FIND-028** | **Security / LAN Vulnerabilities** | `dashboard/server.py:86, 310, 480` | Missing path confinement on `/web_background`, un-throttled 6-char PIN brute-force, 500MB uploads. | **LAN Exploitation:** Local network attacker can read arbitrary files, brute-force PIN, or exhaust disk. |
 | **FIND-029** | **Architecture / Disconnection** | `core/agent_bridge/bridge.py`, `main.py` | `AgentBridge.publish_tools()` is never called in `main.py` or `core/tool_index.py`. | **Dead Subsystem:** Discovered local models, CLI coding agents, and MCP servers never visible in chat/voice. |
 | **FIND-030** | **Architecture / Disconnection** | `core/ui_skill_review.py`, `main.py` | `SkillReviewDialog` has 0 callers in `main.py` or the UI; no slash command or button exists. | **Orphaned Workflow:** Forged skills staged in `%LOCALAPPDATA%` cannot be reviewed, granted, or promoted. |
-| **FIND-031** | **Architecture / Dormant Gateway** | `brahma_connect/__init__.py`, `main.py` | `ConnectService` is never instantiated or started during `main.py` startup. | **Dead Gateway:** Phone companion cannot connect or route messages unless launched manually. |
+| **FIND-031** | **Architecture / Unwired Gateway Callback** | `brahma_connect/service.py:32-37`, `brahma_connect/gateway/server.py:115, 631-632`, `main.py:2942-2982` | While `BrahmaConnectService` is instantiated and started in `main.py:2942-2982`, `brahma_connect.on_chat_message` is never wired (and `brahma_connect.stop()` is missing from `main()`'s `finally` block). | **Dropped Mobile Chat:** Companion `chat_message` WebSocket frames are silently discarded and never reach the assistant turn pipeline. |
 | **FIND-032** | **Architecture / Permission Bypass** | `discord_bot.py:310` | Unbound/standalone mode directly calls `llm_gateway`, bypassing `AgentRuntime.execute`. | **Policy Bypass:** Discord bot commands execute without permission checks or approval fences. |
 | **FIND-033** | **Correctness / Resumption** | `core/session_lifecycle.py:563` | `getattr(self, '_resume_handle', None)` looks up on `SessionLifecycle` instead of `self._host`. | **Broken Resumption:** Gemini Live resumption handle always `None`; sessions never resume across drops. |
 | **FIND-034** | **Correctness / Reconnect** | `core/session_lifecycle.py:88, 94` | `_pause_until` inspects `self` instead of `self._host` for `_control_wake` and `_control_seq`. | **Frozen Worker:** Reconnect backoff cannot be interrupted by user clicking Connect/Disconnect. |
 | **FIND-035** | **Correctness / Gating** | `core/audio_io.py:361`, `main.py:3162` | Audio output defaults to `proactive=False`; clipboard and attention monitors speak un-gated. | **Spoken Intrusions:** Unsolicited commentary speaks aloud even when proactive speech is disabled. |
 | **FIND-036** | **Concurrency / Database Lock** | `workspace_store.py` (all methods) | Uses `with conn:` without calling `conn.close()`, leaking SQLite file handles on Windows. | **Database Lock contention:** Intermittent `sqlite3.OperationalError: database is locked`. |
-| **FIND-037** | **Architecture / Invariant I-25** | `core/radar_hud.py:31`, `core/space_cleaner_hud.py:47` | Eager top-level import of `PyQt6.QtWebEngineWidgets.QWebEngineView`. | **Heap Corruption Risk:** Initializes multi-process Chromium at import time, risking teardown crashes. |
+| **FIND-037** | **Architecture / Invariant I-26 (D46)** | `core/radar_hud.py:31`, `core/space_cleaner_hud.py:47` | Eager top-level import of `PyQt6.QtWebEngineWidgets.QWebEngineView`. | **Heap Corruption Risk:** Initializes multi-process Chromium at import time, risking teardown crashes. |
 | **FIND-038** | **Packaging / Build** | `installer/BrahmaEvo.spec:11-37` | Omits `brahma_api`, dynamic `uvicorn` protocols, `yaml`, `fastembed`, and `agent/` from spec. | **Packaged Crashes:** Loopback API server and JIT skills fail immediately in frozen executable. |
 | **FIND-039** | **Test Coverage Gap** | `core/`, `actions/`, `dashboard/` | 81 production modules (37.2%) and 100% of `dashboard/` have zero unit test coverage. | **Regression Vulnerability:** High risk of undetected breakages during future development. |
 | **FIND-040** | **Documentation Drift** | `docs/ARCHITECTURE-SPEC.md` | §5.2 and Appendix B contain 10 direct self-contradictions contradicting §1, §6.3, §7.1, §12. | **Specification Drift:** Misleads contributors on policy boundaries, gateway binds, and bridge status. |
+| **FIND-062** | **Quality Gate / Static Analysis Blind Spot** | `pyproject.toml:25-38` | `[tool.ruff.lint.per-file-ignores]` suppresses `F821` (`undefined-name`) across `core/session_lifecycle.py` and 15 `core/ui_*.py` modules due to `globals().update(deps)` mixin injection. | **Silent Runtime `NameError`s:** Directly allowed `FIND-017` (`np`/`cv2` undefined in `core/ui_transients.py`) and attribute/symbol errors in UI/lifecycle seams to pass `ruff check .` undetected. |
 
 ---
 
@@ -216,47 +219,50 @@ Every finding from `WP-01` through `WP-12` has been deduplicated and normalized 
 | **FIND-052** | **GUI Latency** | `core/ui_gesture.py:165` | Camera capture and MediaPipe inference run directly on Qt main thread on a 30ms timer. |
 | **FIND-053** | **Architecture / Invariant I-26** | `ui.py:85-100` | Process-wide `QWidget.setStyleSheet` monkey-patch with 3 redundant string replacements at import. |
 | **FIND-054** | **Architecture / Bloat** | `core/ui_connectivity.py` | Swelled to 5,090-line monolith mixing 18 subsystems; duplicate process spawn bug in theme change. |
-| **FIND-055** | **Disk Safety / Invariant I-17** | `core/identity.py`, `core/learned_rules.py`, etc. | Direct `open("w")` without atomic rename; `identity.py` writes to repo source tree. |
+| **FIND-055** | **Disk Safety / Invariants I-17 & I-26** | `core/identity.py:38, 79-86, 205`, `core/learned_rules.py:43`, etc. | Direct `open("w")` without `atomic_write_json`; `core/identity.py` (`IdentityService`) writes to repo `BASE_DIR / "config" / "identity.json"` and calls `save()` at module import time (`I-26`), while `core/learned_rules.py` (`LearnedRulesEngine`) uses `get_user_data_dir()` but writes non-atomically. |
 | **FIND-056** | **Audio Threading** | `core/audio_io.py:210-240`, `core/speech_tts.py` | Lack of cross-thread audio serialization between Gemini Live audio and non-Gemini TTS fallback. |
 | **FIND-057** | **UI Glitch** | `core/ui_runtime.py:156` | Checks `hasattr(self, "_on_chat_event")` instead of `"on_chat_event"`; attachments never render. |
 | **FIND-058** | **UI / Tray Safety** | `core/ui_overlays.py` | Confirmation overlay parented to `MainWindow`; invisible when minimized to tray. |
 | **FIND-059** | **Release Security** | `core/release_manager.py:29-31` | `PINNED_RELEASE_PUBLIC_KEY` hardcoded to SHA-256 hash of empty byte string. |
 | **FIND-060** | **UI Thread Conflict** | `actions/youtube_video.py:100-115` | Opens synchronous `tkinter.simpledialog` from tool thread, conflicting with PyQt6. |
+| **FIND-063** | **Architecture / Invariant I-18 & Shutdown Teardown** | `core/agent_bridge/adapters/mcp_server.py:1-173`, `main.py:3180-3198` | `core/agent_bridge/adapters/mcp_server.py` implements a third standalone stdio JSON-RPC MCP client violating `I-18`; `main()`'s `finally` block omits `brahma_connect.stop()`, `sensorium.stop()`, and `plugin_manager.dispatch("on_shutdown")`. |
 
 ---
 
 ## 4. Architectural Invariant Scorecard (`I-01` through `I-28`)
 
-| Invariant | Description | Status | Evidence & Concrete Proof |
+The table below evaluates all 28 authoritative system invariants defined in [`docs/ARCHITECTURE-SPEC.md:211-256`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/ARCHITECTURE-SPEC.md#L211-L256):
+
+| Invariant | Authoritative Specification (`docs/ARCHITECTURE-SPEC.md` §4.1) | Status | Evidence & Concrete Proof |
 |:---:|---|:---:|---|
-| **I-01** | Single permission boundary (`AgentRuntime.execute`) | **VIOLATED** | Bypassed in `core/tool_exec.py:120` (`DynamicToolRegistry`), `core/mcp_manager.py:814`, `actions/file_controller.py:165`, and `discord_bot.py:310`. |
-| **I-02** | No elif branches in `core/tool_exec.py` (ceiling: 147 lines) | **PASS** | `core/tool_exec.py` is 124 lines with 0 `elif` statements (ratchet passes). |
-| **I-03** | Policy `deny` is final | **PASS** | Policy `deny` strictly enforced in `agent/permissions.py` and `AgentRuntime.decide()`. |
-| **I-04** | `requires_approval=True` never cached in `session_allow` | **PASS** | Verified in `AgentRuntime.decide()` (`allow_remember` strictly gated). |
-| **I-05** | Qt widget mutations only on main GUI thread | **VIOLATED** | Violated by `ClipboardSentry` thread mutating `ConversationFeed` in `core/ui_chat.py`. |
-| **I-06** | Malformed policy edit fails closed (`ok=False`) | **PASS** | `AgentRuntime._reload_policy_if_changed` catches JSON errors, keeps last good policy. |
-| **I-07** | Budgeted tool surface ($\le 24$ declarations) | **PARTIAL** | Live declarations budgeted via RRF, but `desktop_control` misclassified as `device`. |
-| **I-08** | Plain CLI output identical to historical prompt | **PASS** | `agent/term.py` disables ANSI on non-TTY, `NO_COLOR`, and `TERM=dumb`. |
-| **I-09** | OpenAI transcript parity (1 tool message per tool call) | **PASS** | `AgentLoop._dispatch_turn` appends exact tool responses even on cancellation. |
-| **I-10** | Lowercase canonical `ToolSpec` schemas | **PASS** | Enforced by `ToolSpec.to_openai_tool()` in `agent/spec.py`. |
-| **I-11** | Compaction keeps system prompt and tail turns intact | **PASS** | Tested in `tests/test_agent_compaction.py`. |
-| **I-12** | Whole-tree subprocess termination | **VIOLATED** | `actions/playwright_mcp_client.py` and `actions/rea_mcp_client.py` leak Node and Chrome. |
-| **I-13** | Subprocess stdin is DEVNULL | **PASS** | Enforced in `agent.process.run_captured`. |
-| **I-14** | Environment scrubbing (`exec.sandbox`) | **VIOLATED** | Instagram action dumps passwords and cookies to cleartext `config/ig_session.json`. |
-| **I-15** | Stdlib-only harness isolation (`agent/`) | **PASS** | `agent/` imports zero external or core libraries at top-level module scope. |
-| **I-16** | Stored history excludes system prompt | **PASS** | Verified in `agent/session.py` and `agent/session_bridge.py`. |
-| **I-17** | Atomic file writes (`atomic_write_json`) | **VIOLATED** | Raw `open("w")` in `actions/instagram_mcp.py`, `ui_connectivity.py`, `core/identity.py`. |
-| **I-18** | DPAPI encryption for stored secrets | **VIOLATED** | Bypassed by 11 modules; plaintext credentials in `smart_home/storage.py` SQLite. |
-| **I-19** | Deterministic pre-LLM routing (Plane A) | **PASS** | 23-record `ROUTERS` registry verified in `core/routing.py`; 105 tests pass. |
-| **I-20** | No fuzzy/confidence-score routing hijacks | **PASS** | Only `syntax`, `exact_alias`, `owned_state`, `verified_target` authorities used. |
-| **I-21** | Provider router kill-switch completeness | **VIOLATED** | Bypassed in `screen_processor.py`, `main.py` memory update, and `llm_gateway.py`. |
-| **I-22** | Token usage aggregation across turns | **PASS** | Aggregated in `agent/usage.py` and `AgentLoop.run()`. |
-| **I-23** | Path-dependency parallel tool dispatch | **PARTIAL** | Sound algorithm, but path extraction misses 12 canonical keys in `PATH_ARG_KEYS`. |
-| **I-24** | Subprocess & shell argument escaping | **VIOLATED** | Violated in `actions/computer_control.py` (PowerShell) and `actions/reminder.py` (`schtasks`). |
-| **I-25** | Lazy `QtWebEngineWidgets` import | **VIOLATED** | Eager module-level imports in `core/radar_hud.py:31` and `core/space_cleaner_hud.py:47`. |
-| **I-26** | Zero top-level module side-effects at import | **VIOLATED** | Violated by `workspace_store.py:542` and `ui.py:85-100` global monkey-patch. |
-| **I-27** | Safe JSON deserialization & validation | **PASS** | Pydantic / dataclasses validation across `brahma_api` schemas. |
-| **I-28** | Concurrent SQLite safety (WAL + locks) | **VIOLATED** | `workspace_store.py` leaks connection handles causing locked database contention. |
+| **I-01** | Every harness tool call on every door passes through `AgentRuntime.execute` | **VIOLATED** | Bypassed in `core/tool_exec.py:120-144` (`DynamicToolRegistry.execute_sync` fallback), `core/mcp_manager.py:814` (voice MCP), `actions/file_controller.py:165` (`name` traversal), `discord_bot.py:186-218`, and `main.py:3206-3226` (`.py` `exec()`). |
+| **I-02** | *(Scoped, superseded by ADR-019)* Native tools migrated to `ToolSpec`s in `core/desktop_tools.py` behind `AgentRuntime.execute` | **PARTIAL** | All 59 declarations + 25 aliases in `core/desktop_tools.py` route through `AgentRuntime.execute`, except dynamic `features/*` and voice MCP tools which still fall back to `DynamicToolRegistry.execute_sync`. |
+| **I-03** | A policy `deny` is final; session "always allow" is consulted only after `evaluate()` when decision was `ask` | **PASS** | Strictly enforced in `agent/permissions.py` and `agent/runtime.py:210-265` (`AgentRuntime.decide()`). |
+| **I-04** | A `requires_approval` spec is never remembered and asks every time | **PASS** | Verified in `agent/runtime.py` (`allow_remember` is strictly `False` when `spec.requires_approval` is `True`). |
+| **I-05** | The GUI approver (`core/confirm.py:ask_blocking_choice`) refuses to run on the Qt main thread | **PASS** | Enforced at `core/confirm.py:100-116` via `_on_qt_main_thread()` check (though back-to-back approvals overwrite global `_pending` at line 32). |
+| **I-06** | A malformed policy never widens access; last good policy stays and `policy_reload(ok=False)` is emitted | **PASS** | `AgentRuntime._reload_policy_if_changed` catches parse/validation errors, retains prior policy, and emits `policy_reload(ok=False)`. |
+| **I-07** | No harness tool is registered under a core meta-tool name (`load_skill`, `search_tools`, `recall_memory`, …) | **PASS** | Verified in `agent/skills.py` (`load_project_skill`) and `tests/test_architecture_invariants.py`. |
+| **I-08** | Delegation is one bounded child (max 12 turns), never recursive, sharing parent's runtime; no second child-construction path | **PASS** | Enforced in `agent/subagent.py:175-185` and `core/agent_delegation.py:128-139` (strips `run_subagent`, `run_subagent_batch`, `list_subagents`, `delegate_agent_task`). |
+| **I-09** | Every `assistant` `tool_calls` message is followed by one `tool` message per call, in order, with matching ids—including on cancellation | **PASS** | `AgentLoop._dispatch_turn` appends ordered `tool` results (`CANCELLED_TOOL_OUTPUT` on cancel) for every `tool_call`. |
+| **I-10** | Transcript is always OpenAI-shaped; Gemini declarations converted only at the edge; schemas canonical lowercase | **PASS** | Enforced by `ToolSpec.to_openai_tool()` in `agent/spec.py` and `convert_schema_to_lowercase` at the edge. |
+| **I-11** | Compaction never orphans a tool result: cut walks forward past `tool` messages | **PASS** | Enforced in `agent/context.py:100-185` (`compact_history`) and verified by `tests/test_agent_context.py`. |
+| **I-12** | Shell commands run with closed stdin; timeout terminates whole tree (Windows job object / POSIX session group) | **VIOLATED** | `agent/process.py:314` passes `stdin=DEVNULL`, but `_windows_job` has a grandchild race under WindowsApps aliases (`FIND-043`), and `actions/playwright_mcp_client.py` / `actions/rea_mcp_client.py` spawn `shell=True` without Job Objects (`FIND-026`). |
+| **I-13** | `exec.sandbox` (`agent/sandbox.py`) is the only isolation path: env scrub, prefix, resource limits | **VIOLATED** | Bypassed by `core/skill_crucible.py:257` (`subprocess.run`), `actions/computer_control.py:245`, `actions/reminder.py:55-122`, and `actions/desktop.py:76` (`exec()`). |
+| **I-14** | Credential-shaped env vars are withheld by default and their count is reported | **PASS** | `agent/sandbox.py:150-225` (`build_env`) scrubs `*_KEY`, `*_SECRET`, `*_TOKEN`, `*_AUTH` and reports the withheld count. |
+| **I-15** | `agent/` imports with only pytest installed: no PyQt, provider SDK, or Windows COM at module scope; `agent/__init__.py` stays empty | **PASS** | AST audit and CI `harness-pythons` gate (3.11–3.13) confirm zero module-scope non-stdlib imports across `agent/*.py`. |
+| **I-16** | System prompt is never persisted; resume appends only the new tail (`messages_after`) | **PASS** | Verified in `agent/session.py` and `agent/session_bridge.py`. |
+| **I-17** | Writes are atomic where user data is persisted (`core/user_paths.atomic_write_json`) | **VIOLATED** | Raw `open(..., "w")` in `actions/instagram_mcp.py:951`, `core/ui_connectivity.py:3178`, `core/ui_devices.py:1286`, `core/ui_discord.py:32`, `core/identity.py:85`, `core/learned_rules.py:43`, `core/boot_sentry.py:57`, `core/flowstate.py:98`, and `sound_manager.py:183`. |
+| **I-18** | One MCP client per layer: `agent/mcp.py` (stdlib) for harness, `core/mcp_manager.py` (SDK) for voice path. No third client | **VIOLATED** | Violated by `core/agent_bridge/adapters/mcp_server.py` (implements a 3rd stdio JSON-RPC client) and standalone JSON-RPC clients in `actions/playwright_mcp_client.py` and `actions/rea_mcp_client.py`. |
+| **I-19** | Advertised Gemini surface is small and constant ($\le 24$ declarations): pinned tools + meta-tools + top-k | **PASS** | Enforced by `core/tool_index.py` and `core/tool_bridge.py` (`build_session_payload` clamps to $\le 24$). |
+| **I-20** | Gemini Live tools cannot be swapped mid-session; no code may assume a second setup frame | **PASS** | `core/session_lifecycle.py:520-571` builds `LiveConnectConfig` once per session connect; mid-session calls use `call_tool`. |
+| **I-21** | Every provider egress is gated by its kill switch before the call (`core/provider_router.guard`, `core/llm_gateway.py`) | **VIOLATED** | Bypassed in `actions/screen_processor.py:203`, `main.py:733` (`_update_memory_async`), `core/session_lifecycle.py:879`, `core/local_brain.py:440`, `core/llm_gateway.py:108` fallback, `core/shopping_agent.py:408`, and `actions/reverse_engineer.py`. |
+| **I-22** | Token usage comes from provider; "unknown" is never rendered as zero (`agent/usage.py`) | **PASS** | Enforced in `agent/usage.py` (`UsageTracker`) and `llm_client.py:166-170`. |
+| **I-23** | Cancellation is a flag (`agent/runtime.cancel_event`), never a killed thread | **PASS** | Enforced across `agent/runtime.py`, `agent/loop.py`, and `core/agent_delegation.py:63-65`. |
+| **I-24** | One subprocess path per concern (`run_captured`); do not add a second `subprocess.run(shell=True, timeout=...)` | **VIOLATED** | Violated by `actions/computer_control.py:245`, `actions/reminder.py:122`, `core/ui_sysmetrics.py:160`, `core/skill_crucible.py:257`, `actions/playwright_mcp_client.py:85`, `actions/rea_mcp_client.py:89`, and `discord_bot.py:20`. |
+| **I-25** | One marshaller per boundary: Qt-thread-only calls emitted through queued signals, never inline from worker/asyncio threads | **VIOLATED** | Violated by `ClipboardSentry` worker thread mutating `ConversationFeed` widgets in `core/ui_shell_actions.py:23-35` / `core/ui_chat.py`, and `core/globe_window.py:756` calling `QTimer.singleShot(0)` from worker threads. |
+| **I-26** | No import-time side effects: importing a UI/core module must not start a thread, open a socket, or read/write user data | **VIOLATED** | Violated by `workspace_store.py:542` (`_STORE = WorkspaceStore()` opening SQLite at import), `core/identity.py:79, 205` (`identity = IdentityService()` reading/writing `config/identity.json` at import), `ui.py:85-100` (`QWidget.setStyleSheet` monkey-patch), `core/agent_delegation.py:365`, `discord_bot.py:20` (`pip install` at import), and eager `QtWebEngineWidgets` imports in `core/radar_hud.py:31` & `core/space_cleaner_hud.py:47`. |
+| **I-27** | Prefer a targeted edit over a whole-file rewrite; run project's own gates | **PASS** | Process discipline invariant; enforced across harness and audit reviews. |
+| **I-28** | A new harness tool is a `ToolSpec` plus tests—never a new `elif` in `core/tool_exec.py` (ratchet: 0 `elif`, $\le 147$ lines) | **PASS** | `core/tool_exec.py` is 147 lines with `0` `elif` branches (`tests/test_architecture_invariants.py` passes). |
 
 ---
 
@@ -331,7 +337,8 @@ flowchart TD
 - **Goal:** Neutralize all arbitrary code execution vectors, close permission boundary escapes, and safeguard cryptographic credentials.
 - **Tasks:**
   1. **Crucible Sandbox Hardening (`FIND-001`):** Refactor `core/skill_crucible.py` to execute test harnesses inside an untrusted restricted token or AppContainer sandbox with network blocked and filesystem sandboxed to `%TEMP%`.
-  2. **Eliminate Action Shell Injections (`FIND-002`, `FIND-003`, `FIND-019`):** 
+  2. **Eliminate Action Shell Injections & Frozen Entrypoint Proxy Execution (`FIND-002`, `FIND-003`, `FIND-019`, `FIND-061`):** 
+     - Remove the unrestricted `.py` script `exec(code, namespace)` and `-m pip` CLI interception block from `main.py:3206-3226` so the packaged `BrahmaEvo.exe` binary cannot be abused as a signed LOLBin interpreter.
      - Rewrite `actions/computer_control.py:focus_window` to use Win32 API (`win32gui.FindWindow`, `SetForegroundWindow`) instead of PowerShell strings.
      - Rewrite `actions/reminder.py` to use Python `threading.Timer` or standard Windows Task Scheduler COM APIs with strictly escaped arguments.
      - Eliminate `exec()` and `ctypes` in `actions/desktop.py`; replace with structured Win32 desktop API calls.
@@ -340,10 +347,11 @@ flowchart TD
      - Modify `core/dynamic_registry.py` to register all dynamic tools as `ToolSpec` objects inside `AgentRuntime.specs`.
      - Remove the raw `DynamicToolRegistry.execute_sync` fallback in `core/tool_exec.py:120`.
      - Route voice MCP registrations in `core/mcp_manager.py` through `AgentRuntime.register_spec()`.
-  5. **DPAPI Ciphertext Protection (`FIND-006`, `FIND-020`, `FIND-021`):**
+  5. **DPAPI Ciphertext & Device PIN Protection (`FIND-006`, `FIND-020`, `FIND-021`, `FIND-022`):**
      - Modify `actions/instagram_mcp.py:951` to use `core.secret_store.save_api_keys()`.
      - Migrate all 11 modules reading `api_keys.json` directly to `core.secret_store.load_api_keys()`.
      - Remove plaintext key writing from `core/ui_connectivity.py:3178, 3290` into `app_settings.json`.
+     - Move Android companion lockscreen PIN storage (`core/ui_devices.py:1276-1292` and `actions/unlock_device.py:30-45`) out of plaintext `app_settings.json` into DPAPI-encrypted `core/secret_store.py`.
   6. **Dashboard & Mobile Gateway Remediation (`FIND-007`, `FIND-008`, `FIND-009`):**
      - Remove UAC elevation and firewall rules in `dashboard/server.py`; bind default port to `127.0.0.1`.
      - Add rate-limiting to dashboard `/login` PIN checks and confine `/web_background` path traversal.
@@ -371,17 +379,18 @@ flowchart TD
 ### Batch R-3: Dead Code Elimination, Monolith Decomposition & Seam Wiring (P2)
 - **Goal:** Connect isolated architectural components, purge dead weight, and modularize giant UI files.
 - **Tasks:**
-  1. **Wire Disconnected Architectural Seams (`FIND-029`, `FIND-030`, `FIND-031`):**
+  1. **Wire Disconnected Architectural Seams (`FIND-029`, `FIND-030`, `FIND-031`, `FIND-063`):**
      - Call `AgentBridge.publish_tools()` during `main.py` startup to expose local models and CLI agents in `ToolIndex`.
      - Add `/skills` slash command and Settings Hub action to launch `SkillReviewDialog` for reviewing staged skills.
-     - Instantiate and start `ConnectService` in `main.py` with chat callbacks wired to the turn pipeline.
+     - Wire `brahma_connect.on_chat_message` in `main.py:2942-2982` to the UI turn submitter, and add `brahma_connect.stop()`, `sensorium.stop()`, and `plugin_manager.dispatch("on_shutdown")` to `main()`'s `finally` block (`main.py:3180-3198`).
   2. **Prune Dead & Redundant Code (`FIND-046` – `FIND-050`):**
      - Delete `core/live_voice_engine.py`, `core/memory_cortex.py`, `core/intent_dispatcher.py`, `core/execution_reflection.py`.
      - Delete `actions/brahma_dev_agent.py`, `actions/claude_code_bridge.py`, `actions/ppt_template_workflow.py`.
      - Remove duplicate `skills/` directory (retain authoritative `.brahma/skills/`).
      - Remove stale `features/` subdirectories.
-  3. **Decompose `core/ui_connectivity.py` (`FIND-054`):**
+  3. **Decompose `core/ui_connectivity.py` & Remove `F821` Lint Suppression (`FIND-054`, `FIND-062`):**
      - Break the 5,090-line monolith into dedicated sub-widgets (`ui_settings_providers.py`, `ui_settings_voice.py`, `ui_settings_integrations.py`).
+     - Replace `globals().update(deps)` in `core/ui_*.py` with explicit imports and remove the 16 blanket `F821` per-file ignores in `pyproject.toml:25-38`.
   4. **Eliminate Zombie Background Tasks (`FIND-051`, `FIND-016`):**
      - Remove hidden `SmartDevicesSection` container and its 2.5s timer in `core/ui_panels.py`.
      - Replace 1,500ms `powershell.exe` thermal polling in `core/ui_sysmetrics.py` with native WMI/Win32 APIs.
@@ -408,12 +417,12 @@ flowchart TD
 |---|---|---:|---|---|
 | **WP-01** | `agent/*`, `subagents/` | 12,795 | [`docs/scan-reports/WP-01-agent-harness.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/scan-reports/WP-01-agent-harness.md) | SSRF TOCTOU rebinding (`web.py`), parallel scheduler path blind spot (`loop.py`), `MCPSession` refresh race (`mcp.py`). |
 | **WP-02** | `core/tool_*.py`, `core/routing.py` | 8,160 | [`docs/scan-reports/WP-02-tool-surface-and-routing.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/scan-reports/WP-02-tool-surface-and-routing.md) | `DynamicToolRegistry` bypass (`tool_exec.py`), SQLite thread sharing failure (`tool_index.py`), `desktop_control` class misclassification. |
-| **WP-03** | `main.py`, `core/session_lifecycle.py` | 9,801 | [`docs/scan-reports/WP-03-app-core-and-providers.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/scan-reports/WP-03-app-core-and-providers.md) | Broken Gemini Live resumption (`_resume_handle`), backoff wake scoping, SQLite connection leaks (`workspace_store.py`), kill-switch gaps. |
+| **WP-03** | `main.py`, `core/session_lifecycle.py` | 9,801 | [`docs/scan-reports/WP-03-app-core-and-providers.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/scan-reports/WP-03-app-core-and-providers.md) | Frozen `.exe` `.py`/`-m pip` execution (`main.py:3206`), broken Gemini Live resumption (`_resume_handle`), SQLite connection leaks, kill-switch gaps. |
 | **WP-04** | `core/secret_*.py`, `core/skill_*.py` | 8,895 | [`docs/scan-reports/WP-04-security-skills-and-forge.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/scan-reports/WP-04-security-skills-and-forge.md) | Crucible host RCE (`skill_crucible.py`), DPAPI overwrite (`instagram_mcp.py`), unwired security modules, orphaned `SkillReviewDialog`. |
-| **WP-05** | `brahma_api/`, `brahma_connect/`, `dashboard/` | 9,800 | [`docs/scan-reports/WP-05-bridges-apis-and-gateways.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/scan-reports/WP-05-bridges-apis-and-gateways.md) | Dashboard UAC firewall tampering, Android cleartext WSS & path traversal, disconnected `AgentBridge`, dormant `ConnectService`. |
+| **WP-05** | `brahma_api/`, `brahma_connect/`, `dashboard/` | 9,800 | [`docs/scan-reports/WP-05-bridges-apis-and-gateways.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/scan-reports/WP-05-bridges-apis-and-gateways.md) | Dashboard UAC firewall tampering, Android cleartext WSS & path traversal, disconnected `AgentBridge`, unwired `brahma_connect.on_chat_message`. |
 | **WP-06** | `ui.py`, `core/ui_chat.py`, `core/ui_connectivity.py` | 11,972 | [`docs/scan-reports/WP-06-ui-shell-chat-and-settings.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/scan-reports/WP-06-ui-shell-chat-and-settings.md) | Off-thread Qt widget mutation (`ClipboardSentry`), cleartext API keys on keystroke, confirmation overlay deadlock, setStyleSheet monkey-patch. |
-| **WP-07** | `core/ui_*.py`, `assets/*` | 10,900 | [`docs/scan-reports/WP-07-ui-panels-webengine-and-assets.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/scan-reports/WP-07-ui-panels-webengine-and-assets.md) | Eager WebEngine imports (`radar_hud`), `ScanningOverlay` NameError, 1.5s PowerShell thermal polling, zombie `SmartDevicesSection` timer. |
-| **WP-08** | `core/audio_*.py`, `core/speech_*.py`, `memory/*` | 14,200 | [`docs/scan-reports/WP-08-audio-memory-and-engines.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/scan-reports/WP-08-audio-memory-and-engines.md) | Voice MCP tool execution bypass, unsolicited proactive speech gating breaches, plaintext smart home credentials, dead voice/memory engines. |
+| **WP-07** | `core/ui_*.py`, `assets/*` | 10,900 | [`docs/scan-reports/WP-07-ui-panels-webengine-and-assets.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/scan-reports/WP-07-ui-panels-webengine-and-assets.md) | Eager WebEngine imports (`radar_hud`), `ScanningOverlay` NameError, plaintext device PIN in `app_settings.json`, 1.5s PowerShell thermal polling, zombie timer. |
+| **WP-08** | `core/audio_*.py`, `core/speech_*.py`, `memory/*` | 14,200 | [`docs/scan-reports/WP-08-audio-memory-and-engines.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/scan-reports/WP-08-audio-memory-and-engines.md) | Voice MCP tool execution bypass, unsolicited proactive speech gating breaches, clipboard exfiltration, dead voice/memory engines. |
 | **WP-09** | `actions/` Part A (System, Files, Office, Dev) | 9,989 | [`docs/scan-reports/WP-09-actions-system-files-office-dev.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/scan-reports/WP-09-actions-system-files-office-dev.md) | PowerShell window title injection (`computer_control.py`), path traversal via missing `"name"` key, `exec()` with `ctypes` (`desktop.py`). |
 | **WP-10** | `actions/` Part B (Browser, Social, Media) | 10,700 | [`docs/scan-reports/WP-10-actions-browser-social-media.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/scan-reports/WP-10-actions-browser-social-media.md) | Task Scheduler Python injection (`reminder.py`), direct Gemini WebSocket bypass (`screen_processor.py`), leaking Node/Chromium processes. |
 | **WP-11** | `tests/`, `installer/`, `.github/` | 39,095 | [`docs/scan-reports/WP-11-tests-packaging-and-ci.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/scan-reports/WP-11-tests-packaging-and-ci.md) | 81 untested modules (37.2%), eager store crash in tests, frozen subagent library missing path, hardcoded D: drive installer paths. |

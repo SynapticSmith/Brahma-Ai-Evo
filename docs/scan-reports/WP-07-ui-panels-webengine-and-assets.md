@@ -73,7 +73,7 @@ WP-07 encompasses the secondary visual layer, dynamic holographic HUDs, multimod
 | 5 | `core/ui_avatar_library.py` | 955 | `AvatarLibraryDialog`, `_UiBridge` | AMBER | Model download threads run in background without cooperative cancellation on dialog close; potential crash if widget is deleted. |
 | 6 | `core/ui_avatar_audio.py` | 64 | `AvatarAudioVisualizer` | GREEN | Lightweight QPainter waveform widget; zero thread leakage. |
 | 7 | `core/ui_voice_library.py` | 849 | `VoiceLibraryDialog`, `_Downloader` | AMBER | Pip install and voice model download threads lack graceful teardown if dialog is dismissed prematurely. |
-| 8 | `core/ui_devices.py` | 1312 | `SmartDevicesSection`, `BrahmaConnectDevicesPage` | RED | **Zombie polling loop**: `SmartDevicesSection` is hidden in `ui_panels.py`, yet its internal `QTimer(2500)` polls `smart_home_service.list_devices()` indefinitely. Also contains 512 lines of dead duplicate UI code. |
+| 8 | `core/ui_devices.py` | 1312 | `SmartDevicesSection`, `BrahmaConnectDevicesPage` | RED | **Zombie polling loop & plaintext PIN storage**: `SmartDevicesSection` is hidden in `ui_panels.py`, yet its internal `QTimer(2500)` polls `smart_home_service.list_devices()` indefinitely; `BrahmaConnectDevicesPage._set_device_pin` (`lines 1276-1292`) writes the user's physical Android phone lockscreen PIN (`device_pins[device_id]`) in plaintext into `app_settings.json` via non-atomic `open(..., "w")`. |
 | 9 | `smart_home_page_new.py` | 1396 | `BrahmaHomePage`, `_DeviceTile`, `AddDeviceDialog` | GREEN | Well-structured active smart home page; smooth sliders, Tuya/Kasa integrations, debounced controls. |
 | 10 | `core/ui_setup.py` | 1068 | `SetupWizardDialog`, `_PageReactor` | GREEN | Interactive setup wizard with 3D reactor canvas orchestration; cleanly bound. |
 | 11 | `core/ui_setup_flow.py` | 68 | `run_setup_flow` | AMBER | Hardcodes `open('setup_crash.log', 'w')` in the working directory instead of `%LOCALAPPDATA%\BrahmaAI\logs`. |
@@ -111,15 +111,15 @@ WP-07 encompasses the secondary visual layer, dynamic holographic HUDs, multimod
 
 ## 3. Invariant & Specific Audit Question Verdicts
 
-### Invariant I-25 & I-26 Verdicts
+### Invariant I-25 & I-26 Verdicts (`docs/ARCHITECTURE-SPEC.md` §4.1 & Decision D46)
 
-- **Invariant I-25 (Lazy `QtWebEngineWidgets` Import):** **FAIL / VIOLATED**
-  - **Verdict:** `core/ui_bg.py`, `core/globe_window.py`, and `core/circuit_hud.py` correctly defer the import of `QtWebEngineWidgets` until instantiation or helper call. However, `core/radar_hud.py:31` and `core/space_cleaner_hud.py:47` import `from PyQt6.QtWebEngineWidgets import QWebEngineView` directly at module scope. This forces Chromium multi-process initialization during module import, increasing resident memory by ~150 MB and risking crashes if imported prior to `QApplication` initialization.
-- **Invariant I-26 (Qt Thread Marshalling & Zero Main-Thread Blocks):** **FAIL / VIOLATED**
-  - **Verdict:** Multiple violations:
-    1. `core/ui_gesture.py:165-210` executes blocking camera frame acquisition (`cv2.VideoCapture.read()`) and CPU-heavy MediaPipe machine learning inference directly inside the main Qt UI thread on a 30ms timer.
-    2. `core/ui_sysmetrics.py:160` executes synchronous PowerShell subprocess calls on a 1.5s timer from the UI monitoring path.
-    3. `core/globe_window.py:756` calls `QTimer.singleShot(0, _do_query)` from whatever thread called `inspect_current_view`, breaking timer thread affinity if called from an agent background worker.
+- **Invariant I-25 (One Marshaller Per Boundary — Qt-Thread-Only Calls Emitted Through Queued Signals):** **FAIL / VIOLATED**
+  - **Verdict:**
+    1. `core/globe_window.py:756` calls `QTimer.singleShot(0, _do_query)` from whatever thread called `inspect_current_view`, breaking timer thread affinity if called from an agent background worker.
+    2. `core/ui_gesture.py:165-210` executes blocking camera frame acquisition (`cv2.VideoCapture.read()`) and CPU-heavy MediaPipe machine learning inference directly inside the main Qt UI thread on a 30ms timer.
+    3. `core/ui_sysmetrics.py:160` executes synchronous PowerShell subprocess calls on a 1.5s timer from the UI monitoring path.
+- **Invariant I-26 (No Import-Time Side Effects) & Decision D46 (Lazy `QtWebEngineWidgets` Import):** **FAIL / VIOLATED**
+  - **Verdict:** `core/ui_bg.py`, `core/globe_window.py`, and `core/circuit_hud.py` correctly defer the import of `QtWebEngineWidgets` until instantiation or helper call. However, `core/radar_hud.py:31` and `core/space_cleaner_hud.py:47` import `from PyQt6.QtWebEngineWidgets import QWebEngineView` directly at module scope (and `space_cleaner_hud.py:21` mutates `os.environ["QTWEBENGINE_CHROMIUM_FLAGS"]` at module scope). This forces Chromium multi-process initialization during module import, increasing resident memory by ~150 MB and risking crashes if imported prior to `QApplication` initialization.
 
 ---
 
@@ -198,7 +198,7 @@ WP-07 encompasses the secondary visual layer, dynamic holographic HUDs, multimod
   img_rgb = cv2.cvtColor(img_np, cv2.COLOR_RGBA2RGB)
   gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
   ```
-  Neither `numpy as np` nor `cv2` is imported anywhere in `core/ui_transients.py`.
+  Neither `numpy as np` nor `cv2` is imported anywhere in `core/ui_transients.py`. Furthermore, `pyproject.toml:25-38` suppresses Ruff `F821` (`undefined-name`) across `core/ui_transients.py` and 15 other `core/` modules (due to `globals().update(deps)` mixin injection), which masked this `NameError` from CI lint gates!
 - **Impact:**
   Every time `ScanningOverlay` activates, it immediately raises `NameError: name 'np' is not defined`. Caught by `except Exception as e:` on line 140 which logs `[ScanningOverlay] CV2 Error: name 'np' is not defined` on every frame, forcing fallback to random synthetic boxes.
 - **Recommended Fix:**
@@ -273,20 +273,28 @@ WP-07 encompasses the secondary visual layer, dynamic holographic HUDs, multimod
 
 ---
 
-### FINDING-WP07-04 (HIGH): Plaintext Storage of Discord Bot Token Violating Secret Storage Invariants
-- **Category:** Security / Credential Storage
+### FINDING-WP07-04 (HIGH): Plaintext Storage of Discord Bot Token & Physical Android Device Lockscreen PIN Violating Secret Storage & Atomic Write Invariants
+- **Category:** Security / Credential Storage & Invariant `I-17`
 - **Severity:** High
-- **Location:** `core/ui_discord.py:32-35` (`DiscordConfigDialog.save_settings`)
+- **Location:** `core/ui_discord.py:32-35` (`DiscordConfigDialog.save_settings`), `core/ui_devices.py:1276-1292` (`BrahmaConnectDevicesPage._set_device_pin`), and `actions/unlock_device.py:30-45`
 - **Evidence & Mechanism:**
   ```python
   # core/ui_discord.py:32
   with open(DISCORD_SETTINGS_FILE, "w", encoding="utf-8") as f:
       json.dump({"bot_token": token, "guild_id": guild, "channel_id": channel}, f)
+
+  # core/ui_devices.py:1276-1292 (_set_device_pin)
+  pins = data.get("device_pins", {})
+  pins[device_id] = pin.strip()
+  data["device_pins"] = pins
+  with open(APP_SETTINGS_FILE, "w", encoding="utf-8") as f:
+      json.dump(data, f, indent=2)
   ```
 - **Impact:**
-  Stores sensitive bot tokens in unencrypted plaintext on disk. Non-atomic file write risks file truncation if power is lost or app crashes during save.
+  1. Stores sensitive Discord bot tokens and **the user's physical Android phone lockscreen PIN (`device_pins[device_id]`)** in unencrypted plaintext inside `app_settings.json` on disk.
+  2. Non-atomic `open(..., "w")` file writes violate Invariant `I-17` and risk truncating `app_settings.json` on power loss or crash.
 - **Recommended Fix:**
-  Protect the token using Windows DPAPI via `core.credentials` or `core/user_paths.py:atomic_write_json` with encrypted payload.
+  Store both the Discord bot token and `device_pins` inside the DPAPI-encrypted secret store (`core/secret_store.py`) and use `core/user_paths.py:atomic_write_json` for all non-secret settings writes.
 
 ---
 
@@ -454,7 +462,7 @@ WP-07 encompasses the secondary visual layer, dynamic holographic HUDs, multimod
 | **P0** | FINDING-WP07-01 | `core/ui_transients.py:124` | Guard `np` and `cv2` imports in `ScanningOverlay._generate_layout` to eliminate runtime `NameError` crash. |
 | **P0** | FINDING-WP07-02 | `core/ui_sysmetrics.py:160` | Eliminate 1.5s `powershell.exe` subprocess polling; replace with in-process COM/WMI query. |
 | **P1** | FINDING-WP07-03 | `core/ui_devices.py:53`, `core/ui_panels.py:54` | Terminate `_poll_tmr` in `SmartDevicesSection` and remove dead hidden widget from `ui_panels.py`. |
-| **P1** | FINDING-WP07-04 | `core/ui_discord.py:32` | Protect Discord bot token with DPAPI and use `atomic_write_json`. |
+| **P1** | FINDING-WP07-04 | `core/ui_discord.py:32`, `core/ui_devices.py:1276` | Protect Discord bot token and Android phone lockscreen PIN (`device_pins`) with DPAPI (`core/secret_store.py`) and use `atomic_write_json`. |
 | **P1** | FINDING-WP07-05 | `core/radar_hud.py:31`, `core/space_cleaner_hud.py:47` | Enforce Invariant `I-25`: make `QtWebEngineWidgets` imports lazy. |
 | **P1** | FINDING-WP07-06 | `core/radar_hud.py:279`, `core/space_cleaner_hud.py:228` | Wrap all dynamic string parameters in `json.dumps()` before passing to `runJavaScript`. |
 | **P2** | FINDING-WP07-07 | `core/radar_hud.py:40`, `core/avatar_runtime.py:486` | Unify asset path resolution using `getattr(sys, "_MEIPASS", ...)` for PyInstaller compatibility. |
