@@ -189,7 +189,7 @@ def test_empty_messages_are_a_400(tmp_path):
 
 
 def test_auth_can_be_disabled_on_purpose(tmp_path):
-    config = make_config(tmp_path, auth_required=False)
+    config = make_config(tmp_path, auth_required=False, default_provider="stub")
     client = build_client(config)
     response = client.post("/v1/chat/completions", json=BODY)
     assert response.status_code == 200

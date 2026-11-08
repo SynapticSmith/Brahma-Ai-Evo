@@ -302,6 +302,23 @@ def test_an_explicit_provider_is_never_rewritten_by_settings(monkeypatch):
     assert providers.resolve_chain("openrouter") == ["openrouter"]
 
 
+def test_auto_with_nothing_reachable_is_unavailable(monkeypatch):
+    # A fresh install has no settings pin, no key and no local server, so
+    # `auto` has nothing to probe. This is the branch that turns into HTTP 503
+    # on a CI runner: a test that wants 200 must pin its provider instead of
+    # relying on whatever the host machine happens to have running.
+    import core.local_brain as local_brain
+
+    monkeypatch.setattr(providers, "_load_app_settings", lambda: {})
+    monkeypatch.setattr(local_brain.local_brain, "is_available", lambda: False)
+    monkeypatch.setattr(providers, "_has_custom", lambda: False)
+    monkeypatch.setattr(providers, "_has_openrouter", lambda: False)
+    monkeypatch.delenv("BRAHMA_AGENT_PROVIDER", raising=False)
+
+    with pytest.raises(providers.ProviderUnavailable):
+        providers.resolve_chain("auto")
+
+
 def test_an_unknown_provider_is_rejected():
     with pytest.raises(providers.ProviderUnavailable):
         providers.resolve_chain("not-a-provider")

@@ -1,9 +1,9 @@
 # GitHub Actions Remediation Backlog
 
 **Document Role:** Post-remediation CI/CD defect ledger for the "broken Actions" reports  
-**Status:** `PLANNED — DO NOT START YET`  
-**Execution gate:** Finish `docs/REMEDIATION-TRACKER.md` (Batch R-1 … R-4) first. This file is a
-backlog, not an active work queue; none of the edits below are applied.  
+**Status:** `PHASE A APPLIED — NOT YET PUSHED`  
+**Execution gate:** Cleared; `docs/REMEDIATION-TRACKER.md` is `COMPLETE`. Phase A is applied in
+the working tree and passes locally. Phases B and C are still unapplied and need a decision.  
 **Investigated:** 2026-11-08  
 **Evidence sources:** live GitHub Actions API, `.github/workflows/*.yml`, `tests/test_api_chat.py`,
 `brahma_api/*`, `agent/providers.py`, and [`docs/scan-reports/WP-11-tests-packaging-and-ci.md`](scan-reports/WP-11-tests-packaging-and-ci.md)  
@@ -171,7 +171,7 @@ API test routes through `_client()` and therefore never probes the host. This on
 The harness matrix (`ci.yml` `harness-pythons`) does not collect `tests/test_api_chat.py`, so
 it stays green. Only the full `Unit suite` job sees the failure.
 
-### 2.5 Validated fix (one line, no product code)
+### 2.5 Applied fix (one line, no product code)
 
 ```diff
  def test_auth_can_be_disabled_on_purpose(tmp_path):
@@ -196,18 +196,22 @@ Why this is safe and preserves intent:
 - Verified on this machine against an **empty `LOCALAPPDATA`**:
   `status=200 lane=agent stub=True`.
 
-**Optional companion test** (deterministic, no host dependency) — assert the contract the
-failing test accidentally depended on:
+**Applied companion test** (deterministic, no host dependency) — `tests/test_agent_providers.py`.
+It pins the contract the failing test accidentally depended on, using the real helpers instead of
+patching the two functions the branch is made of:
 
 ```python
-import pytest
-from agent.providers import ProviderUnavailable, resolve_chain
+def test_auto_with_nothing_reachable_is_unavailable(monkeypatch):
+    import core.local_brain as local_brain
 
-def test_auto_with_no_reachable_provider_is_unavailable(monkeypatch):
-    monkeypatch.setattr("agent.providers.app_provider_chain", lambda: [])
-    monkeypatch.setattr("agent.providers._reachable_auto_order", lambda: [])
-    with pytest.raises(ProviderUnavailable):
-        resolve_chain("auto")
+    monkeypatch.setattr(providers, "_load_app_settings", lambda: {})
+    monkeypatch.setattr(local_brain.local_brain, "is_available", lambda: False)
+    monkeypatch.setattr(providers, "_has_custom", lambda: False)
+    monkeypatch.setattr(providers, "_has_openrouter", lambda: False)
+    monkeypatch.delenv("BRAHMA_AGENT_PROVIDER", raising=False)
+
+    with pytest.raises(providers.ProviderUnavailable):
+        providers.resolve_chain("auto")
 ```
 
 ---
@@ -291,10 +295,13 @@ a 12-path command line, so the gate and the suite cannot drift.
 
 ### Phase A — make CI green without touching product code (highest value, lowest risk)
 
-1. Apply the one-line `default_provider="stub"` change in `tests/test_api_chat.py`.
-2. Add the optional `resolve_chain("auto")` unit test if the team wants the 503 contract
-   pinned explicitly.
-3. Re-run the full suite on 3.11 and confirm `1 failed → 0 failed`.
+1. [x] Applied the one-line `default_provider="stub"` change in `tests/test_api_chat.py`.
+2. [x] Added the `resolve_chain("auto")` unit test that pins the 503 contract explicitly
+   (`tests/test_agent_providers.py::test_auto_with_nothing_reachable_is_unavailable`).
+3. [ ] Re-run the full suite on 3.11 and confirm `1 failed → 0 failed`. Locally verified with the
+   available 3.12: `tests/test_api_chat.py` 15 passed, `-k "api"` 120 passed, `-k "agent or
+   provider"` 584 passed, `ruff check .` clean. The authoritative confirmation is the CI run after
+   pushing.
 
 Expected result: `Unit suite` goes green; no other CI job changes.
 
