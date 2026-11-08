@@ -31,9 +31,9 @@ a = Analysis(
     hiddenimports=[
         'mediapipe', 'cv2', 'instagrapi', 'google.genai', 'PyQt6', 'PyQt6.QtWebEngineCore',
         'PyQt6.QtWebEngineWidgets', 'PyQt6.QtWebChannel', 'pyautogui', 'sounddevice',
-        'keyboard', 'docx', 'pptx', 'multipart', 'passlib', 'bcrypt', 'aiohttp', 'websockets',
-        'uvicorn', 'fastapi', 'plyer', 'pydantic', 'typing_extensions', 'requests', 'beautifulsoup4',
-        'numpy'
+        'docx', 'pptx', 'multipart', 'bcrypt', 'aiohttp', 'websockets',
+        'uvicorn', 'fastapi', 'pydantic', 'typing_extensions', 'requests', 'bs4',
+        'numpy', 'faster_whisper', 'piper', 'kokoro_onnx'
     ],
     hookspath=[],
     hooksconfig={},
