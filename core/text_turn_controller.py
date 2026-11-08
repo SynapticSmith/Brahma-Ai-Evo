@@ -1769,7 +1769,7 @@ class TextTurnController:
                 )
             host.ui.write_log(f"Brahma Evo: {reply}")
             if not getattr(host.ui, "muted", False):
-                host.speak(reply, proactive=True)
+                host.speak(reply)
             try:
                 if provider_error is None:
                     host.ui.finish_task_workspace(reply, "Reply delivered.", 100)
