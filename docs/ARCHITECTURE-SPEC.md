@@ -182,6 +182,8 @@ The `docs/` tree mixes five kinds of document. Treating them as one authority le
 | `SECURITY-ARCHITECTURE-ROADMAP.md` | 2026-10-28 | WS-1…WS-10, SEC-01…SEC-18, Phase 0–3, target process model | **Proposed.** Use as the security plan; nothing is implemented. |
 | `UPSTREAM-INTEGRATION-PLAN.md` | 2026-11-02 | Hybrid selective port of all 7 upstream commits (114 files) | **Authoritative plan.** Commit list refreshed & mapped; awaiting execution by downstream agent. |
 | `OPENAI-COMPATIBLE-API-DESIGN.md` | 2026-11-03 | Research + design for a `brahma_api/` OpenAI-compatible port: `GET /v1/models`, `POST /v1/chat/completions` (+SSE, passthrough), port 8010, loopback, per-key capability presets (`chat`/`reader`/`worker`/`operator`), three lanes | **Proposed design; Phase 0+1+2 implemented.** Proposes ADR-022 ("the port is a transport, not a door"). Phase 3 remains gated. |
+| `SWARM-FEDERATION-INVESTIGATION.md` | 2026-11-09 | Current-state inventory for a three-machine Brahma swarm: `brahma_connect`, `brahma_api`, `core/agent_bridge`, missing peer server, topology, transport, identity, gaps | **Investigation record. No implementation.** Authoritative for the current-state map and the verdict; its contracts are refined by the deep dive. |
+| `SWARM-FEDERATION-DEEP-DIVE.md` | 2026-11-09 | BTE-1 task envelope, leases/idempotency, capability scheduling, SAS pairing, token binding, harness integration, failure taxonomy, observability, evaluation, ADR-030..038 | **Proposed design. No implementation.** Authoritative for the swarm contract once ratified. |
 | `DEFERRED-TOOL-PROXY-MISSION.md` | 2026-10-29 | Gemini Live `1008` on undeclared tool calls | **Superseded by ADR-021** (landed 2026-11-01): literal `call_tool` templates plus budgeted reconnect pins. |
 | `agent-orchestrator-bridge.md` | rev 3 + 2026-10-17 amendments | 87 KB "god orchestrator" design | **Aspirational.** §8 re-bases it. |
 | `AGENT-BRIDGE-BUILD-TODO.md` | 2026-10-17 | WBS with frozen contracts, phases 0–5 | **Aspirational.** ~3% built (ADRs only). Its guards are already violated. |
@@ -304,7 +306,7 @@ These are the rules a change must not break. Each has an enforcement point and, 
 | Security roadmap WS-1…WS-10 & Batch R-1..R-4 | **Landed** | Full remediation across `FIND-001`–`FIND-063` tracked in `docs/REMEDIATION-TRACKER.md`. |
 | Agent & orchestrator bridge | **Landed (ADR-018)** | Implemented in `core/agent_bridge/` publishing `ToolSpec`s behind `AgentRuntime.execute`. |
 | Upstream port | **Planned** | After the fork's security batch; selective only. |
-| Peer/LAN agents | **Deferred** (ADR-002/013) | Phase 5, after recursion guard and Phases 0–4. |
+| Peer/LAN agents | **Deferred** (ADR-002/013); design in `SWARM-FEDERATION-DEEP-DIVE.md` (ADR-030..038) | Phase 5, after recursion guard and Phases 0–4. The deep dive's S1 (manual peers over `brahma_api`) is the first demo gate; the peer task server is S2. |
 | AppContainer sandbox | **Rejected for now** | Fails silently against a normal Python install (D36). |
 
 ---
@@ -617,6 +619,8 @@ Accepted 2026-10-17, but **acceptance is not authorization to build**: they were
 | **ADR-021** | **Landed** | `pinned_extra` consumes budget, ranks after global pins, drops oldest-first, and replaces the unbudgeted Synapse/cdp append. | O-8 layer 3 / the `1008` fix (Q1.3) | `docs/ADR-021-PINNED-EXTRA-SEMANTICS.md` |
 
 **Proposed, not ratified (2026-11-03):** **ADR-022 — the OpenAI-compatible port is a transport, not a door.** `brahma_api/` translates `POST /v1/chat/completions` into an `AgentLoop` run; it never executes a tool, never owns a policy, and never becomes a second path to a handler. Full text in `docs/OPENAI-COMPATIBLE-API-DESIGN.md` §13.
+
+**Proposed, not ratified (2026-11-09):** **ADR-023..028** (swarm is a federation of runtimes; A2A-over-HTTPS with pinned keys; per-node Ed25519 + SAS pairing; recursion denied; remote callers never approve; sessions stay per node) are the baseline in `docs/SWARM-FEDERATION-INVESTIGATION.md` §15. **ADR-030..038** extend them with BTE-1/A2A separation, coordinator-only origination, leases and at-most-once mutations, token binding, peer-output taint, budget reservations, worker-local peer sessions, trace/audit correlation, and advisory capabilities; full text in `docs/SWARM-FEDERATION-DEEP-DIVE.md` §10. ADR-029 is the rebrand ADR (`docs/REBRAND-EXECUTION-PLAN.md`).
 
 
 ### 11.3 Owner decisions (ratified & amended 2026-11-01; see `ARCHITECTURE-RECOMMENDATIONS.md`)

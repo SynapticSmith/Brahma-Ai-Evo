@@ -6,6 +6,13 @@ against the tree at `main` @ `b7a7cc9` (working tree clean apart from this docum
 **Question:** if Brahma is installed on three machines, can they talk to each other
 and form a swarm — and what would it take to make that true?
 
+> **Deep dive:** `docs/SWARM-FEDERATION-DEEP-DIVE.md` refines this investigation with
+> the formal task lifecycle, leases and idempotency, capability scheduling, pairing and
+> token binding, harness integration, failure taxonomy, observability, evaluation gates,
+> and ADR-030..038. Read this document for the current-state inventory and the verdict;
+> read the deep dive for the contracts. Where the two differ, the deep dive is the
+> later decision.
+
 ---
 
 ## 0. Verdict
