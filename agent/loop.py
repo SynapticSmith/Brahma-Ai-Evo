@@ -240,6 +240,8 @@ class AgentLoop:
         stream: bool = False,
         allow_subagents: bool = True,
         batch_readonly: bool = False,
+        retrieval_budget: Optional[int] = None,
+        retrieve: bool = True,
     ):
         self._complete = complete
         self._native_dispatch = native_dispatch
@@ -319,6 +321,13 @@ class AgentLoop:
         #: a resumed session starts from a freshly built prompt.
         self._seen_instruction_files: Set[str] = set()
         self._instruction_budget = MAX_SUBDIR_INSTRUCTION_CHARS
+        #: Automatic second-brain retrieval is on by default. ``retrieve=False``
+        #: exists for hosts that already injected their own context, and
+        #: ``retrieval_budget`` caps the rendered block (a 1.7B model on an 8K
+        #: window needs a much smaller block than a 200K Gemini session).
+        self._retrieve = bool(retrieve)
+        self._retrieval_budget = retrieval_budget
+        self._retrieval_sources: List[str] = []
 
         if context is not None:
             self._context = context
@@ -1002,6 +1011,43 @@ class AgentLoop:
 
     # -- run ---------------------------------------------------------------
 
+    def _prepare_retrieval(self, prompt: Optional[str]) -> None:
+        """Inject the user's curated notes before the model sees the turn.
+
+        Retrieval is computed once per run, not once per model call: the user
+        turn stays at the end of the transcript while tools run, so re-querying
+        it would only rebuild the same block and pay for another embedding.
+        """
+        if not self._retrieve or self._is_child:
+            return
+        text = str(prompt or "").strip()
+        if not text:
+            for message in reversed(self._context.messages):
+                if message.get("role") == "user":
+                    text = str(message.get("content") or "").strip()
+                    break
+        if not text:
+            return
+        try:
+            from .second_brain import context_for_turn
+
+            block = context_for_turn(text, budget=self._retrieval_budget)
+        except Exception:  # noqa: BLE001 - retrieval must never fail a turn
+            block = ""
+        self._context.set_retrieval(block)
+        if not block:
+            return
+        self._retrieval_sources = [
+            line.split("] ", 1)[1].split(" ›", 1)[0]
+            for line in block.splitlines()
+            if line.startswith("[")
+        ]
+        self._emit(
+            "retrieval",
+            chars=len(block),
+            sources=self._retrieval_sources[:8],
+        )
+
     def run(
         self,
         prompt: Optional[str] = None,
@@ -1014,6 +1060,7 @@ class AgentLoop:
             self._persist(message)
             if not self._is_child:
                 _remember_turn_for_retrieval(prompt)
+        self._prepare_retrieval(prompt)
         self._announce_stream()
         if self._session is not None:
             self._emit("session_start", session_id=self._session.id, cwd=str(self._runtime.workspace))

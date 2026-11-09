@@ -442,6 +442,23 @@ def _subagent_prompt_block() -> str:
         return ""
 
 
+def brain_prompt_block(*, automatic: bool = True) -> str:
+    """The resident second-brain map, when a vault is configured.
+
+    Guarded like the subagent index: a missing vault or a broken index must
+    never take the system prompt down with it. The block is a map, not
+    knowledge — the knowledge arrives per turn from ``second_brain``.
+    ``automatic=False`` is for the voice socket, which cannot take a per-turn
+    text block and must search deliberately instead.
+    """
+    try:
+        from .second_brain import brain_map
+
+        return brain_map(automatic=automatic)
+    except Exception:
+        return ""
+
+
 def build_system_prompt(
     workspace: Optional[Path] = None,
     *,
@@ -459,6 +476,9 @@ def build_system_prompt(
     project = project_context(workspace, max_parents=max_parents, trusted=trusted)
     if project:
         parts.append(project)
+    brain = brain_prompt_block()
+    if brain:
+        parts.append(brain)
     if include_subagents:
         # The index is machine configuration, not workspace context, so it is
         # not part of project_context. A child loop turns it off: children never

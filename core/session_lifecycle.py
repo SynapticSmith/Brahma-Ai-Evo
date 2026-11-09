@@ -490,6 +490,24 @@ class SessionLifecycle:
             )
             parts.append(project_ctx)
 
+        # Resident map of the user's second brain. The Live socket cannot swap
+        # its system instruction mid-session, so voice gets the map plus the
+        # advertised brain_search tool; text surfaces additionally get the
+        # per-turn retrieval block injected by AgentLoop.
+        brain_ctx = ""
+        try:
+            from agent.prompts import brain_prompt_block
+
+            brain_ctx = brain_prompt_block(automatic=False)
+        except Exception:
+            brain_ctx = ""
+        if brain_ctx:
+            print(
+                f"[BRAHMA EVO] \U0001f9e0 live prompt += {len(brain_ctx)} "
+                "chars of second-brain map"
+            )
+            parts.append(brain_ctx)
+
         # Specialist-template index. main.py advertises ``list_subagents`` on the
         # Live surface but never the dispatch tools, so this block must be part
         # of the voice instruction or the model cannot know the library exists.

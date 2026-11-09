@@ -1334,7 +1334,7 @@ class TextTurnController:
                 system_prompt = f"{system_prompt}\n\n{skill_ctx}"
 
         try:
-            from agent.prompts import project_context
+            from agent.prompts import brain_prompt_block, project_context
             from agent.runtime import current as current_agent_runtime
 
             project = project_context(current_agent_runtime().workspace)
@@ -1342,6 +1342,17 @@ class TextTurnController:
             project = ""
         if project:
             system_prompt = f"{system_prompt}\n\n{project}"
+
+        # The resident map of the user's second brain. The knowledge itself is
+        # injected per turn by AgentLoop (``second_brain.context_for_turn``);
+        # this block only tells the model that the vault exists and how to ask
+        # for more depth.
+        try:
+            brain_map = brain_prompt_block()
+        except Exception:
+            brain_map = ""
+        if brain_map:
+            system_prompt = f"{system_prompt}\n\n{brain_map}"
 
         # The specialist-template catalogue is machine configuration rather
         # than workspace context, so ``project_context`` does not carry it. It

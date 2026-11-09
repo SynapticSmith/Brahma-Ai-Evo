@@ -134,6 +134,9 @@ def test_child_surface_is_read_only_and_never_recursive(tmp_path: Path):
     # `network`, so they travel with the read surface and give a child the same
     # research ability as its parent without write/exec access.
     assert script.tool_names[1] == [
+        "brain_read",
+        "brain_search",
+        "brain_status",
         "glob_files",
         "grep_files",
         "load_project_skill",
@@ -440,6 +443,9 @@ def test_subagent_batch_runs_read_only_children_and_returns_ordered_reports(tmp_
         for forbidden in (*DELEGATION_TOOLS, "write_file", "edit_file", "run_command"):
             assert forbidden not in surface
         assert surface == [
+            "brain_read",
+            "brain_search",
+            "brain_status",
             "glob_files",
             "grep_files",
             "load_project_skill",

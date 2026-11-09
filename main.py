@@ -2149,6 +2149,7 @@ def _harness_mcp_manager():
 # off the live surface while `list_subagents` stays: a voice session should be
 # able to look the library up and say what exists.
 try:
+    from agent import brain_tools as _agent_brain_tools  # noqa: F401
     from agent import code_tools as _agent_code_tools  # noqa: F401
     from agent import subagent as _agent_subagent  # noqa: F401
     from agent.spec import all_specs as _agent_specs

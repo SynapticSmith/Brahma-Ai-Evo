@@ -997,6 +997,36 @@ capped at 8 000 characters; the **tail** is kept when it overflows, because the
 nearest instructions are the ones that matter. The harness never edits these
 files on its own.
 
+### The second brain is retrieved, not requested
+
+A small local model cannot be relied on to remember a tool name, choose a
+query, or decide that the user's notes are relevant. So retrieval is done by
+the harness: before the first model call of a run, `AgentLoop._prepare_retrieval`
+asks `agent/second_brain.py` for the pages that match the user's turn and stores
+the rendered block on `ConversationContext.retrieval`. `as_payload()` inserts it
+immediately **before the most recent user message** and never into
+`messages`, so the block is request context rather than transcript — it is not
+persisted, replayed, or compacted.
+
+The index is SQLite FTS5 plus optional 768-dimension vectors, written to
+Brahma's own data directory (`%LOCALAPPDATA%\BrahmaAI\second_brain\index.db`).
+The vault itself is only ever read. Build or refresh it with
+`python tools/brain_sync.py`; the first build is incremental and
+`--embed-limit N` bounds a CPU-bound embedding backfill (about 1.7 s per chunk,
+so a full 8k-chunk pass is hours). Until `VECTOR_COVERAGE_MIN` (80%) of chunks
+have vectors, search stays keyword-only: a handful of stray vectors is worse
+than no vector signal. Both the term-overlap check in `_is_relevant` and the
+coverage gate exist to keep tangential notes out of a small model's window.
+
+The `brain_search`, `brain_read`, `brain_status` and `brain_sync` specs are for
+deliberate depth. A tool-triggered sync is capped (`TOOL_EMBED_LIMIT`); the CLI
+is the unbounded path. `brain_read` takes `page`, not `path`, because it is
+contained to the vault root by construction and must not be mistaken for a
+general filesystem tool. The CLI, GUI text path and subagent children get
+automatic injection; the Gemini Live voice surface gets the resident map and
+the tools but no per-turn block, because the audio socket has no pre-turn text
+hook. The map it receives says so.
+
 ### Subdirectory instructions are path-driven
 
 A workspace-wide recursive scan would read `node_modules`, cost a stat-and-read

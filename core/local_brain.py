@@ -242,6 +242,10 @@ class LocalBrain:
         self.endpoint = DEFAULT_ENDPOINT
         self._default_model = DEFAULT_MODEL
         self._timeout_profile = "auto"
+        #: Ollama's OpenAI surface accepts ``reasoning_effort``. "none" skips
+        #: the thinking pass entirely, which is the difference between a 1.7B
+        #: reasoning model answering in ~1s and in ~16s. "auto" omits the field.
+        self._reasoning_effort = "none"
         #: Per-setting overrides (seconds) from Settings; None keeps the profile.
         self._response_override: Optional[float] = None
         self._first_token_override: Optional[float] = None
@@ -293,6 +297,10 @@ class LocalBrain:
         self._response_override = _positive_seconds(data.get("local_response_timeout_s"))
         self._first_token_override = _positive_seconds(data.get("local_first_token_timeout_s"))
         self._stream_idle_override = _positive_seconds(data.get("local_stream_idle_timeout_s"))
+        effort = str(data.get("local_reasoning_effort") or "none").strip().lower()
+        self._reasoning_effort = (
+            effort if effort in ("auto", "none", "low", "medium", "high") else "none"
+        )
 
     @property
     def default_model(self) -> str:
@@ -686,6 +694,11 @@ class LocalBrain:
             # See LOCAL_NUM_CTX: without this the runtime truncates the system
             # prompt before the user's turn.
             "options": {"num_ctx": LOCAL_NUM_CTX},
+            **(
+                {"reasoning_effort": self._reasoning_effort}
+                if self._reasoning_effort != "auto"
+                else {}
+            ),
         }
 
         if tools and self._is_toolless(active_model):
@@ -764,6 +777,11 @@ class LocalBrain:
             # See LOCAL_NUM_CTX: without this the runtime truncates the system
             # prompt before the user's turn.
             "options": {"num_ctx": LOCAL_NUM_CTX},
+            **(
+                {"reasoning_effort": self._reasoning_effort}
+                if self._reasoning_effort != "auto"
+                else {}
+            ),
         }
         if tools and self._is_toolless(active_model):
             # This model was already rejected for tool calling; don't pay

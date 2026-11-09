@@ -89,15 +89,36 @@ class ConversationContext:
     budget: ContextBudget = field(default_factory=ContextBudget)
     compactions: int = 0
     summary: str = ""
+    #: Retrieved knowledge for the current turn. It is injected at request
+    #: time and is deliberately *not* part of ``messages``: it is per-turn
+    #: context, not transcript, so it must not be persisted or replayed.
+    retrieval: Optional[str] = None
 
     # -- assembly ----------------------------------------------------------
 
+    def set_retrieval(self, text: Optional[str]) -> None:
+        cleaned = str(text or "").strip()
+        self.retrieval = cleaned or None
+
     def as_payload(self) -> List[Dict[str, Any]]:
-        """System message first, exactly once."""
+        """System message first, exactly once; retrieval before the user turn."""
         payload: List[Dict[str, Any]] = []
         if self.system:
             payload.append({"role": "system", "content": self.system})
-        payload.extend(self.messages)
+        if not self.retrieval:
+            payload.extend(self.messages)
+            return payload
+        # Put retrieved knowledge immediately before the most recent user
+        # message: small models weight the nearest system block far more than
+        # one that scrolled away at the top of the window.
+        at = len(self.messages)
+        for index in range(len(self.messages) - 1, -1, -1):
+            if self.messages[index].get("role") == "user":
+                at = index
+                break
+        payload.extend(self.messages[:at])
+        payload.append({"role": "system", "content": self.retrieval})
+        payload.extend(self.messages[at:])
         return payload
 
     def append(self, message: Dict[str, Any]) -> Dict[str, Any]:
