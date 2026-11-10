@@ -55,3 +55,27 @@ def test_template_copy_creates_canonical_structure(tmp_path: Path):
     readme_text = (dest / "README.md").read_text(encoding="utf-8")
     assert "ICM" in readme_text or "Interpretable Context" in readme_text
     assert "OKF" in readme_text or "Open Knowledge" in readme_text
+
+
+def test_ingest_book_helpers(tmp_path: Path):
+    from tools import ingest_book
+
+    sample = tmp_path / "sample.txt"
+    sample.write_text("Chapter 1: The Core Doctrine\n\nSome text on philosophy.", encoding="utf-8")
+
+    meta, body = ingest_book.extract_plain_text(sample)
+    assert meta["title"] == "sample"
+    assert "Chapter 1" in body
+
+    note = ingest_book.build_okf_note(
+        title="Sample Book",
+        authors=["Author Name"],
+        tags=["philosophy"],
+        source_path=str(sample),
+        body=body,
+        domain="humanities/philosophy",
+    )
+    assert "type: BookNote" in note
+    assert "title: \"Sample Book\"" in note
+    assert "Author Name" in note
+    assert "humanities" in note

@@ -221,12 +221,16 @@ def ingest_note(
 
         if anchor and cx_id:
             try:
+                # Keep anchor label compact to satisfy Calyx's ledger token length limit
+                anchor_label = rel_path.split("/")[-1].replace(".md", "")
+                if len(anchor_label) > 32:
+                    anchor_label = anchor_label[:32]
                 anchor_raw = session.call(
                     "mcp_calyx_calyx_anchor",
                     {
                         "cx_id": cx_id,
                         "kind": "label",
-                        "label": rel_path,
+                        "label": anchor_label,
                         "value": True,
                         "vault": vault,
                     },

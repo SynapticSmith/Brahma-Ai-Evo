@@ -696,9 +696,8 @@ def sync(
                     missing = list(
                         conn.execute(
                             "SELECT c.id, c.text FROM chunks c "
-                            "JOIN pages p ON p.id = c.page_id "
                             "LEFT JOIN vectors v ON v.chunk_id = c.id "
-                            "WHERE v.chunk_id IS NULL AND p.path LIKE ? LIMIT ?",
+                            "WHERE v.chunk_id IS NULL AND c.path LIKE ? LIMIT ?",
                             (clean_pat, take),
                         )
                     )

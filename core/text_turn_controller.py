@@ -1561,6 +1561,23 @@ class TextTurnController:
                     f"[BRAHMA EVO] \U0001f504 mcp {event.get('server')} {state}: "
                     f"{event.get('tools')} tool(s)"
                 )
+            elif kind == "retrieval":
+                sources = event.get("sources") or []
+                chars = event.get("chars", 0)
+                summary_sources = ", ".join(sources[:3])
+                if len(sources) > 3:
+                    summary_sources += f" (+{len(sources)-3} more)"
+                print(
+                    f"[BRAHMA EVO] \U0001f9e0 second brain retrieved {chars} chars "
+                    f"({len(sources)} notes: {summary_sources})"
+                )
+                if hasattr(host, "ui") and host.ui is not None:
+                    try:
+                        host.ui.write_log(
+                            f"\U0001f9e0 SECOND BRAIN: Retrieved {len(sources)} vault notes ({summary_sources})"
+                        )
+                    except Exception:
+                        pass
             elif kind == "mcp_untrusted":
                 print(
                     f"[BRAHMA EVO] \U0001f512 {event.get('message')}"
