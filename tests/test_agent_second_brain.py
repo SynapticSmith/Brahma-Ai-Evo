@@ -84,6 +84,31 @@ def test_search_finds_keyword_without_embeddings(vault: Path):
     assert not any("subagent-orchestration/agents" in path for path in paths)
 
 
+def test_context_for_turn_appends_calyx_provenance(vault: Path, monkeypatch):
+    from agent import calyx_bridge
+
+    second_brain.sync(embed=False)
+    monkeypatch.setattr(
+        calyx_bridge,
+        "fast_search",
+        lambda query, k=3, vault="obsidian-wiki": [
+            {
+                "cx_id": "abcdef1234567890",
+                "provenance": {
+                    "ledger_seq": 7,
+                    "chain_hash": "deadbeefcafebabe00",
+                },
+            }
+        ],
+    )
+
+    block = second_brain.context_for_turn("How does Calyx keep provenance?")
+
+    assert "CALYX GROUNDED PROVENANCE" in block
+    assert "ledger_seq=7" in block
+    assert "chain_hash=deadbeefcafebabe" in block
+
+
 def test_context_for_turn_renders_a_bounded_block(vault: Path):
     second_brain.sync(embed=False)
     block = second_brain.context_for_turn("How does Calyx keep provenance?")

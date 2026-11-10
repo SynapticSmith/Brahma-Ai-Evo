@@ -92,6 +92,21 @@ When processing books, papers, or Calibre exports:
    ---
    ```
 
+### Book ingestion CLI
+
+`tools/ingest_book.py` is the explicit, user-run path from a source file to a note:
+
+```powershell
+python tools/ingest_book.py "C:\books\book.epub" --author "Ken Lee Wheeler" --sync-calyx
+python tools/ingest_book.py "C:\notes\essay.md" --domain humanities/philosophy
+```
+
+It writes an OKF note under the vault's book shelf, refreshes the search index, and
+optionally ingests the note into Calyx. This is the opposite kind of operation from
+automatic retrieval: `second_brain` opens the vault only to read, and the `brain_*`
+tools only read notes and rebuild Brahma's own index. Ingestion is a deliberate
+import you run yourself, not something the automatic path triggers.
+
 ---
 
 ## 6. Calyx Integration: The Cryptographic Grounding Plane
@@ -125,3 +140,9 @@ CALYX GROUNDED PROVENANCE (tamper-evident hash-chained ledger):
 • [constellation e5c805be0d49…] ledger_seq=78 chain_hash=61b1a60648816ef2… (anchored fact)
 ```
 The AI has access to the full conceptual explanation and mathematical proof that the claims are anchored and authentic.
+
+The provenance lookup is best-effort and runs before every model call. It uses a
+short MCP timeout, and after a failure it backs off for two minutes rather than
+paying that timeout on the next turn, so a stopped or hung Calyx degrades the
+turn to notes-only instead of stalling it. `python tools/calyx_sync.py --status`
+is the way to check whether Calyx is healthy.

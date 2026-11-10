@@ -41,6 +41,48 @@ def test_calyx_kernel_answer_guards_empty_query():
     assert calyx_bridge.kernel_answer("") == {}
 
 
+def test_anchor_label_keeps_short_basenames_and_disambiguates_long_ones():
+    assert calyx_bridge.anchor_label("wiki/entities/calyx.md") == "calyx"
+
+    long_one = "wiki/concepts/" + "a" * 40 + "-one.md"
+    long_two = "wiki/concepts/" + "a" * 40 + "-two.md"
+    label_one = calyx_bridge.anchor_label(long_one)
+    label_two = calyx_bridge.anchor_label(long_two)
+
+    assert label_one != label_two
+    assert len(label_one) <= 32
+    assert len(label_two) <= 32
+
+
+def test_fast_search_parks_after_a_failure(monkeypatch):
+    monkeypatch.setattr(calyx_bridge, "is_available", lambda: True)
+    monkeypatch.setattr(calyx_bridge, "_fast_blocked_until", 0.0)
+    calls: list[float | None] = []
+
+    def fail(query, k, vault, timeout):
+        calls.append(timeout)
+        raise RuntimeError("calyx is hung")
+
+    monkeypatch.setattr(calyx_bridge, "_search", fail)
+
+    assert calyx_bridge.fast_search("what is calyx") == []
+    assert calls == [calyx_bridge.FAST_TIMEOUT]
+    # The next turn skips Calyx instead of paying the timeout again.
+    assert calyx_bridge.fast_search("what is calyx") == []
+    assert calls == [calyx_bridge.FAST_TIMEOUT]
+
+
+def test_fast_search_does_not_park_on_a_successful_empty_result(monkeypatch):
+    monkeypatch.setattr(calyx_bridge, "is_available", lambda: True)
+    monkeypatch.setattr(calyx_bridge, "_fast_blocked_until", 0.0)
+    monkeypatch.setattr(
+        calyx_bridge, "_search", lambda query, k, vault, timeout: []
+    )
+
+    assert calyx_bridge.fast_search("anything at all") == []
+    assert calyx_bridge._fast_blocked_until == 0.0
+
+
 def test_template_copy_creates_canonical_structure(tmp_path: Path):
     dest = tmp_path / "new_vault"
     copied = init_second_brain.copy_template(dest)

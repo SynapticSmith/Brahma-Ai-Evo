@@ -1019,8 +1019,19 @@ class MCPSession:
         with self._lock:
             return list(self._specs)
 
-    def call(self, spec_name: str, arguments: Optional[Mapping[str, Any]]) -> str:
-        """Invoke one discovered tool by its namespaced spec name."""
+    def call(
+        self,
+        spec_name: str,
+        arguments: Optional[Mapping[str, Any]],
+        *,
+        timeout: Optional[float] = None,
+    ) -> str:
+        """Invoke one discovered tool by its namespaced spec name.
+
+        ``timeout`` overrides the server's configured request timeout for this
+        call; a caller with a latency budget of its own (the per-turn provenance
+        lookup) uses it instead of changing the server config.
+        """
         with self._lock:
             target = self._calls.get(spec_name)
             if target is None:
@@ -1029,7 +1040,7 @@ class MCPSession:
             server = self._servers.get(server_name)
             if server is None:
                 raise MCPError(f"MCP server {server_name!r} is not running")
-        return server.call_tool(tool_name, arguments)
+        return server.call_tool(tool_name, arguments, timeout=timeout)
 
     def list_resources(self, server: Optional[str] = None) -> List[Dict[str, Any]]:
         """List resources from a specific server or all running servers."""

@@ -9,9 +9,11 @@ using :class:`agent.mcp.MCPSession`.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple
@@ -21,6 +23,14 @@ from .mcp import MCPServerConfig, MCPSession
 DEFAULT_CALYX_BIN = Path.home() / "Calyx" / "target" / "release" / "calyx-mcp.exe"
 DEFAULT_CALYX_HOME = Path.home() / "Calyx" / "home"
 DEFAULT_VAULT_NAME = "obsidian-wiki"
+
+#: Per-turn provenance must not be able to stall a turn. ``context_for_turn``
+#: runs before every model call, so it uses :func:`fast_search`: a short MCP
+#: timeout, and a cooldown after a failure instead of paying that timeout again
+#: on the next turn. A dead Calyx therefore costs one slow turn, not every turn.
+FAST_TIMEOUT = 2.5
+FAST_COOLDOWN = 120.0
+_fast_blocked_until = 0.0
 
 
 def calyx_bin() -> Optional[Path]:
@@ -46,7 +56,7 @@ def is_available() -> bool:
     return b is not None and h is not None and b.is_file() and h.is_dir()
 
 
-def _server_config() -> MCPServerConfig:
+def _server_config(timeout: Optional[float] = None) -> MCPServerConfig:
     b = calyx_bin()
     h = calyx_home()
     if not b or not h:
@@ -56,14 +66,14 @@ def _server_config() -> MCPServerConfig:
         command=str(b),
         args=(),
         env={"CALYX_HOME": str(h)},
-        timeout=60.0,
+        timeout=60.0 if timeout is None else float(timeout),
     )
 
 
 @contextmanager
-def calyx_session() -> Generator[MCPSession, None, None]:
+def calyx_session(timeout: Optional[float] = None) -> Generator[MCPSession, None, None]:
     """Scoped MCP session connected to the local Calyx engine."""
-    config = _server_config()
+    config = _server_config(timeout)
     session = MCPSession()
     session.start([config])
     try:
@@ -72,9 +82,14 @@ def calyx_session() -> Generator[MCPSession, None, None]:
         session.close()
 
 
-def _call(tool_name: str, arguments: Dict[str, Any]) -> Any:
+def _call(
+    tool_name: str,
+    arguments: Dict[str, Any],
+    *,
+    timeout: Optional[float] = None,
+) -> Any:
     """Execute a single Calyx MCP tool call."""
-    with calyx_session() as session:
+    with calyx_session(timeout=timeout) as session:
         # Tool names are registered in session as mcp_calyx_<sanitized_tool>
         # where dots are converted to underscores.
         sanitized = re.sub(r"[^A-Za-z0-9_]", "_", tool_name)
@@ -87,7 +102,7 @@ def _call(tool_name: str, arguments: Dict[str, Any]) -> Any:
                 # Strip leading calyx_ if present
                 clean = re.sub(r"^calyx_", "", sanitized)
                 target = f"mcp_calyx_{clean}" if f"mcp_calyx_{clean}" in session.tools else f"mcp_calyx_calyx_{clean}"
-        raw = session.call(target, arguments)
+        raw = session.call(target, arguments, timeout=timeout)
         try:
             return json.loads(raw) if isinstance(raw, str) else raw
         except (ValueError, TypeError):
@@ -125,6 +140,19 @@ def status(vault: str = DEFAULT_VAULT_NAME) -> Dict[str, Any]:
     return out
 
 
+def _search(
+    query: str,
+    k: int,
+    vault: str,
+    timeout: Optional[float],
+) -> List[Dict[str, Any]]:
+    """One search call that may raise; callers decide how to fail."""
+    res = _call("calyx.search", {"query": query, "k": k, "vault": vault}, timeout=timeout)
+    if isinstance(res, dict) and "hits" in res and isinstance(res["hits"], list):
+        return res["hits"]
+    return []
+
+
 def search(
     query: str,
     k: int = 5,
@@ -137,12 +165,35 @@ def search(
     if not clean_query:
         return []
     try:
-        res = _call("calyx.search", {"query": clean_query, "k": k, "vault": vault})
-        if isinstance(res, dict) and "hits" in res and isinstance(res["hits"], list):
-            return res["hits"]
+        return _search(clean_query, k, vault, None)
     except Exception:
-        pass
-    return []
+        return []
+
+
+def fast_search(
+    query: str,
+    k: int = 3,
+    vault: str = DEFAULT_VAULT_NAME,
+) -> List[Dict[str, Any]]:
+    """Per-turn search with a tight timeout and a failure cooldown.
+
+    This runs before every model call, so it must never hold a turn for the
+    normal 60 s MCP budget. A timeout or transport failure parks the fast path
+    for :data:`FAST_COOLDOWN` seconds; the next turns skip Calyx instead of
+    paying the timeout again. A successful empty result is not a failure.
+    """
+    global _fast_blocked_until
+    now = time.monotonic()
+    if now < _fast_blocked_until:
+        return []
+    clean_query = str(query or "").strip()
+    if not clean_query or not is_available():
+        return []
+    try:
+        return _search(clean_query, k, vault, FAST_TIMEOUT)
+    except Exception:
+        _fast_blocked_until = now + FAST_COOLDOWN
+        return []
 
 
 def kernel_answer(
@@ -192,6 +243,26 @@ def extract_ingest_text(markdown_text: str, max_chars: int = 2_000) -> Tuple[str
     return title, description, clean_body[:max_chars]
 
 
+def anchor_label(rel_path: str, limit: int = 32) -> str:
+    """A compact, collision-resistant label for one note's ground-truth anchor.
+
+    Calyx caps an anchor label's length. Truncating the basename alone lets two
+    long names with the same prefix share a label, so a truncated label gets a
+    short digest of the full vault-relative path appended. Short basenames keep
+    their historical label, so re-syncing an existing vault adds no new anchor
+    text for them.
+    """
+    normalized = str(rel_path or "").replace("\\", "/")
+    leaf = normalized.rsplit("/", 1)[-1]
+    if leaf.endswith(".md"):
+        leaf = leaf[:-3]
+    if len(leaf) <= limit:
+        return leaf
+    digest = hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:6]
+    room = max(1, limit - len(digest) - 1)
+    return f"{leaf[:room]}~{digest}"
+
+
 def ingest_note(
     rel_path: str,
     raw_markdown: str,
@@ -221,16 +292,15 @@ def ingest_note(
 
         if anchor and cx_id:
             try:
-                # Keep anchor label compact to satisfy Calyx's ledger token length limit
-                anchor_label = rel_path.split("/")[-1].replace(".md", "")
-                if len(anchor_label) > 32:
-                    anchor_label = anchor_label[:32]
+                # Keep the label compact to satisfy Calyx's ledger token length
+                # limit; long basenames get a path digest so they stay distinct.
+                label = anchor_label(rel_path)
                 anchor_raw = session.call(
                     "mcp_calyx_calyx_anchor",
                     {
                         "cx_id": cx_id,
                         "kind": "label",
-                        "label": anchor_label,
+                        "label": label,
                         "value": True,
                         "vault": vault,
                     },

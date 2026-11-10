@@ -990,26 +990,27 @@ def context_for_turn(text: str, *, budget: Optional[int] = None) -> str:
         if used >= limit:
             break
 
-    # Dual-Engine: Attach Calyx cryptographic provenance proofs if Calyx is available
-    # and has matching constellations for this turn.
+    # Dual-Engine: Attach Calyx cryptographic provenance proofs if Calyx is
+    # available and has matching constellations for this turn. ``fast_search``
+    # bounds the cost: a hung Calyx costs one turn, then is skipped for a
+    # cooldown instead of stalling every turn.
     try:
         from . import calyx_bridge
 
-        if calyx_bridge.is_available():
-            hits = calyx_bridge.search(text, k=3)
-            if hits:
-                calyx_lines = ["\nCALYX GROUNDED PROVENANCE (tamper-evident hash-chained ledger):"]
-                for h in hits:
-                    cx = h.get("cx_id", "")[:12]
-                    prov = h.get("provenance") or {}
-                    seq = prov.get("ledger_seq", "")
-                    chash = (prov.get("chain_hash") or "")[:16]
-                    calyx_lines.append(
-                        f"• [constellation {cx}…] ledger_seq={seq} chain_hash={chash}… (anchored fact)"
-                    )
-                calyx_block = "\n".join(calyx_lines)
-                if used + len(calyx_block) + 2 <= limit + 500:
-                    lines.append(calyx_block)
+        hits = calyx_bridge.fast_search(text, k=3)
+        if hits:
+            calyx_lines = ["\nCALYX GROUNDED PROVENANCE (tamper-evident hash-chained ledger):"]
+            for h in hits:
+                cx = h.get("cx_id", "")[:12]
+                prov = h.get("provenance") or {}
+                seq = prov.get("ledger_seq", "")
+                chash = (prov.get("chain_hash") or "")[:16]
+                calyx_lines.append(
+                    f"• [constellation {cx}…] ledger_seq={seq} chain_hash={chash}… (anchored fact)"
+                )
+            calyx_block = "\n".join(calyx_lines)
+            if used + len(calyx_block) + 2 <= limit + 500:
+                lines.append(calyx_block)
     except Exception:
         pass
 
