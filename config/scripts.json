@@ -46,5 +46,29 @@
     "domain": "formal-sciences/computer-science",
     "safety": "read_only",
     "tags": ["calyx", "grounding", "provenance", "ledger", "constellations"]
+  },
+  {
+    "name": "bootstrap_vault.py",
+    "path": "tools/bootstrap_vault.py",
+    "description": "Bootstrap and scaffold a new Obsidian Second Brain with 122 academic nodes.",
+    "domain": "formal-sciences/computer-science",
+    "safety": "workspace_write",
+    "tags": ["bootstrap", "vault", "seed", "obsidian", "starter", "okf"]
+  },
+  {
+    "name": "batch_library_ingest.py",
+    "path": "tools/batch_library_ingest.py",
+    "description": "Batch ingest Calibre/library books, convert, extract atomic units, and route to spine.",
+    "domain": "applied-sciences/engineering-and-technology",
+    "safety": "workspace_write",
+    "tags": ["batch", "library", "books", "calibre", "ingest", "extract"]
+  },
+  {
+    "name": "worktree.py",
+    "path": "tools/worktree.py",
+    "description": "Manage isolated Git worktrees for safe agent capability testing and verification.",
+    "domain": "applied-sciences/engineering-and-technology",
+    "safety": "workspace_write",
+    "tags": ["worktree", "git", "isolation", "branch", "verify", "merge"]
   }
 ]
