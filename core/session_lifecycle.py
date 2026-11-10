@@ -777,7 +777,8 @@ class SessionLifecycle:
                     traceback.print_exc()
                 if _is_gemini_limit_error(e):
                     self._host._throttled_to_openrouter()
-                if "1008" in str(e):
+                err_str = str(e).lower()
+                if "1008" in err_str or "1007" in err_str or "invalid argument" in err_str or not _is_transient_live_error(e):
                     self._host._resume_handle = None
                 self._host.session = None
                 self._host._loop = None

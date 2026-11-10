@@ -77,6 +77,11 @@ class AudioIO:
             if self._host._phone_active:
                 return
 
+            # Avoid streaming microphone audio while a live tool is awaiting its
+            # response on Gemini Live, which causes state desync / 1007 Invalid Argument.
+            if getattr(self, "_live_tool_pending", False) or getattr(self._host, "_live_tool_pending", False):
+                return
+
             if getattr(self, "_ptt_enabled", False) and not getattr(self, "_ptt_held", False):
                 data = np.zeros_like(indata).tobytes()
                 loop.call_soon_threadsafe(
@@ -283,10 +288,16 @@ class AudioIO:
                     if response.tool_call:
                         self._host.ui.set_state("EXECUTING")
                         fn_responses = []
-                        # Keep speak() off the live socket until the tool
-                        # response is sent: a client turn injected in between
-                        # starts a second model turn and duplicates the answer.
+                        # Keep speak() and mic streaming off the live socket until
+                        # the tool response is sent: concurrent input desynchronizes
+                        # the Live state machine (WebSocket 1007 closure).
                         self._live_tool_pending = True
+                        self._host._live_tool_pending = True
+                        try:
+                            while not self._host.out_queue.empty():
+                                self._host.out_queue.get_nowait()
+                        except Exception:
+                            pass
                         try:
                             for fc in response.tool_call.function_calls:
                                 print(f"[BRAHMA EVO] 📞 {fc.name}")
@@ -296,17 +307,13 @@ class AudioIO:
                                 except Exception as exc:
                                     print(f"[BRAHMA EVO] ⚠️ Tool call error for {fc.name}: {exc}")
                                     # Don't proxy - let it fail cleanly to avoid loops
+                                    call_id = getattr(fc, "id", None) or f"call_{fc.name}"
                                     try:
                                         from google.genai import types
-                                        fn_responses.append(types.FunctionResponse(name=fc.name, id=getattr(fc, "id", None), response={"result": f"Tool execution failed: {exc}"}))
+                                        fn_responses.append(types.FunctionResponse(name=fc.name, id=call_id, response={"result": f"Tool execution failed: {exc}"}))
                                     except Exception:
-                                        fn_responses.append({"name": fc.name, "id": getattr(fc, "id", None), "response": {"result": f"Tool execution failed: {exc}"}})
+                                        fn_responses.append({"name": fc.name, "id": call_id, "response": {"result": f"Tool execution failed: {exc}"}})
                                     continue
-                                    try:
-                                        from google.genai import types
-                                        fn_responses.append(types.FunctionResponse(name=fc.name, id=getattr(fc, "id", None), response={"result": f"Tool execution failed: {exc}"}))
-                                    except Exception:
-                                        fn_responses.append({"name": fc.name, "id": getattr(fc, "id", None), "response": {"result": f"Tool execution failed: {exc}"}})
                             self._host.ui.set_state("THINKING")
                             try:
                                 await self._host.session.send_tool_response(
@@ -317,6 +324,7 @@ class AudioIO:
                                 raise
                         finally:
                             self._live_tool_pending = False
+                            self._host._live_tool_pending = False
 
         except self._LiveReconnect:
             raise

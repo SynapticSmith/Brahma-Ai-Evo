@@ -84,7 +84,7 @@ class ToolExecutor:
             dispatch_name = "google_workspace"
 
         try:
-            from agent import code_tools  # noqa: F401  (import registers specs)
+            from agent import brain_tools, code_tools  # noqa: F401  (import registers specs)
             from agent import runtime as agent_runtime
             from agent.spec import get as get_spec
 
@@ -136,7 +136,8 @@ class ToolExecutor:
             self._host.speak_error(name, e)
 
         desktop_host.present_end(self._desktop.host, name, args, result)
-        return types.FunctionResponse(id=fc.id, name=name, response={"result": result})
+        call_id = getattr(fc, "id", None) or f"call_{name}"
+        return types.FunctionResponse(id=call_id, name=name, response={"result": result})
 
 
 __all__ = ["ToolExecutor"]

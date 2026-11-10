@@ -90,4 +90,14 @@ class RealtimeFlow:
     async def send_realtime(self):
         while True:
             msg = await self._host.out_queue.get()
-            await self._host.session.send_realtime_input(media=msg)
+            # Do not stream audio chunks into Gemini Live while a tool call is awaiting
+            # its tool response; concurrent frames desynchronize the socket (1007 error).
+            if getattr(self._host, "_live_tool_pending", False) or getattr(
+                getattr(self._host, "_audio_io", None), "_live_tool_pending", False
+            ):
+                continue
+            if self._host.session is not None:
+                try:
+                    await self._host.session.send_realtime_input(media=msg)
+                except Exception:
+                    pass
