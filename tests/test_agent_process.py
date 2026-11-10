@@ -194,7 +194,13 @@ def test_env_keep_passes_a_named_secret_through(tmp_path: Path, monkeypatch):
     assert "value=very-secret" in result.stdout
 
 
-@pytest.mark.skipif(os.name != "nt", reason="Windows job objects")
+_is_windows_store_python = os.name == "nt" and "WindowsApps" in sys.executable
+
+
+@pytest.mark.skipif(
+    os.name != "nt" or _is_windows_store_python,
+    reason="Windows Store Python (MSIX) cannot be assigned to Win32 Job Objects with resource limits",
+)
 def test_resource_limits_are_accepted(tmp_path: Path):
     result = run_captured(
         _cmd("print('ok')"),
@@ -213,7 +219,10 @@ def test_resource_limits_are_accepted(tmp_path: Path):
     assert result.limits_note == ""
 
 
-@pytest.mark.skipif(os.name != "nt", reason="Windows job objects")
+@pytest.mark.skipif(
+    os.name != "nt" or _is_windows_store_python,
+    reason="Windows Store Python (MSIX) cannot be assigned to Win32 Job Objects with resource limits",
+)
 def test_a_memory_limit_stops_a_large_allocation(tmp_path: Path):
     result = run_captured(
         _cmd("x = bytearray(512 * 1024 * 1024); print('allocated')"),

@@ -1,4 +1,5 @@
 ---
+domain: devops
 name: github-automation
 description: Autonomous GitHub repository management, Pull Request creation, commit message crafting, and issue triage.
 triggers:
@@ -7,6 +8,7 @@ triggers:
   - "summarize pr diff"
   - "github issue triage"
 ---
+
 
 # GitHub Automation Skill
 

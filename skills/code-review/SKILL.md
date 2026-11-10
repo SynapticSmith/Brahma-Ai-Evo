@@ -1,4 +1,5 @@
 ---
+domain: coding
 name: code-review
 description: Comprehensive automated code review, security vulnerability audit, and architectural sanity analysis.
 triggers:
@@ -7,6 +8,7 @@ triggers:
   - "find bugs"
   - "code quality check"
 ---
+
 
 # Code Review & Security Audit Skill
 

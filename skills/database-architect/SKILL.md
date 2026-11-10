@@ -1,4 +1,5 @@
 ---
+domain: architecture
 name: database-architect
 description: SQL & NoSQL database schema design, migrations, index optimization, and relational modeling.
 triggers:
@@ -7,6 +8,7 @@ triggers:
   - "optimize query"
   - "migration"
 ---
+
 
 # Database Architect Skill
 

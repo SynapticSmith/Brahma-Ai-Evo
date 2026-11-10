@@ -1,4 +1,5 @@
 ---
+domain: coding
 name: performance-profiler
 description: CPU & memory profiling, latency bottleneck identification, database query optimization, and memory leak analysis.
 triggers:
@@ -7,6 +8,7 @@ triggers:
   - "optimize slow code"
   - "cpu benchmark"
 ---
+
 
 # Performance Profiler & System Optimizer Skill
 

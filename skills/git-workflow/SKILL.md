@@ -1,4 +1,5 @@
 ---
+domain: devops
 name: git-workflow
 description: Professional Git version control workflow, conventional commits, branch management, and conflict resolution.
 triggers:
@@ -7,6 +8,7 @@ triggers:
   - "resolve merge conflicts"
   - "git status check"
 ---
+
 
 # Git Workflow & Conventional Commits Skill
 

@@ -1,4 +1,5 @@
 ---
+domain: devops
 name: docker-devops
 description: Production-grade containerization, multi-stage Dockerfiles, Docker Compose orchestration, and CI/CD pipelines.
 triggers:
@@ -7,6 +8,7 @@ triggers:
   - "docker compose"
   - "setup github actions"
 ---
+
 
 # Docker & DevOps Engineering Skill
 

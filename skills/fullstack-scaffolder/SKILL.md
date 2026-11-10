@@ -1,4 +1,5 @@
 ---
+domain: architecture
 name: fullstack-scaffolder
 description: Instant production-grade project scaffolding for Next.js, React, FastAPI, Node.js, Tailwind CSS, and SQLite/PostgreSQL.
 triggers:
@@ -7,6 +8,7 @@ triggers:
   - "create fastapi backend"
   - "bootstrap new repo"
 ---
+
 
 # Full-Stack Application Scaffolder Skill
 

@@ -1,4 +1,5 @@
 ---
+domain: coding
 name: api-mock-engine
 description: Rapid mock API server generation, synthetic test fixture creation, and client SDK synthesis.
 triggers:
@@ -7,6 +8,7 @@ triggers:
   - "mock endpoint"
   - "create sdk client"
 ---
+
 
 # API Mock Engine & Synthetic Fixture Skill
 

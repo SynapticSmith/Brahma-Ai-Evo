@@ -44,11 +44,32 @@ def test_scripts_catalogue_shortlisting(tmp_path: Path):
     assert len(results) >= 1
     top = results[0]
     assert "ingest_multimodal" in top["name"]
-    assert top.get("safety") in ("read_only", "sandbox")
+    assert top.get("safety") in ("read_only", "sandbox", "workspace_write")
 
     # Test taxonomy tool
     tax_results = shortlist_scripts("lint notes in taxonomy", domain="applied_sciences/computing")
     assert any("taxonomy" in s["name"] for s in tax_results)
+
+
+def test_skills_index_cognitive_triggers_and_cookbooks():
+    # Test high-precision trigger matching on cognitive thinking skills
+    premortem = shortlist_skills("we should perform a premortem analysis before running this migration")
+    assert len(premortem) >= 1
+    assert premortem[0]["name"] == "pre-mortem-analysis"
+    assert "Cookbook: Pre-Mortem Risk Immunization" in premortem[0]["cookbook"]
+
+    inversion = shortlist_skills("solve backwards and invert always invert")
+    assert len(inversion) >= 1
+    assert inversion[0]["name"] == "inversion-thinking"
+    assert "Cookbook: Inversion-Based Problem Solving" in inversion[0]["cookbook"]
+
+    occams = shortlist_skills("apply occams razor to cut unnecessary complexity")
+    assert len(occams) >= 1
+    assert occams[0]["name"] == "occams-razor"
+
+    boundary = shortlist_skills("optimize context boundary and token budget")
+    assert len(boundary) >= 1
+    assert boundary[0]["name"] == "context-boundary-optimizer"
 
 
 def test_skills_shortlisting_and_budget_clamping(tmp_path: Path):

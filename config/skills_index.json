@@ -1,0 +1,533 @@
+{
+  "version": "1.0",
+  "total_skills": 24,
+  "domains": [
+    "architecture",
+    "coding",
+    "cognitive",
+    "devops",
+    "research",
+    "security"
+  ],
+  "skills": [
+    {
+      "name": "api-mock-engine",
+      "directory": "api-mock-engine",
+      "path": "skills/api-mock-engine/SKILL.md",
+      "domain": "coding",
+      "academic_domain": "coding",
+      "description": "Rapid mock API server generation, synthetic test fixture creation, and client SDK synthesis.",
+      "triggers": [
+        "create mock server",
+        "generate fake api data",
+        "mock endpoint",
+        "create sdk client"
+      ],
+      "tags": [],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: API Mock Engine & Fixture Generation\n\n## Objective\nGenerate a lightweight, standalone mock API server with simulated endpoints and synthetic data fixtures.\n\n## Prerequisites\n- python 3.11+\n- fastapi or flask (optional for server launch)\n\n## Execution Recipe\n1. **Define Schema**:\n   Identify required endpoints, methods (GET/POST), status codes, and JSON response models.\n2. **Scaffold Mock Server Script**:\n   Generate `mock_server.py` using standard library `http.server` or `FastAPI`:\n   ```powershell\n   python -c \"import http.server, socketserver; print('Ready to serve mock endpoints')\"\n   ```\n3. **Generate Synthetic Fixtures**:\n   Create mock JSON data payloads under `tests/fixtures/<endpoint>.json`.\n4. **Verification Gate**:\n   Query the mock endpoint with a curl or python script:\n   ```powershell\n   python -c \"import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/health').read())\"\n   ```\n5. **Remediation**:\n   If port is in use, bind to dynamic port `8080` or increment port number.",
+      "sha256": "69a413fe6b717f1d7aa5ac4a690fdd35e1a69f6b6f2930a01058caebfa5df917"
+    },
+    {
+      "name": "book-to-knowledge",
+      "directory": "book-to-knowledge",
+      "path": "skills/book-to-knowledge/SKILL.md",
+      "domain": "research",
+      "academic_domain": "applied-sciences/computing",
+      "description": "Autonomous pipeline converting raw technical books, PDFs, and EPUBs into structured, atomized OKF notes placed in the academic knowledge tree.",
+      "triggers": [
+        "ingest book",
+        "extract book",
+        "book to knowledge",
+        "convert pdf to notes"
+      ],
+      "tags": [
+        "ingestion",
+        "extraction",
+        "books",
+        "knowledge",
+        "okf",
+        "second-brain"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Book to Knowledge Ingestion\n\n## Objective\nConvert an unprocessed book (EPUB, PDF, DOCX) into clean Markdown, extract atomic knowledge units, and route them to the academic taxonomy spine with Calyx anchoring.\n\n## Prerequisites\n- python 3.11+\n- tools/ingest_multimodal.py\n- tools/extract_knowledge.py\n\n## Execution Recipe\n1. **Convert Raw Book to Markdown**:\n   ```powershell\n   python tools/ingest_multimodal.py --source <path-to-book> --slug <book-slug>\n   ```\n2. **Extract Atomic Knowledge Units**:\n   ```powershell\n   python tools/extract_knowledge.py --source book-library/fulltext/<book-slug>.md --taxonomy taxonomy.json\n   ```\n3. **Commit Calyx Anchors**:\n   Record cryptographic ledger constellations for all extracted units:\n   ```powershell\n   python tools/calyx_sync.py\n   ```\n4. **Verification Gate**:\n   Check that units are placed in `wiki/library/knowledge/` and index is refreshed:\n   ```powershell\n   python tools/brain_sync.py\n   ```\n5. **Remediation**:\n   If low confidence occurs, review orphaned notes staged in `_inbox/` and manually tag appropriate parent node.",
+      "sha256": "13ebd55547cc021b037e3ed356ee3d70141afe192d1c5d043f9fdbcf1c58591c"
+    },
+    {
+      "name": "browser-automation",
+      "directory": "browser-automation",
+      "path": "skills/browser-automation/SKILL.md",
+      "domain": "devops",
+      "academic_domain": "devops",
+      "description": "Autonomous web browsing, Playwright automation, form filling, screenshot verification, and SPA web interaction.",
+      "triggers": [
+        "open website and click",
+        "automate browser",
+        "fill web form",
+        "capture screenshot of page",
+        "browser test"
+      ],
+      "tags": [],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Headless Browser Automation\n\n## Objective\nAutomate web interactions, DOM extraction, and visual screenshot verification.\n\n## Prerequisites\n- playwright or selenium installed in environment\n\n## Execution Recipe\n1. **Pre-flight Check**:\n   Verify browser driver availability.\n2. **Execute Headless Task**:\n   Launch automation script targeting URL with explicit selectors and wait states:\n   ```powershell\n   python -c \"print('Navigating to target and awaiting DOM content')\"\n   ```\n3. **Extract Content / Capture State**:\n   Save HTML snapshot to `cache/browser_dump.html` and screenshot to `.assets/`.\n4. **Verification Gate**:\n   Verify output file size > 500 bytes and screenshot PNG signature exists.\n5. **Remediation**:\n   If selector timeout occurs, increase explicit wait timeout from 5s to 15s.",
+      "sha256": "b0f334767feefdca77628837cb224428014721ed53b23c080fbb89b04430aff1"
+    },
+    {
+      "name": "code-review",
+      "directory": "code-review",
+      "path": "skills/code-review/SKILL.md",
+      "domain": "coding",
+      "academic_domain": "coding",
+      "description": "Comprehensive automated code review, security vulnerability audit, and architectural sanity analysis.",
+      "triggers": [
+        "review this code",
+        "audit security",
+        "find bugs",
+        "code quality check"
+      ],
+      "tags": [],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Automated Code Review\n\n## Objective\nPerform a structured, line-by-line architectural and syntax review on git diffs before merging.\n\n## Prerequisites\n- git\n- python 3.11+\n\n## Execution Recipe\n1. **Inspect Staged Diffs**:\n   ```powershell\n   git diff --staged\n   ```\n2. **Run Linter & Static Analysis**:\n   ```powershell\n   python -m ruff check .\n   ```\n3. **Execute Targeted Regression Tests**:\n   ```powershell\n   python -m pytest tests -q\n   ```\n4. **Verification Gate**:\n   Ensure 0 lint errors, 0 test failures, and no unprotected secret keys or temporary debug statements.\n5. **Remediation**:\n   Use `ruff check --fix .` for automated fixes; revert manual regressions if tests fail.",
+      "sha256": "e8eb4e5ee6cb557a11d7675b44045aaf734345e00573abafcddaa8f24c8d897a"
+    },
+    {
+      "name": "context-boundary-optimizer",
+      "directory": "context-boundary-optimizer",
+      "path": "skills/context-boundary-optimizer/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "cognitive",
+      "description": "Optimize agent context windows via Interpretable Context Methodology (ICM), token budgeting, and just-in-time progressive disclosure.",
+      "triggers": [
+        "context boundary",
+        "optimize context",
+        "token budget minimization",
+        "progressive disclosure",
+        "jit context injection"
+      ],
+      "tags": [
+        "thinking",
+        "reasoning",
+        "context-optimization",
+        "token-budget",
+        "icm",
+        "prompt-engineering"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Progressive Context Window Optimization\n\n## Objective\nReduce LLM prompt bloat and enforce deterministic progressive disclosure (L0 to L3) for sub-2B small models and cloud agents alike.\n\n## Prerequisites\n- An agent loop or prompt assembly pipeline.\n\n## Execution Recipe\n1. **Measure Baseline Turn Context**:\n   Profile the prompt payload:\n   ```python\n   prompt_chars = len(assembled_prompt)\n   estimated_tokens = prompt_chars // 4\n   print(f\"Context payload: {estimated_tokens} tokens ({prompt_chars} chars)\")\n   ```\n2. **Audit Component Token Shares**:\n   Verify individual component thresholds:\n   - System baseline: <= 1,000 tokens\n   - Tool declarations: <= 2,500 tokens (defer low-priority tools)\n   - Second-brain JIT snippet: <= 800 tokens\n   - Skills cookbook: <= 1,200 tokens\n3. **Apply Dynamic Tool Pruning**:\n   If tool declarations exceed threshold, filter by turn intent: advertise primary tools and defer specialized tools to `search_tools`.\n4. **Enforce Cookbook Clamping**:\n   Clamp injected SOP/cookbook to max 4KB (`cookbook[:4096]`).\n5. **Verification Gate**:\n   Assert that total prompt token size is under the target model's optimal window without sacrificing functional accuracy:\n   ```powershell\n   python -m pytest tests -q -k \"turn_context or prompt\"\n   ```\n6. **Remediation**:\n   If a prompt exceeds the token ceiling, discard low-relevance conversation history turns before truncating system instructions or active cookbooks.",
+      "sha256": "e952c59921c44983e5a120291b8295087b0f83f157a775720a8562d610d8ff6b"
+    },
+    {
+      "name": "database-architect",
+      "directory": "database-architect",
+      "path": "skills/database-architect/SKILL.md",
+      "domain": "architecture",
+      "academic_domain": "architecture",
+      "description": "SQL & NoSQL database schema design, migrations, index optimization, and relational modeling.",
+      "triggers": [
+        "design database",
+        "create sql schema",
+        "optimize query",
+        "migration"
+      ],
+      "tags": [],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Database Architecture & Zero-Downtime Migration\n\n## Objective\nDesign, version, and migrate relational and vector database schemas without data loss.\n\n## Prerequisites\n- sqlite3\n\n## Execution Recipe\n1. **Inspect Current Schema**:\n   Extract DDL and table pragma info:\n   ```powershell\n   python -c \"import sqlite3; conn=sqlite3.connect('second_brain.db'); print(conn.execute('PRAGMA user_version').fetchone())\"\n   ```\n2. **Draft Forward Migration**:\n   Create SQL statements using `CREATE TABLE IF NOT EXISTS` and transactional updates.\n3. **Verify Integrity & Foreign Keys**:\n   ```powershell\n   python -c \"import sqlite3; conn=sqlite3.connect('second_brain.db'); print(conn.execute('PRAGMA integrity_check').fetchall())\"\n   ```\n4. **Verification Gate**:\n   Query test row insertions and verify `user_version` counter increments.\n5. **Remediation**:\n   Rollback transaction immediately if `sqlite3.DatabaseError` is raised.",
+      "sha256": "f251ac5260667eacd5071afc6d59ce624105bab2d53f89d0bbd67de5dd1eeab0"
+    },
+    {
+      "name": "decision-matrix-analysis",
+      "directory": "decision-matrix-analysis",
+      "path": "skills/decision-matrix-analysis/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "cognitive",
+      "description": "Multi-Criteria Decision Analysis (Pugh Matrix) to objectively score and rank competing technical approaches.",
+      "triggers": [
+        "decision matrix",
+        "pugh matrix",
+        "compare alternatives",
+        "multi criteria analysis",
+        "which option is best"
+      ],
+      "tags": [
+        "thinking",
+        "reasoning",
+        "decision-matrix",
+        "pugh-matrix",
+        "trade-offs",
+        "evaluation"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Objective Decision Matrix Evaluation\n\n## Objective\nEvaluate competing technical designs or dependencies using a weighted scoring matrix to achieve a rational, defensible architecture choice.\n\n## Prerequisites\n- At least two viable technical proposals or candidate packages.\n\n## Execution Recipe\n1. **Define Candidate Set**:\n   Document the options under review:\n   - Candidate 1: Standard library `sqlite3` + FTS5\n   - Candidate 2: In-memory dictionary + custom BM25\n   - Candidate 3: External search engine daemon (e.g. Meilisearch)\n2. **Assign Criteria Weights**:\n   - `W1 (Zero extra install burden)`: 30%\n   - `W2 (Sub-10ms query latency)`: 25%\n   - `W3 (Crash resilience & persistence)`: 25%\n   - `W4 (Cross-platform Python stdlib)`: 20%\n3. **Score Matrix Generation**:\n   Construct the scoring table (1 = Poor, 5 = Excellent):\n   - SQLite FTS5: W1=5, W2=5, W3=5, W4=5 -> Total = 5.0\n   - In-memory BM25: W1=5, W2=5, W3=2, W4=5 -> Total = 4.25\n   - External Daemon: W1=1, W2=5, W3=5, W4=1 -> Total = 3.0\n4. **Enforce Non-Negotiable Pass/Fail Gates**:\n   Ensure winning candidate meets all strict constraints (e.g. must run on offline Windows client without docker).\n5. **Verification Gate**:\n   Implement a prototype spike with the winning candidate and verify benchmarks match matrix assumptions.\n6. **Remediation**:\n   If benchmark data invalidates a score, update the matrix and re-evaluate the runner-up candidate.",
+      "sha256": "ca4783e52d20a866148d93dcd951b1c81616c9699c716c78032d0a46687ee4d6"
+    },
+    {
+      "name": "desloppify",
+      "directory": "desloppify",
+      "path": "skills/desloppify/SKILL.md",
+      "domain": "devops",
+      "academic_domain": "applied-sciences/engineering-and-technology/software-engineering",
+      "description": "Transform speculative, bloated, or fragile model-generated code into clean, well-engineered, idiomatic, and robust software.",
+      "triggers": [
+        "desloppify",
+        "clean up this code",
+        "refactor slop",
+        "remove boilerplate"
+      ],
+      "tags": [
+        "refactoring",
+        "code-quality",
+        "desloppify",
+        "clean-code",
+        "engineering"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Code Desloppification & Clean Refactoring\n\n## Objective\nPurge code slop, eliminate dead branches, enforce strict type hints, and align with project architecture.\n\n## Prerequisites\n- python 3.11+\n- ruff\n\n## Execution Recipe\n1. **Audit Complexity & Unused Code**:\n   ```powershell\n   python -m ruff check . --select F,E,W,UP,I\n   ```\n2. **Format & Sort Imports**:\n   ```powershell\n   python -m ruff check --fix .\n   ```\n3. **Enforce Type Invariants & Clean Signatures**:\n   Remove wildcard imports (`from x import *`), add return annotations, and eliminate duplicate logic.\n4. **Verification Gate**:\n   ```powershell\n   python -m ruff check .\n   python -m pytest tests -q\n   ```\n5. **Remediation**:\n   If refactoring breaks tests, revert via `git checkout -p` and perform targeted edits.",
+      "sha256": "e5706429bb5d9ee13f599e02ef377a88d918810fa116cd954f0efdf3c7974aef"
+    },
+    {
+      "name": "docker-devops",
+      "directory": "docker-devops",
+      "path": "skills/docker-devops/SKILL.md",
+      "domain": "devops",
+      "academic_domain": "devops",
+      "description": "Production-grade containerization, multi-stage Dockerfiles, Docker Compose orchestration, and CI/CD pipelines.",
+      "triggers": [
+        "dockerize",
+        "create dockerfile",
+        "docker compose",
+        "setup github actions"
+      ],
+      "tags": [],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Docker Build & Container Testing\n\n## Objective\nContainerize python applications using minimal multi-stage builds and verify container launch.\n\n## Prerequisites\n- Docker CLI or Podman\n\n## Execution Recipe\n1. **Audit Dockerfile**:\n   Ensure non-root user, slim base image (e.g. `python:3.11-slim`), and cached dependency layers.\n2. **Build Image**:\n   ```powershell\n   docker build -t app:latest .\n   ```\n3. **Execute Container Smoke Test**:\n   ```powershell\n   docker run --rm app:latest python --version\n   ```\n4. **Verification Gate**:\n   Verify container exits with code 0 and image size is within budget (< 500MB).\n5. **Remediation**:\n   If build fails on missing compiler, add build dependencies in builder stage only.",
+      "sha256": "f9991f2b6771026dbf476da51d864bb71bc12bc25c33a64c9a14c7441474cb35"
+    },
+    {
+      "name": "first-principles-thinking",
+      "directory": "first-principles-thinking",
+      "path": "skills/first-principles-thinking/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "formal-sciences/logic",
+      "description": "Deconstruct complex problems into fundamental axioms and reassemble solutions from the ground up without relying on analogies.",
+      "triggers": [
+        "first principles",
+        "break this problem down",
+        "deconstruct the problem",
+        "fundamental truths"
+      ],
+      "tags": [
+        "thinking",
+        "reasoning",
+        "first-principles",
+        "logic",
+        "problem-solving"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: First-Principles Problem Solving\n\n## Objective\nDeconstruct a difficult engineering or conceptual problem down to bedrock truths and build up an optimal solution.\n\n## Prerequisites\n- None\n\n## Execution Recipe\n1. **Identify and Clarify the Challenge**:\n   Write down the surface problem and identify existing assumptions.\n2. **Deconstruct to Indisputable Truths**:\n   Strip away analogies, conventions, and received wisdom. Ask: *What physical, computational, or mathematical facts are impossible to dispute?*\n3. **Synthesize from Fundamentals**:\n   Rebuild the architecture from those foundational truths. Ignore \"how it has always been done.\"\n4. **Verification Gate**:\n   Validate that the new design introduces fewer dependencies, lowers complexity, and solves the root bottleneck.\n5. **Remediation**:\n   If an assumption creeps back in, re-apply the \"5-Whys\" test to challenge it.",
+      "sha256": "ba6d2b4b48fe2ef916fce556eedffea7295ed42b1eb8e55feab5a41aad24033b"
+    },
+    {
+      "name": "five-whys-root-cause",
+      "directory": "five-whys-root-cause",
+      "path": "skills/five-whys-root-cause/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "cognitive",
+      "description": "Iterative interrogative technique to drill past superficial symptoms down to systemic root causes of defects and failures.",
+      "triggers": [
+        "five whys",
+        "5 whys",
+        "root cause analysis",
+        "find the root cause",
+        "why did this fail"
+      ],
+      "tags": [
+        "thinking",
+        "reasoning",
+        "5-whys",
+        "root-cause",
+        "debugging",
+        "causal-analysis"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: 5-Whys Root-Cause Investigation\n\n## Objective\nSystematically diagnose a failing test, bug, or production defect by chaining interrogations down to the foundational failure mechanism.\n\n## Prerequisites\n- A reproducible failure trace, error log, or failing unit test.\n\n## Execution Recipe\n1. **Capture the Ground Failure**:\n   Run the failing command and record the full traceback:\n   ```powershell\n   python -m pytest tests/test_failing.py -q -vv\n   ```\n2. **Execute the 5 Whys Chain**:\n   Write down the sequence:\n   - *Why 1 (Symptom)*: What direct line threw the exception?\n   - *Why 2 (State)*: What unexpected value or state triggered that line?\n   - *Why 3 (Mechanism)*: Where did that bad value originate?\n   - *Why 4 (Contract)*: Why did the preceding boundary/function fail to validate or sanitize it?\n   - *Why 5 (Architecture/Policy)*: Why was there no schema, lint rule, or test asserting this invariant?\n3. **Formulate the Structural Fix**:\n   Write code addressing the root invariant at Why #4 or #5 (e.g., input validation at boundary, synchronization gate, state machine transition check).\n4. **Author Regression Test**:\n   Create a dedicated unit test reproducing the exact sequence that triggered the failure, proving the root cause is eliminated.\n5. **Verification Gate**:\n   Run the full test suite and verify the bug is resolved without breaking existing invariants:\n   ```powershell\n   python -m ruff check .\n   python -m pytest tests -q\n   ```\n6. **Remediation**:\n   If the bug recurs under high concurrency, inspect thread safety and lock contention across shared state.",
+      "sha256": "6458b510bb635859c69bbe8a302efc1b85407d0212196f74250710f7e595f163"
+    },
+    {
+      "name": "fullstack-scaffolder",
+      "directory": "fullstack-scaffolder",
+      "path": "skills/fullstack-scaffolder/SKILL.md",
+      "domain": "architecture",
+      "academic_domain": "architecture",
+      "description": "Instant production-grade project scaffolding for Next.js, React, FastAPI, Node.js, Tailwind CSS, and SQLite/PostgreSQL.",
+      "triggers": [
+        "scaffold fullstack app",
+        "create nextjs project",
+        "create fastapi backend",
+        "bootstrap new repo"
+      ],
+      "tags": [],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Fullstack Scaffolding\n\n## Objective\nScaffold a modular frontend and backend repository with clean configuration and dev tooling.\n\n## Prerequisites\n- python 3.11+ / node.js\n\n## Execution Recipe\n1. **Generate Root Structure**:\n   Scaffold `backend/`, `frontend/`, `tests/`, and `config/`.\n2. **Configure Package Managers**:\n   Generate `pyproject.toml` or `package.json` with pinned development scripts.\n3. **Scaffold Entrypoints**:\n   Create minimal `main.py` and healthcheck test.\n4. **Verification Gate**:\n   Run the health test and ensure server starts cleanly.\n5. **Remediation**:\n   If dependencies conflict, lock versions in a virtual environment.",
+      "sha256": "4b20e757e049a59d579acc3f71bbf050107d30b84007b376623cc85f77e9cda8"
+    },
+    {
+      "name": "git-workflow",
+      "directory": "git-workflow",
+      "path": "skills/git-workflow/SKILL.md",
+      "domain": "devops",
+      "academic_domain": "devops",
+      "description": "Professional Git version control workflow, conventional commits, branch management, and conflict resolution.",
+      "triggers": [
+        "git commit",
+        "create branch",
+        "resolve merge conflicts",
+        "git status check"
+      ],
+      "tags": [],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Git Branching & Atomic Commits\n\n## Objective\nManage git branches, worktrees, and atomic commits safely without dirtying working trees.\n\n## Prerequisites\n- git\n\n## Execution Recipe\n1. **Check Status & Branch Cleanliness**:\n   ```powershell\n   git status\n   ```\n2. **Create Feature Branch or Worktree**:\n   ```powershell\n   git checkout -b feature/<task-name>\n   ```\n3. **Stage Specific Files & Commit**:\n   ```powershell\n   git add <path/to/file>\n   git commit -m \"type(scope): clear description of change\"\n   ```\n4. **Verification Gate**:\n   ```powershell\n   git log -n 1 --stat\n   ```\n5. **Remediation**:\n   If incorrect files are staged, unstage with `git restore --staged <file>`.",
+      "sha256": "22ddb25a556141d31c9c8d5b8a37780c5efb2570c00ffde48b8ea46a1db8796c"
+    },
+    {
+      "name": "github-automation",
+      "directory": "github-automation",
+      "path": "skills/github-automation/SKILL.md",
+      "domain": "devops",
+      "academic_domain": "devops",
+      "description": "Autonomous GitHub repository management, Pull Request creation, commit message crafting, and issue triage.",
+      "triggers": [
+        "create pull request",
+        "open pr",
+        "summarize pr diff",
+        "github issue triage"
+      ],
+      "tags": [],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: GitHub Actions Workflow Creation\n\n## Objective\nConfigure GitHub Actions workflows for automated testing, linting, and continuous integration.\n\n## Prerequisites\n- git\n\n## Execution Recipe\n1. **Scaffold Workflow Directory**:\n   Create `.github/workflows/` if not present.\n2. **Draft CI Workflow (`.github/workflows/ci.yml`)**:\n   Include triggers (`on: [push, pull_request]`), OS matrix, Python setup, and test runner steps.\n3. **Verify YAML Syntax**:\n   ```powershell\n   python -c \"import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))\"\n   ```\n4. **Verification Gate**:\n   Verify workflow file exists, passes YAML parser, and references valid branch names.\n5. **Remediation**:\n   Fix indentation errors if YAML parsing fails.",
+      "sha256": "66b4683f68c2e3d8fcde703276e0e9018ca67a66cf8d3aab1f107ca0d8322632"
+    },
+    {
+      "name": "icm-architect",
+      "directory": "icm-architect",
+      "path": "skills/icm-architect/SKILL.md",
+      "domain": "architecture",
+      "academic_domain": "applied-sciences/engineering-and-technology/software-engineering",
+      "description": "Design and structure complex agent workflows and problem spaces as filesystem hierarchies using the Interpretable Context Methodology (ICM).",
+      "triggers": [
+        "design icm workspace",
+        "structure workspace",
+        "folder structure as architecture",
+        "context methodology"
+      ],
+      "tags": [
+        "icm",
+        "architecture",
+        "filesystem",
+        "context",
+        "hierarchy",
+        "workflow"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: ICM Workspace Structuring\n\n## Objective\nOrganize problem spaces into deterministic, filesystem-backed agent architectures.\n\n## Prerequisites\n- python 3.11+\n\n## Execution Recipe\n1. **Analyze Topology**:\n   Map input sources, intermediate staging zones, and permanent asset stores.\n2. **Scaffold Directory Layout**:\n   Create `input/`, `staging/`, `canonical/`, and `config/` directories.\n3. **Define Routing Rules**:\n   Write declarative JSON or YAML index defining transitions between stages.\n4. **Verification Gate**:\n   Verify that each stage contains a README or index.md defining its contracts.\n5. **Remediation**:\n   If notes linger in staging, trigger extraction router to resolve destination.",
+      "sha256": "0e77a8efa300bb5ceb5e13492cfa40c4005948c04658ff0c2403a58d1ce847cc"
+    },
+    {
+      "name": "inversion-thinking",
+      "directory": "inversion-thinking",
+      "path": "skills/inversion-thinking/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "cognitive",
+      "description": "Solve complex engineering problems backwards by identifying catastrophic failure modes and eliminating them systematically.",
+      "triggers": [
+        "inversion thinking",
+        "invert always invert",
+        "solve backwards",
+        "how to guarantee failure",
+        "avoid anti-patterns"
+      ],
+      "tags": [
+        "thinking",
+        "reasoning",
+        "inversion",
+        "problem-solving",
+        "failure-avoidance"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Inversion-Based Problem Solving\n\n## Objective\nApply inversion thinking to discover hidden flaws, anti-patterns, and fatal failure paths in an architecture or codebase before implementation.\n\n## Prerequisites\n- A clear technical objective or architectural decision.\n\n## Execution Recipe\n1. **Identify Success Goal**:\n   Formulate the desired state in one concise sentence (e.g., \"Harness runs untrusted code safely without resource exhaustion\").\n2. **Construct Anti-Goal**:\n   Formulate the opposite condition (e.g., \"Harness allows runaway fork-bombs, memory leaks, and disk exhaustion\").\n3. **Brainstorm Failure Mechanisms**:\n   List at least 4 ways to cause the anti-goal:\n   - Unbounded memory allocations\n   - Subprocesses not attached to job objects\n   - Infinite recursive loops without turn limits\n   - File descriptors left unclosed\n4. **Translate to Active Invariants**:\n   Convert each failure mechanism into an automated test or architectural gate:\n   - Cap subprocess memory with Job Object limits.\n   - Enforce hard turn budgets (max 12 iterations).\n   - Use `with` blocks or explicit try-finally cleanup for all I/O handles.\n5. **Verification Gate**:\n   Execute test suite to prove each anti-goal scenario is blocked and raises expected exceptions.\n6. **Remediation**:\n   If an anti-goal scenario slips through, insert an AST check or policy rule to reject it before runtime.",
+      "sha256": "efa4f3770b2cb3763bce1abc1a2dc90ccfc4a1bab3e4581e4121e1a60499b833"
+    },
+    {
+      "name": "occams-razor",
+      "directory": "occams-razor",
+      "path": "skills/occams-razor/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "cognitive",
+      "description": "Apply the principle of parsimony to eliminate unneeded abstractions, third-party bloat, and speculative complexity.",
+      "triggers": [
+        "occam's razor",
+        "occams razor",
+        "simplify solution",
+        "minimum assumptions",
+        "cut unnecessary complexity"
+      ],
+      "tags": [
+        "thinking",
+        "reasoning",
+        "occams-razor",
+        "parsimony",
+        "simplicity",
+        "anti-bloat"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Complexity Pruning via Occam's Razor\n\n## Objective\nStrip speculative complexity and excess dependencies from a code module, leaving only minimal, verified primitives.\n\n## Prerequisites\n- A working test suite covering the target module's functional requirements.\n\n## Execution Recipe\n1. **Audit External Imports**:\n   Scan target files for heavy third-party dependencies:\n   ```powershell\n   Select-String -Path \".\\*.py\" -Pattern \"^import |^from \" | Group-Object Line\n   ```\n2. **Evaluate In-House Substitution**:\n   Identify libraries imported for trivial utilities (e.g., `requests` for a single GET request, `lodash` for cloning). Replace with Python stdlib (`urllib.request`, `copy.deepcopy`).\n3. **Flatten Class Hierarchies**:\n   Collapse multi-level class inheritances into simple data classes or pure functions when no polymorphic behavior is needed.\n4. **Remove Unused Knobs**:\n   Delete configuration parameters that have never been overridden in production or tests.\n5. **Verification Gate**:\n   Run unit tests and lint checks:\n   ```powershell\n   python -m ruff check .\n   python -m pytest tests -q\n   ```\n   All tests must pass with zero behavioral regressions and fewer dependencies.\n6. **Remediation**:\n   If an edge case required a deleted abstraction, restore only the minimum inline logic needed to handle that specific edge case.",
+      "sha256": "189e6e310d09487315bc23f151f7b095d626d72d5f245b90affcd19eb8cec0dd"
+    },
+    {
+      "name": "performance-profiler",
+      "directory": "performance-profiler",
+      "path": "skills/performance-profiler/SKILL.md",
+      "domain": "coding",
+      "academic_domain": "coding",
+      "description": "CPU & memory profiling, latency bottleneck identification, database query optimization, and memory leak analysis.",
+      "triggers": [
+        "profile performance",
+        "find memory leak",
+        "optimize slow code",
+        "cpu benchmark"
+      ],
+      "tags": [],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Performance Profiling & Optimization\n\n## Objective\nProfile execution time and memory allocations to identify and remediate bottlenecks.\n\n## Prerequisites\n- python 3.11+\n- cProfile\n\n## Execution Recipe\n1. **Run cProfile on Target Code**:\n   ```powershell\n   python -m cProfile -s cumulative <script.py>\n   ```\n2. **Analyze Hot Paths**:\n   Identify functions consuming > 80% of execution time.\n3. **Apply Targeted Optimization**:\n   Replace repeated allocations with generators, vectorize math, or add caching.\n4. **Verification Gate**:\n   Re-run profile and verify execution time reduction (> 20%).\n5. **Remediation**:\n   If optimization changes outputs, run unit test suite to detect regressions.",
+      "sha256": "78331fdb79118f6640b74fb3980a356558e2ef1a05adb498a1470c92d154e647"
+    },
+    {
+      "name": "pre-mortem-analysis",
+      "directory": "pre-mortem-analysis",
+      "path": "skills/pre-mortem-analysis/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "cognitive",
+      "description": "Prospective hindsight technique to identify root vulnerabilities, state desync, and failure modes before executing irreversible operations.",
+      "triggers": [
+        "pre-mortem",
+        "premortem analysis",
+        "prospective hindsight",
+        "what could go wrong",
+        "failure risk assessment"
+      ],
+      "tags": [
+        "thinking",
+        "reasoning",
+        "pre-mortem",
+        "risk-analysis",
+        "prospective-hindsight"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Pre-Mortem Risk Immunization\n\n## Objective\nIdentify and neutralize high-risk failure modes before initiating breaking changes or production operations.\n\n## Prerequisites\n- A planned migration, refactoring, or infrastructure update.\n\n## Execution Recipe\n1. **Declare Hypothetical Catastrophe**:\n   Document the exact failure state: \"The migration script ran, wiped 30% of user data, and the rollback failed.\"\n2. **Scan for Failure Vectors**:\n   Inspect the code and operational plan for:\n   - Destructive commands without dry-run flags (`DROP TABLE`, `rm -rf`, `git reset --hard`)\n   - Unhandled exception paths inside loops\n   - Missing atomic transaction wrappers\n3. **Draft the Emergency Rollback Recipe**:\n   Write the exact CLI command sequence required to restore state within 60 seconds if failure strikes.\n4. **Implement Defense Fences**:\n   - Add SQLite backup snapshot step before running schema changes.\n   - Enforce dry-run mode by default; require `--force` or explicit confirmation for destructive actions.\n5. **Verification Gate**:\n   Simulate an intentional mid-execution abort (e.g. `KeyboardInterrupt`) and verify the database or workspace rolls back cleanly without corruption.\n6. **Remediation**:\n   If an operation cannot be cleanly rolled back, refactor it into an append-only or versioned shadow table strategy.",
+      "sha256": "4b640c9782572a397f1a9f234234c504a4e25ac34bc7792bfa5b5a0053e0b293"
+    },
+    {
+      "name": "second-order-thinking",
+      "directory": "second-order-thinking",
+      "path": "skills/second-order-thinking/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "cognitive",
+      "description": "Evaluate downstream systemic consequences, feedback loops, and ripple effects beyond immediate first-order outcomes.",
+      "triggers": [
+        "second order thinking",
+        "and then what",
+        "unintended consequences",
+        "downstream impact",
+        "ripple effects"
+      ],
+      "tags": [
+        "thinking",
+        "reasoning",
+        "second-order-thinking",
+        "unintended-consequences",
+        "ripple-effects"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Second-Order Consequence Analysis\n\n## Objective\nTrace cascading downstream impacts of an architectural change to prevent system-wide instability or unintended feedback loops.\n\n## Prerequisites\n- A proposed architectural modification, rate-limit adjustment, or concurrency change.\n\n## Execution Recipe\n1. **Define the Immediate Change**:\n   Document the proposal (e.g., \"Cache search query results in memory for 10 minutes to reduce database load\").\n2. **Execute Second-Order Traversal**:\n   Answer the following 4 cascading questions:\n   - *Question 1*: What happens when the underlying data is updated during those 10 minutes? (Stale data served to users).\n   - *Question 2*: What happens to process memory under a sudden surge of unique, long-tail queries? (RAM spikes, potential OOM crash).\n   - *Question 3*: What happens if multiple worker processes cache independently? (Duplicate memory footprint, inconsistent reads across cluster).\n   - *Question 4*: What happens on cache restart or expiration? (Cache stampede / database spike).\n3. **Draft Balancing Guardrails**:\n   - Enforce LRU eviction with a strict max-entries cap (`maxsize=1000`).\n   - Add explicit cache invalidation hook on data writes.\n   - Introduce probabilistic early expiration (XFetch) or mutex locks to prevent dog-piling.\n4. **Verification Gate**:\n   Execute load simulation or concurrency tests to ensure bounded memory growth and consistent invalidation:\n   ```powershell\n   python -m pytest tests -q -k \"cache or concurrency\"\n   ```\n5. **Remediation**:\n   If unconstrained downstream resource growth occurs, replace local in-memory caching with persistent file-backed or bounded TTL ring buffers.",
+      "sha256": "f98f37773f1375366c8c8ab7fa2447be23c56eb98ee28f8b15592644eac8f5d2"
+    },
+    {
+      "name": "security-auditor",
+      "directory": "security-auditor",
+      "path": "skills/security-auditor/SKILL.md",
+      "domain": "security",
+      "academic_domain": "security",
+      "description": "Hardcoded secrets detection, OWASP Top 10 auditing, dependency CVE scanner, and safe API boundary analysis.",
+      "triggers": [
+        "scan for secrets",
+        "security audit",
+        "owasp check",
+        "find leaked api keys"
+      ],
+      "tags": [],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Security Audit & Secret Scanning\n\n## Objective\nScan codebase for hardcoded credentials, API keys, unsafe subprocess calls, and known vulnerabilities.\n\n## Prerequisites\n- git\n- python 3.11+\n\n## Execution Recipe\n1. **Scan for Hardcoded Secrets**:\n   Search for common key prefixes (`AIza`, `sk-`, `ghp_`, `Bearer`):\n   ```powershell\n   git grep -E \"(AIza|sk-[a-zA-Z0-9]{20,}|ghp_)\"\n   ```\n2. **Audit Shell Invocations**:\n   Check for `shell=True` without sanitization in python files:\n   ```powershell\n   git grep \"shell=True\"\n   ```\n3. **Verify File Permissions & Sandbox Policies**:\n   Inspect `config/agent_permissions.example.json` to ensure least-privilege defaults.\n4. **Verification Gate**:\n   Verify 0 exposed secrets and all subprocess executions use array arguments (`shell=False`).\n5. **Remediation**:\n   Move detected keys to environment variables and scrub git history if needed.",
+      "sha256": "cbd3bdc93c41fb1f00bfe333469dd92ac71cc25e448ce2a67d3393c59ec5707c"
+    },
+    {
+      "name": "test-driven-development",
+      "directory": "test-driven-development",
+      "path": "skills/test-driven-development/SKILL.md",
+      "domain": "coding",
+      "academic_domain": "coding",
+      "description": "Automated test-driven development (TDD), test suite generation, and self-healing verification loops.",
+      "triggers": [
+        "write tests",
+        "tdd",
+        "run tests and fix",
+        "self-heal code"
+      ],
+      "tags": [],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Test-Driven Development Loop\n\n## Objective\nImplement features using strict test-driven development: write failing test, write minimal passing code, refactor.\n\n## Prerequisites\n- python 3.11+\n- pytest\n\n## Execution Recipe\n1. **Write Failing Test (Red)**:\n   Create `tests/test_<feature>.py` asserting expected input/output behavior.\n2. **Run Test to Verify Failure**:\n   ```powershell\n   python -m pytest tests/test_<feature>.py -q\n   ```\n3. **Implement Minimal Code (Green)**:\n   Write the simplest implementation that satisfies the test assertion.\n4. **Run Test to Verify Success**:\n   ```powershell\n   python -m pytest tests/test_<feature>.py -q\n   ```\n5. **Refactor & Verify**:\n   Clean up code, run full test suite, and check linting:\n   ```powershell\n   python -m ruff check .\n   python -m pytest tests -q\n   ```\n6. **Remediation**:\n   If test passes without code changes, refine assertion to test boundary conditions.",
+      "sha256": "13163ca855bb3ec88d3799ee985472eefcf7b38164454e9e812ba3f166a625f1"
+    },
+    {
+      "name": "tradeoff-evaluator",
+      "directory": "tradeoff-evaluator",
+      "path": "skills/tradeoff-evaluator/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "cognitive",
+      "description": "Explicitly identify, quantify, and balance engineering trade-offs (CAP theorem, space-time, latency-throughput, safety-velocity).",
+      "triggers": [
+        "tradeoff analysis",
+        "evaluate trade-offs",
+        "cap theorem tradeoff",
+        "speed vs safety",
+        "space vs time"
+      ],
+      "tags": [
+        "thinking",
+        "reasoning",
+        "tradeoffs",
+        "cap-theorem",
+        "architecture",
+        "compromises"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Trade-Off Balancing and Boundary Enforcement\n\n## Objective\nQuantify and enforce boundaries on engineering compromises to prevent uncontrolled resource exhaustion or latency degradation.\n\n## Prerequisites\n- A proposed optimization that trades one system property for another.\n\n## Execution Recipe\n1. **Define the Trade-Off Statement**:\n   Fill in the template: \"We are trading [Property A: e.g., Disk Space] to maximize [Property B: e.g., Turn Context Assembly Speed].\"\n2. **Measure Baseline Metrics**:\n   Record initial benchmarks:\n   - Peak RAM usage: `<x> MB`\n   - Assembly Latency: `<y> ms`\n   - Disk footprint: `<z> MB`\n3. **Set Hard Ceiling on Sacrificed Metric**:\n   Establish maximum allowable tolerance for the sacrificed dimension (e.g., Disk cache must never exceed 250MB).\n4. **Implement Automatic Throttling / Eviction**:\n   Write cleanup logic that monitors the metric and evicts oldest items when 90% of tolerance is reached:\n   ```python\n   if current_disk_usage > MAX_CACHE_BYTES * 0.9:\n       prune_oldest_cache_entries()\n   ```\n5. **Verification Gate**:\n   Execute a stress test pushing data past the threshold; assert that memory or disk never exceeds the ceiling and performance gracefully degrades rather than crashing:\n   ```powershell\n   python -m pytest tests -q -k \"stress or cache\"\n   ```\n6. **Remediation**:\n   If the ceiling is breached, switch from in-process storage to compressed on-disk SQLite or memory-mapped files.",
+      "sha256": "057122fdc56095f2b565f9541dc28be2856dd372d2b37a97a7eb6504d691d4ec"
+    },
+    {
+      "name": "web-scraper-stealth",
+      "directory": "web-scraper-stealth",
+      "path": "skills/web-scraper-stealth/SKILL.md",
+      "domain": "research",
+      "academic_domain": "research",
+      "description": "Resilient web scraping, DOM parsing, JSON API reverse engineering, and anti-blocking strategies.",
+      "triggers": [
+        "scrape website",
+        "extract data from web",
+        "web crawler"
+      ],
+      "tags": [],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Web Scraping & Content Ingestion\n\n## Objective\nFetch, sanitize, and structure web content with polite rate limiting and fallback headers.\n\n## Prerequisites\n- python 3.11+\n\n## Execution Recipe\n1. **Check robots.txt**:\n   Inspect target site's robots.txt for disallowed routes and crawl delays.\n2. **Execute Polite Fetch**:\n   Use standard User-Agent header, timeout clamping, and exponential backoff.\n3. **Sanitize & Convert HTML to Markdown**:\n   Strip scripts, styles, and navigation elements. Extract article body.\n4. **Verification Gate**:\n   Check that extracted text is non-empty, contains article headers, and has no raw HTML tags.\n5. **Remediation**:\n   If 403 Forbidden is returned, rotate User-Agent or fall back to cached copy.",
+      "sha256": "4cf6d225627f9d010426d982989c2d9a6ed1393c25685adddcb5bd0400c78223"
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 ---
+domain: devops
 name: browser-automation
 description: Autonomous web browsing, Playwright automation, form filling, screenshot verification, and SPA web interaction.
 triggers:
@@ -8,6 +9,7 @@ triggers:
   - "capture screenshot of page"
   - "browser test"
 ---
+
 
 # Autonomous Browser Automation Skill
 

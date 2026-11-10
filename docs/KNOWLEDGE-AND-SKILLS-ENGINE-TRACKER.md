@@ -6,7 +6,7 @@
 
 ---
 
-## High-Level Phase Overview (All Phases Complete & Hardened)
+## High-Level Phase Overview
 
 | Phase | Description | Status | Target Deliverables | Exit Criteria |
 |:---|:---|:---:|:---|:---:|
@@ -19,6 +19,9 @@
 | **Phase 6** | **JIT Skills & Scripts Engine** | 🟢 **COMPLETED** | `TurnPlan` compiler, JIT SOP injection, `config/scripts.json`, `turn_context.py` | [x] Passed |
 | **Phase 7** | **Teacher Escalation & Worktree Harness** | 🟢 **COMPLETED** | `tools/worktree.py`, `agent/teacher_policy.py`, AST & sandbox safety gates | [x] Passed |
 | **Hardening** | **Gemini Live 1007 Disconnection Fix** | 🟢 **COMPLETED** | Stream pause during tool execution, resume handle invalidation on 1007/1008 | [x] Passed |
+| **Track 8** | **Scripts Indexer & Safety Scanner** | 🟢 **COMPLETED** | `tools/scripts_index.py` (`--build`, `--check`, `--json`), AST audit | [x] Passed |
+| **Track 9** | **Taxonomized Skills Index & Cookbooks** | 🟢 **COMPLETED** | `tools/skills_index.py`, OpenMonoAgent cookbooks for small models (`lfm3:1.7b`) | [x] Passed |
+| **Track 10** | **Cognitive Thinking Skills Portfolio Ingestion** | 🟢 **COMPLETED** | Port 9 mental model skills from `cc-thinking-skills` into `skills/` + cookbooks | [x] Passed |
 
 ---
 
@@ -40,24 +43,41 @@ flowchart TD
         P5 --> P6["Phase 6: JIT Skills & Scripts Engine<br/>(TurnPlan, SOP shortlisting & budget clamping, scripts catalogue)"]
         P6 --> P7["Phase 7: Teacher Escalation & Git Worktree Harness<br/>(Isolated worktrees, AST safety gates, teacher escalation)"]
         P7 --> P8["Live WebSocket Hardening<br/>(Stream pause on tool exec, non-None ID guarantee, resume handle safety)"]
+        P8 --> T8["Track 8: Scripts Indexer & Safety Scanner<br/>(AST signature scan, safety classification gate, --build/--check)"]
+        T8 --> T9["Track 9: Taxonomized Skills Index & Cookbooks<br/>(OpenMonoAgent recipes, domain classification, lfm3:1.7b execution)"]
+        T9 --> T10["Track 10: Cognitive Thinking Skills<br/>(28 mental model skills ported from portfolio)"]
     end
 ```
 
 ---
 
-## Final Verification Summary
-- **Phase 0:** Read-only audit generated 0 mutations; 2,520 stubs cataloged; 321 substantive notes mapped.
-- **Phase 1:** Clean 5-division spine populated with 122 canonical nodes; 54 inbound links rewritten with 0 broken links.
-- **Phase 2:** 122/122 Wikipedia lead sections and companion reference articles seeded; offline idempotency verified.
-- **Phase 3:** Zero-downtime SQLite migration to Schema v2; type-weighted BM25 ranking (synthesis: 1.10, concept: 1.00, entity: 0.95, book: 0.90, reference: 0.70, index: 0.55); 28 unit tests passing.
-- **Phase 4:** Universal document conversion CLI (`tools/ingest_multimodal.py`); PDF glyph density heuristics and visual figure extraction to `.assets/`; 7 unit tests passing.
-- **Phase 5:** Autonomous knowledge extraction CLI (`tools/extract_knowledge.py`); BM25 routing to canonical taxonomy leaves with confidence thresholding; 3 unit tests passing.
-- **Phase 6:** `TurnPlan` compilation and deterministic intent classification; JIT task SOP shortlisting and character-budget clamping; ephemeral injection (knowledge first, skill second) before user turn; `config/scripts.json` safety catalogue; 6 unit tests passing.
-- **Phase 7:** Isolated Git worktree manager (`tools/worktree.py`) with process lifetime containment; Teacher escalation policy (`agent/teacher_policy.py`) with egress scrubbing, daily call/token caps, execution gap triggers, and staged provenance audit records; 9 unit tests passing.
-- **Live WebSocket Hardening:**
-  - Microphones and realtime audio streams (`send_realtime_input`) paused while live tools are executing (`_live_tool_pending`), eliminating WebSocket desynchronization errors.
-  - Residual audio frames flushed from `out_queue` upon tool call receipt.
-  - Guaranteed non-`None` `id` returned on all `types.FunctionResponse` objects (preventing Google GenAI SDK `_FUNCTION_RESPONSE_REQUIRES_ID` exceptions).
-  - Resumption handle (`_resume_handle`) invalidated on any `1007` (Invalid Argument) or `1008` (Policy Violation) WebSocket closure, stopping infinite reconnection loops.
-  - Dedicated regression test suite added (`tests/test_live_tool_lifecycle.py`).
-- **Total Test Suite:** 1,580 tests passing; 0 ruff lint errors.
+## Detailed Implementation Roadmap: Tracks 8, 9, 10
+
+### Track 8: Scripts Indexer & Safety Scanner (`tools/scripts_index.py`)
+- [x] Implement `tools/scripts_index.py` compliant with Appendix C specification:
+  - `--build`: Scan `tools/` and user scripts directory, extract AST docstrings and argument signatures, determine safety classification, and write `config/scripts.json` (20 verified tools).
+  - `--check`: Validate that every tool script in `tools/` is registered in `config/scripts.json`, has an assigned safety class (`workspace_write`, `read_only`, `network`, `sandbox`), and is not stale.
+  - `--json`: Output machine-readable scripts catalogue.
+- [x] Unit tests in `tests/test_scripts_index.py` (3 tests passing).
+
+### Track 9: Taxonomized Skills Index & Cookbooks (`tools/skills_index.py` & `skills/**/cookbook.md`)
+- [x] Implement `tools/skills_index.py`:
+  - `--build`: Scan all `skills/**/SKILL.md`, categorize into domain taxonomy (Cognitive, Architecture, DevOps, Security, Research, Coding), compile `config/skills_index.json` (24 skills indexed).
+  - `--check`: Verify all skills have valid YAML frontmatter, progressive disclosure sections, and associated executable cookbooks.
+  - `--cookbook <skill>`: Output the executable step-by-step recipe tailored for `lfm3:1.7b` (preconditions, exact tool/CLI invocations, verification checkpoints, error remediation).
+- [x] Author actionable `cookbook.md` files for all skills following the OpenMonoAgent pattern.
+- [x] Unit tests in `tests/test_skills_index.py` (2 tests passing).
+
+### Track 10: Cognitive Thinking Skills Portfolio Ingestion (`cc-thinking-skills`)
+- [x] Port key mental model skills into `skills/` with YAML frontmatter triggers and OpenMonoAgent cookbooks:
+  - `first-principles-thinking` (enriched with cookbook)
+  - `inversion-thinking` (Carl Jacobi: Invert, always invert; solving backwards)
+  - `pre-mortem-analysis` (Gary Klein: Prospective hindsight before breaking operations)
+  - `occams-razor` (William of Ockham: Parsimony and speculative complexity pruning)
+  - `second-order-thinking` (Howard Marks / Garrett Hardin: "And then what?" ripple effects)
+  - `five-whys-root-cause` (Sakichi Toyoda: 5-whys systemic causal chaining)
+  - `decision-matrix-analysis` (Stuart Pugh: Weighted MCDA multi-criteria evaluation)
+  - `tradeoff-evaluator` (Thomas Sowell: Deliberate, bounded compromises)
+  - `context-boundary-optimizer` (ICM: Progressive context disclosure L0-L3)
+- [x] Connect turn context compiler (`agent/turn_context.py`) to `config/skills_index.json` with trigger phrase matching.
+- [x] Unit and regression tests passing (`test_turn_context.py`, 609 agent tests passing, 0 ruff errors).

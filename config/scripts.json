@@ -1,74 +1,1394 @@
 [
   {
-    "name": "taxonomy.py",
-    "path": "tools/taxonomy.py",
-    "description": "Normalize academic taxonomy spine, verify links, and audit notes.",
-    "domain": "formal-sciences/computer-science",
-    "safety": "workspace_write",
-    "tags": ["taxonomy", "normalize", "audit", "vault", "links"]
-  },
-  {
-    "name": "seed_academic_taxonomy.py",
-    "path": "tools/seed_academic_taxonomy.py",
-    "description": "Fetch and cache Wikipedia lead sections and reference companions for taxonomy nodes.",
-    "domain": "formal-sciences/computer-science",
-    "safety": "network",
-    "tags": ["wikipedia", "seed", "taxonomy", "offline", "cache"]
-  },
-  {
-    "name": "ingest_multimodal.py",
-    "path": "tools/ingest_multimodal.py",
-    "description": "Multimodal document conversion (PDF, EPUB, DOCX, OCR) and asset extraction.",
+    "id": "audit-vault-taxonomy",
+    "name": "audit_vault_taxonomy.py",
+    "path": "tools/audit_vault_taxonomy.py",
+    "summary": "Audit the existing Obsidian Second Brain taxonomy.",
+    "description": "Audit the existing Obsidian Second Brain taxonomy.",
     "domain": "applied-sciences/engineering-and-technology",
-    "safety": "sandbox",
-    "tags": ["convert", "pdf", "epub", "ocr", "multimodal", "assets"]
-  },
-  {
-    "name": "extract_knowledge.py",
-    "path": "tools/extract_knowledge.py",
-    "description": "Segment book companions into atomic knowledge units and place in academic tree.",
-    "domain": "humanities/philosophy",
+    "tags": [
+      "audit-vault-taxonomy",
+      "cli",
+      "tool"
+    ],
+    "invoke": {
+      "argv": [
+        "{python}",
+        "tools/audit_vault_taxonomy.py"
+      ],
+      "cwd": "repo"
+    },
+    "args": [
+      {
+        "name": "--json",
+        "type": "bool",
+        "default": null
+      }
+    ],
     "safety": "workspace_write",
-    "tags": ["extract", "knowledge", "segment", "classify", "concept", "inbox"]
+    "requires": [
+      "__future__",
+      "agent",
+      "argparse",
+      "collections",
+      "json",
+      "os",
+      "pathlib",
+      "re",
+      "sys",
+      "time",
+      "typing"
+    ],
+    "exit_codes": {
+      "0": "ok",
+      "2": "invalid input",
+      "4": "verification failed"
+    },
+    "source_sha256": "cc54cb3284650d2471a44cca9f6d448103247a7573c68f66e9bc56bf0254c239",
+    "status": "active"
   },
   {
-    "name": "brain_sync.py",
-    "path": "tools/brain_sync.py",
-    "description": "Index Obsidian second brain pages into SQLite FTS5 and vector cache.",
-    "domain": "formal-sciences/computer-science",
-    "safety": "read_only",
-    "tags": ["search", "index", "brain", "sync", "fts5"]
-  },
-  {
-    "name": "calyx_sync.py",
-    "path": "tools/calyx_sync.py",
-    "description": "Ground notes into Calyx tamper-evident cryptographic hash chains.",
-    "domain": "formal-sciences/computer-science",
-    "safety": "read_only",
-    "tags": ["calyx", "grounding", "provenance", "ledger", "constellations"]
-  },
-  {
-    "name": "bootstrap_vault.py",
-    "path": "tools/bootstrap_vault.py",
-    "description": "Bootstrap and scaffold a new Obsidian Second Brain with 122 academic nodes.",
-    "domain": "formal-sciences/computer-science",
-    "safety": "workspace_write",
-    "tags": ["bootstrap", "vault", "seed", "obsidian", "starter", "okf"]
-  },
-  {
+    "id": "batch-library-ingest",
     "name": "batch_library_ingest.py",
     "path": "tools/batch_library_ingest.py",
-    "description": "Batch ingest Calibre/library books, convert, extract atomic units, and route to spine.",
+    "summary": "Batch Document Ingestion and Knowledge Extraction Orchestrator (§6, §7, §8).",
+    "description": "Batch Document Ingestion and Knowledge Extraction Orchestrator (§6, §7, §8).",
     "domain": "applied-sciences/engineering-and-technology",
+    "tags": [
+      "batch",
+      "batch-library-ingest",
+      "books",
+      "calibre",
+      "cli",
+      "extract",
+      "ingest",
+      "library",
+      "tool"
+    ],
+    "invoke": {
+      "argv": [
+        "{python}",
+        "tools/batch_library_ingest.py"
+      ],
+      "cwd": "repo"
+    },
+    "args": [
+      {
+        "name": "--library-dir",
+        "type": "Path",
+        "default": null
+      },
+      {
+        "name": "--calyx",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--dry-run",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--json",
+        "type": "bool",
+        "default": null
+      }
+    ],
     "safety": "workspace_write",
-    "tags": ["batch", "library", "books", "calibre", "ingest", "extract"]
+    "requires": [
+      "__future__",
+      "agent",
+      "argparse",
+      "dataclasses",
+      "json",
+      "pathlib",
+      "sys",
+      "tools",
+      "typing",
+      "xml"
+    ],
+    "exit_codes": {
+      "0": "ok",
+      "2": "invalid input",
+      "4": "verification failed"
+    },
+    "source_sha256": "ba0fe732f31152c527299838c32317a94b74b00bbaa7da1e741473b18dee1526",
+    "status": "active"
   },
   {
+    "id": "bootstrap-cookbooks",
+    "name": "bootstrap_cookbooks.py",
+    "path": "tools/bootstrap_cookbooks.py",
+    "summary": "Populate OpenMonoAgent-style cookbooks and canonical domains across skills.",
+    "description": "Populate OpenMonoAgent-style cookbooks and canonical domains across skills.",
+    "domain": "applied-sciences/engineering-and-technology",
+    "tags": [
+      "bootstrap-cookbooks",
+      "tool",
+      "cli"
+    ],
+    "invoke": {
+      "argv": [
+        "{python}",
+        "tools/bootstrap_cookbooks.py"
+      ],
+      "cwd": "repo"
+    },
+    "args": [],
+    "safety": "workspace_write",
+    "requires": [
+      "pathlib"
+    ],
+    "exit_codes": {
+      "0": "ok",
+      "2": "invalid input",
+      "4": "verification failed"
+    },
+    "source_sha256": "e715619fbe62a372cf566b16dea59bb0edeaf8bbbaef2ec367e246f7d57fd28a",
+    "status": "active"
+  },
+  {
+    "id": "bootstrap-vault",
+    "name": "bootstrap_vault.py",
+    "path": "tools/bootstrap_vault.py",
+    "summary": "Brahma AI — Vault Bootstrap & Seeding Utility (§5, §8, §12).",
+    "description": "Brahma AI — Vault Bootstrap & Seeding Utility (§5, §8, §12).",
+    "domain": "formal-sciences/computer-science",
+    "tags": [
+      "bootstrap",
+      "bootstrap-vault",
+      "cli",
+      "obsidian",
+      "okf",
+      "seed",
+      "starter",
+      "tool",
+      "vault"
+    ],
+    "invoke": {
+      "argv": [
+        "{python}",
+        "tools/bootstrap_vault.py"
+      ],
+      "cwd": "repo"
+    },
+    "args": [
+      {
+        "name": "--vault-dir",
+        "type": "Path",
+        "default": null
+      },
+      {
+        "name": "--no-index",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--no-config",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--json",
+        "type": "bool",
+        "default": null
+      }
+    ],
+    "safety": "workspace_write",
+    "requires": [
+      "__future__",
+      "agent",
+      "argparse",
+      "datetime",
+      "json",
+      "pathlib",
+      "re",
+      "sys",
+      "tools",
+      "typing"
+    ],
+    "exit_codes": {
+      "0": "ok",
+      "2": "invalid input",
+      "4": "verification failed"
+    },
+    "source_sha256": "d352c80f4a0cf83a28097b56407c7f23e33b9b8f26b39479c3dfbaaf31730710",
+    "status": "active"
+  },
+  {
+    "id": "brain-sync",
+    "name": "brain_sync.py",
+    "path": "tools/brain_sync.py",
+    "summary": "Build or refresh the second-brain index used by automatic retrieval.",
+    "description": "Build or refresh the second-brain index used by automatic retrieval.",
+    "domain": "formal-sciences/computer-science",
+    "tags": [
+      "brain",
+      "brain-sync",
+      "cli",
+      "fts5",
+      "index",
+      "search",
+      "sync",
+      "tool"
+    ],
+    "invoke": {
+      "argv": [
+        "{python}",
+        "tools/brain_sync.py"
+      ],
+      "cwd": "repo"
+    },
+    "args": [
+      {
+        "name": "--vault",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--rebuild",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--no-embed",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--limit",
+        "type": "int",
+        "default": null
+      },
+      {
+        "name": "--shelf",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--embed-limit",
+        "type": "int",
+        "default": null
+      },
+      {
+        "name": "--embed-index",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--status",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--json",
+        "type": "bool",
+        "default": null
+      }
+    ],
+    "safety": "read_only",
+    "requires": [
+      "__future__",
+      "agent",
+      "argparse",
+      "json",
+      "os",
+      "pathlib",
+      "sys",
+      "time"
+    ],
+    "exit_codes": {
+      "0": "ok",
+      "2": "invalid input",
+      "4": "verification failed"
+    },
+    "source_sha256": "8c9c594011ad1490605a902d07f525fa1e928b2929632c4fb1c18c0d2c094192",
+    "status": "active"
+  },
+  {
+    "id": "build-release",
+    "name": "build_release.py",
+    "path": "tools/build_release.py",
+    "summary": "CLI tool for packaging and generating release manifests (WS-6, SEC-11).",
+    "description": "CLI tool for packaging and generating release manifests (WS-6, SEC-11).",
+    "domain": "applied-sciences/engineering-and-technology",
+    "tags": [
+      "build-release",
+      "cli",
+      "tool"
+    ],
+    "invoke": {
+      "argv": [
+        "{python}",
+        "tools/build_release.py"
+      ],
+      "cwd": "repo"
+    },
+    "args": [
+      {
+        "name": "--version",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--channel",
+        "type": "string",
+        "default": "stable"
+      },
+      {
+        "name": "--artifact",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--sbom",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--notes",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--cohort",
+        "type": "string",
+        "default": "100%"
+      },
+      {
+        "name": "--output",
+        "type": "string",
+        "default": "release.json"
+      }
+    ],
+    "safety": "workspace_write",
+    "requires": [
+      "__future__",
+      "argparse",
+      "core",
+      "datetime",
+      "json",
+      "pathlib",
+      "subprocess",
+      "sys"
+    ],
+    "exit_codes": {
+      "0": "ok",
+      "2": "invalid input",
+      "4": "verification failed"
+    },
+    "source_sha256": "320c3942b3f74abf3dc1bddcbd159877918d89af2348c6d3d8a0c09584ffede2",
+    "status": "active"
+  },
+  {
+    "id": "build-taxonomy-spine",
+    "name": "build_taxonomy_spine.py",
+    "path": "tools/build_taxonomy_spine.py",
+    "summary": "Compile canonical taxonomy.json v1 for the Brahma Second Brain.",
+    "description": "Compile canonical taxonomy.json v1 for the Brahma Second Brain.",
+    "domain": "applied-sciences/engineering-and-technology",
+    "tags": [
+      "build-taxonomy-spine",
+      "cli",
+      "tool"
+    ],
+    "invoke": {
+      "argv": [
+        "{python}",
+        "tools/build_taxonomy_spine.py"
+      ],
+      "cwd": "repo"
+    },
+    "args": [],
+    "safety": "workspace_write",
+    "requires": [
+      "__future__",
+      "agent",
+      "json",
+      "pathlib",
+      "re",
+      "sys",
+      "typing"
+    ],
+    "exit_codes": {
+      "0": "ok",
+      "2": "invalid input",
+      "4": "verification failed"
+    },
+    "source_sha256": "d0464a346c037d98527b53c3045d96846b41b41a62133eeb9b17cf7db61f4a54",
+    "status": "active"
+  },
+  {
+    "id": "build-wheelhouse",
+    "name": "build_wheelhouse.py",
+    "path": "tools/build_wheelhouse.py",
+    "summary": "Wheelhouse Builder & Hash Verifier CLI (WS-3 / tools/build_wheelhouse.py).",
+    "description": "Wheelhouse Builder & Hash Verifier CLI (WS-3 / tools/build_wheelhouse.py).",
+    "domain": "applied-sciences/engineering-and-technology",
+    "tags": [
+      "build-wheelhouse",
+      "cli",
+      "tool"
+    ],
+    "invoke": {
+      "argv": [
+        "{python}",
+        "tools/build_wheelhouse.py"
+      ],
+      "cwd": "repo"
+    },
+    "args": [
+      {
+        "name": "--lockfile",
+        "type": "Path",
+        "default": null
+      },
+      {
+        "name": "--output",
+        "type": "Path",
+        "default": null
+      },
+      {
+        "name": "--verify-only",
+        "type": "bool",
+        "default": null
+      }
+    ],
+    "safety": "workspace_write",
+    "requires": [
+      "__future__",
+      "argparse",
+      "core",
+      "pathlib",
+      "sys"
+    ],
+    "exit_codes": {
+      "0": "ok",
+      "2": "invalid input",
+      "4": "verification failed"
+    },
+    "source_sha256": "63ca1e9e78ea6cc040cd6c19ed8adb9a821a83a49870130a590a7c5bfd02d12f",
+    "status": "active"
+  },
+  {
+    "id": "calyx-sync",
+    "name": "calyx_sync.py",
+    "path": "tools/calyx_sync.py",
+    "summary": "Seed and sync the Calyx grounding engine from the Obsidian second brain.",
+    "description": "Seed and sync the Calyx grounding engine from the Obsidian second brain.",
+    "domain": "formal-sciences/computer-science",
+    "tags": [
+      "calyx",
+      "calyx-sync",
+      "cli",
+      "constellations",
+      "grounding",
+      "ledger",
+      "provenance",
+      "tool"
+    ],
+    "invoke": {
+      "argv": [
+        "{python}",
+        "tools/calyx_sync.py"
+      ],
+      "cwd": "repo"
+    },
+    "args": [
+      {
+        "name": "--status",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--vault-name",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--shelf",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--limit",
+        "type": "int",
+        "default": null
+      },
+      {
+        "name": "--no-anchor",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--json",
+        "type": "bool",
+        "default": null
+      }
+    ],
+    "safety": "read_only",
+    "requires": [
+      "__future__",
+      "agent",
+      "argparse",
+      "json",
+      "pathlib",
+      "sys",
+      "time",
+      "typing"
+    ],
+    "exit_codes": {
+      "0": "ok",
+      "2": "invalid input",
+      "4": "verification failed"
+    },
+    "source_sha256": "4b6b8869ff9699483b9598454d60c7c4ad91b0d39af72b1e41da695ef155d2a1",
+    "status": "active"
+  },
+  {
+    "id": "extract-knowledge",
+    "name": "extract_knowledge.py",
+    "path": "tools/extract_knowledge.py",
+    "summary": "Knowledge unit extraction and taxonomy placement pipeline (§7).",
+    "description": "Knowledge unit extraction and taxonomy placement pipeline (§7).",
+    "domain": "humanities/philosophy",
+    "tags": [
+      "classify",
+      "cli",
+      "concept",
+      "extract",
+      "extract-knowledge",
+      "inbox",
+      "knowledge",
+      "segment",
+      "tool"
+    ],
+    "invoke": {
+      "argv": [
+        "{python}",
+        "tools/extract_knowledge.py"
+      ],
+      "cwd": "repo"
+    },
+    "args": [
+      {
+        "name": "path",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--all-books",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--vault",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--confidence-threshold",
+        "type": "float",
+        "default": null
+      },
+      {
+        "name": "--draft-threshold",
+        "type": "float",
+        "default": null
+      },
+      {
+        "name": "--sync-calyx",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--dry-run",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--json",
+        "type": "bool",
+        "default": null
+      }
+    ],
+    "safety": "workspace_write",
+    "requires": [
+      "__future__",
+      "agent",
+      "argparse",
+      "hashlib",
+      "json",
+      "pathlib",
+      "re",
+      "sys",
+      "typing"
+    ],
+    "exit_codes": {
+      "0": "ok",
+      "2": "invalid input",
+      "4": "verification failed"
+    },
+    "source_sha256": "519771a50caf80a3fadfaddc5457966da578affeff150b1d00bb9b770550437c",
+    "status": "active"
+  },
+  {
+    "id": "ingest-book",
+    "name": "ingest_book.py",
+    "path": "tools/ingest_book.py",
+    "summary": "Ingest a book (EPUB, TXT, or MD) into the Obsidian second brain.",
+    "description": "Ingest a book (EPUB, TXT, or MD) into the Obsidian second brain.",
+    "domain": "applied-sciences/engineering-and-technology",
+    "tags": [
+      "cli",
+      "ingest-book",
+      "tool"
+    ],
+    "invoke": {
+      "argv": [
+        "{python}",
+        "tools/ingest_book.py"
+      ],
+      "cwd": "repo"
+    },
+    "args": [
+      {
+        "name": "file",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--title",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--author",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--tag",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--domain",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "--sync-calyx",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--json",
+        "type": "bool",
+        "default": null
+      }
+    ],
+    "safety": "workspace_write",
+    "requires": [
+      "__future__",
+      "agent",
+      "argparse",
+      "datetime",
+      "html",
+      "json",
+      "pathlib",
+      "re",
+      "sys",
+      "typing",
+      "xml",
+      "zipfile"
+    ],
+    "exit_codes": {
+      "0": "ok",
+      "2": "invalid input",
+      "4": "verification failed"
+    },
+    "source_sha256": "b202c6acc30122a5d0577b8eea2e4b653b996348e44f78b9132f158af1c2e75f",
+    "status": "active"
+  },
+  {
+    "id": "ingest-multimodal",
+    "name": "ingest_multimodal.py",
+    "path": "tools/ingest_multimodal.py",
+    "summary": "Multimodal document conversion and ingestion pipeline (§6).",
+    "description": "Multimodal document conversion and ingestion pipeline (§6).",
+    "domain": "applied-sciences/engineering-and-technology",
+    "tags": [
+      "assets",
+      "cli",
+      "convert",
+      "epub",
+      "ingest-multimodal",
+      "multimodal",
+      "ocr",
+      "pdf",
+      "tool"
+    ],
+    "invoke": {
+      "argv": [
+        "{python}",
+        "tools/ingest_multimodal.py"
+      ],
+      "cwd": "repo"
+    },
+    "args": [
+      {
+        "name": "path",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--slug",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--tool",
+        "type": "string",
+        "default": "auto"
+      },
+      {
+        "name": "--vault",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--out",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--pages",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--no-network",
+        "type": "bool",
+        "default": true
+      },
+      {
+        "name": "--force",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--json",
+        "type": "bool",
+        "default": null
+      }
+    ],
+    "safety": "workspace_write",
+    "requires": [
+      "__future__",
+      "agent",
+      "argparse",
+      "datetime",
+      "hashlib",
+      "html",
+      "json",
+      "markitdown",
+      "pathlib",
+      "pypdf",
+      "re",
+      "shutil",
+      "sys",
+      "tempfile",
+      "typing",
+      "xml",
+      "zipfile"
+    ],
+    "exit_codes": {
+      "0": "ok",
+      "2": "invalid input",
+      "4": "verification failed"
+    },
+    "source_sha256": "8b4a83e2e3d86125e8ac18c226d7dbd35f299da834b8f14ed724ee9421aa376a",
+    "status": "active"
+  },
+  {
+    "id": "init-second-brain",
+    "name": "init_second_brain.py",
+    "path": "tools/init_second_brain.py",
+    "summary": "Initialize and seed a user's Obsidian second brain from the Brahma template.",
+    "description": "Initialize and seed a user's Obsidian second brain from the Brahma template.",
+    "domain": "applied-sciences/engineering-and-technology",
+    "tags": [
+      "cli",
+      "init-second-brain",
+      "tool"
+    ],
+    "invoke": {
+      "argv": [
+        "{python}",
+        "tools/init_second_brain.py"
+      ],
+      "cwd": "repo"
+    },
+    "args": [
+      {
+        "name": "--dest",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--force",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--no-sync",
+        "type": "bool",
+        "default": null
+      }
+    ],
+    "safety": "workspace_write",
+    "requires": [
+      "__future__",
+      "agent",
+      "argparse",
+      "json",
+      "os",
+      "pathlib",
+      "shutil",
+      "sys"
+    ],
+    "exit_codes": {
+      "0": "ok",
+      "2": "invalid input",
+      "4": "verification failed"
+    },
+    "source_sha256": "d74dd3b42497ffcd8e351bb7e3829a79cdddc20942fdcdc4ac8724db3a3500b7",
+    "status": "active"
+  },
+  {
+    "id": "rotate-release-key",
+    "name": "rotate_release_key.py",
+    "path": "tools/rotate_release_key.py",
+    "summary": "Release Key Rotation & Revocation Drill Tool (Phase 3, WS-6).",
+    "description": "Release Key Rotation & Revocation Drill Tool (Phase 3, WS-6).",
+    "domain": "applied-sciences/engineering-and-technology",
+    "tags": [
+      "cli",
+      "rotate-release-key",
+      "tool"
+    ],
+    "invoke": {
+      "argv": [
+        "{python}",
+        "tools/rotate_release_key.py"
+      ],
+      "cwd": "repo"
+    },
+    "args": [
+      {
+        "name": "--old-key",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--old-pub",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--output-dir",
+        "type": "string",
+        "default": "build/key_rotation"
+      }
+    ],
+    "safety": "workspace_write",
+    "requires": [
+      "__future__",
+      "argparse",
+      "core",
+      "datetime",
+      "json",
+      "pathlib",
+      "sys",
+      "typing"
+    ],
+    "exit_codes": {
+      "0": "ok",
+      "2": "invalid input",
+      "4": "verification failed"
+    },
+    "source_sha256": "41d44eabdc2f871c726f10128b4505f6bdfe375212b03aa25852a069acb8fc54",
+    "status": "active"
+  },
+  {
+    "id": "scripts-index",
+    "name": "scripts_index.py",
+    "path": "tools/scripts_index.py",
+    "summary": "Static analyzer and indexer for verified harness tools and scripts.",
+    "description": "Static analyzer and indexer for verified harness tools and scripts.",
+    "domain": "applied-sciences/engineering-and-technology",
+    "tags": [
+      "cli",
+      "scripts-index",
+      "tool"
+    ],
+    "invoke": {
+      "argv": [
+        "{python}",
+        "tools/scripts_index.py"
+      ],
+      "cwd": "repo"
+    },
+    "args": [
+      {
+        "name": "--build",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--check",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--json",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--tools-dir",
+        "type": "str",
+        "default": null
+      },
+      {
+        "name": "--out",
+        "type": "str",
+        "default": null
+      }
+    ],
+    "safety": "workspace_write",
+    "requires": [
+      "__future__",
+      "argparse",
+      "ast",
+      "hashlib",
+      "json",
+      "pathlib",
+      "sys",
+      "typing"
+    ],
+    "exit_codes": {
+      "0": "ok",
+      "2": "invalid input",
+      "4": "verification failed"
+    },
+    "source_sha256": "e6a3431077fb7f77a63f63f8e5e1caec2ae55e08a756b18c2448dac5d2a11897",
+    "status": "active"
+  },
+  {
+    "id": "seed-academic-taxonomy",
+    "name": "seed_academic_taxonomy.py",
+    "path": "tools/seed_academic_taxonomy.py",
+    "summary": "Seed the Academic Knowledge Tree with Wikipedia encyclopedic content.",
+    "description": "Seed the Academic Knowledge Tree with Wikipedia encyclopedic content.",
+    "domain": "formal-sciences/computer-science",
+    "tags": [
+      "cache",
+      "cli",
+      "offline",
+      "seed",
+      "seed-academic-taxonomy",
+      "taxonomy",
+      "tool",
+      "wikipedia"
+    ],
+    "invoke": {
+      "argv": [
+        "{python}",
+        "tools/seed_academic_taxonomy.py"
+      ],
+      "cwd": "repo"
+    },
+    "args": [
+      {
+        "name": "--status",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--limit",
+        "type": "int",
+        "default": null
+      },
+      {
+        "name": "--node",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--force",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--offline",
+        "type": "bool",
+        "default": null
+      }
+    ],
+    "safety": "network",
+    "requires": [
+      "__future__",
+      "agent",
+      "argparse",
+      "json",
+      "os",
+      "pathlib",
+      "re",
+      "sys",
+      "time",
+      "tools",
+      "typing",
+      "urllib"
+    ],
+    "exit_codes": {
+      "0": "ok",
+      "2": "invalid input",
+      "4": "verification failed"
+    },
+    "source_sha256": "866abd66abc3a7bc4dc5ee613d93ba321d1eed0c4b43b4401906a478b9cc5e74",
+    "status": "active"
+  },
+  {
+    "id": "sign-release",
+    "name": "sign_release.py",
+    "path": "tools/sign_release.py",
+    "summary": "CLI tool for signing release manifests (WS-6, SEC-11).",
+    "description": "CLI tool for signing release manifests (WS-6, SEC-11).",
+    "domain": "applied-sciences/engineering-and-technology",
+    "tags": [
+      "cli",
+      "sign-release",
+      "tool"
+    ],
+    "invoke": {
+      "argv": [
+        "{python}",
+        "tools/sign_release.py"
+      ],
+      "cwd": "repo"
+    },
+    "args": [
+      {
+        "name": "--manifest",
+        "type": "str",
+        "default": null
+      },
+      {
+        "name": "--key",
+        "type": "str",
+        "default": null
+      },
+      {
+        "name": "--output",
+        "type": "str",
+        "default": null
+      },
+      {
+        "name": "--generate-key",
+        "type": "bool",
+        "default": null
+      }
+    ],
+    "safety": "workspace_write",
+    "requires": [
+      "__future__",
+      "argparse",
+      "core",
+      "json",
+      "pathlib",
+      "sys"
+    ],
+    "exit_codes": {
+      "0": "ok",
+      "2": "invalid input",
+      "4": "verification failed"
+    },
+    "source_sha256": "10bd5d95696aba7ac48f06f1b44ee5de156c58f709f2173ab359ae3e718281ea",
+    "status": "active"
+  },
+  {
+    "id": "skills-index",
+    "name": "skills_index.py",
+    "path": "tools/skills_index.py",
+    "summary": "Taxonomized Skills Indexer and OpenMonoAgent Cookbook Engine.",
+    "description": "Taxonomized Skills Indexer and OpenMonoAgent Cookbook Engine.",
+    "domain": "applied-sciences/engineering-and-technology",
+    "tags": [
+      "skills-index",
+      "tool",
+      "cli"
+    ],
+    "invoke": {
+      "argv": [
+        "{python}",
+        "tools/skills_index.py"
+      ],
+      "cwd": "repo"
+    },
+    "args": [
+      {
+        "name": "--build",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--check",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--domain",
+        "type": "str",
+        "default": null
+      },
+      {
+        "name": "--cookbook",
+        "type": "str",
+        "default": null
+      },
+      {
+        "name": "--json",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--skills-dir",
+        "type": "str",
+        "default": null
+      },
+      {
+        "name": "--out",
+        "type": "str",
+        "default": null
+      }
+    ],
+    "safety": "workspace_write",
+    "requires": [
+      "__future__",
+      "argparse",
+      "hashlib",
+      "json",
+      "pathlib",
+      "re",
+      "sys",
+      "typing"
+    ],
+    "exit_codes": {
+      "0": "ok",
+      "2": "invalid input",
+      "4": "verification failed"
+    },
+    "source_sha256": "9a3c023172b545f5a418f36331e6585cc13f52650f83d69db66d77a40648fcf7",
+    "status": "active"
+  },
+  {
+    "id": "taxonomy",
+    "name": "taxonomy.py",
+    "path": "tools/taxonomy.py",
+    "summary": "Manage, validate, and migrate the Academic Knowledge Tree taxonomy.",
+    "description": "Manage, validate, and migrate the Academic Knowledge Tree taxonomy.",
+    "domain": "formal-sciences/computer-science",
+    "tags": [
+      "audit",
+      "cli",
+      "links",
+      "normalize",
+      "taxonomy",
+      "tool",
+      "vault"
+    ],
+    "invoke": {
+      "argv": [
+        "{python}",
+        "tools/taxonomy.py"
+      ],
+      "cwd": "repo"
+    },
+    "args": [
+      {
+        "name": "--check",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--plan",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--apply",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--check-links",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--lint-notes",
+        "type": "bool",
+        "default": null
+      }
+    ],
+    "safety": "workspace_write",
+    "requires": [
+      "__future__",
+      "agent",
+      "argparse",
+      "json",
+      "os",
+      "pathlib",
+      "re",
+      "shutil",
+      "sys",
+      "time",
+      "typing"
+    ],
+    "exit_codes": {
+      "0": "ok",
+      "2": "invalid input",
+      "4": "verification failed"
+    },
+    "source_sha256": "16d30be8e47d022bdbadd346204d80ded28b9cf96002579b301c074d596d0fc0",
+    "status": "active"
+  },
+  {
+    "id": "worktree",
     "name": "worktree.py",
     "path": "tools/worktree.py",
-    "description": "Manage isolated Git worktrees for safe agent capability testing and verification.",
+    "summary": "Git Worktree Management Harness (§11.3).",
+    "description": "Git Worktree Management Harness (§11.3).",
     "domain": "applied-sciences/engineering-and-technology",
+    "tags": [
+      "branch",
+      "cli",
+      "git",
+      "isolation",
+      "merge",
+      "tool",
+      "verify",
+      "worktree"
+    ],
+    "invoke": {
+      "argv": [
+        "{python}",
+        "tools/worktree.py"
+      ],
+      "cwd": "repo"
+    },
+    "args": [
+      {
+        "name": "--task",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--base",
+        "type": "string",
+        "default": "main"
+      },
+      {
+        "name": "--json",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--task",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--json",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--task",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--json",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--task",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--base",
+        "type": "string",
+        "default": "main"
+      },
+      {
+        "name": "--force",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--json",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--task",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--force",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--delete-branch",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--json",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--json",
+        "type": "bool",
+        "default": null
+      }
+    ],
     "safety": "workspace_write",
-    "tags": ["worktree", "git", "isolation", "branch", "verify", "merge"]
+    "requires": [
+      "__future__",
+      "agent",
+      "argparse",
+      "dataclasses",
+      "json",
+      "pathlib",
+      "re",
+      "sys",
+      "typing"
+    ],
+    "exit_codes": {
+      "0": "ok",
+      "2": "invalid input",
+      "4": "verification failed"
+    },
+    "source_sha256": "94ad62beff748358b7e495a6f193634e9d104c12e38f6a57b8e95751d1f13ad3",
+    "status": "active"
   }
 ]

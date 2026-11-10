@@ -152,6 +152,26 @@ def shortlist_scripts(
     return [item for _, item in scored[:limit]]
 
 
+def _load_skills_index(workspace: Optional[Path] = None) -> List[Dict[str, Any]]:
+    """Load the taxonomized skills index with cookbooks and triggers (§9.6, §9.10)."""
+    candidates = []
+    if workspace:
+        candidates.append(workspace / "config" / "skills_index.json")
+    candidates.extend([
+        Path(__file__).resolve().parent.parent / "config" / "skills_index.json",
+        Path.cwd() / "config" / "skills_index.json",
+    ])
+    for cand in candidates:
+        if cand.is_file():
+            try:
+                data = json.loads(cand.read_text(encoding="utf-8"))
+                if isinstance(data, dict) and isinstance(data.get("skills"), list):
+                    return data["skills"]
+            except Exception:
+                pass
+    return []
+
+
 def shortlist_skills(
     query: str,
     workspace: Optional[Path] = None,
@@ -160,9 +180,60 @@ def shortlist_skills(
 ) -> List[Dict[str, Any]]:
     """Shortlist skills matching query and academic domain (§9.6, §9.10)."""
     ws = workspace or Path.cwd()
-    discovered = discover_skills(ws)
 
-    tokens = set(re.findall(r"[a-z0-9_-]{3,}", query.lower()))
+    # 1. Prefer compiled skills index if available in workspace or default config
+    indexed_skills: List[Dict[str, Any]] = []
+    if workspace and (workspace / "config" / "skills_index.json").is_file():
+        indexed_skills = _load_skills_index(workspace)
+    elif not workspace or ws == Path(__file__).resolve().parent.parent:
+        indexed_skills = _load_skills_index()
+
+    q_lower = query.lower()
+    tokens = set(re.findall(r"[a-z0-9_-]{3,}", q_lower))
+
+    if indexed_skills:
+        scored_indexed: List[Tuple[float, Dict[str, Any]]] = []
+        for sk in indexed_skills:
+            score = 0.0
+            name = str(sk.get("name") or "").lower()
+            desc = str(sk.get("description") or "").lower()
+            sk_domain = str(sk.get("academic_domain") or sk.get("domain") or "").lower()
+            tags = [str(t).lower() for t in sk.get("tags") or []]
+            triggers = [str(tr).lower() for tr in sk.get("triggers") or []]
+
+            # Trigger exact phrase matching (highest precision signal)
+            if any(tr in q_lower for tr in triggers):
+                score += 0.50
+
+            if domain and sk_domain and (domain in sk_domain or sk_domain in domain):
+                score += 0.40
+
+            score += sum(0.15 for t in tags if t in tokens)
+            if any(t in desc for t in tokens):
+                score += 0.20
+            if any(t in name for t in tokens):
+                score += 0.35
+
+            if score >= 0.25:
+                scored_indexed.append((score, sk))
+
+        if scored_indexed:
+            scored_indexed.sort(key=lambda s: s[0], reverse=True)
+            out: List[Dict[str, Any]] = []
+            for sc, sk in scored_indexed[:limit]:
+                out.append({
+                    "name": sk["name"],
+                    "description": sk.get("description", ""),
+                    "body": sk.get("cookbook") or "",
+                    "cookbook": sk.get("cookbook") or "",
+                    "score": round(sc, 2),
+                    "allowed_tools": [],
+                    "domain": sk.get("domain", ""),
+                })
+            return out
+
+    # 2. Fall back to filesystem discovery via discover_skills
+    discovered = discover_skills(ws)
     scored: List[Tuple[float, Any]] = []
 
     for sk in discovered.skills:
@@ -186,16 +257,16 @@ def shortlist_skills(
             scored.append((score, sk))
 
     scored.sort(key=lambda s: s[0], reverse=True)
-    out: List[Dict[str, Any]] = []
+    out_fallback: List[Dict[str, Any]] = []
     for sc, sk in scored[:limit]:
-        out.append({
+        out_fallback.append({
             "name": sk.name,
             "description": sk.description,
             "body": sk.body,
             "score": round(sc, 2),
             "allowed_tools": sk.allowed_tools,
         })
-    return out
+    return out_fallback
 
 
 def compile_turn_context(

@@ -1,4 +1,5 @@
 ---
+domain: coding
 name: test-driven-development
 description: Automated test-driven development (TDD), test suite generation, and self-healing verification loops.
 triggers:
@@ -7,6 +8,7 @@ triggers:
   - "run tests and fix"
   - "self-heal code"
 ---
+
 
 # Test-Driven Development & Self-Healing Skill
 

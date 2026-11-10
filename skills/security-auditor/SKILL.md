@@ -1,4 +1,5 @@
 ---
+domain: security
 name: security-auditor
 description: Hardcoded secrets detection, OWASP Top 10 auditing, dependency CVE scanner, and safe API boundary analysis.
 triggers:
@@ -7,6 +8,7 @@ triggers:
   - "owasp check"
   - "find leaked api keys"
 ---
+
 
 # Security Auditor & Vulnerability Scanner Skill
 

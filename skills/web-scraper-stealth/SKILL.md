@@ -1,4 +1,5 @@
 ---
+domain: research
 name: web-scraper-stealth
 description: Resilient web scraping, DOM parsing, JSON API reverse engineering, and anti-blocking strategies.
 triggers:
@@ -6,6 +7,7 @@ triggers:
   - "extract data from web"
   - "web crawler"
 ---
+
 
 # Web Scraper & Data Harvester Skill
 
