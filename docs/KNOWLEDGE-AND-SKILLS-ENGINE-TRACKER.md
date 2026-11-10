@@ -29,6 +29,8 @@
 | **Track 13** | **Portfolio Skills Absorption (Batch 2: 16 Skills)** | 🟢 **COMPLETED** | 16 skills from `answer-me-with-html`, `anatomy`, `ffmpeg-skill`, `OfficeCLI`, `code-graph-rag` (55 total) | [x] Passed |
 | **Track 14** | **OpenMonoAgent Playbooks Absorption (7 Skills)** | 🟢 **COMPLETED** | 7 production playbooks: `incident-response`, `db-migrate`, `release`, `pr-ready`, `secret-scan`, `commit`, `blast-radius` (62 total) | [x] Passed |
 | **Track 15** | **Portfolio & OpenMono Absorption (Batch 4: 8 Skills)** | 🟢 **COMPLETED** | 8 skills: `server-deploy`, `llms-txt`, `windows-gui`, `web-research`, `scroll-craft`, `grounded-claims`, `mimic-ipc`, `pg-opt` (70 total) | [x] Passed |
+| **Track 16** | **Portfolio Skills Absorption (Batch 5: 10 Skills)** | 🟢 **COMPLETED** | 10 skills: `text-to-cad`, `book-to-skill`, `vega-viz`, `canvas-designer`, `media-crawler`, `sqlite-fts`, `openapi-contract`, `circuit-breaker`, `canary-deploy`, `epistemic-arbitrage` (80 total) | [x] Passed |
+| **Track 17** | **Portfolio Skills Absorption (Batch 6: 10 Skills) & UX Integration** | 🟢 **COMPLETED** | 10 skills: `smart-scraper`, `graph-rag`, `structured-grammar`, `answer-engine`, `doc-converter`, `flakiness-hunter`, `sunk-cost`, `loss-aversion`, `survivorship-bias`, `confirmation-bias` (90 total) + `/domains`, `/brain` HUD commands & CLI `--domain` filter | [x] Passed |
 | **Verification Gate** | **Full Portable Test Suite & Ratchets** | 🟢 **COMPLETED** | 1,594+ tests passed, 0 ruff errors, architecture ratchets clean | [x] Passed |
 
 ---
@@ -172,6 +174,41 @@ flowchart TD
   8. `postgres-query-optimizer` (`pgbot`: EXPLAIN ANALYZE execution plan breakdown, buffer hit auditing, non-blocking CONCURRENT index deployment)
 - [x] Recompile `config/skills_index.json`: **70 verified skills** across 6 academic domains.
 - [x] Unit test in `tests/test_turn_context.py` (`test_batch4_skills_triggers_and_cookbooks`): 10/10 passed.
+
+### Track 16: Portfolio Skills Absorption (Batch 5: 10 Skills -> 80 Total Skills)
+- [x] Absorb 10 specialized procedural and multimodal skills with YAML frontmatter triggers and OpenMonoAgent-style `cookbook.md` recipes:
+  1. `text-to-cad-modeling` (`text-to-cad`: parametric 3D CAD modeling, OpenSCAD/CadQuery CSG solids, manifold STL export)
+  2. `book-to-skill-compiler` (`book-to-skill` / `Resource2Skill`: technical book distillation into actionable agent skills)
+  3. `interactive-data-visualization` (`data-formulator`: declarative exploratory data analysis, Vega-Lite/ECharts interactive HTML charts)
+  4. `collaborative-canvas-designer` (`doop`: infinite visual UI wireframing, semantic SVG layout hierarchy, design token grids)
+  5. `multimodal-media-crawler` (`MediaCrawler`: social video subtitle harvesting, compressed audio demuxing, metadata sidecars)
+  6. `sqlite-fts-optimizer` (second-brain FTS5 full-text search tuning, unicode61 diacritic stripping, BM25 weight calibration)
+  7. `rest-api-contract-generator` (`spec-kit`: OpenAPI 3.1 contract-first API design, RFC 7807 error envelopes, mock endpoints)
+  8. `circuit-breaker-resilience` (3-state finite state machine, exponential backoff with full jitter, concurrency bulkheads)
+  9. `zero-downtime-canary-deploy` (progressive traffic splitting 2% -> 20% -> 100%, P99 latency monitoring, automated rollback)
+  10. `epistemic-arbitrage` (Austrian economics & cognitive strategy: identifying asymmetric knowledge gaps between LLMs and local ground truth)
+- [x] Recompile `config/skills_index.json`: **80 verified skills** across 6 academic domains.
+- [x] Unit test in `tests/test_turn_context.py` (`test_batch5_skills_triggers_and_cookbooks`): 11/11 passed.
+
+### Track 17: Portfolio Skills Absorption (Batch 6: 10 Skills -> 90 Total Skills) & HUD / CLI Integration
+- [x] Absorb 10 high-impact cognitive and extraction skills:
+  1. `smart-web-scraper-graph` (`Scrapegraph-ai` / `firecrawl`: AI-driven declarative DOM extraction with zero CSS selector brittleness)
+  2. `graph-rag-hybrid-retriever` (`ragflow` / `semantica`: hybrid dense-sparse semantic graph retrieval with Reciprocal Rank Fusion)
+  3. `structured-grammar-generator` (`outlines`: token logit masking and finite-state machine constrained decoding for 100% valid JSON)
+  4. `answering-engine-synthesizer` (`Vane`: Perplexity-style citation-grounded answering with inline footnotes and bibliography)
+  5. `universal-document-converter` (`anydoc` / `markitdown`: converting Word, PDF, ePub, PPTX, and XLSX files to clean Markdown)
+  6. `test-suite-flakiness-hunter` (`superpowers`: condition-polling predicates, random-order execution, and flaky race condition elimination)
+  7. `sunk-cost-fallacy-detector` (`cc-thinking-skills`: decoupling historical investment from prospective value to decommission dead code)
+  8. `loss-aversion-calibrator` (`cc-thinking-skills`: symmetric expected value calculations to counter architectural change paralysis)
+  9. `survivorship-bias-auditor` (`cc-thinking-skills`: Abraham Wald missing-dataset auditing to expose unlogged silent process crashes)
+  10. `confirmation-bias-inversion` (`cc-thinking-skills`: Karl Popper falsification testing hunting for disconfirming negative test cases)
+- [x] Recompile `config/skills_index.json`: **90 verified skills** across 6 academic domains (`cognitive`: 27, `coding`: 21, `devops`: 17, `research`: 11, `architecture`: 10, `security`: 4).
+- [x] Unit test in `tests/test_turn_context.py` (`test_batch6_skills_triggers_and_cookbooks`): 12/12 passed.
+- [x] **HUD Slash Commands**: Added `/domains` (skills breakdown by taxonomy domain) and `/brain <query>` (direct Second Brain FTS5 search from the chat box) in `core/text_turn_controller.py`.
+- [x] **CLI Enhancement**: Added `--domain` filtering to `python -m agent skills` with colored domain badges in `agent/__main__.py`.
+- [x] Unit tests in `tests/test_routing_authority.py`: 106/106 passed.
+- [x] **Second Brain Maintenance**: Executed `sync(embed=False)` over 3,646 vault pages and optimized `chunks_fts` virtual table.
+- [x] Full agent test suite: 614 passed, 4 skipped, 0 failed.
 
 ### Verification Gate (AGENTS.md)
 - [x] `python -m ruff check .` -> All checks passed (0 errors).
