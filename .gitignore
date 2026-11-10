@@ -48,10 +48,12 @@ agent_permissions.json
 config/subagents.json
 config/api_keys.json
 config/email_credentials.json
-# Per-machine agent MCP servers. The harness reads .brahma/mcp.json from the
+# Per-machine agent MCP servers. The harness reads .brahma/mcp.json
+.brahma/worktrees/ from the
 # workspace and entries carry live credentials (e.g. a Bearer token), so like
 # agent_permissions.json it is user data, not repo content.
 .brahma/mcp.json
+.brahma/worktrees/
 config/ig_session.json
 config/*.key
 config/.*key

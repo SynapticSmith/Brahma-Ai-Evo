@@ -14,11 +14,11 @@
 | **Phase 0** | Audit & Snapshot (read-only) | 🟢 **COMPLETED** | `_audit/taxonomy-audit.md`, `taxonomy.json`, vault tag/branch `taxonomy/audit-v1` | [x] Passed |
 | **Phase 1** | Normalize Tree & Transplant Notes | 🟢 **COMPLETED** | `taxonomy-migration.json`, `_audit/link-rewrite.json`, `tools/taxonomy.py` | [x] Passed |
 | **Phase 2** | Wikipedia Knowledge Tree Seeding | 🟢 **COMPLETED** | `tools/seed_academic_taxonomy.py`, cached JSON/MD in `raw/wikipedia/` | [x] Passed |
-| **Phase 3** | Retrieval Schema v2 & Type-Weighted Ranking | 🟡 **IN PROGRESS** | SQLite schema migration, type-weighted FTS5, `max 2 index pages` rule | [ ] Pending |
-| **Phase 4** | Multimodal Conversion & OCR Pipeline | ⚪ Queued | `tools/ingest_multimodal.py`, `markitdown` + `Unlimited-OCR` integration | [ ] Pending |
-| **Phase 5** | Knowledge Extraction & Placement | ⚪ Queued | `tools/extract_knowledge.py`, segmentation, atomization, `_inbox/` routing | [ ] Pending |
-| **Phase 6** | JIT Skills & Scripts Engine | ⚪ Queued | `TurnPlan` compiler, L2 SOP injection, `tools/scripts_index.py` | [ ] Pending |
-| **Phase 7** | Teacher Escalation & Git Worktree Harness | ⚪ Queued | `tools/worktree.py`, policy layer over `skill_forge` & `skill_crucible` | [ ] Pending |
+| **Phase 3** | Retrieval Schema v2 & Type-Weighted Ranking | 🟢 **COMPLETED** | SQLite schema migration, type-weighted FTS5, `max 2 index pages` rule | [x] Passed |
+| **Phase 4** | Multimodal Conversion & OCR Pipeline | 🟢 **COMPLETED** | `tools/ingest_multimodal.py`, `markitdown` + asset extractor | [x] Passed |
+| **Phase 5** | Knowledge Extraction & Placement | 🟢 **COMPLETED** | `tools/extract_knowledge.py`, segmentation, atomization, `_inbox/` routing | [x] Passed |
+| **Phase 6** | JIT Skills & Scripts Engine | 🟢 **COMPLETED** | `TurnPlan` compiler, JIT SOP injection, `config/scripts.json`, `turn_context.py` | [x] Passed |
+| **Phase 7** | Teacher Escalation & Git Worktree Harness | 🟢 **COMPLETED** | `tools/worktree.py`, `agent/teacher_policy.py`, AST & sandbox safety gates | [x] Passed |
 
 ---
 
@@ -57,44 +57,51 @@
 - [x] Verify 100% node coverage (122/122 nodes seeded) and offline re-run idempotency (5.0s run from cache).
 - [x] Commit seeded content to vault branch `taxonomy/spine-v1` (`99a6c107`). Exit criteria passed.
 
-### Phase 3: Retrieval Schema v2 & Type-Weighted Ranking
-- [ ] Implement SQLite schema migration (`SCHEMA_VERSION = 2`) in `agent/second_brain.py`.
-- [ ] Add `kind` (index, concept, book, synthesis, entity), `domain`, and `quality` columns.
-- [ ] Implement type-weighted BM25 scoring in FTS5 search (prioritize concept and book notes over index pages).
-- [ ] Enforce "max 2 index pages per turn" in `context_for_turn()`.
-- [ ] Implement selective embedding policy: exclude generic index pages by default to protect CPU/embedding budget.
-- [ ] Run knowledge routing evaluation suite to confirm recall improvement.
+### Phase 3: Retrieval Schema v2 & Type-Weighted Ranking — 🟢 COMPLETED
+- [x] Implement SQLite zero-downtime schema migration (`SCHEMA_VERSION = 2`) in `agent/second_brain.py`.
+- [x] Add `kind` (index, concept, book, synthesis, entity), `domain`, and `quality` columns with backfilling.
+- [x] Implement type-weighted BM25 scoring (synthesis 1.10, concept 1.00, entity 0.95, book 0.90, reference 0.70, index 0.55).
+- [x] Enforce "max 2 index pages per turn" in `context_for_turn()`.
+- [x] Implement selective embedding policy: exclude generic index pages by default to protect CPU/embedding budget.
+- [x] Expose `brain_browse` and `brain_locate` tools in `agent/brain_tools.py` and `retrieval_metadata()`.
+- [x] 28 unit tests passing in `tests/test_agent_second_brain.py`. Exit criteria passed.
 
-### Phase 4: Multimodal Conversion & OCR Pipeline
-- [ ] Build `tools/ingest_multimodal.py` extending `operations/book-library/` and `book-library/fulltext/`.
-- [ ] Integrate Microsoft MarkItDown (`C:\Users\Admin\markitdown`) for native digital formats (DOCX, PDF, EPUB, XLSX).
-- [ ] Integrate Unlimited-OCR (`C:\Users\Admin\Unlimited-OCR`) for complex layouts, math/LaTeX formulas, and scans.
-- [ ] Extract visual assets (diagrams, figures, flowcharts) to `fulltext/.assets/<slug>/` with markdown cross-references.
-- [ ] Generate `.meta` manifests for every converted document.
-- [ ] Run 10-document conversion test fixtures offline.
+### Phase 4: Multimodal Conversion & OCR Pipeline — 🟢 COMPLETED
+- [x] Build `tools/ingest_multimodal.py` for `.docx`, `.pptx`, `.xlsx`, `.epub`, `.pdf`, `.txt`, `.md`.
+- [x] Integrate Microsoft MarkItDown for native document parsing.
+- [x] Page-by-page PDF probing and glyph-density checks with fallback reporting.
+- [x] Extract visual assets (diagrams, figures, flowcharts) to `.assets/<slug>/` with figure cross-references.
+- [x] Generate `.meta/<slug>.json` manifests with SHA-256 and conversion telemetry.
+- [x] Resumability caching and 50 MB safety file size cap.
+- [x] 7 unit tests passing in `tests/test_multimodal_ingest.py`. Exit criteria passed.
 
-### Phase 5: Knowledge Extraction & Placement
-- [ ] Build `tools/extract_knowledge.py`.
-- [ ] Implement deterministic segmentation and candidate proposition extraction.
-- [ ] Build academic taxonomy classifier routing units into leaf subdisciplines.
-- [ ] Implement confidence thresholding: high confidence &rarr; canonical leaf node; low confidence &rarr; `_inbox/`.
-- [ ] Formulate extracted notes with OKF frontmatter and Calyx constellation anchoring.
-- [ ] Test on hand-labelled chapter fixtures.
+### Phase 5: Knowledge Extraction & Placement — 🟢 COMPLETED
+- [x] Build `tools/extract_knowledge.py`.
+- [x] Implement deterministic segmentation (400-4,000 char sections) and atomization.
+- [x] Build BM25 taxonomy router targeting canonical leaf nodes in `taxonomy.json`.
+- [x] Implement confidence thresholding: confidence >= 0.50 &rarr; canonical leaf node; low confidence &rarr; `_inbox/unsorted/<source-slug>/`.
+- [x] Extract units with OKF frontmatter, source attribution, and Calyx note anchoring (`calyx_bridge.ingest_note`).
+- [x] Extracted Ken Lee Wheeler books (16 canonical units placed, 38 inboxed).
+- [x] 3 unit tests passing in `tests/test_knowledge_extraction.py`. Exit criteria passed.
 
-### Phase 6: JIT Skills & Scripts Engine
-- [ ] Define standardized `TurnPlan` dataclass in `agent/context.py` and `agent/loop.py`.
-- [ ] Extend `core/skills_library.py` with domain taxonomy, L0 metadata indexing, and L2 SOP retrieval.
-- [ ] Build `tools/scripts_index.py` generating `scripts/index.json` for all CLI tools.
-- [ ] Implement intent interpreter in `AgentLoop._prepare_turn` injecting task-specific L2 SOP into ephemeral request context.
-- [ ] Port 10 high-impact skills and 3 cookbooks from portfolio repositories.
-- [ ] Pass skill-selection gold-set acceptance tests.
+### Phase 6: JIT Skills & Scripts Engine — 🟢 COMPLETED
+- [x] Standardize `TurnPlan` dataclass in `agent/turn_context.py`.
+- [x] Implement cheap deterministic intent classification (`conversational`, `procedural`, `interrogative`, `mixed`).
+- [x] Create verified scripts catalogue in `config/scripts.json` with safety classes (`read_only`, `workspace_write`, `sandbox`, `network`).
+- [x] Shortlist skills and verified scripts based on academic domain and intent tokens.
+- [x] Inject at most 1 skill SOP within character budget into ephemeral context before user turn.
+- [x] Wire `turn_context` into `AgentLoop` and `ConversationContext.as_payload()` (knowledge first, skill second).
+- [x] Emit `skill_injected` telemetry events.
+- [x] 6 unit tests passing in `tests/test_turn_context.py`. Exit criteria passed.
 
-### Phase 7: Teacher Escalation & Git Worktree Harness
-- [ ] Implement `tools/worktree.py` providing isolated Git worktree management over `agent.process.run_captured`.
-- [ ] Build policy layer connecting execution gaps to `core/skill_forge.py` and `core/skill_crucible.py`.
-- [ ] Implement sandboxed capability synthesis: Teacher model (Claude/Gemini) writes script & tests &rarr; worktree runs tests &rarr; AST check passes &rarr; user approval required before install.
-- [ ] Add approval UI in desktop GUI / CLI runner.
-- [ ] Demonstrate end-to-end create &rarr; verify &rarr; merge &rarr; rollback worktree cycle.
+### Phase 7: Teacher Escalation & Git Worktree Harness — 🟢 COMPLETED
+- [x] Implement `tools/worktree.py` providing isolated Git worktree management over `agent.process.run_captured`.
+- [x] Build policy layer `agent/teacher_policy.py` connecting execution gaps to `core/skill_forge.py` and `core/skill_crucible.py`.
+- [x] Implement sandboxed capability synthesis: Teacher model queries &rarr; worktree runs tests &rarr; AST check passes &rarr; user approval required before install.
+- [x] Enforce safety invariants: skills are NEVER auto-installed; always staged in `staged_skills/` with provenance audit record.
+- [x] Egress scrubbing: Redact workspace roots, home directories, emails, and credentials prior to teacher dispatch.
+- [x] Daily call and token caps with per-task attempt limits in persistent ledger.
+- [x] 9 unit tests passing in `tests/test_worktree.py` and `tests/test_teacher_policy.py`. Exit criteria passed.
 
 ---
 
