@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "total_skills": 24,
+  "total_skills": 39,
   "domains": [
     "architecture",
     "coding",
@@ -10,6 +10,34 @@
     "security"
   ],
   "skills": [
+    {
+      "name": "adhd-optimized-communication",
+      "directory": "adhd-optimized-communication",
+      "path": "skills/adhd-optimized-communication/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "cognitive",
+      "description": "Cognitive formatting protocol providing direct answers and Bottom Line Up Front (BLUF) without burying the lead in preamble.",
+      "triggers": [
+        "adhd friendly output",
+        "be concise and direct",
+        "executive summary first",
+        "bottom line upfront",
+        "bluf format",
+        "cut the preamble",
+        "dont bury the answer"
+      ],
+      "tags": [
+        "communication",
+        "concise",
+        "executive-summary",
+        "adhd-friendly",
+        "bottom-line",
+        "bluf"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Formatting Responses for Instant Scannability\n\n## Objective\nTransform dense, verbose explanations into structured, scannable, executive-ready responses.\n\n## Prerequisites\n- Complex technical finding, bug diagnosis, or strategic proposal to communicate.\n\n## Execution Recipe\n1. **Extract the Bottom Line**:\n   Formulate the single most important finding or action into one direct sentence:\n   - Example: **\"Root Cause Identified: PortAudio buffer underrun caused by concurrent mic polling in `audio_io.py:165`.\"**\n2. **Strip Pleasantries and Introductory Context**:\n   Delete greeting sentences, rhetorical questions, and restatements of the user's prompt.\n3. **Format Key Findings as Bold Bulleted Items**:\n   - **The Problem**: Concrete symptom and affected file.\n   - **The Fix**: Exact code edit or configuration change.\n   - **Verification**: Command executed and test outcome.\n4. **Present Next Decisions as Mutually Exclusive Options**:\n   Provide 2 to 3 distinct numbered choices with recommended default:\n   - `Option 1 (Recommended)`: ...\n   - `Option 2`: ...\n5. **Verification Gate**:\n   - Is the direct answer visible in the first 2 lines without scrolling?\n   - Are there any paragraphs longer than 3 sentences?\n   - Can the reader scan the bold lead-ins in under 10 seconds?\n6. **Remediation**:\n   If text feels cluttered, convert prose explanations into a Markdown table or push detailed logs into a persistent artifact.",
+      "sha256": "c848b7c7ea8b880ba1e75ab021be19d277ca899758e0b3dfac05957b99b21480"
+    },
     {
       "name": "api-mock-engine",
       "directory": "api-mock-engine",
@@ -73,6 +101,34 @@
       "sha256": "b0f334767feefdca77628837cb224428014721ed53b23c080fbb89b04430aff1"
     },
     {
+      "name": "chestertons-fence",
+      "directory": "chestertons-fence",
+      "path": "skills/chestertons-fence/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "cognitive",
+      "description": "Invariant rule requiring developers to discover and understand why legacy code or constraints exist before refactoring or removing them.",
+      "triggers": [
+        "chestertons fence",
+        "why is this code here",
+        "before deleting this",
+        "refactoring caution",
+        "legacy code justification",
+        "understand before removing"
+      ],
+      "tags": [
+        "thinking",
+        "reasoning",
+        "chestertons-fence",
+        "refactoring",
+        "safety",
+        "legacy-code",
+        "invariants"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Investigating and Retiring Legacy Fences Safely\n\n## Objective\nSafely evaluate, verify, and either preserve or retire legacy code, constraints, or workarounds without re-introducing historical bugs.\n\n## Prerequisites\n- A target code block, workaround, or condition proposed for deletion.\n- Access to git history (`git log`, `git blame`).\n\n## Execution Recipe\n1. **Trace Git Provenance**:\n   Run `git log -S` or `git blame` on the lines in question:\n   ```powershell\n   git log -L <start>,<end>:<file>\n   ```\n   Read the commit message, author notes, and linked PR/issue.\n2. **Formulate the Original Threat Hypothesis**:\n   Answer in writing:\n   - What broke when this fence was absent?\n   - What operating system, library version, or external API behavior mandated it?\n3. **Check Current Environmental Reality**:\n   Determine whether the upstream bug was resolved or whether the platform constraint remains active.\n4. **Author a Boundary Test Case**:\n   Before modifying the code, write a unit test reproducing the exact failure mode the fence protects against.\n5. **Evaluate Safe Removal or Simplification**:\n   - If the condition is still active: document the rationale with an explicit comment and retain the fence.\n   - If the condition is obsolete: run the test suite with the fence removed.\n6. **Verification Gate**:\n   ```powershell\n   python -m pytest tests -q\n   ```\n7. **Remediation**:\n   If an unexpected test fails or regressions occur, revert immediately: the fence is still protecting the system.",
+      "sha256": "20339e263dcd1d30c6649cd8a3b0a73b9c1e68711d336cdd95b0700f0e20a3dd"
+    },
+    {
       "name": "code-review",
       "directory": "code-review",
       "path": "skills/code-review/SKILL.md",
@@ -115,6 +171,34 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Progressive Context Window Optimization\n\n## Objective\nReduce LLM prompt bloat and enforce deterministic progressive disclosure (L0 to L3) for sub-2B small models and cloud agents alike.\n\n## Prerequisites\n- An agent loop or prompt assembly pipeline.\n\n## Execution Recipe\n1. **Measure Baseline Turn Context**:\n   Profile the prompt payload:\n   ```python\n   prompt_chars = len(assembled_prompt)\n   estimated_tokens = prompt_chars // 4\n   print(f\"Context payload: {estimated_tokens} tokens ({prompt_chars} chars)\")\n   ```\n2. **Audit Component Token Shares**:\n   Verify individual component thresholds:\n   - System baseline: <= 1,000 tokens\n   - Tool declarations: <= 2,500 tokens (defer low-priority tools)\n   - Second-brain JIT snippet: <= 800 tokens\n   - Skills cookbook: <= 1,200 tokens\n3. **Apply Dynamic Tool Pruning**:\n   If tool declarations exceed threshold, filter by turn intent: advertise primary tools and defer specialized tools to `search_tools`.\n4. **Enforce Cookbook Clamping**:\n   Clamp injected SOP/cookbook to max 4KB (`cookbook[:4096]`).\n5. **Verification Gate**:\n   Assert that total prompt token size is under the target model's optimal window without sacrificing functional accuracy:\n   ```powershell\n   python -m pytest tests -q -k \"turn_context or prompt\"\n   ```\n6. **Remediation**:\n   If a prompt exceeds the token ceiling, discard low-relevance conversation history turns before truncating system instructions or active cookbooks.",
       "sha256": "e952c59921c44983e5a120291b8295087b0f83f157a775720a8562d610d8ff6b"
+    },
+    {
+      "name": "cynefin-framework",
+      "directory": "cynefin-framework",
+      "path": "skills/cynefin-framework/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "cognitive",
+      "description": "Sense-making framework categorizing problems into Clear, Complicated, Complex, Chaotic, and Confused to choose optimal engineering responses.",
+      "triggers": [
+        "cynefin framework",
+        "problem complexity classification",
+        "simple vs complex problem",
+        "chaotic situation",
+        "sense making",
+        "determine problem domain"
+      ],
+      "tags": [
+        "thinking",
+        "reasoning",
+        "cynefin",
+        "complexity",
+        "sense-making",
+        "strategy",
+        "decisions"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Problem Classification and Action Routing via Cynefin\n\n## Objective\nClassify an engineering challenge or system failure into its Cynefin domain and route execution to the correct cognitive protocol.\n\n## Prerequisites\n- A technical challenge, bug report, or system outage.\n\n## Execution Recipe\n1. **Identify the Operating Domain**:\n   - Is production actively corrupting data or crashing repeatedly? $\\rightarrow$ **Chaotic**.\n   - Are multiple distributed systems exhibiting non-deterministic behavior? $\\rightarrow$ **Complex**.\n   - Is there a specific bug or performance hotspot requiring deep code inspection? $\\rightarrow$ **Complicated**.\n   - Is it a well-understood routine task (e.g. adding a field, linting)? $\\rightarrow$ **Clear**.\n2. **Execute Domain-Specific Action**:\n   - **If Chaotic**: *Act first*. Kill the failing service or stop audio stream (`Ctrl+Shift+X`). Stabilize first, ask questions later.\n   - **If Complex**: *Probe first*. Launch an isolated git worktree (`tools/worktree.py`) or spike prototype. Test safe-to-fail hypotheses.\n   - **If Complicated**: *Analyze first*. Use `systematic-debugging` and `profiler`. Do not guess; run diagnostics.\n   - **If Clear**: *Follow recipe*. Execute standard OpenMonoAgent cookbook.\n3. **Prevent Domain Collapse**:\n   Never treat a Complex problem as Clear (applying rigid dogma to emergent behavior causes catastrophic failure).\n4. **Verification Gate**:\n   Verify the chosen protocol restored stability (Chaotic $\\rightarrow$ Complex $\\rightarrow$ Complicated $\\rightarrow$ Clear).\n5. **Remediation**:\n   If an approach stalls for more than 2 turns, the problem was misclassified. Shift one domain higher and adjust strategy.",
+      "sha256": "ecb4b343e26ca292457917ea1c85cbad6ba0b8d8a79a4581dee42eff9abab63b"
     },
     {
       "name": "database-architect",
@@ -183,6 +267,34 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Code Desloppification & Clean Refactoring\n\n## Objective\nPurge code slop, eliminate dead branches, enforce strict type hints, and align with project architecture.\n\n## Prerequisites\n- python 3.11+\n- ruff\n\n## Execution Recipe\n1. **Audit Complexity & Unused Code**:\n   ```powershell\n   python -m ruff check . --select F,E,W,UP,I\n   ```\n2. **Format & Sort Imports**:\n   ```powershell\n   python -m ruff check --fix .\n   ```\n3. **Enforce Type Invariants & Clean Signatures**:\n   Remove wildcard imports (`from x import *`), add return annotations, and eliminate duplicate logic.\n4. **Verification Gate**:\n   ```powershell\n   python -m ruff check .\n   python -m pytest tests -q\n   ```\n5. **Remediation**:\n   If refactoring breaks tests, revert via `git checkout -p` and perform targeted edits.",
       "sha256": "e5706429bb5d9ee13f599e02ef377a88d918810fa116cd954f0efdf3c7974aef"
+    },
+    {
+      "name": "deterministic-code-audit",
+      "directory": "deterministic-code-audit",
+      "path": "skills/deterministic-code-audit/SKILL.md",
+      "domain": "security",
+      "academic_domain": "security",
+      "description": "Static security and reliability audit inspecting code for NPEs, thread safety, injection attacks, and resource leaks.",
+      "triggers": [
+        "deterministic code audit",
+        "audit security vulnerabilities",
+        "scan for npe",
+        "audit injection flaws",
+        "static code analysis",
+        "security sanity check"
+      ],
+      "tags": [
+        "code-audit",
+        "security",
+        "static-analysis",
+        "vulnerabilities",
+        "sqli",
+        "npe",
+        "thread-safety"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Pre-Commit Security & Invariant Audit\n\n## Objective\nScan repository diffs or target source files for critical security vulnerabilities, Null Pointer dereferences, and resource leaks.\n\n## Prerequisites\n- Git diff or target source files to audit.\n- Python 3.11+ environment with `ruff` or static linter.\n\n## Execution Recipe\n1. **Inspect Staged Changes**:\n   ```powershell\n   git diff --staged\n   ```\n2. **Scan for Injection Patterns**:\n   Search for raw shell commands, unsafe SQL concatenation, and path traversals:\n   - Verify all `subprocess` invocations use array arguments with `shell=False`.\n   - Verify all SQL queries use parameterized placeholders (`?` or `:name`).\n   - Verify all path resolution checks `path.resolve().is_relative_to(root)`.\n3. **Scan for Null / None Dereferences**:\n   Check functions returning `Optional[...]` to ensure callers handle `None` prior to attribute access.\n4. **Scan for Resource Leaks**:\n   Verify all file streams, sockets, and subprocess trees use context managers or cleanup handlers:\n   - Ensure child processes are terminated in `finally` blocks or bound to Job Objects.\n5. **Run Static Analyzer**:\n   ```powershell\n   python -m ruff check .\n   ```\n6. **Verification Gate**:\n   - 0 raw shell commands with user variables.\n   - 0 unparameterized SQL queries.\n   - 0 linter violations.\n7. **Remediation**:\n   Replace any dangerous pattern with a safe standard-library primitive before staging commits.",
+      "sha256": "d04cdcb59b5ebba032faa7bf92d8876c123dceda5e18c9fabfd8cecb3640a36a"
     },
     {
       "name": "docker-devops",
@@ -307,6 +419,32 @@
       "sha256": "66b4683f68c2e3d8fcde703276e0e9018ca67a66cf8d3aab1f107ca0d8322632"
     },
     {
+      "name": "hanlons-razor",
+      "directory": "hanlons-razor",
+      "path": "skills/hanlons-razor/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "cognitive",
+      "description": "Diagnostic rule to distinguish deliberate breach or malice from benign misconfigurations, race conditions, and unhandled errors.",
+      "triggers": [
+        "hanlons razor",
+        "distinguish malice from error",
+        "diagnose unexpected failure",
+        "benign misconfiguration",
+        "error attribution"
+      ],
+      "tags": [
+        "thinking",
+        "reasoning",
+        "hanlons-razor",
+        "diagnostics",
+        "root-cause",
+        "error-analysis"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Systemic Diagnostic Attribution via Hanlon's Razor\n\n## Objective\nDiagnose unexpected errors and security rejections by systematically auditing benign operational causes before escalating to complex adversarial hypotheses.\n\n## Prerequisites\n- Error report, connection failure, or unexpected system denial.\n\n## Execution Recipe\n1. **Audit Input Types and Serialization**:\n   Inspect the raw payloads crossing the boundary:\n   - Check for UTF-8 BOM encoding issues (`utf-8` vs `utf-8-sig`).\n   - Check for string vs integer type mismatches in JSON arguments.\n2. **Inspect Environmental Context**:\n   - Verify file permissions, current working directory (`cwd`), and path existence.\n   - Verify environment variable availability (`echo $env:VARIABLE`).\n3. **Inspect Network / Socket Timing**:\n   - Check if the remote host closed the connection due to an unhandled exception or keepalive timeout.\n   - Review server-side stderr/logs for 400 Bad Request / 1007 Invalid Argument details.\n4. **Inspect State Concurrency**:\n   - Check for simultaneous reads and writes to non-thread-safe data structures.\n5. **Evaluate Adversarial Breach Only If Benign Causes Are Eliminated**:\n   If inputs, config, and concurrency are provably valid, initiate red-team security review.\n6. **Verification Gate**:\n   Reproduce the failure with a benign minimal test case and verify the fix removes the anomaly.\n7. **Remediation**:\n   Add input validation and descriptive error logging so future misconfigurations do not masquerade as mysterious failures.",
+      "sha256": "e6ffd46112d1ced033c786f291382f0f649d0c20f3d9273d19562fcd7dd8a9de"
+    },
+    {
       "name": "icm-architect",
       "directory": "icm-architect",
       "path": "skills/icm-architect/SKILL.md",
@@ -383,6 +521,34 @@
       "sha256": "189e6e310d09487315bc23f151f7b095d626d72d5f245b90affcd19eb8cec0dd"
     },
     {
+      "name": "pareto-principle-80-20",
+      "directory": "pareto-principle-80-20",
+      "path": "skills/pareto-principle-80-20/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "cognitive",
+      "description": "Apply the 80/20 rule to isolate high-leverage bottlenecks, critical code paths, and top error drivers for maximum impact.",
+      "triggers": [
+        "pareto principle",
+        "80 20 rule",
+        "high leverage points",
+        "find top bottlenecks",
+        "prioritize by impact",
+        "pareto analysis"
+      ],
+      "tags": [
+        "thinking",
+        "reasoning",
+        "pareto",
+        "leverage",
+        "prioritization",
+        "optimization",
+        "80-20"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Pareto Optimization and Leverage Point Discovery\n\n## Objective\nIdentify and resolve the top 20% of code paths or failure vectors causing 80% of latency, resource consumption, or bugs.\n\n## Prerequisites\n- Performance profile, test failure logs, or benchmark telemetry.\n\n## Execution Recipe\n1. **Gather Performance / Defect Distribution**:\n   Run profiler or aggregate logs to identify hotspot frequencies:\n   ```powershell\n   python -m cProfile -s tottime main.py\n   ```\n2. **Sort Hotspots Descending**:\n   Create a ranked table of functions by total time or error frequency.\n3. **Select the Top 20% Cutoff**:\n   Identify the top 1 to 3 functions that account for the bulk of execution time.\n4. **Formulate High-Leverage Fix**:\n   Apply algorithmic optimizations, caching, or early-exit gates strictly to those top hotspots.\n   - Example: Adding an LRU cache or indexing a database column.\n5. **Verification Gate**:\n   Benchmark the optimized code against the baseline to prove measurable gains (> 50% improvement in targeted metric).\n6. **Remediation**:\n   If an optimization on a top hotspot does not move the needle, re-profile to detect whether external I/O or waiting states were misattributed.",
+      "sha256": "7582072e04ef8e9fe1a8eaacfebbfd87934e3217f6cd6c352df4f84d8f5ebe64"
+    },
+    {
       "name": "performance-profiler",
       "directory": "performance-profiler",
       "path": "skills/performance-profiler/SKILL.md",
@@ -426,6 +592,62 @@
       "sha256": "4b640c9782572a397f1a9f234234c504a4e25ac34bc7792bfa5b5a0053e0b293"
     },
     {
+      "name": "red-team-blue-team",
+      "directory": "red-team-blue-team",
+      "path": "skills/red-team-blue-team/SKILL.md",
+      "domain": "security",
+      "academic_domain": "security",
+      "description": "Dual-perspective adversarial simulation where Red probes for exploits and bypasses while Blue patches defenses and authors test gates.",
+      "triggers": [
+        "red team blue team",
+        "adversarial simulation",
+        "red team audit",
+        "probe for exploits",
+        "stress test defenses",
+        "find bypasses"
+      ],
+      "tags": [
+        "security",
+        "adversarial",
+        "red-team",
+        "blue-team",
+        "stress-testing",
+        "penetration",
+        "audit"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Adversarial Red/Blue Security Verification\n\n## Objective\nProactively probe a newly implemented tool, API endpoint, or permission boundary for security bypasses and harden it with automated tests.\n\n## Prerequisites\n- A target module, tool specification, or permission check.\n\n## Execution Recipe\n1. **Red Team Probe Phase**:\n   Draft an exploit test case in `tests/test_redteam.py` attempting to violate system invariants:\n   - Path Traversal: Passing `../../etc/passwd` or `..\\..\\Windows\\System32`.\n   - Command Injection: Passing `; rm -rf /` or `& calc.exe`.\n   - Resource Exhaustion: Triggering an infinite recursive call or huge allocation.\n2. **Execute Probe**:\n   ```powershell\n   python -m pytest tests/test_redteam.py -k \"test_adversarial_probe\" -v\n   ```\n   *Observation: Did the defense block the attack, or did the breach succeed?*\n3. **Blue Team Defense Phase**:\n   If the probe succeeded, implement immediate hardening:\n   - Enforce path normalization via `Path.resolve()` and verify containment.\n   - Restrict tool command execution to stdlib `run_captured` without `shell=True`.\n   - Enforce memory and execution timeouts via Job Objects.\n4. **Permanent Test Integration**:\n   Rename the probe into a permanent regression test asserting that the exploit raises a permission denial or sanitized result.\n5. **Verification Gate**:\n   ```powershell\n   python -m pytest tests/test_redteam.py -v\n   python -m ruff check .\n   ```\n6. **Remediation**:\n   If an exploit vector cannot be closed in software alone, add a policy-level `deny` rule in `agent_permissions.json`.",
+      "sha256": "590502fa8fcde7efeefbb4a7c6f2b432031e54b2b182f9c5bf4ea8ab97d8ee23"
+    },
+    {
+      "name": "reversibility-two-way-doors",
+      "directory": "reversibility-two-way-doors",
+      "path": "skills/reversibility-two-way-doors/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "cognitive",
+      "description": "Jeff Bezos decision framework classifying decisions into irreversible Type 1 (one-way doors) vs reversible Type 2 (two-way doors).",
+      "triggers": [
+        "two way doors",
+        "one way door",
+        "reversibility analysis",
+        "type 1 type 2 decisions",
+        "irreversible decision",
+        "decision velocity"
+      ],
+      "tags": [
+        "thinking",
+        "reasoning",
+        "decisions",
+        "reversibility",
+        "two-way-doors",
+        "velocity",
+        "risk-management"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Decision Triage via Reversibility Analysis\n\n## Objective\nClassify a pending engineering choice as Type 1 or Type 2, match it with the correct decision process, and prevent unnecessary paralysis on reversible items.\n\n## Prerequisites\n- A proposed technical change, architectural decision, or implementation direction.\n\n## Execution Recipe\n1. **Assess Reversibility Cost**:\n   Ask: \"If this change fails completely in production, how long does it take to restore the prior state and what is the blast radius?\"\n   - If rollback requires > 1 day or causes permanent data loss $\\rightarrow$ **Type 1 (One-Way Door)**.\n   - If rollback requires `git revert` or restoring a backup table $\\rightarrow$ **Type 2 (Two-Way Door)**.\n2. **If Type 1 (One-Way Door)**:\n   - Halt fast execution.\n   - Author a formal spec using `spec-driven-development`.\n   - Run a `pre-mortem-analysis` to map failure vectors.\n   - Require explicit human/supervisor review before merging.\n3. **If Type 2 (Two-Way Door)**:\n   - Maximize decision velocity.\n   - Write a quick unit test, apply the change, run verification.\n   - Ship and iterate.\n4. **Build the Rollback Handle**:\n   Even for Type 2 decisions, ensure the rollback path is verified (e.g. clean git tree, database transaction).\n5. **Verification Gate**:\n   Type 2 changes must pass existing CI gates (`pytest`, `ruff`) without requiring architectural ratchets or policy changes.\n6. **Remediation**:\n   If a Type 2 decision turns out to have hidden one-way dependencies, immediately pause, roll back, and re-classify as Type 1.",
+      "sha256": "bc49c73a8ba5511e70ea3f22f851878940916c181789585644f95982d348cf8c"
+    },
+    {
       "name": "second-order-thinking",
       "directory": "second-order-thinking",
       "path": "skills/second-order-thinking/SKILL.md",
@@ -467,6 +689,192 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Security Audit & Secret Scanning\n\n## Objective\nScan codebase for hardcoded credentials, API keys, unsafe subprocess calls, and known vulnerabilities.\n\n## Prerequisites\n- git\n- python 3.11+\n\n## Execution Recipe\n1. **Scan for Hardcoded Secrets**:\n   Search for common key prefixes (`AIza`, `sk-`, `ghp_`, `Bearer`):\n   ```powershell\n   git grep -E \"(AIza|sk-[a-zA-Z0-9]{20,}|ghp_)\"\n   ```\n2. **Audit Shell Invocations**:\n   Check for `shell=True` without sanitization in python files:\n   ```powershell\n   git grep \"shell=True\"\n   ```\n3. **Verify File Permissions & Sandbox Policies**:\n   Inspect `config/agent_permissions.example.json` to ensure least-privilege defaults.\n4. **Verification Gate**:\n   Verify 0 exposed secrets and all subprocess executions use array arguments (`shell=False`).\n5. **Remediation**:\n   Move detected keys to environment variables and scrub git history if needed.",
       "sha256": "cbd3bdc93c41fb1f00bfe333469dd92ac71cc25e448ce2a67d3393c59ec5707c"
+    },
+    {
+      "name": "simplified-technical-english",
+      "directory": "simplified-technical-english",
+      "path": "skills/simplified-technical-english/SKILL.md",
+      "domain": "research",
+      "academic_domain": "research",
+      "description": "Enforce ASD-STE100 Simplified Technical English rules for clear, unambiguous, and translation-ready technical writing.",
+      "triggers": [
+        "simplified technical english",
+        "ste100",
+        "simplify technical writing",
+        "unambiguous writing",
+        "technical documentation style",
+        "clear technical prose"
+      ],
+      "tags": [
+        "writing",
+        "documentation",
+        "precision",
+        "ste100",
+        "clarity",
+        "technical-communication"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Rewriting Technical Documentation into ASD-STE100\n\n## Objective\nConvert complex, ambiguous technical documentation into concise, ASD-STE100 compliant text.\n\n## Prerequisites\n- Draft documentation, API guides, or architecture summaries to be simplified.\n\n## Execution Recipe\n1. **Sentence Length Audit**:\n   Scan draft text. Split any sentence containing more than 20 words into two separate sentences.\n2. **Convert Passive Voice to Imperative**:\n   - *Draft*: \"The configuration file must be modified by the user to contain the port number.\"\n   - *STE100*: \"Write the port number in the configuration file.\"\n3. **Replace Ambiguous Verbs**:\n   - Replace \"make sure that\" with \"verify that\".\n   - Replace \"carry out the check\" with \"check the system\".\n   - Replace \"take into consideration\" with \"consider\".\n4. **Unpack Noun Clusters**:\n   - *Draft*: \"User session database connection pool timeout limit\" (6 nouns)\n   - *STE100*: \"Timeout limit for the pool of database connections in a user session\"\n5. **Ensure Consistent Terminology**:\n   Choose one word for a concept and use it exclusively (e.g. do not alternate between \"directory\", \"folder\", and \"location\").\n6. **Verification Gate**:\n   - Average sentence length $\\le$ 18 words.\n   - 0 passive voice constructions in procedural instructions.\n   - 0 uses of ambiguous modal verbs (\"should\", \"might\").\n7. **Remediation**:\n   If a sentence remains awkward, break it into a bulleted list or a step-by-step table.",
+      "sha256": "0979259f74b52cd3d821b9b9f41c3dcb65a6c486d1fc877e0295ca2468c5a3d5"
+    },
+    {
+      "name": "skill-distillation",
+      "directory": "skill-distillation",
+      "path": "skills/skill-distillation/SKILL.md",
+      "domain": "research",
+      "academic_domain": "coding",
+      "description": "Distill human documentation, API guides, and execution trajectories into standardized, executable SKILL.md and cookbook.md files.",
+      "triggers": [
+        "distill a skill",
+        "turn this doc into a skill",
+        "create skill from guide",
+        "skill distillation",
+        "extract skill from documentation"
+      ],
+      "tags": [
+        "skills",
+        "distillation",
+        "knowledge-extraction",
+        "sop",
+        "automation",
+        "meta-skill"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Distilling Technical Resources into Skills\n\n## Objective\nConvert raw technical guides, READMEs, or logs into standardized `SKILL.md` and `cookbook.md` files.\n\n## Prerequisites\n- Source technical documentation or execution transcript.\n\n## Execution Recipe\n1. **Extract Core Capability and Name**:\n   Determine the kebab-case skill identifier (e.g. `ffmpeg-transcoder`).\n2. **Assign Academic Domain**:\n   Classify into: `cognitive`, `coding`, `architecture`, `devops`, `security`, or `research`.\n3. **Identify High-Precision Triggers**:\n   List 4 to 8 concrete user query phrases that signal the intent to use this skill.\n4. **Draft `SKILL.md`**:\n   Write YAML frontmatter followed by overview, procedural steps, and invariants.\n5. **Draft `cookbook.md`**:\n   Write the 5 mandatory sections:\n   - `## Objective`\n   - `## Prerequisites`\n   - `## Execution Recipe`\n   - `## Verification Gate`\n   - `## Remediation`\n6. **Rebuild Skills Index**:\n   ```powershell\n   python tools/skills_index.py --build\n   python tools/skills_index.py --check\n   ```\n7. **Verification Gate**:\n   Ensure `python -m pytest tests/test_skills_index.py -v` passes cleanly.\n8. **Remediation**:\n   If index validation fails on YAML or missing sections, fix the frontmatter indentation and re-run `--build`.",
+      "sha256": "bf638e090d41eb48a93dfc1fe4b3beee474e18a134e1978ee5fd138b4d810226"
+    },
+    {
+      "name": "skill-optimizer",
+      "directory": "skill-optimizer",
+      "path": "skills/skill-optimizer/SKILL.md",
+      "domain": "coding",
+      "academic_domain": "coding",
+      "description": "Continuous text-space optimizer refining skill prompts, triggers, and cookbook steps based on empirical agent execution trajectories.",
+      "triggers": [
+        "optimize this skill",
+        "refine skill prompt",
+        "skill optimizer",
+        "improve cookbook",
+        "tune skill triggers"
+      ],
+      "tags": [
+        "skills",
+        "optimization",
+        "trajectory-analysis",
+        "self-improvement",
+        "continuous-learning"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Iterative Skill Optimization from Failure Logs\n\n## Objective\nAnalyze a failed agent execution transcript and update the corresponding skill's triggers and cookbook to prevent future failures.\n\n## Prerequisites\n- Error transcript or test failure from a previous agentic turn.\n- Existing skill directory in `skills/<name>/`.\n\n## Execution Recipe\n1. **Analyze Failure Point in Transcript**:\n   Locate the exact turn where the agent drifted, hallucinated arguments, or failed to shortlist the skill.\n2. **Diagnose Optimization Target**:\n   - If skill wasn't triggered: Append the exact user prompt phrasing to `triggers` in `SKILL.md`.\n   - If tool arguments failed: Add explicit JSON / CLI argument syntax into `cookbook.md`.\n   - If remediation looped: Add a concrete abort condition into `## Remediation`.\n3. **Apply Edits**:\n   Update `skills/<name>/SKILL.md` or `skills/<name>/cookbook.md`.\n4. **Recompile Skills Index**:\n   ```powershell\n   python tools/skills_index.py --build\n   python tools/skills_index.py --check\n   ```\n5. **Verification Gate**:\n   Simulate the failing turn with `python -m agent run \"<failing_prompt>\" --provider stub --json --no-session` to ensure the updated skill shortlists and compiles into the turn plan.\n6. **Remediation**:\n   If the prompt exceeds the 1,200 character budget, compress verbose explanations while preserving all code and CLI examples.",
+      "sha256": "ced7fad7d8a93f2ae2933eccb916c873555adaeb62e3899b7afbba9eeaffbc72"
+    },
+    {
+      "name": "sop-builder",
+      "directory": "sop-builder",
+      "path": "skills/sop-builder/SKILL.md",
+      "domain": "research",
+      "academic_domain": "devops",
+      "description": "Standard Operating Procedure (SOP) and operational runbook compiler for repeatable human and agent workflows.",
+      "triggers": [
+        "build an sop",
+        "create a runbook",
+        "operational procedure",
+        "sop builder",
+        "standard operating procedure",
+        "author a playbook"
+      ],
+      "tags": [
+        "sop",
+        "runbook",
+        "playbook",
+        "operations",
+        "procedure",
+        "workflows"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Compiling an Operational SOP / Runbook\n\n## Objective\nAuthor a production-ready Standard Operating Procedure (SOP) that any agent or on-call engineer can execute without ambiguity.\n\n## Prerequisites\n- A verified, repeatable workflow (e.g. database migration, release build, certificate rotation).\n\n## Execution Recipe\n1. **Define Objective and Boundaries**:\n   State what the SOP accomplishes in one sentence and specify non-applicable contexts.\n2. **List Required Tooling and Environment**:\n   List exact CLI utilities, Python versions, and authentication tokens required before starting.\n3. **Format Step Sequence**:\n   For every action step, provide:\n   - **Command**: Copy-paste ready shell command.\n   - **Expected Output**: Exact regex or string indicating success.\n   - **Failure Signal**: Error text that triggers immediate abort.\n4. **Author the Rollback Section**:\n   Write the exact inverse sequence of commands to execute if a failure signal appears:\n   ```powershell\n   # Emergency Rollback Sequence\n   git restore .\n   python tools/restore_backup.py --snapshot pre_migration\n   ```\n5. **Verification Gate**:\n   Perform a clean test run of the SOP in a staging or dry-run environment.\n6. **Remediation**:\n   If an operator gets stuck at any step, revise the step description to include prerequisite installation or environment setup instructions.",
+      "sha256": "d8e4a8eb3285ed4f9b5d8d2080fa1bd446e999b3f67dd65ff045b7e10eb475e0"
+    },
+    {
+      "name": "spec-driven-development",
+      "directory": "spec-driven-development",
+      "path": "skills/spec-driven-development/SKILL.md",
+      "domain": "architecture",
+      "academic_domain": "architecture",
+      "description": "Spec-Driven Development (SDD) methodology to specify architecture, contracts, invariants, and edge cases before coding.",
+      "triggers": [
+        "spec driven development",
+        "write a spec",
+        "software design document",
+        "sdd planning",
+        "spec first",
+        "design document"
+      ],
+      "tags": [
+        "sdd",
+        "specification",
+        "contracts",
+        "design-document",
+        "architecture",
+        "spec-first"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Authoring a Software Design Document (SDD)\n\n## Objective\nAuthor a clear, actionable architecture specification that guides autonomous agents or engineers through implementation without design ambiguity.\n\n## Prerequisites\n- A target capability, refactor, or subsystem requirement.\n\n## Execution Recipe\n1. **Create the Spec Markdown File**:\n   Target location: `docs/<FEATURE-NAME>-SPEC.md`.\n2. **Document Invariants First**:\n   Identify hard constraints before writing functional steps:\n   - Dependency rules (e.g., \"no external packages at module scope\").\n   - Safety rules (e.g., \"all file writes must be bounded by workspace\").\n   - Performance budgets (e.g., \"turn compilation must complete in < 50ms\").\n3. **Specify the Component API**:\n   Write full Python function/class signatures with type annotations:\n   ```python\n   def process_payload(data: Dict[str, Any], timeout_s: float = 5.0) -> Tuple[bool, str]:\n       ...\n   ```\n4. **Define Explicit Error Codes**:\n   Enumerate all possible error conditions and return types (avoiding bare exceptions).\n5. **Draft the Acceptance Criteria Table**:\n   Tabulate every feature requirement against its designated test module and function name.\n6. **Verification Gate**:\n   Review spec against Occam's Razor: prune any speculative features not required for the immediate milestone.\n7. **Remediation**:\n   If team members or agents encounter ambiguity during implementation, pause and update the spec before editing code.",
+      "sha256": "d0025d9bbee09a6cec4edfced082411d8d79ef01b52e65e3466eba5f934255c4"
+    },
+    {
+      "name": "structured-task-planning",
+      "directory": "structured-task-planning",
+      "path": "skills/structured-task-planning/SKILL.md",
+      "domain": "architecture",
+      "academic_domain": "architecture",
+      "description": "Deconstruct complex features or migrations into dependency-ordered atomic subtasks with explicit preconditions and verification gates.",
+      "triggers": [
+        "task planning",
+        "break down this task",
+        "plan implementation",
+        "execution plan",
+        "dependency order",
+        "feature breakdown"
+      ],
+      "tags": [
+        "planning",
+        "task-breakdown",
+        "dependencies",
+        "workflow",
+        "execution",
+        "project-management"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Atomic Task Breakdown and Dependency Ordering\n\n## Objective\nConvert a feature request or major refactor into a sequence of isolated, verifiable tasks with zero merge conflicts.\n\n## Prerequisites\n- High-level user requirement or feature proposal.\n- Knowledge of target repository directory layout.\n\n## Execution Recipe\n1. **Catalog Affected Files and Seams**:\n   List all modules, classes, and test suites that will be created or modified.\n2. **Order by Dependency Layer**:\n   Arrange execution into strict topological tiers:\n   - Tier 1: Data schemas, type definitions, and database migrations.\n   - Tier 2: Core domain logic and business functions.\n   - Tier 3: Harness tools, adapters, and API endpoints.\n   - Tier 4: User interfaces, CLI commands, and telemetry.\n3. **Draft the Implementation Checklist**:\n   Format each subtask as:\n   - **Task ID & Name**: e.g., `Task 1: Add UserSession dataclass`.\n   - **Files to Edit**: Explicit relative paths.\n   - **Acceptance Criteria**: Concrete condition (e.g., `assert session.is_valid()`).\n   - **Verification Command**: Exact CLI test command.\n4. **Execution Protocol**:\n   Execute tasks one at a time. Run tests immediately after each task before proceeding to the next.\n5. **Verification Gate**:\n   ```powershell\n   python -m ruff check .\n   python -m pytest tests -q\n   ```\n6. **Remediation**:\n   If a task is blocked by unexpected legacy coupling, halt, extract the blocker into an isolated preparatory task, and re-order the queue.",
+      "sha256": "c3025ce3660db0bbeea0c8865fad4e42e35eed571fb399a856a34ecf3f9cd046"
+    },
+    {
+      "name": "systematic-debugging",
+      "directory": "systematic-debugging",
+      "path": "skills/systematic-debugging/SKILL.md",
+      "domain": "coding",
+      "academic_domain": "coding",
+      "description": "4-phase deterministic debugging protocol to reproduce, isolate, fix, and verify software defects without collateral damage.",
+      "triggers": [
+        "systematic debugging",
+        "debug this bug",
+        "reproduce bug",
+        "root cause of failure",
+        "isolate bug",
+        "fix this failure"
+      ],
+      "tags": [
+        "debugging",
+        "root-cause",
+        "reproduction",
+        "testing",
+        "hypothesis",
+        "verification"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Systematic Bug Isolation and Repair\n\n## Objective\nReproduce an unexpected error or test failure, isolate the root cause, and apply a surgical fix guarded by a permanent test.\n\n## Prerequisites\n- Working dev environment (`python -m pytest` available).\n- Reproducible error message, traceback, or unexpected behavior.\n\n## Execution Recipe\n1. **Capture the Traceback and Failing Inputs**:\n   Identify the entry point, the failing function, the exact exception type, and the argument values.\n2. **Author a Minimal Failing Test**:\n   Create a reproduction test in `tests/test_<subsystem>.py`:\n   ```python\n   def test_reproduce_reported_bug():\n       # Provide the exact input that triggered the defect\n       result = function_under_test(trigger_input)\n       assert result == expected_output\n   ```\n3. **Run the Reproduction Test**:\n   ```powershell\n   python -m pytest tests/test_<subsystem>.py -k \"test_reproduce\" -v\n   ```\n   *Gate: The test must fail with the reported error.*\n4. **Inspect State Invariants**:\n   Check if the defect arises from:\n   - Type mismatch or unexpected `None`/null value\n   - Off-by-one boundary condition in loop or slice\n   - Unhandled edge case in conditional branch\n   - Asynchronous race condition or missing lock\n5. **Apply Minimal Surgical Fix**:\n   Edit only the source lines responsible for the corrupted invariant.\n6. **Verification Gate**:\n   Rerun reproduction test and full subsystem suite:\n   ```powershell\n   python -m pytest tests/test_<subsystem>.py -v\n   python -m ruff check .\n   ```\n7. **Remediation**:\n   If other tests break, the fix introduced collateral damage. Revert the edit and re-evaluate the hypothesis.",
+      "sha256": "101d069ae35cfbff2b86f04f625146db7eec5dd7da624d3a22d2f7d3e5f77083"
     },
     {
       "name": "test-driven-development",

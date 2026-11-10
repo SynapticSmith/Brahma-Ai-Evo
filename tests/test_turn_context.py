@@ -185,3 +185,37 @@ def test_agent_loop_wires_skill_telemetry(monkeypatch):
     assert evt["script"] == "test_script.py"
     assert evt["domain"] == "formal_sciences/mathematics"
     assert evt["chars"] == len("TASK SKILL TEST SOP")
+
+
+def test_absorbed_skills_triggers_and_cookbooks():
+    """Verify triggers and cookbooks for skills absorbed from portfolio catalog."""
+    # Systematic debugging
+    debug_skills = shortlist_skills("we need systematic debugging to isolate bug and root cause")
+    assert len(debug_skills) >= 1
+    assert debug_skills[0]["name"] == "systematic-debugging"
+    assert "Cookbook: Systematic Bug Isolation and Repair" in debug_skills[0]["cookbook"]
+
+    # Spec-driven development
+    spec_skills = shortlist_skills("apply spec driven development and write an sdd planning doc")
+    assert len(spec_skills) >= 1
+    assert spec_skills[0]["name"] == "spec-driven-development"
+
+    # Chesterton's fence
+    fence_skills = shortlist_skills("remember chestertons fence before deleting this legacy code")
+    assert len(fence_skills) >= 1
+    assert fence_skills[0]["name"] == "chestertons-fence"
+
+    # Reversibility / Two-way doors
+    door_skills = shortlist_skills("is this a one way door or a two way doors decision?")
+    assert len(door_skills) >= 1
+    assert door_skills[0]["name"] == "reversibility-two-way-doors"
+
+    # Pareto principle
+    pareto_skills = shortlist_skills("apply pareto principle 80 20 rule to find top bottlenecks")
+    assert len(pareto_skills) >= 1
+    assert pareto_skills[0]["name"] == "pareto-principle-80-20"
+
+    # Skill distillation
+    distill_skills = shortlist_skills("distill a skill from this API documentation guide")
+    assert len(distill_skills) >= 1
+    assert distill_skills[0]["name"] == "skill-distillation"
