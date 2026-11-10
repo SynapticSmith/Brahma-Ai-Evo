@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "total_skills": 55,
+  "total_skills": 62,
   "domains": [
     "architecture",
     "coding",
@@ -135,6 +135,35 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Background Browser Automation via Persistent Context\n\n## Objective\nLaunch an isolated headless browser session that inherits local browser cookies to inspect authenticated pages.\n\n## Prerequisites\n- Playwright or CDP client available (`python -m playwright` or Chrome remote debugging port).\n\n## Execution Recipe\n1. **Locate Chrome User Profile or Exported Cookies**:\n   Identify path to user data directory or exported session state (`%LOCALAPPDATA%\\Google\\Chrome\\User Data`).\n2. **Launch Background Context**:\n   Use Playwright `launch_persistent_context` in headless mode:\n   ```python\n   from playwright.sync_api import sync_playwright\n   with sync_playwright() as p:\n       browser = p.chromium.launch_persistent_context(\n           user_data_dir=user_data_path,\n           headless=True,\n           args=[\"--disable-blink-features=AutomationControlled\"]\n       )\n       page = browser.new_page()\n       page.goto(target_url, wait_until=\"networkidle\")\n   ```\n3. **Inspect Authenticated DOM**:\n   Extract content or take background screenshot:\n   ```python\n   content = page.locator(\"main\").inner_text()\n   ```\n4. **Verification Gate**:\n   - Status 200 received without redirect to login page.\n   - User foreground focus was not interrupted.\n5. **Remediation**:\n   If an anti-bot challenge is encountered, stop immediately, alert the user, and allow manual completion in visible browser.",
       "sha256": "3934ec8e5cc676121338a06abe91119f03a3fef3dec785a7584d8639c3cd23a0"
+    },
+    {
+      "name": "blast-radius-analyzer",
+      "directory": "blast-radius-analyzer",
+      "path": "skills/blast-radius-analyzer/SKILL.md",
+      "domain": "architecture",
+      "academic_domain": "architecture",
+      "description": "Structural code impact and blast-radius analyzer tracing call graphs, caller hierarchies, interface dependencies, and downstream risks prior to breaking changes.",
+      "triggers": [
+        "blast radius analyzer",
+        "calculate blast radius",
+        "change impact analysis",
+        "caller graph impact",
+        "what would break",
+        "downstream impact",
+        "assess blast radius"
+      ],
+      "tags": [
+        "blast-radius",
+        "call-graph",
+        "static-analysis",
+        "impact-analysis",
+        "dependencies",
+        "refactoring",
+        "architecture"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Structural Blast Radius & Impact Analysis\n\n## Objective\nTrace inbound callers, classify blast radius severity, and identify downstream modules affected by a proposed signature change.\n\n## Prerequisites\n- Ripgrep (`rg`), Python AST analyzer, or graph index.\n\n## Execution Recipe\n1. **Search Symbol Inbound Invocations**:\n   ```powershell\n   python -m agent search_code \"<symbol_name>\"\n   # or via ripgrep:\n   rg \"\\b<symbol_name>\\b\" --glob \"!tests/*\"\n   ```\n2. **Classify Affected Modules & Severity**:\n   - Count direct call-sites:\n     - 0-2 (Tier 3 - Local)\n     - 3-10 (Tier 2 - Subsystem)\n     - >10 (Tier 1 - Broad / Public API)\n3. **Trace Upward Entrypoints**:\n   Trace which CLI commands, HTTP routes, or background workers invoke the callers.\n4. **Identify Affected Test Cases**:\n   ```powershell\n   rg \"\\b<symbol_name>\\b\" tests/\n   ```\n5. **Verification Gate**:\n   *Gate: Complete inventory of all callers and tests produced; no untracked dependencies remain.*\n6. **Remediation**:\n   If blast radius exceeds Tier 2 (cross-module breaking change), create a backward-compatible wrapper or deprecation shim rather than altering signatures in-place.",
+      "sha256": "c6e9ee98d265bf4fb7b061aa4cdce5b0e610e6905d1a50fee6b58ce69e5cd0b9"
     },
     {
       "name": "book-to-knowledge",
@@ -332,6 +361,34 @@
       "sha256": "e952c59921c44983e5a120291b8295087b0f83f157a775720a8562d610d8ff6b"
     },
     {
+      "name": "conventional-commit-generator",
+      "directory": "conventional-commit-generator",
+      "path": "skills/conventional-commit-generator/SKILL.md",
+      "domain": "devops",
+      "academic_domain": "coding",
+      "description": "Analyzes staged diffs, infers semantic scopes, and crafts atomic Conventional Commits messages compliant with Keep a Changelog and SemVer.",
+      "triggers": [
+        "conventional commit",
+        "generate commit message",
+        "write commit message",
+        "conventional commits",
+        "commit staged changes",
+        "craft git commit"
+      ],
+      "tags": [
+        "git",
+        "commit",
+        "conventional-commits",
+        "changelog",
+        "semver",
+        "diff-analysis",
+        "coding"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Atomic Conventional Commit Generation\n\n## Objective\nInspect git diffs, infer type and scope, and author a clean Conventional Commit message.\n\n## Prerequisites\n- Working changes present in git workspace.\n\n## Execution Recipe\n1. **Inspect Staged Diffs**:\n   ```powershell\n   git status --short\n   git diff --staged --stat\n   ```\n   If nothing is staged, stage specific files: `git add <files>`.\n2. **Infer Scope & Type**:\n   - Determine folder / module (e.g. `agent`, `skills`, `core`, `tests`).\n   - Match action: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`.\n3. **Draft Subject Line**:\n   `<type>(<scope>): <concise imperative summary under 72 chars>`\n4. **Commit with Optional Why-Body**:\n   ```powershell\n   git commit -m \"<type>(<scope>): <subject>\" -m \"<Why this change was made and impact on consumers>\"\n   ```\n5. **Verification Gate**:\n   ```powershell\n   git log -1 --stat\n   ```\n   *Gate: Commit hash created, message adheres to `<type>(<scope>): <subject>` format.*\n6. **Remediation**:\n   If an error or typo is present in the latest un-pushed commit:\n   `git commit --amend` to modify message or staged files.",
+      "sha256": "ae23908042e6c0bd3cd1864be6b2b299e05dc8a695d202fa2f2c984f236b4138"
+    },
+    {
       "name": "cynefin-framework",
       "directory": "cynefin-framework",
       "path": "skills/cynefin-framework/SKILL.md",
@@ -376,6 +433,35 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Database Architecture & Zero-Downtime Migration\n\n## Objective\nDesign, version, and migrate relational and vector database schemas without data loss.\n\n## Prerequisites\n- sqlite3\n\n## Execution Recipe\n1. **Inspect Current Schema**:\n   Extract DDL and table pragma info:\n   ```powershell\n   python -c \"import sqlite3; conn=sqlite3.connect('second_brain.db'); print(conn.execute('PRAGMA user_version').fetchone())\"\n   ```\n2. **Draft Forward Migration**:\n   Create SQL statements using `CREATE TABLE IF NOT EXISTS` and transactional updates.\n3. **Verify Integrity & Foreign Keys**:\n   ```powershell\n   python -c \"import sqlite3; conn=sqlite3.connect('second_brain.db'); print(conn.execute('PRAGMA integrity_check').fetchall())\"\n   ```\n4. **Verification Gate**:\n   Query test row insertions and verify `user_version` counter increments.\n5. **Remediation**:\n   Rollback transaction immediately if `sqlite3.DatabaseError` is raised.",
       "sha256": "f251ac5260667eacd5071afc6d59ce624105bab2d53f89d0bbd67de5dd1eeab0"
+    },
+    {
+      "name": "database-migration-ops",
+      "directory": "database-migration-ops",
+      "path": "skills/database-migration-ops/SKILL.md",
+      "domain": "devops",
+      "academic_domain": "devops",
+      "description": "High-assurance database schema migration playbook enforcing dry-runs, rollback script validation, staging execution, and data smoke-testing.",
+      "triggers": [
+        "database migration ops",
+        "run db migration",
+        "schema migration playbook",
+        "safe database migration",
+        "rollback database migration",
+        "database dry run"
+      ],
+      "tags": [
+        "database",
+        "migration",
+        "schema",
+        "sqlite",
+        "postgres",
+        "dry-run",
+        "rollback",
+        "smoke-test"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Zero-Downtime Safe Database Migrations\n\n## Objective\nExecute schema migrations with pre-flight backup snapshots, dry-run SQL inspection, and validated rollback scripts.\n\n## Prerequisites\n- Database connection string or SQLite file path.\n- Migration script file containing DDL statements.\n\n## Execution Recipe\n1. **Create Pre-Flight Backup Snapshot**:\n   Create an atomic point-in-time copy:\n   ```powershell\n   Copy-Item -Path \"data.db\" -Destination \"data.db.pre_migrate_$(Get-Date -Format yyyyMMdd_HHmmss)\"\n   ```\n2. **Execute Schema Dry-Run**:\n   Inspect generated SQL statements and explain execution plan without committing changes:\n   ```powershell\n   python tools/db_migrate.py --dry-run --plan\n   ```\n3. **Validate Rollback Script in Staging / Temporary DB**:\n   Execute forward migration followed by rollback script on a shadow database to confirm clean revert:\n   ```powershell\n   python tools/db_migrate.py --db-path \"data.test.db\" --up\n   python tools/db_migrate.py --db-path \"data.test.db\" --down\n   ```\n4. **Apply Production Migration**:\n   Run forward migration in an explicit transaction block:\n   ```powershell\n   python tools/db_migrate.py --apply\n   ```\n5. **Run Post-Migration Smoke Tests**:\n   Verify row counts, table existence, and index lookups:\n   ```powershell\n   python -c \"import sqlite3; conn = sqlite3.connect('data.db'); print(conn.execute('PRAGMA integrity_check').fetchall())\"\n   ```\n6. **Verification Gate**:\n   `PRAGMA integrity_check` returns `[('ok',)]` and all primary application queries return within baseline latency.\n7. **Remediation**:\n   If schema errors occur or queries fail, immediately restore the pre-flight snapshot:\n   ```powershell\n   Copy-Item -Path \"data.db.pre_migrate_*\" -Destination \"data.db\" -Force\n   ```",
+      "sha256": "add976333b87141102f99f6a118bdb9b704bdfe11d9f70ff523aec78fe1c2cf4"
     },
     {
       "name": "decision-matrix-analysis",
@@ -713,6 +799,35 @@
       "sha256": "0e77a8efa300bb5ceb5e13492cfa40c4005948c04658ff0c2403a58d1ce847cc"
     },
     {
+      "name": "incident-response",
+      "directory": "incident-response",
+      "path": "skills/incident-response/SKILL.md",
+      "domain": "devops",
+      "academic_domain": "devops",
+      "description": "Structured emergency incident response protocol to gather logs, assess blast radius, confirm scope, apply mitigations, verify recovery, and author postmortems.",
+      "triggers": [
+        "incident response",
+        "production is down",
+        "service is broken",
+        "handle outage",
+        "emergency mitigation",
+        "author postmortem",
+        "respond to incident"
+      ],
+      "tags": [
+        "incident",
+        "ops",
+        "outage",
+        "emergency",
+        "postmortem",
+        "mitigation",
+        "recovery"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: 6-Step Incident Response & Recovery\n\n## Objective\nGuide an operator through structured emergency triage, non-destructive mitigation, recovery verification, and postmortem authoring.\n\n## Prerequisites\n- Access to service logs, process monitoring, or error telemetry.\n\n## Execution Recipe\n1. **Step 1: Gather Logs & Error Spikes**:\n   Capture the exact UTC timestamp and error signatures from active logs without restarting processes.\n2. **Step 2: Determine Blast Radius**:\n   Classify severity: P0 (Total outage), P1 (Critical degradation), P2 (Partial feature failure), P3 (Minor defect). Identify affected endpoints and user count.\n3. **Step 3: Review Scope & Select Mitigation Strategy**:\n   Choose the least destructive intervention:\n   - Config flag rollback\n   - Service restart with graceful drain\n   - Emergency hotfix commit\n   - Traffic throttling / circuit breaking\n4. **Step 4: Apply Mitigation**:\n   Execute the chosen fix. Record the exact command run and return code.\n5. **Step 5: Verify Recovery**:\n   Query health check endpoints and monitor error rate for 3 minutes:\n   ```powershell\n   curl -I http://localhost:<port>/health\n   ```\n   *Gate: Return code must be 200 OK and error rate must drop to baseline.*\n6. **Step 6: Generate Postmortem Document**:\n   Write `docs/postmortems/INCIDENT-<DATE>.md` detailing: Timeline, Root Cause, Impact, Mitigation, and Action Items.\n7. **Remediation**:\n   If the initial mitigation fails to resolve the incident, do not attempt second-order tweaks; trigger immediate rollback to the last known stable release.",
+      "sha256": "f2f9ee695d93fdbe79447a1808a8ef1947105c08f63569c0c3e1f93eb1e5cf5f"
+    },
+    {
       "name": "inversion-thinking",
       "directory": "inversion-thinking",
       "path": "skills/inversion-thinking/SKILL.md",
@@ -918,6 +1033,36 @@
       "sha256": "78331fdb79118f6640b74fb3980a356558e2ef1a05adb498a1470c92d154e647"
     },
     {
+      "name": "pr-readiness",
+      "directory": "pr-readiness",
+      "path": "skills/pr-readiness/SKILL.md",
+      "domain": "devops",
+      "academic_domain": "devops",
+      "description": "Pre-flight pull request audit protocol enforcing upstream sync, clean test passes, lint zero-defect checks, staged commit cleanliness, and structured PR description generation.",
+      "triggers": [
+        "pr readiness",
+        "open pr",
+        "prepare pull request",
+        "ready for review",
+        "create pr",
+        "pr pre-flight",
+        "check pr readiness"
+      ],
+      "tags": [
+        "git",
+        "pr",
+        "pull-request",
+        "review",
+        "sync",
+        "lint",
+        "testing",
+        "workflow"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Branch PR Readiness & Pre-Flight Validation\n\n## Objective\nValidate that a branch is synced, tested, linted, and ready for immediate pull request creation without CI failures.\n\n## Prerequisites\n- Feature or bugfix branch checked out (not `main`).\n- GitHub CLI (`gh`) or git remote configured.\n\n## Execution Recipe\n1. **Sync Check with Target**:\n   ```powershell\n   git fetch origin main\n   $behind = git rev-list --count HEAD..origin/main\n   if ($behind -gt 0) { git rebase origin/main }\n   ```\n2. **Execute Local Test Suite**:\n   ```powershell\n   py -3.11 -m pytest tests -q\n   ```\n3. **Run Linter & Static Checks**:\n   ```powershell\n   py -3.11 -m ruff check .\n   ```\n4. **Inspect Diff & Generate PR Description**:\n   ```powershell\n   git log origin/main..HEAD --oneline\n   ```\n   Draft markdown description:\n   - **Summary**: Concise high-level intent.\n   - **Changes**: Bulleted breakdown of commits.\n   - **Verification**: Exact test commands executed.\n5. **Submit PR**:\n   ```powershell\n   gh pr create --title \"<type>(<scope>): <subject>\" --body-file pr_body.md\n   ```\n6. **Verification Gate**:\n   *Gate: Tests pass 100%, linter returns 0 errors, no merge conflicts.*\n7. **Remediation**:\n   If behind target branch or tests fail, resolve conflicts locally, rerun tests, and re-verify before submitting.",
+      "sha256": "f289292cfd1ad68c1754845954e2c3d9e0e7fbbc30c63102b4264578eb94f475"
+    },
+    {
       "name": "pre-mortem-analysis",
       "directory": "pre-mortem-analysis",
       "path": "skills/pre-mortem-analysis/SKILL.md",
@@ -969,6 +1114,35 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Adversarial Red/Blue Security Verification\n\n## Objective\nProactively probe a newly implemented tool, API endpoint, or permission boundary for security bypasses and harden it with automated tests.\n\n## Prerequisites\n- A target module, tool specification, or permission check.\n\n## Execution Recipe\n1. **Red Team Probe Phase**:\n   Draft an exploit test case in `tests/test_redteam.py` attempting to violate system invariants:\n   - Path Traversal: Passing `../../etc/passwd` or `..\\..\\Windows\\System32`.\n   - Command Injection: Passing `; rm -rf /` or `& calc.exe`.\n   - Resource Exhaustion: Triggering an infinite recursive call or huge allocation.\n2. **Execute Probe**:\n   ```powershell\n   python -m pytest tests/test_redteam.py -k \"test_adversarial_probe\" -v\n   ```\n   *Observation: Did the defense block the attack, or did the breach succeed?*\n3. **Blue Team Defense Phase**:\n   If the probe succeeded, implement immediate hardening:\n   - Enforce path normalization via `Path.resolve()` and verify containment.\n   - Restrict tool command execution to stdlib `run_captured` without `shell=True`.\n   - Enforce memory and execution timeouts via Job Objects.\n4. **Permanent Test Integration**:\n   Rename the probe into a permanent regression test asserting that the exploit raises a permission denial or sanitized result.\n5. **Verification Gate**:\n   ```powershell\n   python -m pytest tests/test_redteam.py -v\n   python -m ruff check .\n   ```\n6. **Remediation**:\n   If an exploit vector cannot be closed in software alone, add a policy-level `deny` rule in `agent_permissions.json`.",
       "sha256": "590502fa8fcde7efeefbb4a7c6f2b432031e54b2b182f9c5bf4ea8ab97d8ee23"
+    },
+    {
+      "name": "release-engineering",
+      "directory": "release-engineering",
+      "path": "skills/release-engineering/SKILL.md",
+      "domain": "devops",
+      "academic_domain": "devops",
+      "description": "End-to-end production release pipeline enforcing clean working trees, pre-flight checks, changelog compilation, semver bumping, test validation, and git tagging.",
+      "triggers": [
+        "release engineering",
+        "cut a release",
+        "prepare release",
+        "version bump",
+        "generate changelog",
+        "tag release",
+        "cut new version"
+      ],
+      "tags": [
+        "release",
+        "semver",
+        "git",
+        "changelog",
+        "tagging",
+        "ci-cd",
+        "devops"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Production Release & Version Tagging\n\n## Objective\nOrchestrate a verified, reproducible release with changelog generation, semver bump, and annotated git tagging.\n\n## Prerequisites\n- Clean git working tree on target release branch (`main` / `release`).\n- Full test runner configured and passing.\n\n## Execution Recipe\n1. **Pre-Flight Validation**:\n   ```powershell\n   git status --porcelain\n   # Must return 0 lines\n   ```\n2. **Analyze Commits Since Last Tag**:\n   ```powershell\n   $lastTag = git describe --tags --abbrev=0 2>$null\n   if (-not $lastTag) { git log --oneline -n 20 } else { git log \"$lastTag..HEAD\" --oneline }\n   ```\n3. **Draft Changelog & Bump Version**:\n   Update `CHANGELOG.md` with Added/Fixed/Changed entries. Bump version in project manifest (`pyproject.toml`, `package.json`, or version file).\n4. **Execute Verification Gate**:\n   ```powershell\n   py -3.11 -m pytest tests -q\n   py -3.11 -m ruff check .\n   ```\n   *Gate: All tests must pass and 0 lint warnings.*\n5. **Create Tag & Publish (or Dry Run)**:\n   ```powershell\n   git commit -am \"chore(release): bump version to v<new_version>\"\n   git tag -a \"v<new_version>\" -m \"Release v<new_version>\"\n   ```\n6. **Remediation**:\n   If tests fail during validation, do not tag. Revert version bump edits via `git restore .` and address defects before retrying.",
+      "sha256": "d41fed9ac41398b1f36e69eb863a3858cff59e281fb649e1e47ddd32b797937f"
     },
     {
       "name": "reversibility-two-way-doors",
@@ -1049,6 +1223,36 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Second-Order Consequence Analysis\n\n## Objective\nTrace cascading downstream impacts of an architectural change to prevent system-wide instability or unintended feedback loops.\n\n## Prerequisites\n- A proposed architectural modification, rate-limit adjustment, or concurrency change.\n\n## Execution Recipe\n1. **Define the Immediate Change**:\n   Document the proposal (e.g., \"Cache search query results in memory for 10 minutes to reduce database load\").\n2. **Execute Second-Order Traversal**:\n   Answer the following 4 cascading questions:\n   - *Question 1*: What happens when the underlying data is updated during those 10 minutes? (Stale data served to users).\n   - *Question 2*: What happens to process memory under a sudden surge of unique, long-tail queries? (RAM spikes, potential OOM crash).\n   - *Question 3*: What happens if multiple worker processes cache independently? (Duplicate memory footprint, inconsistent reads across cluster).\n   - *Question 4*: What happens on cache restart or expiration? (Cache stampede / database spike).\n3. **Draft Balancing Guardrails**:\n   - Enforce LRU eviction with a strict max-entries cap (`maxsize=1000`).\n   - Add explicit cache invalidation hook on data writes.\n   - Introduce probabilistic early expiration (XFetch) or mutex locks to prevent dog-piling.\n4. **Verification Gate**:\n   Execute load simulation or concurrency tests to ensure bounded memory growth and consistent invalidation:\n   ```powershell\n   python -m pytest tests -q -k \"cache or concurrency\"\n   ```\n5. **Remediation**:\n   If unconstrained downstream resource growth occurs, replace local in-memory caching with persistent file-backed or bounded TTL ring buffers.",
       "sha256": "f98f37773f1375366c8c8ab7fa2447be23c56eb98ee28f8b15592644eac8f5d2"
+    },
+    {
+      "name": "secret-and-leak-scanner",
+      "directory": "secret-and-leak-scanner",
+      "path": "skills/secret-and-leak-scanner/SKILL.md",
+      "domain": "security",
+      "academic_domain": "security",
+      "description": "Automated pre-commit security audit scanning files, git diffs, and repositories for exposed API keys, high-entropy tokens, certificates, and credentials.",
+      "triggers": [
+        "secret scanner",
+        "scan for secrets",
+        "detect leaks",
+        "credential scan",
+        "pre-commit security audit",
+        "find exposed keys",
+        "check for leaked tokens"
+      ],
+      "tags": [
+        "security",
+        "secrets",
+        "leak-detection",
+        "credentials",
+        "pre-commit",
+        "audit",
+        "entropy",
+        "token-scan"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Pre-Commit Secret & Credential Leak Audit\n\n## Objective\nScan repository files and staged changes for leaked credentials, private keys, and high-entropy API tokens.\n\n## Prerequisites\n- Git repository workspace.\n- PowerShell or bash terminal.\n\n## Execution Recipe\n1. **Scan Untracked & Sensitive Files**:\n   ```powershell\n   Get-ChildItem -Recurse -Include *.env, *.pem, *.key, *id_rsa*, credentials.json -Exclude .git, node_modules, .venv\n   ```\n2. **Audit Staged Diffs for Token Signatures**:\n   ```powershell\n   $patterns = @('sk-[a-zA-Z0-9]{20,}', 'ghp_[a-zA-Z0-9]{36}', 'AKIA[0-9A-Z]{16}', 'bearer [a-zA-Z0-9_\\-\\.]{25,}')\n   git diff --staged | Select-String -Pattern $patterns\n   ```\n3. **Scan Recent Commits for Secret Ingestion**:\n   ```powershell\n   git log -p -n 5 | Select-String -Pattern $patterns\n   ```\n4. **Verification Gate**:\n   *Gate: Zero matches found across file names, staged diffs, and commit logs.*\n5. **Remediation**:\n   - If uncommitted: add file to `.gitignore`, run `git reset <file>`.\n   - If committed in git: purge via `git filter-repo --invert-paths --path <file>`, force rotate the credential immediately at the third-party provider.",
+      "sha256": "9ac3694d92d54ff6ac0834e2dcf66874ca315c7c881e36dff73e2a21c4727cb8"
     },
     {
       "name": "security-auditor",

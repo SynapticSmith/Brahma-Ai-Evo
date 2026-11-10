@@ -249,3 +249,49 @@ def test_absorbed_skills_triggers_and_cookbooks():
     parkinson_skills = shortlist_skills("parkinsons law compression to force radical simplicity")
     assert len(parkinson_skills) >= 1
     assert parkinson_skills[0]["name"] == "parkinsons-law-compression"
+
+
+def test_openmono_playbooks_triggers_and_cookbooks():
+    """Verify triggers and cookbooks for playbooks absorbed from OpenMonoAgent."""
+    # Incident response
+    ir_skills = shortlist_skills("production is down and we must handle outage incident response")
+    assert len(ir_skills) >= 1
+    assert ir_skills[0]["name"] == "incident-response"
+    assert "Incident Response" in ir_skills[0]["cookbook"]
+
+    # Database migration ops
+    db_skills = shortlist_skills("run db migration with safe database migration schema playbook")
+    assert len(db_skills) >= 1
+    assert db_skills[0]["name"] == "database-migration-ops"
+    assert "Database Migration" in db_skills[0]["cookbook"]
+
+    # Release engineering
+    rel_skills = shortlist_skills("cut a release and cut new version with release engineering")
+    assert len(rel_skills) >= 1
+    assert rel_skills[0]["name"] == "release-engineering"
+    assert "Release" in rel_skills[0]["cookbook"]
+
+    # PR readiness
+    pr_skills = shortlist_skills("check pr readiness and prepare pull request for review")
+    assert len(pr_skills) >= 1
+    assert pr_skills[0]["name"] == "pr-readiness"
+    assert "PR Readiness" in pr_skills[0]["cookbook"]
+
+    # Secret & leak scanner
+    sec_skills = shortlist_skills("pre-commit security audit to scan for secrets and detect leaks")
+    assert len(sec_skills) >= 1
+    assert sec_skills[0]["name"] == "secret-and-leak-scanner"
+    assert "Secret" in sec_skills[0]["cookbook"]
+
+    # Conventional commit generator
+    commit_skills = shortlist_skills("generate commit message with conventional commit for staged changes")
+    assert len(commit_skills) >= 1
+    assert commit_skills[0]["name"] == "conventional-commit-generator"
+    assert "Conventional Commit" in commit_skills[0]["cookbook"]
+
+    # Blast radius analyzer
+    blast_skills = shortlist_skills("calculate blast radius and change impact analysis for this symbol")
+    assert len(blast_skills) >= 1
+    assert blast_skills[0]["name"] == "blast-radius-analyzer"
+    assert "Blast Radius" in blast_skills[0]["cookbook"]
+
