@@ -795,15 +795,15 @@ store listing decision is final.
 
 ---
 
-## 15. Phase 9 — Assets, Visual Identity & "Abhasa Lumina" Redesign
+## 15. Phase 9 — Assets, Visual Identity & "Abhasa Citra" Redesign
 
-**Goal:** a mark that says "reflection", not "deity", coupled with the full **"Abhasa Lumina"** desktop interface redesign to eliminate the noisy "cyberpunk reactor" aesthetics.
+**Goal:** a mark that says "reflection", not "deity", coupled with the full **"Abhasa Citra"** desktop interface redesign to eliminate the noisy "cyberpunk reactor" aesthetics.
 
 Authoritative Design Specifications:
 - Proposal: [`docs/VISUAL-REDESIGN-PROPOSAL.md`](VISUAL-REDESIGN-PROPOSAL.md)
 - Complete Surface Register: [`docs/CURRENT-VISUAL-INVENTORY.md`](CURRENT-VISUAL-INVENTORY.md) (89 surfaces)
-- Vector Mockup: [`docs/assets/abhasa-lumina-mockup.svg`](assets/abhasa-lumina-mockup.svg)
-- Living Prototype: [`docs/assets/abhasa-lumina-preview.html`](assets/abhasa-lumina-preview.html)
+- Vector Mockup: [`docs/assets/abhasa-citra-mockup.svg`](assets/abhasa-citra-mockup.svg)
+- Living Prototype: [`docs/assets/abhasa-citra-preview.html`](assets/abhasa-citra-preview.html)
 
 ### 15.1 Brand Marks & Asset Delivery
 - [ ] **P9-1** Design the new mark per the naming statement: *Named for the
@@ -834,24 +834,24 @@ Authoritative Design Specifications:
 - [ ] **P9-6** Never abbreviate to "Bhasa" in copy or assets (it reads as
   *bhāṣā*, "language").
 
-### 15.2 The "Abhasa Lumina" Visual Architecture Implementation
+### 15.2 The "Abhasa Citra" Visual Architecture Implementation
 - [ ] **P9-7 Token Engine Seam (`core/theme/tokens.py`)**:
   - Implement 3-tier design token hierarchy (Primitives, Semantics, Components) with WCAG 2.2 AAA contrast compliance.
   - Delete lines 86–100 of `ui.py` (the `_new_setStyleSheet` regex string-replacement monkeypatch).
 - [ ] **P9-8 Native SVG Icon Engine (`core/icons.py`)**:
   - Replace procedural `QPainter` line-drawing in `core/ui_branding.py` with embedded resolution-independent SVG vector icons (Lucide-compatible).
-- [ ] **P9-9 Floating Lumina Command Dock (`core/ui_lumina_dock.py`)**:
-  - Replace legacy `CommandBar` with the 52px pill-shaped Lumina Dock featuring integrated live audio waveform visualizer, PTT mic button, mode selector, and attachment tray.
+- [ ] **P9-9 Floating Citra Command Dock (`core/ui_citra_dock.py`)**:
+  - Replace legacy `CommandBar` with the 52px pill-shaped Citra Dock featuring integrated live audio waveform visualizer, PTT mic button, mode selector, and attachment tray.
 - [ ] **P9-10 3-Zone Bento Stage & Telemetry Drawer**:
   - Restructure central workspace into Bento Stage.
   - Replace floating 310px wings with docked, collapsible **Context & Telemetry Drawer** (Tabs: `Live Ops`, `Artifacts`, `Vitals`).
   - Delete 10-second auto-dismiss panic timer (`ui_telemetry.py:294`).
 - [ ] **P9-11 Multi-Engine Avatar Depth Compositing & Zero-Avatar Mode**:
   - Implement Layered Depth Compositing with asymmetric optical scrim (`linear-gradient(to right, ...)`).
-  - First-class support for `Mode 0: Pure Lumina` (Zero CPU, 0 MB WebEngine RAM, static frosted obsidian).
+  - First-class support for `Mode 0: Pure Citra` (Zero CPU, 0 MB WebEngine RAM, static frosted obsidian).
   - Background render throttling (60fps active -> 15fps unfocused -> 0fps minimized).
 - [ ] **P9-12 Full 89-Surface Preservation Audit**:
-  - Verify every surface in `docs/CURRENT-VISUAL-INVENTORY.md` (Circuit HUD, Pushup Counter, 3D Globe, Radar, Setup Overlay, Smart Home, Security Console) renders flawlessly under the new Lumina theme.
+  - Verify every surface in `docs/CURRENT-VISUAL-INVENTORY.md` (Circuit HUD, Pushup Counter, 3D Globe, Radar, Setup Overlay, Smart Home, Security Console) renders flawlessly under the new Citra theme.
 
 ---
 
@@ -1033,8 +1033,8 @@ Each PR should be independently green.
    routes, headers, response keys, compatibility tests.
 10. **PR-10 — gateway + dashboard**: mDNS, config paths, certs, tokens.
 11. **PR-11 — Android**: package/classes/resources (respect G8).
-12. **PR-12 — assets, Lumina visual redesign & docs**: new marks, `core/theme/tokens.py`,
-    `core/icons.py`, `core/ui_lumina_dock.py`, bento stage restructuring, 89-surface verification,
+12. **PR-12 — assets, Citra visual redesign & docs**: new marks, `core/theme/tokens.py`,
+    `core/icons.py`, `core/ui_citra_dock.py`, bento stage restructuring, 89-surface verification,
     README, AGENTS, live docs, historical banners.
 13. **PR-13 — cleanup** (after one release): remove aliases, old assets, old
     paths, flip audit to blocking.
@@ -1063,13 +1063,13 @@ To achieve complete creative and architectural freedom without burning bridges w
                     │
                     ▼ (Clean duplicate / sovereign fork)
 [Track B: SynapticSmith/Abhasa-Evo] (Private Sovereign Repository)
-   ├── Full "Abhasa Lumina" Visual Redesign (tokens, bento stage, floating dock)
+   ├── Full "Abhasa Citra" Visual Redesign (tokens, bento stage, floating dock)
    ├── Unconstrained Brand Sweep (Abhasa.exe, abhasa_api, %LOCALAPPDATA%\Abhasa)
    └── Rapid Unfinished Feature Development with Zero Upstream Friction
 ```
 
 - **Track A (`SynapticSmith/Brahma-Ai-Evo`)**: Remains dedicated to tracking upstream. Used exclusively for cutting surgical, upstream-compatible PR branches (`pr/security-phase-0`, `pr/tool-runtime-boundary`) under the Brahma name.
-- **Track B (`SynapticSmith/Abhasa-Evo`)**: A new, private repository where the complete "Abhasa" rebrand and "Abhasa Lumina" visual redesign are executed with total freedom.
+- **Track B (`SynapticSmith/Abhasa-Evo`)**: A new, private repository where the complete "Abhasa" rebrand and "Abhasa Citra" visual redesign are executed with total freedom.
 
 ### 21.3 Sovereign Repository Duplication Procedure
 

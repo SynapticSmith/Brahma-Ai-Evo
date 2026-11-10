@@ -7,12 +7,12 @@
       <stop offset="100%" stop-color="#0B0D12" />
     </linearGradient>
 
-    <linearGradient id="luminaCyanGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+    <linearGradient id="citraCyanGrad" x1="0%" y1="0%" x2="100%" y2="0%">
       <stop offset="0%" stop-color="#00E5FF" stop-opacity="0.8" />
       <stop offset="100%" stop-color="#8B5CF6" stop-opacity="0.6" />
     </linearGradient>
 
-    <radialGradient id="luminaGlow" cx="50%" cy="50%" r="50%">
+    <radialGradient id="citraGlow" cx="50%" cy="50%" r="50%">
       <stop offset="0%" stop-color="#00E5FF" stop-opacity="0.25" />
       <stop offset="40%" stop-color="#8B5CF6" stop-opacity="0.10" />
       <stop offset="100%" stop-color="#08090C" stop-opacity="0" />
@@ -47,7 +47,7 @@
   <rect width="1440" height="900" fill="url(#bgGrad)" />
 
   <!-- Ambient Optical Glow Behind Stage -->
-  <ellipse cx="680" cy="220" rx="360" ry="220" fill="url(#luminaGlow)" />
+  <ellipse cx="680" cy="220" rx="360" ry="220" fill="url(#citraGlow)" />
 
   <!-- ================================================================= -->
   <!-- ZONE 0: WINDOW FRAME & AMBIENT HEADER (Height: 52px)              -->
@@ -144,7 +144,7 @@
       <g transform="translate(488, 55)">
         <circle cx="0" cy="0" r="38" fill="none" stroke="#00E5FF" stroke-opacity="0.15" stroke-dasharray="3 3" />
         <circle cx="0" cy="0" r="28" fill="none" stroke="#8B5CF6" stroke-opacity="0.3" stroke-width="1.5" />
-        <circle cx="0" cy="0" r="16" fill="url(#luminaCyanGrad)" opacity="0.8" filter="url(#softGlow)" />
+        <circle cx="0" cy="0" r="16" fill="url(#citraCyanGrad)" opacity="0.8" filter="url(#softGlow)" />
         <circle cx="0" cy="0" r="6" fill="#FFFFFF" />
       </g>
 
@@ -171,7 +171,7 @@
       <g transform="translate(0, 78)">
         <rect width="976" height="420" rx="16" fill="url(#cardGrad)" stroke="#FFFFFF" stroke-opacity="0.08" stroke-width="1" />
         <!-- Top Hairline Cyan Accent -->
-        <rect x="32" y="0" width="140" height="2" fill="url(#luminaCyanGrad)" rx="1" />
+        <rect x="32" y="0" width="140" height="2" fill="url(#citraCyanGrad)" rx="1" />
 
         <!-- Header -->
         <g transform="translate(24, 20)">
@@ -206,7 +206,7 @@
           <text x="906" y="20" text-anchor="end" fill="#00E5FF" class="font-sans" font-size="11">Copy Code</text>
 
           <!-- Syntax Highlighted Code Lines -->
-          <text x="18" y="58" fill="#8B5CF6" class="font-mono" font-size="12">class <tspan fill="#00E5FF">LuminaTokens</tspan>:</text>
+          <text x="18" y="58" fill="#8B5CF6" class="font-mono" font-size="12">class <tspan fill="#00E5FF">CitraTokens</tspan>:</text>
           <text x="36" y="80" fill="#8C9BB4" class="font-mono" font-size="12"># Primitive Color Scales (WCAG AAA Compliant)</text>
           <text x="36" y="102" fill="#E9EFF8" class="font-mono" font-size="12">SURFACE_CANVAS  = <tspan fill="#10B981">"#08090C"</tspan></text>
           <text x="36" y="124" fill="#E9EFF8" class="font-mono" font-size="12">SURFACE_GLASS   = <tspan fill="#10B981">"rgba(14, 17, 23, 0.72)"</tspan></text>
@@ -219,9 +219,9 @@
     </g>
 
     <!-- =============================================================== -->
-    <!-- COMPONENT: FLOATING LUMINA DOCK (Height: 52px, Centered)         -->
+    <!-- COMPONENT: FLOATING CITRA DOCK (Height: 52px, Centered)          -->
     <!-- =============================================================== -->
-    <g id="lumina-dock" transform="translate(138, 594)">
+    <g id="citra-dock" transform="translate(138, 594)">
       <!-- Drop Shadow -->
       <rect x="2" y="8" width="700" height="52" rx="26" fill="#000000" fill-opacity="0.4" filter="url(#glassBlur)" />
       
@@ -258,7 +258,7 @@
 
       <!-- Send Action Button -->
       <g transform="translate(632, 8)">
-        <rect width="56" height="36" rx="18" fill="url(#luminaCyanGrad)" />
+        <rect width="56" height="36" rx="18" fill="url(#citraCyanGrad)" />
         <path d="M654 26 L666 26 M662 21 L667 26 L662 31" fill="none" stroke="#08090C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
       </g>
     </g>

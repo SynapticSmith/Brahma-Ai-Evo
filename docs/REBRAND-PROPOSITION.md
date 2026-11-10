@@ -20,8 +20,8 @@
 
 **Naming statement:** *Named for the light it throws back, not for the light it is.*
 
-**Visual design language: Abhasa Lumina.**
-- Moving away from the noisy "quantum reactor" neon-and-gold aesthetic to an optical, reflective instrument: Frosted Obsidian canvas (`#08090C`), micro-blur glass wafers, single-pixel hairline borders (`rgba(255, 255, 255, 0.08)`), and restrained Lumina Cyan (`#00E5FF`) / Reflection Violet (`#8B5CF6`) spectral accents.
+**Visual design language: Abhasa Citra.**
+- Moving away from the noisy "quantum reactor" neon-and-gold aesthetic to an optical, reflective instrument: Frosted Obsidian canvas (`#08090C`), micro-blur glass wafers, single-pixel hairline borders (`rgba(255, 255, 255, 0.08)`), and restrained Spectral Cyan (`#00E5FF`) / Reflection Violet (`#8B5CF6`) spectral accents.
 - Full specification documented in [`docs/VISUAL-REDESIGN-PROPOSAL.md`](VISUAL-REDESIGN-PROPOSAL.md).
 
 **Fallbacks, in order:** *Pratibimba* (formal/technical variant), *Dipa* (consumer-friendly variant).
@@ -264,7 +264,7 @@ Indicative, not exhaustive. Verified against the current tree on 2026-11-06.
 | Agent instructions | `BRAHMA.md`, `.brahma/` | `ABHASA.md`, `.abhasa/` | Read both during transition |
 | Env vars | `BRAHMA_PRINT_PY`, `BRAHMA_RELEASE_SIGN_KEY` | `ABHASA_*` | Accept the old names for one release |
 | Assets | `brahma_evo_logo.png`, `Brahma_Lite_Logo.ico` | `abhasa_evo_logo.png`, `Abhasa_Lite_Logo.ico` | Redesign the mark: a reflection, not a deity |
-| Visual UI Design | Neon Cyberpunk Reactor (89 legacy surfaces) | Abhasa Lumina (Frosted Obsidian, 3-Tier Tokens, Bento Stage) | Full inventory in `CURRENT-VISUAL-INVENTORY.md` & spec in `VISUAL-REDESIGN-PROPOSAL.md` |
+| Visual UI Design | Neon Cyberpunk Reactor (89 legacy surfaces) | Abhasa Citra (Frosted Obsidian, 3-Tier Tokens, Bento Stage) | Full inventory in `CURRENT-VISUAL-INVENTORY.md` & spec in `VISUAL-REDESIGN-PROPOSAL.md` |
 | License | "BRAHMA AI EVO SOURCE-AVAILABLE…" | "ABHASA EVO…" | Preserve the chain with "formerly Brahma AI Evo" |
 | Trademark | Claims `Brahma`, `Brahma AI`, `Brahma AI - Lite` | Claims `Abhasa`, `Abhasa Evo` | **Must be rewritten in the same commit** — see below |
 | Repo / org / Discord / docs | `titechprabhasolutions/Brahma-Ai-Evo` | New repo name, redirect old URL | Announce the reason, link this doc |
@@ -305,7 +305,7 @@ Simultaneously, attempting to rebrand directly on our `main` branch while develo
    - Use dedicated feature branches (`pr/security-phase-0`, `pr/agent-runtime-spec`) to submit upstream PRs to `titechprabhasolutions` under the upstream-compliant name.
 2. **Track B (Abhasa Sovereign Track — `Abhasa-Evo`)**:
    - Duplicate or cleanly fork this repository into a dedicated new private repository (e.g. `SynapticSmith/Abhasa-Evo`).
-   - Execute the rebrand freely without constraints: rename binaries (`Abhasa.exe`), registry keys, user data paths (`%LOCALAPPDATA%\Abhasa`), packages (`abhasa_api`), and ship the "Abhasa Lumina" visual redesign with zero upstream friction.
+   - Execute the rebrand freely without constraints: rename binaries (`Abhasa.exe`), registry keys, user data paths (`%LOCALAPPDATA%\Abhasa`), packages (`abhasa_api`), and ship the "Abhasa Citra" visual redesign with zero upstream friction.
 
 ---
 
