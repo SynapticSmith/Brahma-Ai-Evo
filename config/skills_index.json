@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "total_skills": 80,
+  "total_skills": 90,
   "domains": [
     "architecture",
     "coding",
@@ -91,6 +91,36 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Compiling Self-Contained HTML Reports\n\n## Objective\nGenerate a complete, single-file interactive HTML dashboard answering a complex user query or presenting system metrics.\n\n## Prerequisites\n- Structured data, metrics, or comparison table to visualize.\n\n## Execution Recipe\n1. **Initialize Self-Contained Template**:\n   Start with standard responsive HTML5 skeleton with inline system-font CSS.\n2. **Embed Key Metric Cards**:\n   Create a top-level grid of summary metric cards (Totals, Success Rates, Latency).\n3. **Format Data as Interactive Table**:\n   Render rows inside `<table id=\"report-table\">`. Include a quick search filter:\n   ```html\n   <input type=\"text\" id=\"filter\" placeholder=\"Filter rows...\" onkeyup=\"filterTable()\">\n   ```\n4. **Embed Pure CSS / Canvas Visuals**:\n   Use CSS bar charts or SVG sparklines for trend comparisons.\n5. **Write File to Disk**:\n   Save to target path (e.g. `reports/<topic>-dashboard.html`).\n6. **Verification Gate**:\n   Open in browser or verify file syntax:\n   - File opens completely offline with 0 broken asset requests.\n   - Total file size $\\le$ 200 KB.\n7. **Remediation**:\n   If icons or external fonts break, replace with inline SVGs and system font stack (`system-ui, -apple-system, sans-serif`).",
       "sha256": "d1698974286c55e27ad03758ba679ae7893e4e86a4fbbcb4a139bc15477ed756"
+    },
+    {
+      "name": "answering-engine-synthesizer",
+      "directory": "answering-engine-synthesizer",
+      "path": "skills/answering-engine-synthesizer/SKILL.md",
+      "domain": "research",
+      "academic_domain": "research",
+      "description": "Perplexity-style answering engine synthesis protocol combining multi-source web/vault retrieval, factual claim extraction, inline footnote citations, and contradiction auditing.",
+      "triggers": [
+        "answering engine synthesizer",
+        "perplexity style answer",
+        "citation grounded answer",
+        "synthesize answer with footnotes",
+        "search and answer engine",
+        "grounded research response",
+        "generate answer with citations"
+      ],
+      "tags": [
+        "answering-engine",
+        "search",
+        "citations",
+        "synthesis",
+        "perplexity-style",
+        "footnotes",
+        "attribution",
+        "research"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Perplexity-Style Citation-Grounded Answer Synthesis\n\n## Objective\nSynthesize an authoritative research answer with inline numbered citations and a complete reference bibliography.\n\n## Prerequisites\n- Retrieved context passages with associated source titles and URLs or file paths.\n\n## Execution Recipe\n1. **Assign Monotonic Identifiers to Context Chunks**:\n   ```\n   [1] \"SQLite FTS5 uses BM25 scoring with configurable column weights.\" (docs/sqlite.md)\n   [2] \"Porter stemmer normalizes inflections like 'running' to 'run'.\" (docs/nlp.md)\n   ```\n2. **Draft Response with Inline Citations**:\n   Write focused prose referencing the source indices:\n   ```markdown\n   SQLite full-text search implements the BM25 probabilistic ranking function [1].\n   Search terms are automatically reduced to linguistic roots via Porter stemming [2].\n   ```\n3. **Compile Footnote References Section**:\n   ```markdown\n   ## References\n   - [1] `docs/sqlite.md` — SQLite FTS5 Architecture Reference\n   - [2] `docs/nlp.md` — Natural Language Tokenization Guide\n   ```\n4. **Verification Gate**:\n   *Gate: Every cited number `[X]` appears in `## References`; zero orphaned citations.*\n5. **Remediation**:\n   If a claim lacks direct source proof, remove the claim or qualify it with \"Hypothesis (unsourced)\".",
+      "sha256": "2ce447f81423f7ff20c7fe9fb8185098ede48bdb598154981cbcde2c81528cc4"
     },
     {
       "name": "api-mock-engine",
@@ -447,6 +477,34 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Structured SVG Canvas Wireframe Generation\n\n## Objective\nAuthor a semantic, scalable SVG visual mockup with header, metric cards, and layout grid.\n\n## Prerequisites\n- Standard SVG viewer or browser.\n\n## Execution Recipe\n1. **Define Root ViewBox & Design Tokens**:\n   ```xml\n   <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1200 800\" width=\"100%\" height=\"100%\">\n     <defs>\n       <style>\n         .bg { fill: #0f172a; }\n         .card { fill: #1e293b; stroke: #334155; rx: 8px; }\n         .text-title { fill: #f8fafc; font-family: system-ui; font-size: 20px; font-weight: 600; }\n         .text-metric { fill: #38bdf8; font-family: system-ui; font-size: 32px; font-weight: 700; }\n         .text-sub { fill: #94a3b8; font-family: system-ui; font-size: 14px; }\n       </style>\n     </defs>\n     <rect width=\"1200\" height=\"800\" class=\"bg\"/>\n   ```\n2. **Assemble Layout Grid & Components**:\n   ```xml\n     <g id=\"navbar\">\n       <rect x=\"40\" y=\"30\" width=\"1120\" height=\"60\" class=\"card\"/>\n       <text x=\"70\" y=\"68\" class=\"text-title\">Brahma Canvas Dashboard</text>\n     </g>\n     <g id=\"metric-card-1\">\n       <rect x=\"40\" y=\"120\" width=\"350\" height=\"160\" class=\"card\"/>\n       <text x=\"70\" y=\"160\" class=\"text-sub\">Total Active Nodes</text>\n       <text x=\"70\" y=\"210\" class=\"text-metric\">1,024</text>\n     </g>\n   </svg>\n   ```\n3. **Verification Gate**:\n   *Gate: SVG renders valid XML with 0 parsing errors; all elements render inside viewBox.*\n4. **Remediation**:\n   If text overlaps rects, calculate vertical offset as `y = top + font_size + padding`.",
       "sha256": "ac4f329124c9d366f05a9f41eff5d118b1cd104536cfee96221c52654fd7f669"
+    },
+    {
+      "name": "confirmation-bias-inversion",
+      "directory": "confirmation-bias-inversion",
+      "path": "skills/confirmation-bias-inversion/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "cognitive",
+      "description": "Karl Popper falsification protocol actively seeking disconfirming evidence, contrary test cases, and edge-case attacks to invalidate engineering hypotheses.",
+      "triggers": [
+        "confirmation bias inversion",
+        "invert confirmation bias",
+        "hunt for disconfirming evidence",
+        "falsification testing",
+        "disprove hypothesis",
+        "seek contrary evidence",
+        "popperian falsification"
+      ],
+      "tags": [
+        "mental-model",
+        "confirmation-bias",
+        "falsification",
+        "red-teaming",
+        "critical-thinking",
+        "cognitive"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Popperian Falsification & Adversarial Negative Testing\n\n## Objective\nAuthor negative edge cases and adversarial counter-tests to actively falsify engineering assumptions.\n\n## Prerequisites\n- Pytest environment (`pytest`, `hypothesis`).\n\n## Execution Recipe\n1. **Identify the Core Assumption**:\n   Formulate statement: `\"This function handles all valid user input strings.\"`\n2. **Author 4 Falsification Negative Test Cases**:\n   ```python\n   import pytest\n\n   def test_falsification_edge_cases():\n       # Case 1: Extreme boundary length (10MB string)\n       with pytest.raises((ValueError, MemoryError)):\n           process_input(\"A\" * 10_000_000)\n\n       # Case 2: Null and control characters\n       with pytest.raises(ValueError):\n           process_input(\"\\x00\\r\\n\\t\")\n\n       # Case 3: Unicode RTL override & zero-width spaces\n       assert process_input(\"\\u202E\\u200Bmalicious\") != \"\"\n\n       # Case 4: SQL/Shell metacharacters\n       res = process_input(\"'; DROP TABLE users; --\")\n       assert \"DROP TABLE\" not in res # Must be safely escaped\n   ```\n3. **Execute Adversarial Test Suite**:\n   ```powershell\n   py -3.11 -m pytest tests/test_falsification.py -v\n   ```\n4. **Verification Gate**:\n   *Gate: All negative and malformed inputs are caught gracefully; zero unhandled 500 exceptions.*\n5. **Remediation**:\n   If an adversarial input crashes the process, add strict type boundary assertions at the function entrypoint.",
+      "sha256": "ee8f66ecfcc89e0f487cd4da5d62c0e0be849ef22d40af98d2fb5710c8189802"
     },
     {
       "name": "context-boundary-optimizer",
@@ -890,6 +948,36 @@
       "sha256": "0116b65525b8715b91bb320b217cd4ba9ab69d30cd790fba12d0492afd5cb49a"
     },
     {
+      "name": "graph-rag-hybrid-retriever",
+      "directory": "graph-rag-hybrid-retriever",
+      "path": "skills/graph-rag-hybrid-retriever/SKILL.md",
+      "domain": "research",
+      "academic_domain": "architecture",
+      "description": "Advanced Hybrid Graph-RAG retrieval protocol fusing dense vector similarity, BM25 lexical keyword search, and multi-hop entity graph traversal.",
+      "triggers": [
+        "graph rag hybrid retriever",
+        "hybrid graph retrieval",
+        "entity knowledge graph rag",
+        "combine dense vector and graph rag",
+        "graph based context retrieval",
+        "subgraph retrieval",
+        "entity relation retrieval"
+      ],
+      "tags": [
+        "graph-rag",
+        "knowledge-graph",
+        "hybrid-retrieval",
+        "vectors",
+        "entities",
+        "ragflow",
+        "semantica",
+        "architecture"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Reciprocal Rank Fusion & 1-Hop Graph RAG Retrieval\n\n## Objective\nRetrieve top documents using combined BM25 keyword matching, vector similarity, and 1-hop entity graph expansion.\n\n## Prerequisites\n- SQLite database with FTS5 table, vector embeddings, and an `edges` table `(source, relation, target)`.\n\n## Execution Recipe\n1. **Query Lexical & Vector Top-K**:\n   Fetch top 10 candidates from BM25 and top 10 from vector cosine distance.\n2. **Compute Reciprocal Rank Fusion (RRF)**:\n   ```python\n   def rrf_merge(bm25_ranks, vec_ranks, k=60):\n       scores = {}\n       for rank, doc_id in enumerate(bm25_ranks):\n           scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (k + rank + 1)\n       for rank, doc_id in enumerate(vec_ranks):\n           scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (k + rank + 1)\n       return sorted(scores.items(), key=lambda x: x[1], reverse=True)\n   ```\n3. **Expand Top 3 Candidates via 1-Hop Graph Relational Edges**:\n   ```sql\n   SELECT target, relation FROM entity_edges WHERE source IN (?, ?, ?) LIMIT 10;\n   ```\n4. **Format Context Block**:\n   Assemble primary chunk texts followed by the `[KNOWLEDGE GRAPH RELATIONS]` block.\n5. **Verification Gate**:\n   *Gate: Combined context block contains both raw text and verified entity edges within token budget.*\n6. **Remediation**:\n   If entity expansion exceeds context budget, prune leaf nodes with edge degree = 1.",
+      "sha256": "06f7ed6df88745160ee4264200d02d997113b84d696da1e20b8347fdd1ba6e9c"
+    },
+    {
       "name": "grounded-claim-verification",
       "directory": "grounded-claim-verification",
       "path": "skills/grounded-claim-verification/SKILL.md",
@@ -1107,6 +1195,34 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Project LLMs.txt & LLMs-Full.txt Generation\n\n## Objective\nGenerate standardized `llms.txt` and `llms-full.txt` index manifests from repository markdown documentation.\n\n## Prerequisites\n- Repository documentation directory (`docs/` or root markdown files).\n- Python 3.11+.\n\n## Execution Recipe\n1. **Catalog Markdown Specifications**:\n   ```powershell\n   Get-ChildItem -Path docs/ -Filter \"*.md\" | Select-Object Name, FullName\n   ```\n2. **Compile `llms.txt` Header & Core Links**:\n   Format project summary and annotate each primary document:\n   ```markdown\n   # <Project Name>\n   > <Canonical project mission and invariants>\n\n   ## Core Documentation\n   - [Architecture Spec](docs/ARCHITECTURE-SPEC.md): System map and invariants.\n   - [Harness Guide](docs/AGENTIC-HARNESS.md): Agent runtime and tool protocol.\n   ```\n3. **Assemble `llms-full.txt`**:\n   Concatenate all referenced markdown documents with clear section delimiters into a single offline reference file.\n4. **Verification Gate**:\n   *Gate: `llms.txt` passes markdown lint; all link targets exist on disk.*\n5. **Remediation**:\n   If broken relative links are detected, update paths to match actual file system locations.",
       "sha256": "e24f83b4a645faebab21b87df7e4c384d445969b91d1af253cbe2cf28b9f24ef"
+    },
+    {
+      "name": "loss-aversion-calibrator",
+      "directory": "loss-aversion-calibrator",
+      "path": "skills/loss-aversion-calibrator/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "cognitive",
+      "description": "Cognitive decision-making framework neutralizing asymmetric loss aversion to evaluate architectural refactorings and technological migrations objectively.",
+      "triggers": [
+        "loss aversion calibrator",
+        "calibrate loss aversion",
+        "overcome fear of change",
+        "asymmetric risk evaluation",
+        "loss aversion audit",
+        "bold refactoring decision",
+        "evaluate change risk"
+      ],
+      "tags": [
+        "mental-model",
+        "loss-aversion",
+        "decision-theory",
+        "cognitive",
+        "risk-management",
+        "strategy"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Loss Aversion Audit & Symmetric Expected Value Scoring\n\n## Objective\nNeutralize loss aversion in architectural decisions by calculating symmetric Expected Value and bounding downside risk.\n\n## Prerequisites\n- A proposed high-impact refactoring or technology migration.\n\n## Execution Recipe\n1. **Catalog Prospective Gains & Potential Losses**:\n   - Gains: Execution speedup, test run reduction, code simplification, developer velocity.\n   - Losses: Regression risk, migration effort, transient deployment bugs.\n2. **Compute Symmetric Expected Value (EV)**:\n   ```\n   EV = (Prob_Gain * Value_Gain) - (Prob_Loss * Cost_Loss)\n   ```\n   *Rule: Score probabilities objectively based on automated test coverage.*\n3. **Bound Downside via Two-Way Door Mechanism**:\n   Design an instant rollback mechanism to reduce `Cost_Loss` to near-zero:\n   - Git worktree isolation: `git worktree add ../migration-test`\n   - Config feature flag: `ENABLE_V2_PIPELINE = false`\n4. **Verification Gate**:\n   *Gate: EV > 0 and worst-case recovery time is bounded to < 5 minutes via git or feature flag.*\n5. **Remediation**:\n   If team hesitation persists despite positive EV, run a 24-hour shadow test without altering production traffic.",
+      "sha256": "f5654f046f2740ab4b973834535ae8517789fa0ee0fa8e58e693d80eabca5899"
     },
     {
       "name": "memory-consolidation",
@@ -1751,6 +1867,36 @@
       "sha256": "ced7fad7d8a93f2ae2933eccb916c873555adaeb62e3899b7afbba9eeaffbc72"
     },
     {
+      "name": "smart-web-scraper-graph",
+      "directory": "smart-web-scraper-graph",
+      "path": "skills/smart-web-scraper-graph/SKILL.md",
+      "domain": "research",
+      "academic_domain": "coding",
+      "description": "Declarative AI-driven web scraping protocol converting messy HTML and dynamic DOM trees into strictly typed JSON models without brittle CSS/XPath selectors.",
+      "triggers": [
+        "smart web scraper graph",
+        "ai web scraper",
+        "extract json from web page",
+        "declarative web scraping",
+        "schema based scraper",
+        "scrape without css selectors",
+        "extract structured data from url"
+      ],
+      "tags": [
+        "scraper",
+        "json",
+        "ai-scraping",
+        "dom",
+        "scrapegraph",
+        "firecrawl",
+        "extraction",
+        "coding"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Schema-Driven Web Extraction to JSON\n\n## Objective\nExtract structured JSON data from a target web page using HTML pre-stripping and JSON Schema validation.\n\n## Prerequisites\n- Python 3.11+ with `urllib` and `json`.\n\n## Execution Recipe\n1. **Fetch & Strip Heavy HTML Elements**:\n   ```python\n   import re, urllib.request\n\n   req = urllib.request.Request(url, headers={\"User-Agent\": \"Brahma/1.0\"})\n   html = urllib.request.urlopen(req, timeout=15).read().decode(\"utf-8\", \"ignore\")\n   # Strip scripts, styles, comments, and SVGs:\n   clean = re.sub(r\"<(script|style|svg)[^>]*>.*?</\\1>\", \"\", html, flags=re.DOTALL | re.IGNORECASE)\n   clean = re.sub(r\"<!--.*?-->\", \"\", clean, flags=re.DOTALL)\n   clean_text = re.sub(r\"\\s+\", \" \", re.sub(r\"<[^>]+>\", \" \", clean)).strip()[:10000]\n   ```\n2. **Execute Structured Schema Extraction**:\n   Pass `clean_text` to agent completer with strict JSON Schema:\n   ```json\n   {\n     \"type\": \"object\",\n     \"required\": [\"items\"],\n     \"properties\": {\n       \"items\": {\n         \"type\": \"array\",\n         \"items\": { \"type\": \"object\", \"properties\": { \"title\": {\"type\": \"string\"}, \"price\": {\"type\": \"number\"} } }\n       }\n     }\n   }\n   ```\n3. **Verification Gate**:\n   *Gate: Extracted payload parses as valid JSON and contains $\\ge 1$ item with non-null values.*\n4. **Remediation**:\n   If dynamic JS rendering hides data, fetch through headless browser or query internal API endpoints directly.",
+      "sha256": "7530e1580b8726b65b30da8ba482f4847cd2b5de46083d5c192be993bcd09680"
+    },
+    {
       "name": "sop-builder",
       "directory": "sop-builder",
       "path": "skills/sop-builder/SKILL.md",
@@ -1835,6 +1981,36 @@
       "sha256": "efd114ba1cd2c178f68efa646e84bf18263b4a21be91081cbce30fce6842c584"
     },
     {
+      "name": "structured-grammar-generator",
+      "directory": "structured-grammar-generator",
+      "path": "skills/structured-grammar-generator/SKILL.md",
+      "domain": "coding",
+      "academic_domain": "coding",
+      "description": "Constrained decoding protocol enforcing mathematically guaranteed schema compliance, JSON Schema masking, regex token filtering, and Pydantic validation.",
+      "triggers": [
+        "structured grammar generator",
+        "constrained decoding",
+        "json schema constrained output",
+        "outlines structured generation",
+        "guaranteed json generation",
+        "regex constrained decoding",
+        "finite state machine decoding"
+      ],
+      "tags": [
+        "grammar",
+        "outlines",
+        "json-schema",
+        "constrained-decoding",
+        "pydantic",
+        "regex",
+        "parsing",
+        "coding"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Constrained JSON Generation via Ollama/Llama.cpp Grammars\n\n## Objective\nEnforce strict JSON Schema compliance at model generation time via grammar constraints, eliminating syntax errors.\n\n## Prerequisites\n- Ollama or llama.cpp endpoint with grammar/format support.\n\n## Execution Recipe\n1. **Define Pydantic Schema Model**:\n   ```python\n   from pydantic import BaseModel, Field\n\n   class AgentTaskPlan(BaseModel):\n       task_name: str = Field(..., description=\"Short title\")\n       steps: list[str] = Field(..., min_items=1)\n       estimated_seconds: int = Field(..., ge=1)\n   ```\n2. **Export Canonical JSON Schema**:\n   ```python\n   schema = AgentTaskPlan.model_json_schema()\n   ```\n3. **Dispatch to Ollama with `format` Parameter**:\n   ```python\n   import json, urllib.request\n\n   payload = {\n       \"model\": \"lfm3:1.7b\",\n       \"prompt\": \"Create a task plan for compiling the project.\",\n       \"format\": schema, # Enforces grammar-level token masking\n       \"stream\": False\n   }\n   req = urllib.request.Request(\"http://localhost:11434/api/generate\", data=json.dumps(payload).encode(\"utf-8\"), headers={\"Content-Type\": \"application/json\"})\n   resp = urllib.request.urlopen(req)\n   result_json = json.loads(json.loads(resp.read())[\"response\"])\n   ```\n4. **Verification Gate**:\n   *Gate: `result_json` deserializes into `AgentTaskPlan` without throwing ValidationError.*\n5. **Remediation**:\n   If older model backend lacks dynamic JSON schema support, supply GBNF grammar file explicitly.",
+      "sha256": "b02a14f735e88a80388b38ebc88b637a732c68173745659ef1843e24e1c06d56"
+    },
+    {
       "name": "structured-task-planning",
       "directory": "structured-task-planning",
       "path": "skills/structured-task-planning/SKILL.md",
@@ -1860,6 +2036,64 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Atomic Task Breakdown and Dependency Ordering\n\n## Objective\nConvert a feature request or major refactor into a sequence of isolated, verifiable tasks with zero merge conflicts.\n\n## Prerequisites\n- High-level user requirement or feature proposal.\n- Knowledge of target repository directory layout.\n\n## Execution Recipe\n1. **Catalog Affected Files and Seams**:\n   List all modules, classes, and test suites that will be created or modified.\n2. **Order by Dependency Layer**:\n   Arrange execution into strict topological tiers:\n   - Tier 1: Data schemas, type definitions, and database migrations.\n   - Tier 2: Core domain logic and business functions.\n   - Tier 3: Harness tools, adapters, and API endpoints.\n   - Tier 4: User interfaces, CLI commands, and telemetry.\n3. **Draft the Implementation Checklist**:\n   Format each subtask as:\n   - **Task ID & Name**: e.g., `Task 1: Add UserSession dataclass`.\n   - **Files to Edit**: Explicit relative paths.\n   - **Acceptance Criteria**: Concrete condition (e.g., `assert session.is_valid()`).\n   - **Verification Command**: Exact CLI test command.\n4. **Execution Protocol**:\n   Execute tasks one at a time. Run tests immediately after each task before proceeding to the next.\n5. **Verification Gate**:\n   ```powershell\n   python -m ruff check .\n   python -m pytest tests -q\n   ```\n6. **Remediation**:\n   If a task is blocked by unexpected legacy coupling, halt, extract the blocker into an isolated preparatory task, and re-order the queue.",
       "sha256": "c3025ce3660db0bbeea0c8865fad4e42e35eed571fb399a856a34ecf3f9cd046"
+    },
+    {
+      "name": "sunk-cost-fallacy-detector",
+      "directory": "sunk-cost-fallacy-detector",
+      "path": "skills/sunk-cost-fallacy-detector/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "cognitive",
+      "description": "Cognitive strategic framework auditing software initiatives to detect sunk-cost traps, decouple historical investment from future value, and decommission dead ends.",
+      "triggers": [
+        "sunk cost fallacy detector",
+        "identify sunk costs",
+        "decommission dead feature",
+        "kill doomed initiative",
+        "sunk cost evaluation",
+        "clean abandonment",
+        "cut past losses"
+      ],
+      "tags": [
+        "mental-model",
+        "sunk-cost",
+        "decision-making",
+        "cognitive",
+        "refactoring",
+        "decommissioning",
+        "strategy"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Sunk Cost Evaluation & Clean Subsystem Decommissioning\n\n## Objective\nAudit an underperforming feature or architecture, decouple historical investment, and execute clean codebase deletion.\n\n## Prerequisites\n- Git repository workspace.\n\n## Execution Recipe\n1. **Execute Clean-Sheet Counterfactual Assessment**:\n   Answer two diagnostic questions:\n   - *Q1: If we started this project today with zero lines written, would we choose this path?*\n   - *Q2: Does continuing this path yield higher ROI than alternative investments?*\n   If NO to either, initiate decommissioning.\n2. **Catalog Blast Radius & Usages**:\n   ```powershell\n   rg \"\\b<dead_module_or_symbol>\\b\" --stats\n   ```\n3. **Atomic Purge of Dead Subsystem**:\n   Delete source files, dead tests, and unneeded dependencies in a single refactoring branch:\n   ```powershell\n   git rm -r src/legacy_module/ tests/test_legacy.py\n   ```\n4. **Run Invariant & Test Suite Verification**:\n   ```powershell\n   py -3.11 -m ruff check .\n   py -3.11 -m pytest tests -q\n   ```\n5. **Verification Gate**:\n   *Gate: All tests pass; 0 references remain to the decommissioned module; codebase line count decreases.*\n6. **Remediation**:\n   If removal breaks downstream consumers, introduce a lightweight shim or redirect callers to the canonical alternative.",
+      "sha256": "14e4929ce66e96034fedf4794bf1bd0e16c08657db2ce3b970e079d7a17e693d"
+    },
+    {
+      "name": "survivorship-bias-auditor",
+      "directory": "survivorship-bias-auditor",
+      "path": "skills/survivorship-bias-auditor/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "cognitive",
+      "description": "Cognitive auditing protocol evaluating missing datasets, silent failure populations, and unlogged edge cases in postmortems, benchmarks, and architectures.",
+      "triggers": [
+        "survivorship bias auditor",
+        "audit survivorship bias",
+        "identify missing failures",
+        "missing data in postmortem",
+        "survivor bias check",
+        "analyze silent failures",
+        "detect invisible errors"
+      ],
+      "tags": [
+        "mental-model",
+        "survivorship-bias",
+        "postmortem",
+        "root-cause",
+        "statistics",
+        "telemetry",
+        "cognitive"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Survivorship Bias Telemetry Audit & Silent Failure Detection\n\n## Objective\nDetect silent failure modes that bypass application logging, and implement external watchdog supervision.\n\n## Prerequisites\n- Application process logs and OS telemetry.\n\n## Execution Recipe\n1. **Inspect OS Event Logs for Hard Crashes**:\n   Query Windows Event Log for unhandled application crashes (`Event ID 1000` / `1001`):\n   ```powershell\n   Get-WinEvent -FilterHashtable @{LogName='Application'; Level=1,2} -MaxEvents 20 | Select-Object TimeCreated, Message\n   ```\n2. **Audit Funnel Dropouts**:\n   Compare inbound request counter with completed response counter:\n   ```powershell\n   $started = (Select-String -Path \"app.log\" -Pattern \"TURN_STARTED\").Count\n   $completed = (Select-String -Path \"app.log\" -Pattern \"TURN_COMPLETED\").Count\n   $silent_drops = $started - $completed\n   Write-Host \"Silent unlogged drops: $silent_drops\"\n   ```\n3. **Instrument External Watchdog Probe**:\n   Ensure an out-of-process monitor polls process health every 5 seconds.\n4. **Verification Gate**:\n   *Gate: `silent_drops == 0` or all non-completions accounted for with explicit exit codes.*\n5. **Remediation**:\n   If silent drops exist, register an unhandled exception handler (`sys.excepthook` / `atexit`).",
+      "sha256": "2bd18a575f9a73c541dbdce95ef17f6ba3adb674308e693f92cbe44b54c083bb"
     },
     {
       "name": "system-architecture-diagrammer",
@@ -1932,6 +2166,36 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Test-Driven Development Loop\n\n## Objective\nImplement features using strict test-driven development: write failing test, write minimal passing code, refactor.\n\n## Prerequisites\n- python 3.11+\n- pytest\n\n## Execution Recipe\n1. **Write Failing Test (Red)**:\n   Create `tests/test_<feature>.py` asserting expected input/output behavior.\n2. **Run Test to Verify Failure**:\n   ```powershell\n   python -m pytest tests/test_<feature>.py -q\n   ```\n3. **Implement Minimal Code (Green)**:\n   Write the simplest implementation that satisfies the test assertion.\n4. **Run Test to Verify Success**:\n   ```powershell\n   python -m pytest tests/test_<feature>.py -q\n   ```\n5. **Refactor & Verify**:\n   Clean up code, run full test suite, and check linting:\n   ```powershell\n   python -m ruff check .\n   python -m pytest tests -q\n   ```\n6. **Remediation**:\n   If test passes without code changes, refine assertion to test boundary conditions.",
       "sha256": "13163ca855bb3ec88d3799ee985472eefcf7b38164454e9e812ba3f166a625f1"
+    },
+    {
+      "name": "test-suite-flakiness-hunter",
+      "directory": "test-suite-flakiness-hunter",
+      "path": "skills/test-suite-flakiness-hunter/SKILL.md",
+      "domain": "coding",
+      "academic_domain": "coding",
+      "description": "Diagnostic protocol for hunting, isolating, reproducing, and eliminating flaky and non-deterministic test suite failures caused by race conditions, leaks, and timing.",
+      "triggers": [
+        "test suite flakiness hunter",
+        "fix flaky test",
+        "debug intermittent test failure",
+        "isolate non-deterministic tests",
+        "flakiness hunt",
+        "race condition test",
+        "reproduce flaky failure"
+      ],
+      "tags": [
+        "testing",
+        "flakiness",
+        "pytest",
+        "async",
+        "race-conditions",
+        "test-runner",
+        "debugging",
+        "coding"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Flaky Test Stress Reproduction & Deterministic Repair\n\n## Objective\nReproduce an intermittent test failure, isolate the root cause, and replace arbitrary sleeps with deterministic condition polling.\n\n## Prerequisites\n- Pytest environment (`pytest`).\n\n## Execution Recipe\n1. **Stress-Test Reproduction Loop**:\n   Run target test 50 times in rapid succession to verify failure rate:\n   ```powershell\n   1..50 | ForEach-Object { py -3.11 -m pytest tests/test_target.py -k \"test_flaky_case\" -q } | Select-String \"FAILED\"\n   ```\n2. **Replace `time.sleep()` with Condition Polling**:\n   Refactor hardcoded sleep to a deterministic predicate loop:\n   ```python\n   import time\n\n   def wait_until(predicate, timeout=5.0, interval=0.05):\n       deadline = time.monotonic() + timeout\n       while time.monotonic() < deadline:\n           if predicate():\n               return True\n           time.sleep(interval)\n       raise TimeoutError(\"Condition not met within timeout\")\n   ```\n3. **Verify Random Order Execution**:\n   Run tests with shuffled ordering to ensure zero cross-test global state contamination:\n   ```powershell\n   py -3.11 -m pytest tests/test_target.py --random-order\n   ```\n4. **Verification Gate**:\n   *Gate: Test suite passes 100 consecutive runs with 0 failures.*\n5. **Remediation**:\n   If test still fails intermittently, check unclosed background threads or lingering file locks.",
+      "sha256": "91031d06f6e31ea866c0af067fc79aca73d04489d71c96ae59dde7a737092808"
     },
     {
       "name": "text-to-cad-modeling",
@@ -2016,6 +2280,38 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: 3-Point Triangulation of Technical Claims\n\n## Objective\nRigorously verify an architectural assumption, root-cause diagnosis, or third-party claim using three independent verification channels.\n\n## Prerequisites\n- A critical claim, bug diagnosis, or platform assumption requiring certainty.\n\n## Execution Recipe\n1. **Define the Hypothesis Under Test**:\n   State the exact claim: e.g., \"Windows Store Python 3.12 triggers Access Denied when assigning child processes to Job Objects.\"\n2. **Channel 1 — Static Code & AST Inspection**:\n   Examine source implementation: inspect `agent/process.py` and confirm `AssignProcessToJobObject` calls.\n3. **Channel 2 — Empirical Runtime Execution**:\n   Execute isolated reproduction test and capture exit code:\n   ```powershell\n   python -c \"import ctypes; # simulate assign process to job object\"\n   ```\n   Confirm exact error code (`ERROR_ACCESS_DENIED = 5`).\n4. **Channel 3 — External Documentation / System Behavior**:\n   Cross-reference Microsoft documentation on AppX/MSIX package execution aliases and job object security boundaries.\n5. **Compile Triangulated Proof**:\n   Synthesize all three channels into a conclusive finding with code references.\n6. **Verification Gate**:\n   Do all 3 channels agree without contradictory evidence?\n7. **Remediation**:\n   If channel 1 and channel 2 disagree (e.g. code says one thing, runtime shows another), investigate environment variables or dynamic imports causing divergence.",
       "sha256": "cf19cf05b37ebe6122121419d0b0043c8201c7e1156872941ac0d52cf0339a4f"
+    },
+    {
+      "name": "universal-document-converter",
+      "directory": "universal-document-converter",
+      "path": "skills/universal-document-converter/SKILL.md",
+      "domain": "coding",
+      "academic_domain": "multimodal",
+      "description": "Universal multi-format document conversion pipeline transforming DOCX, PDF, EPUB, PPTX, and XLSX files into clean, structured Markdown.",
+      "triggers": [
+        "universal document converter",
+        "convert document to markdown",
+        "extract markdown from docx",
+        "pdf to clean markdown",
+        "epub to markdown converter",
+        "excel table to markdown",
+        "convert office file to markdown"
+      ],
+      "tags": [
+        "document-converter",
+        "anydoc",
+        "markitdown",
+        "docx",
+        "pdf",
+        "epub",
+        "pptx",
+        "xlsx",
+        "markdown",
+        "multimodal"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Multi-Format Document Conversion to Clean Markdown\n\n## Objective\nConvert binary Office documents (DOCX, PPTX, XLSX), PDFs, and EPUBs into clean GitHub-Flavored Markdown.\n\n## Prerequisites\n- Python 3.11+ with `markitdown` or `pandoc`.\n\n## Execution Recipe\n1. **Convert File via MarkItDown CLI / Python Engine**:\n   ```powershell\n   python -c \"from markitdown import MarkItDown; md = MarkItDown(); result = md.convert('document.docx'); open('output.md', 'w', encoding='utf-8').write(result.text_content)\"\n   ```\n2. **Batch Ingest Across Document Folders**:\n   ```powershell\n   Get-ChildItem -Path \"docs_raw/\" -Include *.pdf, *.docx, *.epub -Recurse | ForEach-Object {\n     $dest = $_.FullName -replace '\\.[^.]+$', '.md'\n     python -c \"from markitdown import MarkItDown; open('$dest', 'w', encoding='utf-8').write(MarkItDown().convert('$($_.FullName)').text_content)\"\n   }\n   ```\n3. **Format Table Alignments & Strip Page Numbers**:\n   Filter out standalone header/footer page numbers and empty lines.\n4. **Verification Gate**:\n   *Gate: Generated markdown file size > 0; headers `#` and pipe tables `|---|` properly rendered.*\n5. **Remediation**:\n   If PDF is an image scan, pass to OCR engine: `python tools/ingest_multimodal.py --ocr <pdf_path>`.",
+      "sha256": "7776158dac5d4012b51fe0a35dad6d946c143728199b9fa1e1b893d3f809269f"
     },
     {
       "name": "web-scraper-stealth",

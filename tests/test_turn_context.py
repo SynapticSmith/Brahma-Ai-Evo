@@ -410,4 +410,68 @@ def test_batch5_skills_triggers_and_cookbooks():
     assert "Epistemic Arbitrage" in arb_skills[0]["cookbook"]
 
 
+def test_batch6_skills_triggers_and_cookbooks():
+    """Verify triggers and cookbooks for Batch 6 skills (81-90)."""
+    # Smart web scraper graph
+    scraper_skills = shortlist_skills("smart web scraper graph to extract json from web page and schema based scraper")
+    assert len(scraper_skills) >= 1
+    assert scraper_skills[0]["name"] == "smart-web-scraper-graph"
+    assert "Schema-Driven" in scraper_skills[0]["cookbook"]
+
+    # Graph RAG hybrid retriever
+    graph_skills = shortlist_skills("graph rag hybrid retriever and hybrid graph retrieval with entity relation retrieval")
+    assert len(graph_skills) >= 1
+    assert graph_skills[0]["name"] == "graph-rag-hybrid-retriever"
+    assert "Reciprocal Rank Fusion" in graph_skills[0]["cookbook"]
+
+    # Structured grammar generator
+    grammar_skills = shortlist_skills("structured grammar generator with constrained decoding and json schema constrained output")
+    assert len(grammar_skills) >= 1
+    assert grammar_skills[0]["name"] == "structured-grammar-generator"
+    assert "Constrained JSON" in grammar_skills[0]["cookbook"]
+
+    # Answering engine synthesizer
+    answer_skills = shortlist_skills("answering engine synthesizer for perplexity style answer with citations")
+    assert len(answer_skills) >= 1
+    assert answer_skills[0]["name"] == "answering-engine-synthesizer"
+    assert "Perplexity-Style" in answer_skills[0]["cookbook"]
+
+    # Universal document converter
+    converter_skills = shortlist_skills("universal document converter to convert document to markdown and pdf to clean markdown")
+    assert len(converter_skills) >= 1
+    assert converter_skills[0]["name"] == "universal-document-converter"
+    assert "Multi-Format" in converter_skills[0]["cookbook"]
+
+    # Test suite flakiness hunter
+    hunter_skills = shortlist_skills("test suite flakiness hunter to fix flaky test and debug intermittent test failure")
+    assert len(hunter_skills) >= 1
+    assert hunter_skills[0]["name"] == "test-suite-flakiness-hunter"
+    assert "Flaky Test" in hunter_skills[0]["cookbook"]
+
+    # Sunk cost fallacy detector
+    sunk_skills = shortlist_skills("sunk cost fallacy detector to identify sunk costs and decommission dead feature")
+    assert len(sunk_skills) >= 1
+    assert sunk_skills[0]["name"] == "sunk-cost-fallacy-detector"
+    assert "Sunk Cost" in sunk_skills[0]["cookbook"]
+
+    # Loss aversion calibrator
+    loss_skills = shortlist_skills("loss aversion calibrator to calibrate loss aversion and overcome fear of change")
+    assert len(loss_skills) >= 1
+    assert loss_skills[0]["name"] == "loss-aversion-calibrator"
+    assert "Loss Aversion" in loss_skills[0]["cookbook"]
+
+    # Survivorship bias auditor
+    survivor_skills = shortlist_skills("survivorship bias auditor to audit survivorship bias and analyze silent failures")
+    assert len(survivor_skills) >= 1
+    assert survivor_skills[0]["name"] == "survivorship-bias-auditor"
+    assert "Survivorship Bias" in survivor_skills[0]["cookbook"]
+
+    # Confirmation bias inversion
+    falsify_skills = shortlist_skills("confirmation bias inversion to hunt for disconfirming evidence and popperian falsification")
+    assert len(falsify_skills) >= 1
+    assert falsify_skills[0]["name"] == "confirmation-bias-inversion"
+    assert "Falsification" in falsify_skills[0]["cookbook"]
+
+
+
 
