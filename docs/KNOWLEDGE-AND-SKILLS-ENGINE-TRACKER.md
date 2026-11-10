@@ -27,7 +27,8 @@
 | **Track 11** | **Inbox Note Promotion Engine & Placement** | 🟢 **COMPLETED** | `tools/promote_inbox.py` (`--list`, `--promote`, `--auto-source`), 89 notes promoted | [x] Passed |
 | **Track 12** | **Portfolio Skills Absorption (Batch 1: 15 Skills)** | 🟢 **COMPLETED** | 15 skills from `superpowers`, `spec-kit`, `procedure-ops`, `cc-thinking-skills`, `SkillOpt` (39 total) | [x] Passed |
 | **Track 13** | **Portfolio Skills Absorption (Batch 2: 16 Skills)** | 🟢 **COMPLETED** | 16 skills from `answer-me-with-html`, `anatomy`, `ffmpeg-skill`, `OfficeCLI`, `code-graph-rag` (55 total) | [x] Passed |
-| **Verification Gate** | **Full Portable Test Suite & Ratchets** | 🟢 **COMPLETED** | 1,594 tests passed, 0 ruff errors, architecture ratchets clean | [x] Passed |
+| **Track 14** | **OpenMonoAgent Playbooks Absorption (7 Skills)** | 🟢 **COMPLETED** | 7 production playbooks: `incident-response`, `db-migrate`, `release`, `pr-ready`, `secret-scan`, `commit`, `blast-radius` (62 total) | [x] Passed |
+| **Verification Gate** | **Full Portable Test Suite & Ratchets** | 🟢 **COMPLETED** | 1,594+ tests passed, 0 ruff errors, architecture ratchets clean | [x] Passed |
 
 ---
 
@@ -144,6 +145,19 @@ flowchart TD
     16. `parkinsons-law-compression` (force radical simplicity by imposing strict artificial turn, budget, and diff caps)
 - [x] Recompile `config/skills_index.json`: **55 verified skills** across 6 academic domains.
 - [x] Unit tests in `tests/test_turn_context.py` validating trigger shortlisting for new skills (10 passed).
+
+### Track 14: OpenMonoAgent Playbooks Absorption (7 Skills -> 62 Total Skills)
+- [x] Absorb 7 production playbooks from `OpenMonoAgent.ai` with progressive disclosure `SKILL.md` and concise executable `cookbook.md` recipes:
+  1. `incident-response` (`OpenMonoAgent.ai` incident-response: calm, 6-step emergency triage, blast radius, health check verification, and blameless postmortem)
+  2. `database-migration-ops` (`OpenMonoAgent.ai` db-migrate: zero-downtime schema migrations, pre-flight backup snapshots, dry-run SQL, reversible down scripts)
+  3. `release-engineering` (`OpenMonoAgent.ai` release: end-to-end production release pipeline, pre-flight checks, changelog compilation, semver bumping, annotated git tagging)
+  4. `pr-readiness` (`OpenMonoAgent.ai` pr-ready: branch pre-flight validation, upstream sync check, local test pass, linter zero-defect check, structured PR summary)
+  5. `secret-and-leak-scanner` (`OpenMonoAgent.ai` file-scan & security guards: automated pre-commit scanning for private keys, high-entropy tokens, cloud credentials)
+  6. `conventional-commit-generator` (`OpenMonoAgent.ai` commit: staged diff analysis, scope inference, SemVer type classification, under-72-char conventional commits)
+  7. `blast-radius-analyzer` (`OpenMonoAgent.ai` code-review-graph: AST caller trees, transitive dependency graphs, downstream risk evaluation prior to breaking changes)
+- [x] Recompile `config/skills_index.json`: **62 verified skills** across 6 academic domains.
+- [x] Unit test in `tests/test_turn_context.py` (`test_openmono_playbooks_triggers_and_cookbooks`): 9/9 passed.
+- [x] Full agent test suite: 614 passed, 4 skipped, 0 failed.
 
 ### Verification Gate (AGENTS.md)
 - [x] `python -m ruff check .` -> All checks passed (0 errors).
