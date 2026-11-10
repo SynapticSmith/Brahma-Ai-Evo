@@ -172,13 +172,13 @@ class TextTurnController:
         self._host = host
 
     def handle_agent_session_command(self, text: str) -> bool:
-        """Handle ``/sessions``, ``/resume``, ``/new``, ``/skills``, ``/cookbook``, and ``/scripts``."""
+        """Handle ``/sessions``, ``/resume``, ``/new``, ``/skills``, ``/cookbook``, ``/scripts``, ``/domains``, and ``/brain``."""
         host = self._host
         parts = (text or "").strip().split()
         if not parts:
             return False
         command = parts[0].lower()
-        if command not in ("/sessions", "/resume", "/new", "/skills", "/cookbook", "/scripts"):
+        if command not in ("/sessions", "/resume", "/new", "/skills", "/cookbook", "/scripts", "/domains", "/brain"):
             return False
 
         from agent import session_bridge as bridge
@@ -187,6 +187,39 @@ class TextTurnController:
         if command == "/new":
             host._agent_session = None
             host.ui.write_log("SYS: New agent session. The next message starts fresh.")
+            return True
+
+        if command == "/domains":
+            from collections import Counter
+            from agent.turn_context import _load_skills_index
+
+            index = _load_skills_index()
+            counts = Counter(s.get("domain", "general") for s in index)
+            host.ui.write_log(f"SYS: Skills by Taxonomy Domain ({len(index)} total):")
+            for dom, count in sorted(counts.items(), key=lambda x: -x[1]):
+                host.ui.write_log(f"SYS:   {dom:<16} {count:>2} skills  (filter with: /skills {dom})")
+            return True
+
+        if command == "/brain":
+            query = " ".join(parts[1:]).strip()
+            if not query:
+                host.ui.write_log("SYS: Usage: /brain <search-query> (e.g. /brain buddhism, /brain fts5)")
+                return True
+            from agent.second_brain import search
+
+            results = search(query, k=5)
+            if not results:
+                host.ui.write_log(f"SYS: No second brain notes found matching '{query}'.")
+                return True
+            host.ui.write_log(f"SYS: Second Brain Search Results for '{query}' ({len(results)} found):")
+            for i, r in enumerate(results, 1):
+                path = r.get("path") or r.get("rel_path") or "note.md"
+                heading = r.get("heading") or "Top"
+                score = r.get("score", 0.0)
+                snippet = (r.get("snippet") or r.get("text") or "").strip().replace("\n", " ")[:120]
+                host.ui.write_log(f"SYS:   [{i}] {path} #{heading} (score: {score:.3f})")
+                if snippet:
+                    host.ui.write_log(f"SYS:       \"{snippet}...\"")
             return True
 
         if command == "/skills":

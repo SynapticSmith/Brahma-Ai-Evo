@@ -260,6 +260,14 @@ def test_slash_commands_skills_and_cookbooks():
     assert controller.handle_agent_session_command("/scripts") is True
     assert any("Verified scripts" in line for line in logs)
 
+    logs.clear()
+    assert controller.handle_agent_session_command("/domains") is True
+    assert any("Taxonomy Domain" in line for line in logs)
+
+    logs.clear()
+    assert controller.handle_agent_session_command("/brain buddhism") is True
+    assert any("Second Brain" in line for line in logs)
+
 
 def test_offline_phrases_are_word_bounded():
     assert routing.any_phrase("go offline", OFFLINE_PHRASES) is True

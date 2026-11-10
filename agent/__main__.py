@@ -556,12 +556,25 @@ def _cmd_subagents(args: argparse.Namespace) -> int:
 def _cmd_skills(args: argparse.Namespace) -> int:
     """Show what discovery found before blaming the model for ignoring a skill."""
     from .skills import discover
+    from .turn_context import _load_skills_index
 
     workspace = Path(args.cwd or os.getcwd()).expanduser().resolve()
     catalog = discover(workspace, with_body=False)
+
+    domain_filter = (getattr(args, "domain", None) or "").strip().lower()
+    skills_index = _load_skills_index()
+    domain_by_name = {s.get("name", "").lower(): s.get("domain", "general") for s in skills_index}
+
+    skills_to_show = catalog.skills
+    if domain_filter:
+        skills_to_show = [s for s in catalog.skills if domain_filter in domain_by_name.get(s.name.lower(), "").lower()]
+
     if args.json:
+        payload = catalog.to_dict()
+        if domain_filter:
+            payload["skills"] = [s.to_dict() for s in skills_to_show]
         sys.stdout.write(
-            json.dumps(catalog.to_dict(), ensure_ascii=False, indent=2) + "\n"
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
         )
         return EXIT_OK
     sys.stdout.write(f"workspace: {workspace}\n")
@@ -570,12 +583,15 @@ def _cmd_skills(args: argparse.Namespace) -> int:
         + (", ".join(str(root) for root in catalog.roots) or "(none)")
         + "\n"
     )
-    if not catalog.skills:
+    if domain_filter:
+        sys.stdout.write(f"filter (domain): {domain_filter}\n")
+    if not skills_to_show:
         sys.stdout.write(
-            "No project skills found. Create .brahma/skills/<name>/SKILL.md.\n"
+            f"No project skills found matching domain '{domain_filter}'.\n" if domain_filter else "No project skills found. Create .brahma/skills/<name>/SKILL.md.\n"
         )
-    for skill in catalog.skills:
-        sys.stdout.write(f"{skill.name:<24} {skill.description}\n    {skill.path}\n")
+    for skill in skills_to_show:
+        domain = domain_by_name.get(skill.name.lower(), "general")
+        sys.stdout.write(f"{skill.name:<32} [{domain}] {skill.description}\n    {skill.path}\n")
     for diagnostic in catalog.diagnostics:
         sys.stderr.write(f"warning: {diagnostic}\n")
     return EXIT_OK
@@ -816,6 +832,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     skills = sub.add_parser("skills", help="List discovered project skills")
     skills.add_argument("--cwd", help="Workspace root used for discovery")
+    skills.add_argument("--domain", help="Filter by taxonomy domain (e.g. cognitive, devops, coding)")
     skills.add_argument("--json", action="store_true")
 
     scripts = sub.add_parser("scripts", help="List verified repository scripts")
