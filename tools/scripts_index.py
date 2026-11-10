@@ -23,8 +23,6 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TOOLS_DIR = REPO_ROOT / "tools"
 SCRIPTS_INDEX_PATH = REPO_ROOT / "config" / "scripts.json"
-SECONDARY_INDEX_DIR = REPO_ROOT / "scripts"
-SECONDARY_INDEX_PATH = SECONDARY_INDEX_DIR / "index.json"
 
 VALID_SAFETY_CLASSES = {
     "read_only",
@@ -236,10 +234,6 @@ def build_index(tools_dir: Path = TOOLS_DIR, output_path: Path = SCRIPTS_INDEX_P
     # Write primary config/scripts.json
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(built_records, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-
-    # Optionally write scripts/index.json if scripts/ dir exists
-    if SECONDARY_INDEX_DIR.is_dir():
-        SECONDARY_INDEX_PATH.write_text(json.dumps(built_records, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     return built_records, updated_count
 

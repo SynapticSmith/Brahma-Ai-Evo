@@ -867,6 +867,82 @@
     "status": "active"
   },
   {
+    "id": "promote-inbox",
+    "name": "promote_inbox.py",
+    "path": "tools/promote_inbox.py",
+    "summary": "Inbox Note Promotion and Taxonomy Placement Engine (§7, §16 Decision 6).",
+    "description": "Inbox Note Promotion and Taxonomy Placement Engine (§7, §16 Decision 6).",
+    "domain": "applied-sciences/engineering-and-technology",
+    "tags": [
+      "cli",
+      "promote-inbox",
+      "tool"
+    ],
+    "invoke": {
+      "argv": [
+        "{python}",
+        "tools/promote_inbox.py"
+      ],
+      "cwd": "repo"
+    },
+    "args": [
+      {
+        "name": "--list",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--promote",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--auto-source",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--domain",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--vault",
+        "type": "string",
+        "default": null
+      },
+      {
+        "name": "--dry-run",
+        "type": "bool",
+        "default": null
+      },
+      {
+        "name": "--json",
+        "type": "bool",
+        "default": null
+      }
+    ],
+    "safety": "destructive",
+    "requires": [
+      "__future__",
+      "agent",
+      "argparse",
+      "datetime",
+      "json",
+      "pathlib",
+      "re",
+      "sys",
+      "typing"
+    ],
+    "exit_codes": {
+      "0": "ok",
+      "2": "invalid input",
+      "4": "verification failed"
+    },
+    "source_sha256": "28a95a6717e1b46e1610a4b8a54068d18481d61bff72afab57af485baf7400e4",
+    "status": "active"
+  },
+  {
     "id": "rotate-release-key",
     "name": "rotate_release_key.py",
     "path": "tools/rotate_release_key.py",
@@ -983,7 +1059,7 @@
       "2": "invalid input",
       "4": "verification failed"
     },
-    "source_sha256": "e6a3431077fb7f77a63f63f8e5e1caec2ae55e08a756b18c2448dac5d2a11897",
+    "source_sha256": "f699a20184f63e9a984d2c2415c4cc64bc6117b58f3d88c01127586213ffb91c",
     "status": "active"
   },
   {
