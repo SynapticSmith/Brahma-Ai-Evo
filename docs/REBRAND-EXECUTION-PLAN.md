@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | **Status** | Execution plan / handoff document. Not an ADR. |
-| **Input** | [`docs/REBRAND-PROPOSITION.md`](REBRAND-PROPOSITION.md) (2026-11-06) |
+| **Input** | [`docs/REBRAND-PROPOSITION.md`](REBRAND-PROPOSITION.md) (2026-11-06), [`docs/VISUAL-REDESIGN-PROPOSAL.md`](VISUAL-REDESIGN-PROPOSAL.md), [`docs/CURRENT-VISUAL-INVENTORY.md`](CURRENT-VISUAL-INVENTORY.md) |
 | **Prepared** | 2026-11-09 |
 | **Target** | Assistant `Abhasa`, product `Abhasa Evo` |
 | **Audience** | The agent or engineer who will execute the rename |
@@ -283,6 +283,7 @@ These must be decided and recorded in `ADR-029` before code changes.
 | **G9** | Repo rename timing | Rename `origin`/GitHub after the first dual-read release; keep redirects | Breaks bookmarks, forks, CI badges |
 | **G10** | Keep `BRAHMA_DPAPI` binary prefix? | **Keep forever** | It is a stored-secret format marker; changing it makes old secrets unreadable |
 | **G11** | What counts as "historical docs" | §2.5 list | Avoids rewriting the audit trail |
+| **G12** | Upstream PR Boundary vs. Sovereign Repo Fork | **Two-Track Strategy: Duplicate to new private repo (`Abhasa-Evo`)** | Upstream (`titechprabhasolutions/Brahma-Ai-Evo`) will reject rebrand PRs. Rebranding in-place blocks surgical upstream PRs. Dual-track allows unconstrained Abhasa development while keeping Brahma branch for upstream contributions. |
 
 ---
 
@@ -794,15 +795,22 @@ store listing decision is final.
 
 ---
 
-## 15. Phase 9 — Assets and visual identity
+## 15. Phase 9 — Assets, Visual Identity & "Abhasa Lumina" Redesign
 
-**Goal:** a mark that says "reflection", not "deity".
+**Goal:** a mark that says "reflection", not "deity", coupled with the full **"Abhasa Lumina"** desktop interface redesign to eliminate the noisy "cyberpunk reactor" aesthetics.
 
+Authoritative Design Specifications:
+- Proposal: [`docs/VISUAL-REDESIGN-PROPOSAL.md`](VISUAL-REDESIGN-PROPOSAL.md)
+- Complete Surface Register: [`docs/CURRENT-VISUAL-INVENTORY.md`](CURRENT-VISUAL-INVENTORY.md) (89 surfaces)
+- Vector Mockup: [`docs/assets/abhasa-lumina-mockup.svg`](assets/abhasa-lumina-mockup.svg)
+- Living Prototype: [`docs/assets/abhasa-lumina-preview.html`](assets/abhasa-lumina-preview.html)
+
+### 15.1 Brand Marks & Asset Delivery
 - [ ] **P9-1** Design the new mark per the naming statement: *Named for the
   light it throws back, not for the light it is.*
-  - a surface/reflection motif,
-  - no deity, no third eye, no mandala-as-halo,
-  - readable at 16 px.
+  - A prismatic surface / reflection diamond motif (`_SVG_DIAMOND`),
+  - No deity, no third eye, no mandala-as-halo,
+  - Crisp readability at 16 px up to 512 px.
 - [ ] **P9-2** Produce:
   - `assets/abhasa_evo_logo.png` (220 px+),
   - `assets/abhasa_evo_logo.ico`,
@@ -818,13 +826,32 @@ store listing decision is final.
   - `installer/*.spec` icon paths,
   - `installer/install_wizard.py`, `uninstall_wizard.py`,
   - `config/create_desktop_shortcut.ps1`,
-  - `core/ui_commandbar.py` mini logo,
+  - `core/ui_commandbar.py` mini logo (replace Hindi `ब्र` with prismatic reflection mark),
   - `core/ui_connectivity.py` shortcut/pin icons.
 - [ ] **P9-5** Add an "About" page definition:
   > *ābhāsa* — a reflection, an appearance; the light a surface throws back.
   > Named for the light it throws back, not for the light it is.
 - [ ] **P9-6** Never abbreviate to "Bhasa" in copy or assets (it reads as
   *bhāṣā*, "language").
+
+### 15.2 The "Abhasa Lumina" Visual Architecture Implementation
+- [ ] **P9-7 Token Engine Seam (`core/theme/tokens.py`)**:
+  - Implement 3-tier design token hierarchy (Primitives, Semantics, Components) with WCAG 2.2 AAA contrast compliance.
+  - Delete lines 86–100 of `ui.py` (the `_new_setStyleSheet` regex string-replacement monkeypatch).
+- [ ] **P9-8 Native SVG Icon Engine (`core/icons.py`)**:
+  - Replace procedural `QPainter` line-drawing in `core/ui_branding.py` with embedded resolution-independent SVG vector icons (Lucide-compatible).
+- [ ] **P9-9 Floating Lumina Command Dock (`core/ui_lumina_dock.py`)**:
+  - Replace legacy `CommandBar` with the 52px pill-shaped Lumina Dock featuring integrated live audio waveform visualizer, PTT mic button, mode selector, and attachment tray.
+- [ ] **P9-10 3-Zone Bento Stage & Telemetry Drawer**:
+  - Restructure central workspace into Bento Stage.
+  - Replace floating 310px wings with docked, collapsible **Context & Telemetry Drawer** (Tabs: `Live Ops`, `Artifacts`, `Vitals`).
+  - Delete 10-second auto-dismiss panic timer (`ui_telemetry.py:294`).
+- [ ] **P9-11 Multi-Engine Avatar Depth Compositing & Zero-Avatar Mode**:
+  - Implement Layered Depth Compositing with asymmetric optical scrim (`linear-gradient(to right, ...)`).
+  - First-class support for `Mode 0: Pure Lumina` (Zero CPU, 0 MB WebEngine RAM, static frosted obsidian).
+  - Background render throttling (60fps active -> 15fps unfocused -> 0fps minimized).
+- [ ] **P9-12 Full 89-Surface Preservation Audit**:
+  - Verify every surface in `docs/CURRENT-VISUAL-INVENTORY.md` (Circuit HUD, Pushup Counter, 3D Globe, Radar, Setup Overlay, Smart Home, Security Console) renders flawlessly under the new Lumina theme.
 
 ---
 
@@ -1006,14 +1033,76 @@ Each PR should be independently green.
    routes, headers, response keys, compatibility tests.
 10. **PR-10 — gateway + dashboard**: mDNS, config paths, certs, tokens.
 11. **PR-11 — Android**: package/classes/resources (respect G8).
-12. **PR-12 — assets + docs + repo**: logo, README, AGENTS, live docs,
-    historical banners, repo rename, announcement.
+12. **PR-12 — assets, Lumina visual redesign & docs**: new marks, `core/theme/tokens.py`,
+    `core/icons.py`, `core/ui_lumina_dock.py`, bento stage restructuring, 89-surface verification,
+    README, AGENTS, live docs, historical banners.
 13. **PR-13 — cleanup** (after one release): remove aliases, old assets, old
     paths, flip audit to blocking.
 
 ---
 
-## 21. Handoff notes
+## 21. Upstream PR Isolation & Sovereign Repository Duplication Runbook
+
+### 21.1 The Strategic Problem: In-Place Rebrand Destroys Upstream PRs
+Our fork (`SynapticSmith/Brahma-Ai-Evo`) tracks the original upstream project (`titechprabhasolutions/Brahma-Ai-Evo`). We have not yet submitted our architectural hardening (Security Phase 0, Agent Harness, Bridge v2, ToolSpec Seams) upstream as Pull Requests.
+
+If we rebrand directly on `main` in this repository:
+1. **Upstream Rejection**: Upstream maintainers will reject any PR containing 4,400+ string changes that rename their project, wipe their brand marks, and claim new trademarks.
+2. **Polluted Git History**: Every subsequent commit will contain Abhasa rebrand artifacts, making cherry-picking bug fixes or security patches back to `titechprabhasolutions` painful and error-prone.
+3. **Unfinished Feature Leakage**: Rebranding while unfinished features are actively in progress forces compromises between brand cleanup and feature stability.
+
+### 21.2 The Two-Track Strategy
+To achieve complete creative and architectural freedom without burning bridges with upstream:
+
+```
+[Upstream: titechprabhasolutions/Brahma-Ai-Evo]
+                    ▲
+                    │ (Surgical, brand-neutral PRs: security, harness, bugfixes)
+                    │
+[Track A: SynapticSmith/Brahma-Ai-Evo] (Remains on "Brahma" brand)
+                    │
+                    ▼ (Clean duplicate / sovereign fork)
+[Track B: SynapticSmith/Abhasa-Evo] (Private Sovereign Repository)
+   ├── Full "Abhasa Lumina" Visual Redesign (tokens, bento stage, floating dock)
+   ├── Unconstrained Brand Sweep (Abhasa.exe, abhasa_api, %LOCALAPPDATA%\Abhasa)
+   └── Rapid Unfinished Feature Development with Zero Upstream Friction
+```
+
+- **Track A (`SynapticSmith/Brahma-Ai-Evo`)**: Remains dedicated to tracking upstream. Used exclusively for cutting surgical, upstream-compatible PR branches (`pr/security-phase-0`, `pr/tool-runtime-boundary`) under the Brahma name.
+- **Track B (`SynapticSmith/Abhasa-Evo`)**: A new, private repository where the complete "Abhasa" rebrand and "Abhasa Lumina" visual redesign are executed with total freedom.
+
+### 21.3 Sovereign Repository Duplication Procedure
+
+Execute these steps in PowerShell to seed the new private repository with full history while decoupling from upstream:
+
+```powershell
+# Step 1: Create a new empty private repository on GitHub
+# Name: SynapticSmith/Abhasa-Evo (Private)
+
+# Step 2: Clone a bare mirror of the current repository
+git clone --mirror https://github.com/SynapticSmith/Brahma-Ai-Evo.git abhasa-temp-mirror
+cd abhasa-temp-mirror
+
+# Step 3: Set push URL to the new sovereign private repository
+git remote set-url --push origin https://github.com/SynapticSmith/Abhasa-Evo.git
+
+# Step 4: Mirror all branches, tags, and commits to the new home
+git push --mirror
+
+# Step 5: Clean up temporary mirror
+cd ..
+Remove-Item -Recurse -Force abhasa-temp-mirror
+
+# Step 6: Clone the new sovereign repository for Abhasa development
+git clone https://github.com/SynapticSmith/Abhasa-Evo.git C:\Users\Admin\Abhasa-Evo
+cd C:\Users\Admin\Abhasa-Evo
+
+# Step 7: On Track B (Abhasa-Evo), proceed to execute PR-1 through PR-13 freely!
+```
+
+---
+
+## 22. Handoff notes
 
 ### What the executing agent must know
 

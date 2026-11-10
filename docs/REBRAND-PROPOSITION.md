@@ -6,7 +6,7 @@
 | **Date** | 2026-11-06 |
 | **Scope** | Assistant name, product name, wake word, repo/binary/brand surfaces |
 | **Authority** | `wiki/library/knowledge/humanities/philosophy/buddhism/` — 57 concept pages derived from Ken Lee Wheeler's five volumes. Treated as source of truth on Pali semantics and Buddhist metaphysics by the owner. |
-| **Related** | `docs/ARCHITECTURE-SPEC.md`, `TRADEMARK.md`, `LICENSE`, `core/identity.py` |
+| **Related** | `docs/ARCHITECTURE-SPEC.md`, `docs/VISUAL-REDESIGN-PROPOSAL.md`, `docs/CURRENT-VISUAL-INVENTORY.md`, `docs/UPSTREAM-INTEGRATION-PLAN.md`, `TRADEMARK.md`, `LICENSE`, `core/identity.py` |
 
 > Wikilinks in this document are vault-relative citations into the Obsidian second brain. They resolve against the vault root, not against this repository.
 
@@ -19,6 +19,10 @@
 **Product name: Abhasa Evo.**
 
 **Naming statement:** *Named for the light it throws back, not for the light it is.*
+
+**Visual design language: Abhasa Lumina.**
+- Moving away from the noisy "quantum reactor" neon-and-gold aesthetic to an optical, reflective instrument: Frosted Obsidian canvas (`#08090C`), micro-blur glass wafers, single-pixel hairline borders (`rgba(255, 255, 255, 0.08)`), and restrained Lumina Cyan (`#00E5FF`) / Reflection Violet (`#8B5CF6`) spectral accents.
+- Full specification documented in [`docs/VISUAL-REDESIGN-PROPOSAL.md`](VISUAL-REDESIGN-PROPOSAL.md).
 
 **Fallbacks, in order:** *Pratibimba* (formal/technical variant), *Dipa* (consumer-friendly variant).
 
@@ -260,9 +264,11 @@ Indicative, not exhaustive. Verified against the current tree on 2026-11-06.
 | Agent instructions | `BRAHMA.md`, `.brahma/` | `ABHASA.md`, `.abhasa/` | Read both during transition |
 | Env vars | `BRAHMA_PRINT_PY`, `BRAHMA_RELEASE_SIGN_KEY` | `ABHASA_*` | Accept the old names for one release |
 | Assets | `brahma_evo_logo.png`, `Brahma_Lite_Logo.ico` | `abhasa_evo_logo.png`, `Abhasa_Lite_Logo.ico` | Redesign the mark: a reflection, not a deity |
+| Visual UI Design | Neon Cyberpunk Reactor (89 legacy surfaces) | Abhasa Lumina (Frosted Obsidian, 3-Tier Tokens, Bento Stage) | Full inventory in `CURRENT-VISUAL-INVENTORY.md` & spec in `VISUAL-REDESIGN-PROPOSAL.md` |
 | License | "BRAHMA AI EVO SOURCE-AVAILABLE…" | "ABHASA EVO…" | Preserve the chain with "formerly Brahma AI Evo" |
 | Trademark | Claims `Brahma`, `Brahma AI`, `Brahma AI - Lite` | Claims `Abhasa`, `Abhasa Evo` | **Must be rewritten in the same commit** — see below |
 | Repo / org / Discord / docs | `titechprabhasolutions/Brahma-Ai-Evo` | New repo name, redirect old URL | Announce the reason, link this doc |
+| Git Repository Architecture | In-tree fork tracking upstream main | Sovereign new private repo (`Abhasa-Evo`) | **Two-Track Strategy** to protect upstream PRs — see §8.3 |
 | README / AGENTS / docs | 30+ files | Sweep | Do not hand-edit generated indexes |
 
 ### 8.1 The trademark trap
@@ -284,6 +290,23 @@ Doing it in the other order creates a window in which the project violates its o
 3. **Alias the Python packages** (`brahma_api` → `abhasa_api`) rather than breaking every import in one commit.
 4. **Announce the reason**, not just the rename. Link this document in the changelog. A rebrand that does not explain itself reads as a whim; this one has an argument.
 
+### 8.3 Upstream PR Isolation & Sovereign Repository Strategy
+
+Our repository (`SynapticSmith/Brahma-Ai-Evo`) tracks an external upstream (`titechprabhasolutions/Brahma-Ai-Evo`). We have not yet submitted our accumulated architectural improvements (Security Phase 0, Agent Harness, ToolSpec Seams, Bridge v2) upstream as a Pull Request.
+
+**The Upstream PR Conflict:**
+Upstream maintainers (`titechprabhasolutions`) will **never** accept a monolithic PR that rebrands their project to "Abhasa", replaces their logo assets, and modifies their core trademarks. Upstream PRs must be strictly scoped to bug fixes, security hardening, and engine features under the original "Brahma" identity.
+
+Simultaneously, attempting to rebrand directly on our `main` branch while developing unfinished features will irreparably pollute git history and make surgical upstream PRs nearly impossible.
+
+**The Two-Track Strategy:**
+1. **Track A (Upstream Contribution Track — `Brahma-Ai-Evo`)**:
+   - Keep `SynapticSmith/Brahma-Ai-Evo` intact on its current baseline.
+   - Use dedicated feature branches (`pr/security-phase-0`, `pr/agent-runtime-spec`) to submit upstream PRs to `titechprabhasolutions` under the upstream-compliant name.
+2. **Track B (Abhasa Sovereign Track — `Abhasa-Evo`)**:
+   - Duplicate or cleanly fork this repository into a dedicated new private repository (e.g. `SynapticSmith/Abhasa-Evo`).
+   - Execute the rebrand freely without constraints: rename binaries (`Abhasa.exe`), registry keys, user data paths (`%LOCALAPPDATA%\Abhasa`), packages (`abhasa_api`), and ship the "Abhasa Lumina" visual redesign with zero upstream friction.
+
 ---
 
 ## 9. What this is not
@@ -302,10 +325,11 @@ Doing it in the other order creates a window in which the project violates its o
 | D1 | Approve the primary assistant name | **Abhasa** |
 | D2 | Approve the product name | **Abhasa Evo** |
 | D3 | Approve the fallback order | **Pratibimba**, then **Dipa** |
-| D4 | Authorize an ADR recording the decision and the migration sequence | Yes — `ADR-022-REBRAND-TO-ABHASA.md` |
+| D4 | Authorize an ADR recording the decision and the migration sequence | Yes — `ADR-029-REBRAND-TO-ABHASA.md` |
 | D5 | Approve the one-release dual-read compatibility window | Yes |
 | D6 | Approve the `TRADEMARK.md` and `LICENSE` amendments before the name ships | Yes — blocking |
 | D7 | Commission trademark and domain clearance for the chosen name | Yes — not asserted in this document |
+| D8 | Approve the Sovereign Repository Strategy (Track B duplicate/fork to `Abhasa-Evo` for unrestricted rebrand) | **Yes** — isolates upstream PRs |
 
 ---
 

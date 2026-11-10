@@ -1,0 +1,346 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 900" width="100%" height="100%">
+  <defs>
+    <!-- Gradients & Filters -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#060709" />
+      <stop offset="50%" stop-color="#08090C" />
+      <stop offset="100%" stop-color="#0B0D12" />
+    </linearGradient>
+
+    <linearGradient id="luminaCyanGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00E5FF" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#8B5CF6" stop-opacity="0.6" />
+    </linearGradient>
+
+    <radialGradient id="luminaGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#00E5FF" stop-opacity="0.25" />
+      <stop offset="40%" stop-color="#8B5CF6" stop-opacity="0.10" />
+      <stop offset="100%" stop-color="#08090C" stop-opacity="0" />
+    </radialGradient>
+
+    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#141822" stop-opacity="0.85" />
+      <stop offset="100%" stop-color="#0F1219" stop-opacity="0.90" />
+    </linearGradient>
+
+    <linearGradient id="dockGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#181D28" stop-opacity="0.92" />
+      <stop offset="100%" stop-color="#10131A" stop-opacity="0.96" />
+    </linearGradient>
+
+    <filter id="glassBlur" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="12" />
+    </filter>
+
+    <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <style>
+    .font-sans { font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif; }
+    .font-mono { font-family: 'JetBrains Mono', 'Cascadia Code', monospace; }
+  </style>
+
+  <!-- Root Canvas Background -->
+  <rect width="1440" height="900" fill="url(#bgGrad)" />
+
+  <!-- Ambient Optical Glow Behind Stage -->
+  <ellipse cx="680" cy="220" rx="360" ry="220" fill="url(#luminaGlow)" />
+
+  <!-- ================================================================= -->
+  <!-- ZONE 0: WINDOW FRAME & AMBIENT HEADER (Height: 52px)              -->
+  <!-- ================================================================= -->
+  <g id="header-bar">
+    <rect x="0" y="0" width="1440" height="52" fill="#0A0C10" fill-opacity="0.85" />
+    <line x1="0" y1="52" x2="1440" y2="52" stroke="#FFFFFF" stroke-opacity="0.06" stroke-width="1" />
+
+    <!-- Brand / Glyph -->
+    <g transform="translate(24, 14)">
+      <!-- Prismatic Diamond Mark -->
+      <polygon points="12,2 22,12 12,22 2,12" fill="none" stroke="#00E5FF" stroke-width="2" />
+      <polygon points="12,6 18,12 12,18 6,12" fill="#8B5CF6" fill-opacity="0.4" />
+      <text x="32" y="16" fill="#F8FAFD" class="font-sans" font-size="14" font-weight="700" letter-spacing="0.5">ABHASA</text>
+      <text x="96" y="16" fill="#00E5FF" class="font-sans" font-size="11" font-weight="600" letter-spacing="1">EVO</text>
+    </g>
+
+    <!-- Session & Model Badge -->
+    <g transform="translate(180, 12)">
+      <rect x="0" y="0" width="230" height="28" rx="14" fill="#141822" stroke="#FFFFFF" stroke-opacity="0.08" />
+      <circle cx="14" cy="14" r="4" fill="#10B981" />
+      <text x="26" y="18" fill="#C5D0E0" class="font-sans" font-size="11" font-weight="500">gemini-live-2.0 · text/voice</text>
+    </g>
+
+    <!-- Center Ambient Audio Pill -->
+    <g transform="translate(580, 14)">
+      <rect x="0" y="0" width="180" height="24" rx="12" fill="#10131A" stroke="#00E5FF" stroke-opacity="0.2" />
+      <text x="14" y="16" fill="#00E5FF" class="font-mono" font-size="9" font-weight="600" letter-spacing="0.5">AUDIO REALTIME</text>
+      <!-- Mini Waveform -->
+      <line x1="110" y1="12" x2="110" y2="12" stroke="#00E5FF" stroke-width="2" stroke-linecap="round" />
+      <line x1="118" y1="8" x2="118" y2="16" stroke="#00E5FF" stroke-width="2" stroke-linecap="round" />
+      <line x1="126" y1="5" x2="126" y2="19" stroke="#00E5FF" stroke-width="2" stroke-linecap="round" />
+      <line x1="134" y1="9" x2="134" y2="15" stroke="#00E5FF" stroke-width="2" stroke-linecap="round" />
+      <line x1="142" y1="11" x2="142" y2="13" stroke="#00E5FF" stroke-width="2" stroke-linecap="round" />
+      <line x1="150" y1="7" x2="150" y2="17" stroke="#00E5FF" stroke-width="2" stroke-linecap="round" />
+    </g>
+
+    <!-- Window Controls -->
+    <g transform="translate(1360, 16)">
+      <circle cx="12" cy="10" r="6" fill="#333C4E" />
+      <circle cx="34" cy="10" r="6" fill="#333C4E" />
+      <circle cx="56" cy="10" r="6" fill="#EF4444" fill-opacity="0.8" />
+    </g>
+  </g>
+
+  <!-- ================================================================= -->
+  <!-- ZONE 1: SLIM NAVIGATION RAIL (Width: 64px)                        -->
+  <!-- ================================================================= -->
+  <g id="nav-rail" transform="translate(0, 52)">
+    <rect width="64" height="848" fill="#08090C" fill-opacity="0.95" />
+    <line x1="64" y1="0" x2="64" y2="848" stroke="#FFFFFF" stroke-opacity="0.04" stroke-width="1" />
+
+    <!-- Nav Item 1 (Chat / Active) -->
+    <rect x="12" y="20" width="40" height="40" rx="12" fill="#00E5FF" fill-opacity="0.12" stroke="#00E5FF" stroke-opacity="0.4" />
+    <circle cx="32" cy="40" r="7" fill="none" stroke="#00E5FF" stroke-width="1.8" />
+    <circle cx="32" cy="40" r="2" fill="#00E5FF" />
+
+    <!-- Nav Item 2 (Workspace / Files) -->
+    <g transform="translate(22, 84)" stroke="#8C9BB4" stroke-width="1.8" fill="none" stroke-linecap="round">
+      <rect x="0" y="0" width="20" height="18" rx="3" />
+      <line x1="0" y1="6" x2="20" y2="6" />
+    </g>
+
+    <!-- Nav Item 3 (Skills & Tools) -->
+    <g transform="translate(22, 140)" stroke="#8C9BB4" stroke-width="1.8" fill="none" stroke-linecap="round">
+      <polygon points="10,0 20,6 20,18 10,24 0,18 0,6" />
+    </g>
+
+    <!-- Nav Item 4 (Telemetry / Metrics) -->
+    <g transform="translate(22, 196)" stroke="#8C9BB4" stroke-width="1.8" fill="none" stroke-linecap="round">
+      <line x1="2" y1="18" x2="2" y2="10" />
+      <line x1="8" y1="18" x2="8" y2="4" />
+      <line x1="14" y1="18" x2="14" y2="14" />
+      <line x1="20" y1="18" x2="20" y2="7" />
+    </g>
+
+    <!-- Bottom Settings Item -->
+    <g transform="translate(22, 780)" stroke="#8C9BB4" stroke-width="1.8" fill="none" stroke-linecap="round">
+      <circle cx="10" cy="10" r="7" />
+      <circle cx="10" cy="10" r="2" />
+    </g>
+  </g>
+
+  <!-- ================================================================= -->
+  <!-- ZONE 2: MAIN WORKSPACE & BENTO STAGE (Width: 976px)               -->
+  <!-- ================================================================= -->
+  <g id="main-stage" transform="translate(84, 72)">
+    
+    <!-- Bento Cell 1: Optical Core Portal / Avatar Resonator (Compact Top) -->
+    <g id="optical-core" transform="translate(0, 0)">
+      <rect width="976" height="130" rx="16" fill="url(#cardGrad)" stroke="#FFFFFF" stroke-opacity="0.06" stroke-width="1" />
+      
+      <!-- Subtle Orb / Lens Graphic -->
+      <g transform="translate(488, 55)">
+        <circle cx="0" cy="0" r="38" fill="none" stroke="#00E5FF" stroke-opacity="0.15" stroke-dasharray="3 3" />
+        <circle cx="0" cy="0" r="28" fill="none" stroke="#8B5CF6" stroke-opacity="0.3" stroke-width="1.5" />
+        <circle cx="0" cy="0" r="16" fill="url(#luminaCyanGrad)" opacity="0.8" filter="url(#softGlow)" />
+        <circle cx="0" cy="0" r="6" fill="#FFFFFF" />
+      </g>
+
+      <text x="488" y="108" text-anchor="middle" fill="#C5D0E0" class="font-sans" font-size="12" font-weight="500" letter-spacing="0.5">
+        Abhasa Core Active · Standing by for voice or instruction
+      </text>
+    </g>
+
+    <!-- Bento Cell 2: Conversation Stream -->
+    <g id="conversation-feed" transform="translate(0, 146)">
+      
+      <!-- User Message Card -->
+      <g transform="translate(180, 0)">
+        <rect width="796" height="64" rx="14" fill="#181D26" stroke="#FFFFFF" stroke-opacity="0.08" stroke-width="1" />
+        <circle cx="28" cy="32" r="14" fill="#333C4E" />
+        <text x="28" y="36" text-anchor="middle" fill="#FFFFFF" class="font-sans" font-size="11" font-weight="700">U</text>
+        <text x="56" y="28" fill="#F8FAFD" class="font-sans" font-size="13" font-weight="500">
+          Refactor the theme system into a 3-tier token architecture and audit WCAG contrast.
+        </text>
+        <text x="56" y="46" fill="#8C9BB4" class="font-mono" font-size="10">12:04:18 PM</text>
+      </g>
+
+      <!-- Abhasa Assistant Response Card -->
+      <g transform="translate(0, 78)">
+        <rect width="976" height="420" rx="16" fill="url(#cardGrad)" stroke="#FFFFFF" stroke-opacity="0.08" stroke-width="1" />
+        <!-- Top Hairline Cyan Accent -->
+        <rect x="32" y="0" width="140" height="2" fill="url(#luminaCyanGrad)" rx="1" />
+
+        <!-- Header -->
+        <g transform="translate(24, 20)">
+          <polygon points="10,2 18,10 10,18 2,10" fill="none" stroke="#00E5FF" stroke-width="1.8" />
+          <text x="28" y="14" fill="#F8FAFD" class="font-sans" font-size="14" font-weight="600">Abhasa</text>
+          <rect x="86" y="2" width="68" height="18" rx="9" fill="#00E5FF" fill-opacity="0.1" />
+          <text x="120" y="14" text-anchor="middle" fill="#00E5FF" class="font-sans" font-size="10" font-weight="600">ASSISTANT</text>
+          <text x="910" y="14" text-anchor="end" fill="#8C9BB4" class="font-mono" font-size="11">12:04:22 PM</text>
+        </g>
+
+        <!-- Response Body -->
+        <text x="24" y="68" fill="#E9EFF8" class="font-sans" font-size="13" font-weight="400">
+          I have audited the color space and structured the redesign into Primitive, Semantic, and Component token tiers.
+        </text>
+
+        <!-- Tool Run Banner Accordion -->
+        <g transform="translate(24, 90)">
+          <rect width="928" height="48" rx="8" fill="#0B0E14" stroke="#00E5FF" stroke-opacity="0.25" stroke-width="1" />
+          <circle cx="20" cy="24" r="5" fill="#10B981" />
+          <text x="34" y="28" fill="#00E5FF" class="font-mono" font-size="11" font-weight="600">EXEC</text>
+          <text x="74" y="28" fill="#C5D0E0" class="font-mono" font-size="11">agent.runtime.execute: <tspan fill="#F8FAFD">read_file("core/ui_theme.py")</tspan></text>
+          <rect x="840" y="14" width="72" height="20" rx="4" fill="#10B981" fill-opacity="0.15" />
+          <text x="876" y="28" text-anchor="middle" fill="#10B981" class="font-mono" font-size="10" font-weight="600">✓ 24ms</text>
+        </g>
+
+        <!-- Code Block Container -->
+        <g transform="translate(24, 150)">
+          <rect width="928" height="230" rx="10" fill="#06070A" stroke="#FFFFFF" stroke-opacity="0.06" stroke-width="1" />
+          <!-- Code Block Header -->
+          <rect width="928" height="32" rx="10" fill="#0D1017" />
+          <text x="18" y="20" fill="#8C9BB4" class="font-mono" font-size="11">core/theme/tokens.py</text>
+          <text x="906" y="20" text-anchor="end" fill="#00E5FF" class="font-sans" font-size="11">Copy Code</text>
+
+          <!-- Syntax Highlighted Code Lines -->
+          <text x="18" y="58" fill="#8B5CF6" class="font-mono" font-size="12">class <tspan fill="#00E5FF">LuminaTokens</tspan>:</text>
+          <text x="36" y="80" fill="#8C9BB4" class="font-mono" font-size="12"># Primitive Color Scales (WCAG AAA Compliant)</text>
+          <text x="36" y="102" fill="#E9EFF8" class="font-mono" font-size="12">SURFACE_CANVAS  = <tspan fill="#10B981">"#08090C"</tspan></text>
+          <text x="36" y="124" fill="#E9EFF8" class="font-mono" font-size="12">SURFACE_GLASS   = <tspan fill="#10B981">"rgba(14, 17, 23, 0.72)"</tspan></text>
+          <text x="36" y="146" fill="#E9EFF8" class="font-mono" font-size="12">ACCENT_CYAN     = <tspan fill="#10B981">"#00E5FF"</tspan>  <tspan fill="#5A667E"># 13.2:1 contrast ratio</tspan></text>
+          <text x="36" y="168" fill="#E9EFF8" class="font-mono" font-size="12">TEXT_PRIMARY    = <tspan fill="#10B981">"#F8FAFD"</tspan>  <tspan fill="#5A667E"># 17.8:1 contrast ratio</tspan></text>
+          <text x="36" y="194" fill="#8B5CF6" class="font-mono" font-size="12">    @classmethod</text>
+          <text x="36" y="214" fill="#E9EFF8" class="font-mono" font-size="12">    def <tspan fill="#3B82F6">get_qss</tspan>(cls) -> str: ...</text>
+        </g>
+      </g>
+    </g>
+
+    <!-- =============================================================== -->
+    <!-- COMPONENT: FLOATING LUMINA DOCK (Height: 52px, Centered)         -->
+    <!-- =============================================================== -->
+    <g id="lumina-dock" transform="translate(138, 594)">
+      <!-- Drop Shadow -->
+      <rect x="2" y="8" width="700" height="52" rx="26" fill="#000000" fill-opacity="0.4" filter="url(#glassBlur)" />
+      
+      <!-- Dock Frame -->
+      <rect width="700" height="52" rx="26" fill="url(#dockGrad)" stroke="#00E5FF" stroke-opacity="0.35" stroke-width="1.2" />
+
+      <!-- Attach Button -->
+      <g transform="translate(12, 10)">
+        <rect width="32" height="32" rx="16" fill="#FFFFFF" fill-opacity="0.04" />
+        <path d="M16 10 v12 M10 16 h12" stroke="#C5D0E0" stroke-width="1.8" stroke-linecap="round" />
+      </g>
+
+      <!-- Command Prompt Text Input -->
+      <text x="60" y="32" fill="#8C9BB4" class="font-sans" font-size="13">
+        Ask Abhasa anything or type a tool command... <tspan fill="#5A667E">(Enter to run)</tspan>
+      </text>
+
+      <!-- Live Voice Waveform Visualizer -->
+      <g transform="translate(540, 16)">
+        <line x1="0" y1="10" x2="0" y2="10" stroke="#00E5FF" stroke-width="2.5" stroke-linecap="round" />
+        <line x1="6" y1="6" x2="6" y2="14" stroke="#00E5FF" stroke-width="2.5" stroke-linecap="round" />
+        <line x1="12" y1="2" x2="12" y2="18" stroke="#00E5FF" stroke-width="2.5" stroke-linecap="round" />
+        <line x1="18" y1="7" x2="18" y2="13" stroke="#00E5FF" stroke-width="2.5" stroke-linecap="round" />
+        <line x1="24" y1="9" x2="24" y2="11" stroke="#00E5FF" stroke-width="2.5" stroke-linecap="round" />
+      </g>
+
+      <!-- Mic PTT Button -->
+      <g transform="translate(584, 8)">
+        <rect width="36" height="36" rx="18" fill="#00E5FF" fill-opacity="0.15" stroke="#00E5FF" stroke-opacity="0.6" />
+        <rect x="14" y="10" width="8" height="12" rx="4" fill="#00E5FF" />
+        <path d="M11 16 a7 7 0 0 0 14 0" fill="none" stroke="#00E5FF" stroke-width="1.6" stroke-linecap="round" />
+        <line x1="18" y1="23" x2="18" y2="26" stroke="#00E5FF" stroke-width="1.6" />
+      </g>
+
+      <!-- Send Action Button -->
+      <g transform="translate(632, 8)">
+        <rect width="56" height="36" rx="18" fill="url(#luminaCyanGrad)" />
+        <path d="M654 26 L666 26 M662 21 L667 26 L662 31" fill="none" stroke="#08090C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+      </g>
+    </g>
+  </g>
+
+  <!-- ================================================================= -->
+  <!-- ZONE 3: COLLAPSIBLE TELEMETRY & CONTEXT DRAWER (Width: 340px)     -->
+  <!-- ================================================================= -->
+  <g id="telemetry-drawer" transform="translate(1080, 52)">
+    <rect width="360" height="848" fill="#0B0D12" fill-opacity="0.95" />
+    <line x1="0" y1="0" x2="0" y2="848" stroke="#FFFFFF" stroke-opacity="0.06" stroke-width="1" />
+
+    <!-- Drawer Header Tabs -->
+    <g transform="translate(20, 20)">
+      <rect width="320" height="36" rx="10" fill="#141822" />
+      
+      <!-- Tab 1: Live Ops (Active) -->
+      <rect x="4" y="4" width="104" height="28" rx="7" fill="#00E5FF" fill-opacity="0.18" stroke="#00E5FF" stroke-opacity="0.4" />
+      <text x="56" y="22" text-anchor="middle" fill="#00E5FF" class="font-sans" font-size="11" font-weight="600">Live Ops (3)</text>
+
+      <!-- Tab 2: Artifacts -->
+      <text x="160" y="22" text-anchor="middle" fill="#8C9BB4" class="font-sans" font-size="11" font-weight="500">Artifacts (1)</text>
+
+      <!-- Tab 3: Vitals -->
+      <text x="268" y="22" text-anchor="middle" fill="#8C9BB4" class="font-sans" font-size="11" font-weight="500">Vitals</text>
+    </g>
+
+    <!-- Operation Stream Entries -->
+    <g transform="translate(20, 76)">
+      <text x="0" y="14" fill="#C5D0E0" class="font-mono" font-size="10" font-weight="600" letter-spacing="1">LIVE TELEMETRY STREAM</text>
+
+      <!-- Ops Entry 1 -->
+      <g transform="translate(0, 26)">
+        <rect width="320" height="74" rx="10" fill="#121620" stroke="#FFFFFF" stroke-opacity="0.05" />
+        <circle cx="16" cy="20" r="4" fill="#10B981" />
+        <text x="28" y="24" fill="#F8FAFD" class="font-mono" font-size="11" font-weight="600">run_command</text>
+        <rect x="254" y="12" width="54" height="18" rx="4" fill="#10B981" fill-opacity="0.12" />
+        <text x="281" y="24" text-anchor="middle" fill="#10B981" class="font-mono" font-size="9" font-weight="600">EXIT 0</text>
+        <text x="28" y="44" fill="#8C9BB4" class="font-mono" font-size="10">git status -s</text>
+        <text x="28" y="62" fill="#5A667E" class="font-mono" font-size="9">duration: 18ms · captured stdout</text>
+      </g>
+
+      <!-- Ops Entry 2 -->
+      <g transform="translate(0, 110)">
+        <rect width="320" height="74" rx="10" fill="#121620" stroke="#FFFFFF" stroke-opacity="0.05" />
+        <circle cx="16" cy="20" r="4" fill="#10B981" />
+        <text x="28" y="24" fill="#F8FAFD" class="font-mono" font-size="11" font-weight="600">read_file</text>
+        <rect x="254" y="12" width="54" height="18" rx="4" fill="#10B981" fill-opacity="0.12" />
+        <text x="281" y="24" text-anchor="middle" fill="#10B981" class="font-mono" font-size="9" font-weight="600">1.2 KB</text>
+        <text x="28" y="44" fill="#8C9BB4" class="font-mono" font-size="10">core/ui_theme.py</text>
+        <text x="28" y="62" fill="#5A667E" class="font-mono" font-size="9">duration: 6ms · cached hit</text>
+      </g>
+
+      <!-- Ops Entry 3 (In-Flight Action) -->
+      <g transform="translate(0, 194)">
+        <rect width="320" height="82" rx="10" fill="#141926" stroke="#00E5FF" stroke-opacity="0.35" />
+        <circle cx="16" cy="20" r="4" fill="#00E5FF" filter="url(#softGlow)" />
+        <text x="28" y="24" fill="#00E5FF" class="font-mono" font-size="11" font-weight="600">run_subagent</text>
+        <rect x="238" y="12" width="70" height="18" rx="4" fill="#00E5FF" fill-opacity="0.15" />
+        <text x="273" y="24" text-anchor="middle" fill="#00E5FF" class="font-mono" font-size="9" font-weight="600">RUNNING</text>
+        <text x="28" y="44" fill="#F8FAFD" class="font-mono" font-size="10">visual-design-master</text>
+        <text x="28" y="64" fill="#8C9BB4" class="font-mono" font-size="9">WCAG AAA Color &amp; Token Audit...</text>
+      </g>
+    </g>
+
+    <!-- Bottom System Vitals Panel -->
+    <g transform="translate(20, 680)">
+      <rect width="320" height="136" rx="12" fill="#121620" stroke="#FFFFFF" stroke-opacity="0.06" />
+      <text x="16" y="26" fill="#C5D0E0" class="font-sans" font-size="11" font-weight="600">SYSTEM TELEMETRY</text>
+
+      <!-- CPU Bar -->
+      <text x="16" y="52" fill="#8C9BB4" class="font-mono" font-size="10">CPU 14%</text>
+      <rect x="80" y="44" width="224" height="8" rx="4" fill="#1E2432" />
+      <rect x="80" y="44" width="31" height="8" rx="4" fill="#00E5FF" />
+
+      <!-- RAM Bar -->
+      <text x="16" y="80" fill="#8C9BB4" class="font-mono" font-size="10">RAM 38%</text>
+      <rect x="80" y="72" width="224" height="8" rx="4" fill="#1E2432" />
+      <rect x="80" y="72" width="85" height="8" rx="4" fill="#8B5CF6" />
+
+      <!-- Latency & Model Throughput -->
+      <text x="16" y="112" fill="#8C9BB4" class="font-mono" font-size="10">API LATENCY: <tspan fill="#10B981">142ms</tspan> · TOKENS: <tspan fill="#F8FAFD">42 t/s</tspan></text>
+    </g>
+  </g>
+</svg>

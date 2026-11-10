@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Abhasa Lumina — Living Design System Prototype & Avatar Engine Simulator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    /* =====================================================================
+       DESIGN TOKEN ARCHITECTURE (Layer 1 & Layer 2)
+       ===================================================================== */
+    :root {
+      /* Primitives: Obsidian & Canvas */
+      --obsidian-950: #050608;
+      --obsidian-900: #08090C;
+      --obsidian-800: #0E1117;
+      --obsidian-700: #151921;
+      --obsidian-600: #1E2430;
+
+      /* Primitives: Slate & Content */
+      --slate-500: #333C4E;
+      --slate-400: #5A667E;
+      --slate-300: #8C9BB4;
+      --slate-200: #C5D0E0;
+      --slate-100: #E9EFF8;
+      --slate-50:  #F8FAFD;
+
+      /* Primitives: Lumina Spectral Accents */
+      --cyan-500: #00E5FF;
+      --cyan-400: #33EBFF;
+      --cyan-alpha-10: rgba(0, 229, 255, 0.10);
+      --cyan-alpha-20: rgba(0, 229, 255, 0.20);
+      --cyan-alpha-35: rgba(0, 229, 255, 0.35);
+
+      --violet-500: #8B5CF6;
+      --violet-400: #A78BFA;
+      --violet-alpha-15: rgba(139, 92, 246, 0.15);
+
+      --signal-success: #10B981;
+      --signal-warning: #F59E0B;
+      --signal-danger:  #EF4444;
+
+      /* User Configurable Dashboard Transparency (Default: 0.78) */
+      --card-opacity: 0.78;
+      --card-blur: 20px;
+
+      /* Dynamic Semantic Surfaces derived from opacity */
+      --surface-canvas: var(--obsidian-900);
+      --surface-card:   rgba(21, 25, 33, var(--card-opacity));
+      --surface-dock:   rgba(16, 20, 28, 0.92);
+      --border-subtle:  rgba(255, 255, 255, 0.08);
+      --border-hover:   rgba(255, 255, 255, 0.18);
+      --border-active:  var(--cyan-alpha-35);
+
+      /* Typography */
+      --text-primary:   var(--slate-50);
+      --text-secondary: var(--slate-200);
+      --text-muted:     var(--slate-300);
+
+      /* Dynamic State Color */
+      --theme-state-accent: var(--cyan-500);
+      --theme-state-glow:   var(--cyan-alpha-20);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+
+    body {
+      background-color: var(--surface-canvas);
+      color: var(--text-primary);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 13px;
+      line-height: 1.5;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    .font-mono {
+      font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
+    }
+
+    /* =====================================================================
+       LAYER 0: BACKGROUND AVATAR & OPTICAL SCRIM SYSTEM
+       ===================================================================== */
+    .avatar-background-layer {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 1;
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      overflow: hidden;
+      transition: opacity 0.5s ease;
+    }
+
+    /* Optical Depth Scrim: Keeps left side readable, allows right/center to see avatar */
+    .depth-scrim {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(to right, 
+        rgba(8, 9, 12, 0.95) 0%, 
+        rgba(8, 9, 12, 0.70) 45%, 
+        rgba(8, 9, 12, 0.20) 80%,
+        rgba(8, 9, 12, 0.50) 100%);
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    /* Ambient Radial Glow */
+    .ambient-glow {
+      position: absolute;
+      top: 15%;
+      right: 20%;
+      width: 500px;
+      height: 500px;
+      border-radius: 50%;
+      background: radial-gradient(circle, var(--theme-state-glow) 0%, transparent 70%);
+      z-index: 1;
+      transition: background 0.4s ease;
+    }
+
+    /* Avatar Canvas Mockup */
+    .avatar-viewport {
+      position: absolute;
+      right: 15%;
+      top: 12%;
+      width: 480px;
+      height: 720px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 1;
+      transition: all 0.5s ease;
+    }
+
+    /* Avatar Mode 1: Quantum Core (Three.js Resonator) */
+    .avatar-quantum-core {
+      width: 320px;
+      height: 320px;
+      border-radius: 50%;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: coreRotate 20s infinite linear;
+    }
+
+    .core-ring {
+      position: absolute;
+      border-radius: 50%;
+      border: 1px dashed var(--theme-state-accent);
+      opacity: 0.35;
+    }
+    .ring-1 { width: 300px; height: 300px; animation: spinReverse 14s infinite linear; }
+    .ring-2 { width: 220px; height: 220px; border-style: solid; border-color: var(--violet-500); opacity: 0.4; }
+    .ring-3 { width: 140px; height: 140px; border: 2px solid #FFFFFF; opacity: 0.8; box-shadow: 0 0 30px var(--theme-state-accent); }
+    .core-orb {
+      width: 70px;
+      height: 70px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #FFFFFF 0%, var(--theme-state-accent) 50%, #060709 95%);
+      box-shadow: 0 0 45px var(--theme-state-accent);
+      animation: orbPulse 3s infinite ease-in-out;
+    }
+
+    /* Avatar Mode 2: Live2D Character (Stylized 2D Vector) */
+    .avatar-live2d {
+      width: 360px;
+      height: 560px;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      animation: avatarBreathe 4s infinite ease-in-out;
+    }
+
+    /* Avatar Mode 3: VRM 3D Humanoid */
+    .avatar-vrm {
+      width: 400px;
+      height: 600px;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      animation: avatarBreathe 3.5s infinite ease-in-out;
+    }
+
+    /* Avatar Mode 0: Zero Avatar (Hidden) */
+    .avatar-none {
+      display: none !important;
+    }
+
+    @keyframes spinReverse {
+      from { transform: rotate(360deg); }
+      to { transform: rotate(0deg); }
+    }
+    @keyframes coreRotate {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    @keyframes orbPulse {
+      0%, 100% { transform: scale(1); filter: brightness(1); }
+      50% { transform: scale(1.08); filter: brightness(1.3); }
+    }
+    @keyframes avatarBreathe {
+      0%, 100% { transform: translateY(0) scale(1); }
+      50% { transform: translateY(-8px) scale(1.01); }
+    }
+
+    /* =====================================================================
+       LAYER 1: TRANSLUCENT FOREGROUND DASHBOARD
+       ===================================================================== */
+    .dashboard-root {
+      position: relative;
+      z-index: 10;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header Bar (48px) */
+    header {
+      height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      background: rgba(10, 12, 16, 0.88);
+      border-bottom: 1px solid var(--border-subtle);
+      backdrop-filter: blur(16px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 14px;
+      letter-spacing: 0.5px;
+    }
+
+    .brand-mark {
+      width: 22px;
+      height: 22px;
+      border: 2px solid var(--theme-state-accent);
+      transform: rotate(45deg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: border-color 0.3s ease;
+    }
+
+    .brand-mark-inner {
+      width: 8px;
+      height: 8px;
+      background: var(--violet-500);
+      opacity: 0.7;
+    }
+
+    .model-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--obsidian-700);
+      border: 1px solid var(--border-subtle);
+      padding: 4px 14px;
+      border-radius: 20px;
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--signal-success);
+      box-shadow: 0 0 8px var(--signal-success);
+    }
+
+    .avatar-quick-chip {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 3px 10px;
+      font-size: 11px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Main App Shell */
+    .app-shell {
+      display: flex;
+      flex: 1;
+      height: calc(100vh - 48px - 44px);
+      overflow: hidden;
+    }
+
+    /* Slim Nav Rail (60px) */
+    .nav-rail {
+      width: 60px;
+      background: rgba(8, 9, 12, 0.92);
+      border-right: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px 0;
+      gap: 16px;
+      backdrop-filter: blur(16px);
+    }
+
+    .nav-btn {
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      background: transparent;
+      border: 1px solid transparent;
+    }
+
+    .nav-btn:hover {
+      background: var(--obsidian-700);
+      color: var(--text-primary);
+    }
+
+    .nav-btn.active {
+      background: var(--cyan-alpha-10);
+      border-color: var(--cyan-alpha-35);
+      color: var(--cyan-500);
+    }
+
+    /* Center Stage Area with Glass Translucency */
+    .center-stage {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 20px 32px 0 32px;
+      position: relative;
+      overflow-y: auto;
+    }
+
+    /* Translucent Message Stream */
+    .chat-stream {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding-bottom: 96px;
+    }
+
+    .msg-card {
+      border-radius: 14px;
+      padding: 16px 20px;
+      position: relative;
+      max-width: 90%;
+      backdrop-filter: blur(var(--card-blur));
+      -webkit-backdrop-filter: blur(var(--card-blur));
+      transition: background 0.3s ease, border-color 0.3s ease;
+    }
+
+    .msg-user {
+      align-self: flex-end;
+      background: rgba(24, 29, 38, var(--card-opacity));
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px 16px 4px 16px;
+    }
+
+    .msg-assistant {
+      align-self: flex-start;
+      background: var(--surface-card);
+      border: 1px solid var(--border-subtle);
+      border-top: 1px solid rgba(0, 229, 255, 0.40);
+      border-radius: 16px 16px 16px 4px;
+      width: 100%;
+      max-width: 100%;
+    }
+
+    .msg-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .msg-author {
+      font-weight: 600;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .msg-chip {
+      background: var(--cyan-alpha-10);
+      color: var(--cyan-500);
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+
+    /* Tool Run Accordion Banner */
+    .tool-banner {
+      background: rgba(11, 14, 20, 0.90);
+      border: 1px solid var(--cyan-alpha-35);
+      border-radius: 8px;
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 12px 0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      backdrop-filter: blur(8px);
+    }
+
+    .tool-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .tool-tag {
+      color: var(--cyan-500);
+      font-weight: 600;
+    }
+
+    .tool-badge-ok {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--signal-success);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+
+    /* Floating Lumina Command Dock */
+    .dock-container {
+      position: absolute;
+      bottom: 20px;
+      left: 32px;
+      right: 32px;
+      display: flex;
+      justify-content: center;
+      pointer-events: none;
+      z-index: 20;
+    }
+
+    .lumina-dock {
+      width: 100%;
+      max-width: 720px;
+      height: 52px;
+      background: var(--surface-dock);
+      border: 1px solid var(--theme-state-accent);
+      border-radius: 26px;
+      display: flex;
+      align-items: center;
+      padding: 0 8px 0 16px;
+      gap: 12px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), 0 0 15px var(--theme-state-glow);
+      pointer-events: auto;
+      backdrop-filter: blur(24px);
+      transition: all 0.3s ease;
+    }
+
+    .dock-attach-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    .dock-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: var(--text-primary);
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      outline: none;
+    }
+
+    .dock-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    /* Live Waveform */
+    .waveform-visualizer {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      height: 20px;
+      padding: 0 6px;
+    }
+
+    .wave-bar {
+      width: 2.5px;
+      background: var(--theme-state-accent);
+      border-radius: 2px;
+      transition: height 0.15s ease;
+    }
+
+    .dock-mic-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 18px;
+      background: var(--cyan-alpha-10);
+      border: 1px solid var(--theme-state-accent);
+      color: var(--theme-state-accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    .dock-send-btn {
+      height: 36px;
+      padding: 0 18px;
+      border-radius: 18px;
+      background: var(--theme-state-accent);
+      color: #08090C;
+      font-weight: 600;
+      font-size: 12px;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Right Telemetry Drawer */
+    .telemetry-drawer {
+      width: 340px;
+      background: rgba(11, 13, 18, 0.90);
+      border-left: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      padding: 16px;
+      gap: 16px;
+      backdrop-filter: blur(20px);
+    }
+
+    .drawer-tabs {
+      display: flex;
+      background: var(--obsidian-700);
+      border-radius: 10px;
+      padding: 3px;
+    }
+
+    .drawer-tab {
+      flex: 1;
+      text-align: center;
+      padding: 6px 0;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    .drawer-tab.active {
+      background: var(--cyan-alpha-20);
+      color: var(--cyan-500);
+      border: 1px solid var(--cyan-alpha-35);
+    }
+
+    .ops-card {
+      background: var(--obsidian-700);
+      border: 1px solid var(--border-subtle);
+      border-radius: 10px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+    }
+
+    /* Resource Meter Chip */
+    .resource-stat-box {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    /* =====================================================================
+       CONTROL STRIP: AVATAR ENGINE & TRANSPARENCY SIMULATOR
+       ===================================================================== */
+    footer.control-strip {
+      height: 44px;
+      background: #040507;
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      font-size: 11px;
+      color: var(--text-muted);
+      z-index: 30;
+    }
+
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .control-btn {
+      background: var(--obsidian-700);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+      padding: 4px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 500;
+      transition: all 0.2s ease;
+    }
+
+    .control-btn:hover, .control-btn.active {
+      background: var(--cyan-alpha-20);
+      color: var(--cyan-500);
+      border-color: var(--cyan-500);
+    }
+
+    .opacity-slider {
+      width: 110px;
+      height: 4px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ================================================================= -->
+  <!-- LAYER 0: BACKGROUND AVATAR & DEPTH SCRIM                          -->
+  <!-- ================================================================= -->
+  <div class="avatar-background-layer" id="avatarBgLayer">
+    <div class="ambient-glow" id="ambientGlow"></div>
+    <div class="depth-scrim"></div>
+
+    <div class="avatar-viewport" id="avatarViewport">
+      <!-- 1. Quantum Core (Active by default) -->
+      <div class="avatar-quantum-core" id="avatarCore">
+        <div class="core-ring ring-1"></div>
+        <div class="core-ring ring-2"></div>
+        <div class="core-ring ring-3"></div>
+        <div class="core-orb"></div>
+      </div>
+
+      <!-- 2. Live2D Character (Hidden initially) -->
+      <div class="avatar-live2d" id="avatarLive2D" style="display: none;">
+        <svg viewBox="0 0 300 480" width="300" height="480">
+          <ellipse cx="150" cy="180" rx="65" ry="85" fill="#FFE0BD" opacity="0.9" />
+          <path d="M75 160 Q150 80 225 160 Q240 280 210 320 Q90 320 60 280 Z" fill="#2A2F3D" opacity="0.85" />
+          <ellipse cx="125" cy="175" rx="8" ry="12" fill="#00E5FF" />
+          <ellipse cx="175" cy="175" rx="8" ry="12" fill="#00E5FF" />
+          <path d="M140 215 Q150 225 160 215" stroke="#D36B78" stroke-width="3" fill="none" />
+          <!-- Torso -->
+          <path d="M100 270 L200 270 L220 480 L80 480 Z" fill="#1C212D" stroke="rgba(0,229,255,0.3)" />
+          <path d="M130 270 L150 310 L170 270" fill="none" stroke="#00E5FF" stroke-width="2" />
+        </svg>
+      </div>
+
+      <!-- 3. VRM 3D Humanoid (Hidden initially) -->
+      <div class="avatar-vrm" id="avatarVRM" style="display: none;">
+        <svg viewBox="0 0 320 520" width="320" height="520">
+          <defs>
+            <linearGradient id="vrmGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#8B5CF6" stop-opacity="0.9" />
+              <stop offset="100%" stop-color="#00E5FF" stop-opacity="0.7" />
+            </linearGradient>
+          </defs>
+          <!-- Humanoid Wireframe / Shaded Form -->
+          <ellipse cx="160" cy="120" rx="50" ry="60" fill="url(#vrmGrad)" />
+          <path d="M110 180 L210 180 L230 360 L90 360 Z" fill="#1A202C" stroke="#8B5CF6" stroke-width="2" />
+          <line x1="80" y1="200" x2="110" y2="185" stroke="#00E5FF" stroke-width="12" stroke-linecap="round" />
+          <line x1="240" y1="200" x2="210" y2="185" stroke="#00E5FF" stroke-width="12" stroke-linecap="round" />
+          <path d="M115 360 L105 520 M205 360 L215 520" stroke="#2D3748" stroke-width="18" stroke-linecap="round" />
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- LAYER 1: DASHBOARD USER INTERFACE                                 -->
+  <!-- ================================================================= -->
+  <div class="dashboard-root">
+    
+    <!-- HEADER BAR -->
+    <header>
+      <div class="brand">
+        <div class="brand-mark"><div class="brand-mark-inner"></div></div>
+        <span>ABHASA <span style="color: var(--theme-state-accent); font-weight: 600;">EVO</span></span>
+      </div>
+
+      <div class="model-badge">
+        <div class="status-dot"></div>
+        <span>gemini-live-2.0 · bidirectional voice/text</span>
+      </div>
+
+      <div class="control-group">
+        <div class="avatar-quick-chip" id="avatarStatusBadge">
+          <span>Engine:</span> <strong style="color: var(--cyan-500);" id="activeEngineLabel">3D Quantum Core</strong>
+        </div>
+        <span style="color: var(--text-muted); font-size: 11px;">Latency: <strong style="color: var(--signal-success);">138ms</strong></span>
+      </div>
+    </header>
+
+    <!-- MAIN SHELL -->
+    <div class="app-shell">
+      
+      <!-- NAV RAIL -->
+      <nav class="nav-rail">
+        <div class="nav-btn active" title="Active Chat">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </div>
+        <div class="nav-btn" title="Workspace & Files">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        </div>
+        <div class="nav-btn" title="Skills & Tools">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+        </div>
+        <div class="nav-btn" title="Avatar Settings" style="margin-top: auto;" onclick="document.getElementById('avatarSelectorSection').scrollIntoView()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="7" r="4"/><path d="M5.5 21a8.38 8.38 0 0 1 13 0"/></svg>
+        </div>
+      </nav>
+
+      <!-- CENTER STAGE (Translucent Glass) -->
+      <main class="center-stage">
+        
+        <div class="chat-stream">
+          
+          <!-- User Bubble -->
+          <div class="msg-card msg-user">
+            <div class="msg-header">
+              <span class="msg-author">You</span>
+              <span>12:04 PM</span>
+            </div>
+            <div>Can we have the avatar rendering in the background while the dashboard remains partially transparent?</div>
+          </div>
+
+          <!-- Assistant Card -->
+          <div class="msg-card msg-assistant">
+            <div class="msg-header">
+              <span class="msg-author">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--theme-state-accent)" stroke-width="2.5"><polygon points="12 2 22 12 12 22 2 12"/></svg>
+                Abhasa Assistant
+                <span class="msg-chip">DEPTH COMPOSITED</span>
+              </span>
+              <span>12:04 PM</span>
+            </div>
+            <p>Yes, absolutely. By implementing <strong>Layered Depth Compositing</strong>, your avatar lives in the background plane (Layer 0) while the dashboard floats in front (Layer 1) with adaptive glass transparency and backdrop micro-blur.</p>
+
+            <!-- Tool Run Accordion -->
+            <div class="tool-banner">
+              <div class="tool-left">
+                <span class="tool-tag">AVATAR ENGINE</span>
+                <span>core.avatar_runtime: <strong style="color: var(--text-primary);" id="activeRuntimeDisplay">three_reactive (3D Quantum Core)</strong></span>
+              </div>
+              <span class="tool-badge-ok">ACTIVE</span>
+            </div>
+
+            <p style="margin-top: 10px; color: var(--text-secondary);">
+              Notice how the avatar breathes and pulses behind this message card. The directional optical scrim guarantees text readability remains at a certified <strong>WCAG AAA contrast ratio (&ge; 7:1)</strong>, while the dashboard opacity slider allows you to dial in your preferred glass translucency.
+            </p>
+          </div>
+
+        </div>
+
+        <!-- FLOATING COMMAND DOCK -->
+        <div class="dock-container">
+          <div class="lumina-dock">
+            <button class="dock-attach-btn" title="Add Attachment">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+            </button>
+
+            <input type="text" class="dock-input" placeholder="Ask Abhasa anything or type a command... (Enter to run)">
+
+            <div class="waveform-visualizer">
+              <div class="wave-bar" style="height: 6px;"></div>
+              <div class="wave-bar" style="height: 14px;"></div>
+              <div class="wave-bar" style="height: 18px;"></div>
+              <div class="wave-bar" style="height: 10px;"></div>
+              <div class="wave-bar" style="height: 4px;"></div>
+            </div>
+
+            <button class="dock-mic-btn" title="Gemini Live Voice Toggle">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
+            </button>
+
+            <button class="dock-send-btn">
+              <span>Run</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </button>
+          </div>
+        </div>
+      </main>
+
+      <!-- RIGHT TELEMETRY DRAWER -->
+      <aside class="telemetry-drawer">
+        <div class="drawer-tabs">
+          <div class="drawer-tab active">Live Ops (3)</div>
+          <div class="drawer-tab">Artifacts (1)</div>
+          <div class="drawer-tab">Vitals</div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <div class="ops-card">
+            <div style="display: flex; justify-content: space-between;">
+              <span style="font-weight: 600; color: var(--text-primary);">avatar_runtime</span>
+              <span style="color: var(--signal-success); font-size: 10px; font-weight: 600;">MOUNTED</span>
+            </div>
+            <span style="color: var(--text-secondary);">probe(): OK</span>
+            <span style="color: var(--text-muted); font-size: 10px;">transport: webengine</span>
+          </div>
+
+          <!-- Hardware Resource Impact Card -->
+          <div class="resource-stat-box" id="resourceImpactBox">
+            <span style="color: var(--cyan-500); font-weight: 600;">ACTIVE RESOURCE PROFILE</span>
+            <div style="display: flex; justify-content: space-between; margin-top: 4px;">
+              <span>CPU RENDER LOOP:</span>
+              <strong style="color: #F8FAFD;" id="cpuMetricLabel">0.8% (GPU Shaded)</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span>RAM ALLOCATION:</span>
+              <strong style="color: #F8FAFD;" id="ramMetricLabel">~140 MB (Three.js)</strong>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top: auto; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 8px; font-size: 11px; color: var(--text-muted);">
+          <span>💡 <strong>Tip:</strong> Selecting <em>"No Avatar"</em> suspends Chromium's render loop, saving up to 320 MB of RAM for headless workflows.</span>
+        </div>
+      </aside>
+
+    </div>
+
+    <!-- CONTROL STRIP (Interactive Avatar & Transparency Simulator) -->
+    <footer class="control-strip">
+      <div class="control-group">
+        <span>Avatar Engine:</span>
+        <button class="control-btn" onclick="setAvatarEngine('none')">⊘ No Avatar (Pure Glass)</button>
+        <button class="control-btn active" onclick="setAvatarEngine('core')">◉ 3D Quantum Core</button>
+        <button class="control-btn" onclick="setAvatarEngine('live2d')">👤 Live2D</button>
+        <button class="control-btn" onclick="setAvatarEngine('vrm')">🧍 VRM 3D</button>
+      </div>
+
+      <div class="control-group">
+        <span>Dashboard Opacity:</span>
+        <input type="range" class="opacity-slider" id="opacitySlider" min="30" max="95" value="78" oninput="setDashboardOpacity(this.value)">
+        <span id="opacityDisplay" style="font-family: 'JetBrains Mono', monospace; width: 32px;">78%</span>
+      </div>
+
+      <div class="control-group">
+        <span>State:</span>
+        <button class="control-btn active" onclick="setState('LISTENING', '#00E5FF', 'rgba(0, 229, 255, 0.20)')">LISTENING</button>
+        <button class="control-btn" onclick="setState('THINKING', '#8B5CF6', 'rgba(139, 92, 246, 0.20)')">THINKING</button>
+        <button class="control-btn" onclick="setState('SPEAKING', '#10B981', 'rgba(16, 185, 129, 0.20)')">SPEAKING</button>
+      </div>
+    </footer>
+
+  </div>
+
+  <script>
+    // Live Waveform Animator
+    const waveBars = document.querySelectorAll('.wave-bar');
+    setInterval(() => {
+      waveBars.forEach(bar => {
+        const height = Math.floor(Math.random() * 16) + 3;
+        bar.style.height = `${height}px`;
+      });
+    }, 120);
+
+    // Dashboard Transparency Slider
+    function setDashboardOpacity(val) {
+      const opacity = val / 100.0;
+      document.documentElement.style.setProperty('--card-opacity', opacity);
+      document.getElementById('opacityDisplay').innerText = `${val}%`;
+    }
+
+    // Avatar Engine Switcher
+    function setAvatarEngine(engine) {
+      document.querySelectorAll('.control-strip .control-btn').forEach(b => {
+        if (['⊘ No Avatar (Pure Glass)', '◉ 3D Quantum Core', '👤 Live2D', '🧍 VRM 3D'].includes(b.innerText)) {
+          b.classList.remove('active');
+        }
+      });
+      event.target.classList.add('active');
+
+      const core = document.getElementById('avatarCore');
+      const live2d = document.getElementById('avatarLive2D');
+      const vrm = document.getElementById('avatarVRM');
+      const bgLayer = document.getElementById('avatarBgLayer');
+      const engineLabel = document.getElementById('activeEngineLabel');
+      const runtimeDisplay = document.getElementById('activeRuntimeDisplay');
+      const cpuMetric = document.getElementById('cpuMetricLabel');
+      const ramMetric = document.getElementById('ramMetricLabel');
+
+      // Reset
+      core.style.display = 'none';
+      live2d.style.display = 'none';
+      vrm.style.display = 'none';
+      bgLayer.style.opacity = '1';
+
+      if (engine === 'none') {
+        bgLayer.style.opacity = '0';
+        engineLabel.innerText = 'Disabled (Headless)';
+        runtimeDisplay.innerText = 'None (0% CPU / Zero WebEngine)';
+        cpuMetric.innerText = '0.0% (Render Loop Suspended)';
+        ramMetric.innerText = '0 MB (Freed)';
+      } else if (engine === 'core') {
+        core.style.display = 'flex';
+        engineLabel.innerText = '3D Quantum Core';
+        runtimeDisplay.innerText = 'three_reactive (3D Quantum Core)';
+        cpuMetric.innerText = '0.8% (GPU Bloom Shaded)';
+        ramMetric.innerText = '~140 MB (Three.js)';
+      } else if (engine === 'live2d') {
+        live2d.style.display = 'flex';
+        engineLabel.innerText = 'Live2D Cubism';
+        runtimeDisplay.innerText = 'live2d (Cubism 2D Model)';
+        cpuMetric.innerText = '1.2% (Mesh Deformation)';
+        ramMetric.innerText = '~190 MB (Cubism SDK)';
+      } else if (engine === 'vrm') {
+        vrm.style.display = 'flex';
+        engineLabel.innerText = 'VRM 3D Humanoid';
+        runtimeDisplay.innerText = 'vrm (MToon / SpringBones)';
+        cpuMetric.innerText = '1.8% (Bones & Morphs)';
+        ramMetric.innerText = '~260 MB (GLTF / VRM)';
+      }
+    }
+
+    // State Transition Controller
+    function setState(stateName, colorHex, glowHex) {
+      document.documentElement.style.setProperty('--theme-state-accent', colorHex);
+      document.documentElement.style.setProperty('--theme-state-glow', glowHex);
+    }
+  </script>
+</body>
+</html>
