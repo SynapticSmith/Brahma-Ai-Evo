@@ -219,3 +219,33 @@ def test_absorbed_skills_triggers_and_cookbooks():
     distill_skills = shortlist_skills("distill a skill from this API documentation guide")
     assert len(distill_skills) >= 1
     assert distill_skills[0]["name"] == "skill-distillation"
+
+    # HTML Answer / Dashboard
+    html_skills = shortlist_skills("answer me with html report and single page dashboard")
+    assert len(html_skills) >= 1
+    assert html_skills[0]["name"] == "answer-me-with-html"
+
+    # FFmpeg media processing
+    media_skills = shortlist_skills("ffmpeg media processing to transcode video and normalize audio")
+    assert len(media_skills) >= 1
+    assert media_skills[0]["name"] == "ffmpeg-media-processing"
+
+    # Code graph navigator
+    graph_skills = shortlist_skills("code graph navigator to trace call hierarchy and find callers")
+    assert len(graph_skills) >= 1
+    assert graph_skills[0]["name"] == "code-graph-navigator"
+
+    # Circle of competence
+    competence_skills = shortlist_skills("circle of competence to know what you dont know")
+    assert len(competence_skills) >= 1
+    assert competence_skills[0]["name"] == "circle-of-competence"
+
+    # Root-cause fishbone
+    fishbone_skills = shortlist_skills("root cause fishbone ishikawa diagram for failure analysis")
+    assert len(fishbone_skills) >= 1
+    assert fishbone_skills[0]["name"] == "root-cause-fishbone"
+
+    # Parkinson's law compression
+    parkinson_skills = shortlist_skills("parkinsons law compression to force radical simplicity")
+    assert len(parkinson_skills) >= 1
+    assert parkinson_skills[0]["name"] == "parkinsons-law-compression"

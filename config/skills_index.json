@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "total_skills": 39,
+  "total_skills": 55,
   "domains": [
     "architecture",
     "coding",
@@ -39,6 +39,60 @@
       "sha256": "c848b7c7ea8b880ba1e75ab021be19d277ca899758e0b3dfac05957b99b21480"
     },
     {
+      "name": "agent-reach-scraper",
+      "directory": "agent-reach-scraper",
+      "path": "skills/agent-reach-scraper/SKILL.md",
+      "domain": "research",
+      "academic_domain": "research",
+      "description": "Zero-API-fee multi-platform scraper to search and harvest public web content across GitHub, Reddit, documentation portals, and community sites.",
+      "triggers": [
+        "agent reach scraper",
+        "scrape public web",
+        "search reddit and github",
+        "zero api search",
+        "harvest documentation"
+      ],
+      "tags": [
+        "scraper",
+        "search",
+        "web",
+        "github",
+        "reddit",
+        "public-data",
+        "research"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Zero-Fee Multi-Platform Web Research\n\n## Objective\nSearch public platforms (GitHub repos/issues, documentation sites, technical forums) for solutions to obscure error codes or library bugs.\n\n## Prerequisites\n- Standard Python `urllib` or `httpx` with network permission enabled.\n\n## Execution Recipe\n1. **Target GitHub Public Search**:\n   Query GitHub's public search API for code snippets or issues:\n   ```python\n   import urllib.request, json\n   url = f\"https://api.github.com/search/issues?q={query}+in:title,body\"\n   req = urllib.request.Request(url, headers={\"User-Agent\": \"Brahma-Agent-Research/1.0\"})\n   with urllib.request.urlopen(req) as resp:\n       data = json.loads(resp.read().decode())\n   ```\n2. **Fetch Documentation Pages via Markdown Extractor**:\n   Retrieve target technical doc and convert to clean text using `trafilatura` or `markitdown`.\n3. **Filter and Deduplicate**:\n   Discard navigation bars, cookie banners, and footer text; extract core code solutions.\n4. **Verification Gate**:\n   - Relevant answers cite original URLs and timestamps.\n   - Total network payload < 1 MB.\n5. **Remediation**:\n   If 429 Too Many Requests is returned, apply exponential backoff (wait 2s $\\rightarrow$ 4s $\\rightarrow$ 8s) or switch to local second-brain cache.",
+      "sha256": "2334c347c5d153ffb331adfec570eabed0216b317b3abe21fb611f312f014162"
+    },
+    {
+      "name": "answer-me-with-html",
+      "directory": "answer-me-with-html",
+      "path": "skills/answer-me-with-html/SKILL.md",
+      "domain": "coding",
+      "academic_domain": "coding",
+      "description": "Generate standalone, self-contained single-page responsive HTML dashboards and reports with interactive styling and zero external dependencies.",
+      "triggers": [
+        "answer me with html",
+        "generate html report",
+        "single page dashboard",
+        "interactive html answer",
+        "visual html summary",
+        "render html page"
+      ],
+      "tags": [
+        "html",
+        "visualization",
+        "dashboard",
+        "report",
+        "single-page",
+        "self-contained"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Compiling Self-Contained HTML Reports\n\n## Objective\nGenerate a complete, single-file interactive HTML dashboard answering a complex user query or presenting system metrics.\n\n## Prerequisites\n- Structured data, metrics, or comparison table to visualize.\n\n## Execution Recipe\n1. **Initialize Self-Contained Template**:\n   Start with standard responsive HTML5 skeleton with inline system-font CSS.\n2. **Embed Key Metric Cards**:\n   Create a top-level grid of summary metric cards (Totals, Success Rates, Latency).\n3. **Format Data as Interactive Table**:\n   Render rows inside `<table id=\"report-table\">`. Include a quick search filter:\n   ```html\n   <input type=\"text\" id=\"filter\" placeholder=\"Filter rows...\" onkeyup=\"filterTable()\">\n   ```\n4. **Embed Pure CSS / Canvas Visuals**:\n   Use CSS bar charts or SVG sparklines for trend comparisons.\n5. **Write File to Disk**:\n   Save to target path (e.g. `reports/<topic>-dashboard.html`).\n6. **Verification Gate**:\n   Open in browser or verify file syntax:\n   - File opens completely offline with 0 broken asset requests.\n   - Total file size $\\le$ 200 KB.\n7. **Remediation**:\n   If icons or external fonts break, replace with inline SVGs and system font stack (`system-ui, -apple-system, sans-serif`).",
+      "sha256": "d1698974286c55e27ad03758ba679ae7893e4e86a4fbbcb4a139bc15477ed756"
+    },
+    {
       "name": "api-mock-engine",
       "directory": "api-mock-engine",
       "path": "skills/api-mock-engine/SKILL.md",
@@ -55,6 +109,32 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: API Mock Engine & Fixture Generation\n\n## Objective\nGenerate a lightweight, standalone mock API server with simulated endpoints and synthetic data fixtures.\n\n## Prerequisites\n- python 3.11+\n- fastapi or flask (optional for server launch)\n\n## Execution Recipe\n1. **Define Schema**:\n   Identify required endpoints, methods (GET/POST), status codes, and JSON response models.\n2. **Scaffold Mock Server Script**:\n   Generate `mock_server.py` using standard library `http.server` or `FastAPI`:\n   ```powershell\n   python -c \"import http.server, socketserver; print('Ready to serve mock endpoints')\"\n   ```\n3. **Generate Synthetic Fixtures**:\n   Create mock JSON data payloads under `tests/fixtures/<endpoint>.json`.\n4. **Verification Gate**:\n   Query the mock endpoint with a curl or python script:\n   ```powershell\n   python -c \"import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/health').read())\"\n   ```\n5. **Remediation**:\n   If port is in use, bind to dynamic port `8080` or increment port number.",
       "sha256": "69a413fe6b717f1d7aa5ac4a690fdd35e1a69f6b6f2930a01058caebfa5df917"
+    },
+    {
+      "name": "authenticated-browser-automation",
+      "directory": "authenticated-browser-automation",
+      "path": "skills/authenticated-browser-automation/SKILL.md",
+      "domain": "coding",
+      "academic_domain": "coding",
+      "description": "Automate browser workflows while leveraging user's logged-in session cookies without stealing foreground focus.",
+      "triggers": [
+        "authenticated browser automation",
+        "automate logged in browser",
+        "browser session reuse",
+        "headless browser with cookies",
+        "automated web navigation"
+      ],
+      "tags": [
+        "browser",
+        "automation",
+        "cookies",
+        "authenticated",
+        "playwright",
+        "headless"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Background Browser Automation via Persistent Context\n\n## Objective\nLaunch an isolated headless browser session that inherits local browser cookies to inspect authenticated pages.\n\n## Prerequisites\n- Playwright or CDP client available (`python -m playwright` or Chrome remote debugging port).\n\n## Execution Recipe\n1. **Locate Chrome User Profile or Exported Cookies**:\n   Identify path to user data directory or exported session state (`%LOCALAPPDATA%\\Google\\Chrome\\User Data`).\n2. **Launch Background Context**:\n   Use Playwright `launch_persistent_context` in headless mode:\n   ```python\n   from playwright.sync_api import sync_playwright\n   with sync_playwright() as p:\n       browser = p.chromium.launch_persistent_context(\n           user_data_dir=user_data_path,\n           headless=True,\n           args=[\"--disable-blink-features=AutomationControlled\"]\n       )\n       page = browser.new_page()\n       page.goto(target_url, wait_until=\"networkidle\")\n   ```\n3. **Inspect Authenticated DOM**:\n   Extract content or take background screenshot:\n   ```python\n   content = page.locator(\"main\").inner_text()\n   ```\n4. **Verification Gate**:\n   - Status 200 received without redirect to login page.\n   - User foreground focus was not interrupted.\n5. **Remediation**:\n   If an anti-bot challenge is encountered, stop immediately, alert the user, and allow manual completion in visible browser.",
+      "sha256": "3934ec8e5cc676121338a06abe91119f03a3fef3dec785a7584d8639c3cd23a0"
     },
     {
       "name": "book-to-knowledge",
@@ -127,6 +207,85 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Investigating and Retiring Legacy Fences Safely\n\n## Objective\nSafely evaluate, verify, and either preserve or retire legacy code, constraints, or workarounds without re-introducing historical bugs.\n\n## Prerequisites\n- A target code block, workaround, or condition proposed for deletion.\n- Access to git history (`git log`, `git blame`).\n\n## Execution Recipe\n1. **Trace Git Provenance**:\n   Run `git log -S` or `git blame` on the lines in question:\n   ```powershell\n   git log -L <start>,<end>:<file>\n   ```\n   Read the commit message, author notes, and linked PR/issue.\n2. **Formulate the Original Threat Hypothesis**:\n   Answer in writing:\n   - What broke when this fence was absent?\n   - What operating system, library version, or external API behavior mandated it?\n3. **Check Current Environmental Reality**:\n   Determine whether the upstream bug was resolved or whether the platform constraint remains active.\n4. **Author a Boundary Test Case**:\n   Before modifying the code, write a unit test reproducing the exact failure mode the fence protects against.\n5. **Evaluate Safe Removal or Simplification**:\n   - If the condition is still active: document the rationale with an explicit comment and retain the fence.\n   - If the condition is obsolete: run the test suite with the fence removed.\n6. **Verification Gate**:\n   ```powershell\n   python -m pytest tests -q\n   ```\n7. **Remediation**:\n   If an unexpected test fails or regressions occur, revert immediately: the fence is still protecting the system.",
       "sha256": "20339e263dcd1d30c6649cd8a3b0a73b9c1e68711d336cdd95b0700f0e20a3dd"
+    },
+    {
+      "name": "circle-of-competence",
+      "directory": "circle-of-competence",
+      "path": "skills/circle-of-competence/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "cognitive",
+      "description": "Rigorously define and respect the boundaries of system knowledge and capability; refuse to hallucinate or guess outside the boundary.",
+      "triggers": [
+        "circle of competence",
+        "boundary of knowledge",
+        "know what you dont know",
+        "avoid guessing",
+        "epistemic humility"
+      ],
+      "tags": [
+        "thinking",
+        "reasoning",
+        "circle-of-competence",
+        "humility",
+        "boundary-setting",
+        "truthfulness"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Epistemic Boundary Check and Truthfulness Gate\n\n## Objective\nPrevent hallucinations and maintain strict truthfulness by verifying that required knowledge exists in local state before generating answers.\n\n## Prerequisites\n- User query requiring specific factual, architectural, or doctrinal knowledge.\n\n## Execution Recipe\n1. **Assess Boundary Ownership**:\n   Ask: \"Does the repository, second-brain vault, or attached tools contain ground-truth data for this query?\"\n   - If YES $\\rightarrow$ Proceed to step 2.\n   - If NO $\\rightarrow$ Proceed to step 4.\n2. **Retrieve Verified Evidence**:\n   Query local second brain or AST symbols:\n   ```python\n   # Execute brain_search or grep_files to fetch verified sources\n   ```\n3. **Anchor Answer Strictly to Cited Evidence**:\n   Every non-trivial claim must reference an exact file path, function signature, or verified source.\n4. **If Outside Competence Boundary**:\n   State the limitation directly:\n   - \"This inquiry falls outside the local repository and indexed second brain.\"\n   - Provide the exact search command or external verification step for the user.\n5. **Verification Gate**:\n   - 0 fabricated function names or nonexistent file paths.\n   - All factual assertions link to valid local or retrieved references.\n6. **Remediation**:\n   If an answer begins guessing about external systems, halt and replace speculation with an explicit question or research action.",
+      "sha256": "dd6a97d2745df9305045b487cb6a60492eef834e157b1a48567bdfd32307a2fd"
+    },
+    {
+      "name": "cli-wrapper-generator",
+      "directory": "cli-wrapper-generator",
+      "path": "skills/cli-wrapper-generator/SKILL.md",
+      "domain": "coding",
+      "academic_domain": "coding",
+      "description": "Wrap arbitrary command-line binaries and utility scripts into clean, agent-native tool contracts with JSON output and containment.",
+      "triggers": [
+        "cli wrapper generator",
+        "make cli agent native",
+        "wrap binary into tool",
+        "cli tool contract",
+        "structured cli wrapper"
+      ],
+      "tags": [
+        "cli",
+        "wrapper",
+        "tool-contract",
+        "json",
+        "agent-native",
+        "integration"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Authoring an Agent-Native CLI Wrapper\n\n## Objective\nConvert an external executable or shell script into a robust Python wrapper complying with Brahma's `ToolSpec` and AST safety standards.\n\n## Prerequisites\n- The target binary or CLI utility (e.g. `ffmpeg`, `ripgrep`, `git`, `docker`).\n\n## Execution Recipe\n1. **Define CLI Argument Parsing**:\n   Create `tools/<name>.py` using `argparse` with explicit types and defaults. Include `--json` flag.\n2. **Execute via Safe Process Runner**:\n   Invoke the binary via `agent.process.run_captured` to enforce stdin closure and timeout boundaries:\n   ```python\n   from agent.process import run_captured\n   result = run_captured([\"binary_name\", \"--flag\", arg], cwd=repo_root, timeout=30.0)\n   ```\n3. **Format Output as JSON**:\n   Parse stdout lines or capture structured output:\n   ```python\n   if args.json:\n       print(json.dumps({\"ok\": result.returncode == 0, \"output\": result.stdout}, indent=2))\n       return 0 if result.returncode == 0 else 4\n   ```\n4. **Register in Harness Scripts Index**:\n   Re-index verified tools:\n   ```powershell\n   python tools/scripts_index.py --build\n   python tools/scripts_index.py --check\n   ```\n5. **Verification Gate**:\n   Verify the script passes static AST analysis and is registered in `config/scripts.json`.\n6. **Remediation**:\n   If the tool leaks child processes on timeout, ensure it uses `run_captured` which binds executions to Win32 Job Objects.",
+      "sha256": "b02ea986e9b1f613ede160a37c8fe06e1963eadf60d333d506ce5dcfc61028bf"
+    },
+    {
+      "name": "code-graph-navigator",
+      "directory": "code-graph-navigator",
+      "path": "skills/code-graph-navigator/SKILL.md",
+      "domain": "coding",
+      "academic_domain": "coding",
+      "description": "Monorepo AST dependency graph navigation to trace call hierarchies, caller/callee trees, and interface implementations across languages.",
+      "triggers": [
+        "code graph navigator",
+        "trace call hierarchy",
+        "find all callers",
+        "map dependencies",
+        "code graph analysis",
+        "ast call graph"
+      ],
+      "tags": [
+        "ast",
+        "call-graph",
+        "dependency-tree",
+        "code-navigation",
+        "monorepo",
+        "refactoring"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Monorepo Symbol & Call Hierarchy Tracing\n\n## Objective\nTrace every caller and dependent module of a function or class before executing breaking refactors or API changes.\n\n## Prerequisites\n- Target repository with Python source files.\n\n## Execution Recipe\n1. **Parse AST and Extract Function Callers**:\n   Run an AST visitor script over target directory:\n   ```python\n   import ast, pathlib\n   target_fn = \"execute_tool\"\n   callers = []\n   for py_path in pathlib.Path(\"core\").rglob(\"*.py\"):\n       tree = ast.parse(py_path.read_text(encoding=\"utf-8\"))\n       for node in ast.walk(tree):\n           if isinstance(node, ast.Call) and getattr(node.func, \"id\", None) == target_fn:\n               callers.append(f\"{py_path.name}:{node.lineno}\")\n   ```\n2. **Trace Upstream Caller Tiers**:\n   Map from leaf callers back to public API entry points.\n3. **Map Import Dependencies**:\n   Inspect module-level imports to detect dependency directions and cycles.\n4. **Verification Gate**:\n   Every caller is accounted for in refactoring plans with zero unexpected `NameError` or `AttributeError` exceptions.\n5. **Remediation**:\n   For dynamic dispatches (e.g. `getattr(self, fn_name)`), supplement AST inspection with targeted `grep` checks.",
+      "sha256": "d0c515ecb109ca410befa6813d9b77d510dc6ef039d9266722cc366a190b2761"
     },
     {
       "name": "code-review",
@@ -315,6 +474,34 @@
       "sha256": "f9991f2b6771026dbf476da51d864bb71bc12bc25c33a64c9a14c7441474cb35"
     },
     {
+      "name": "ffmpeg-media-processing",
+      "directory": "ffmpeg-media-processing",
+      "path": "skills/ffmpeg-media-processing/SKILL.md",
+      "domain": "devops",
+      "academic_domain": "devops",
+      "description": "Machine-readable FFmpeg media pipeline for cutting, transcoding, audio loudness normalization, subtitle extraction, and waveform rendering.",
+      "triggers": [
+        "ffmpeg media processing",
+        "transcode video",
+        "normalize audio loudness",
+        "extract audio from video",
+        "cut video clip",
+        "generate video thumbnail"
+      ],
+      "tags": [
+        "ffmpeg",
+        "media",
+        "video",
+        "audio",
+        "transcoding",
+        "loudness",
+        "subtitles"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Deterministic FFmpeg Video & Audio Operations\n\n## Objective\nExecute precise media transformations (cutting, transcoding, loudness normalization, audio extraction) using standard FFmpeg commands.\n\n## Prerequisites\n- `ffmpeg` binary installed and available in system PATH.\n\n## Execution Recipe\n1. **Lossless Video Clip Trimming**:\n   Extract a segment between timestamp 00:01:30 and 00:02:45 without re-encoding:\n   ```powershell\n   ffmpeg -ss 00:01:30 -to 00:02:45 -i input.mp4 -c copy output_clip.mp4\n   ```\n2. **Web-Optimized Transcode (H.264 / AAC)**:\n   Compress a large video for streaming:\n   ```powershell\n   ffmpeg -i input.mov -c:v libx264 -crf 23 -preset medium -c:a aac -b:a 128k -movflags +faststart output.mp4\n   ```\n3. **EBU R128 Audio Loudness Normalization**:\n   Normalize an audio track to standard podcast / web targets (-14 LUFS):\n   ```powershell\n   ffmpeg -i speech.wav -af loudnorm=I=-14:LRA=7:tp=-1.0 -ar 44100 normalized.wav\n   ```\n4. **Extract Representative Frame Thumbnail**:\n   Export high-resolution JPEG at timestamp 00:00:15:\n   ```powershell\n   ffmpeg -ss 00:00:15 -i input.mp4 -vframes 1 -q:v 2 thumbnail.jpg\n   ```\n5. **Verification Gate**:\n   Inspect output file metadata using `ffprobe`:\n   ```powershell\n   ffprobe -v error -show_entries format=duration,size output.mp4\n   ```\n6. **Remediation**:\n   If video cuts with frozen initial frames in copy mode, remove `-c copy` and re-encode the stream to establish a keyframe at the cut boundary.",
+      "sha256": "37de51f057f929190d30823f23eefbf615174b594673537b604cd7140793b64a"
+    },
+    {
       "name": "first-principles-thinking",
       "directory": "first-principles-thinking",
       "path": "skills/first-principles-thinking/SKILL.md",
@@ -419,6 +606,33 @@
       "sha256": "66b4683f68c2e3d8fcde703276e0e9018ca67a66cf8d3aab1f107ca0d8322632"
     },
     {
+      "name": "goodharts-law",
+      "directory": "goodharts-law",
+      "path": "skills/goodharts-law/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "cognitive",
+      "description": "Invariant auditing framework to prevent metric fixation when an optimization measure becomes a target, it ceases to be a good measure.",
+      "triggers": [
+        "goodharts law",
+        "metric fixation",
+        "perverse incentive",
+        "gaming metrics",
+        "audit target metric"
+      ],
+      "tags": [
+        "thinking",
+        "reasoning",
+        "goodharts-law",
+        "metrics",
+        "perverse-incentives",
+        "optimization",
+        "quality"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Auditing Metric Ratchets Against Goodhart's Pathology\n\n## Objective\nEvaluate a software target, architectural ratchet, or benchmark against Goodhart's Law to prevent unintended degeneration or metric gaming.\n\n## Prerequisites\n- A quantitative goal (e.g. line count ceiling, test count target, latency threshold).\n\n## Execution Recipe\n1. **Identify the Target Metric**:\n   State the exact threshold (e.g., `core/tool_exec.py <= 147 lines and 0 elif branches`).\n2. **Perform Adversarial Gaming Simulation**:\n   Brainstorm 3 ways to meet the metric while degrading the system:\n   - *Gaming 1*: Shoving complex logic into dictionary lookups or `exec()` strings to avoid `elif`.\n   - *Gaming 2*: Removing comments and docstrings to stay under the line count ceiling.\n   - *Gaming 3*: Splitting code into arbitrary tiny files that obscure the execution flow.\n3. **Establish Counter-Balancing Invariants**:\n   For each gaming vector, establish a protective constraint:\n   - Add AST check prohibiting raw `exec`/`eval`.\n   - Mandate docstring preservation rule (`AGENTS.md`).\n   - Require architectural cohesion in new module extraction.\n4. **Verification Gate**:\n   Verify the metric is achieved through substantive architectural refactoring rather than cosmetic compression.\n5. **Remediation**:\n   If metric pressure forces bad code patterns, adjust the metric ceiling to reflect clean architectural boundaries.",
+      "sha256": "0116b65525b8715b91bb320b217cd4ba9ab69d30cd790fba12d0492afd5cb49a"
+    },
+    {
       "name": "hanlons-razor",
       "directory": "hanlons-razor",
       "path": "skills/hanlons-razor/SKILL.md",
@@ -443,6 +657,35 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Systemic Diagnostic Attribution via Hanlon's Razor\n\n## Objective\nDiagnose unexpected errors and security rejections by systematically auditing benign operational causes before escalating to complex adversarial hypotheses.\n\n## Prerequisites\n- Error report, connection failure, or unexpected system denial.\n\n## Execution Recipe\n1. **Audit Input Types and Serialization**:\n   Inspect the raw payloads crossing the boundary:\n   - Check for UTF-8 BOM encoding issues (`utf-8` vs `utf-8-sig`).\n   - Check for string vs integer type mismatches in JSON arguments.\n2. **Inspect Environmental Context**:\n   - Verify file permissions, current working directory (`cwd`), and path existence.\n   - Verify environment variable availability (`echo $env:VARIABLE`).\n3. **Inspect Network / Socket Timing**:\n   - Check if the remote host closed the connection due to an unhandled exception or keepalive timeout.\n   - Review server-side stderr/logs for 400 Bad Request / 1007 Invalid Argument details.\n4. **Inspect State Concurrency**:\n   - Check for simultaneous reads and writes to non-thread-safe data structures.\n5. **Evaluate Adversarial Breach Only If Benign Causes Are Eliminated**:\n   If inputs, config, and concurrency are provably valid, initiate red-team security review.\n6. **Verification Gate**:\n   Reproduce the failure with a benign minimal test case and verify the fix removes the anomaly.\n7. **Remediation**:\n   Add input validation and descriptive error logging so future misconfigurations do not masquerade as mysterious failures.",
       "sha256": "e6ffd46112d1ced033c786f291382f0f649d0c20f3d9273d19562fcd7dd8a9de"
+    },
+    {
+      "name": "headless-office-automation",
+      "directory": "headless-office-automation",
+      "path": "skills/headless-office-automation/SKILL.md",
+      "domain": "devops",
+      "academic_domain": "devops",
+      "description": "Agent-native reading, editing, and programmatic generation of Word (.docx), Excel (.xlsx), and PowerPoint (.pptx) documents without Microsoft Office.",
+      "triggers": [
+        "office document automation",
+        "read docx without office",
+        "generate excel spreadsheet",
+        "edit powerpoint presentation",
+        "headless office",
+        "automate word document"
+      ],
+      "tags": [
+        "office",
+        "docx",
+        "xlsx",
+        "pptx",
+        "automation",
+        "headless",
+        "documents",
+        "excel"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Headless Office Document Processing\n\n## Objective\nRead, modify, or generate Word, Excel, and PowerPoint documents programmatically using lightweight Python tooling.\n\n## Prerequisites\n- Python 3.11+ environment with `openpyxl`, `python-docx`, or `python-pptx` (installed in optional dependencies).\n\n## Execution Recipe\n1. **Extract Structured Data from Excel (`.xlsx`)**:\n   ```python\n   import openpyxl\n   wb = openpyxl.load_workbook(\"data.xlsx\", data_only=True)\n   sheet = wb.active\n   rows = [[cell.value for cell in row] for row in sheet.iter_rows()]\n   ```\n2. **Generate Styled Word Report (`.docx`)**:\n   ```python\n   from docx import Document\n   doc = Document()\n   doc.add_heading(\"Operational Summary\", level=1)\n   doc.add_paragraph(\"Automated summary generated by Brahma AI harness.\")\n   table = doc.add_table(rows=1, cols=3)\n   doc.save(\"output_report.docx\")\n   ```\n3. **Inspect Slides and Notes in PowerPoint (`.pptx`)**:\n   ```python\n   from pptx import Presentation\n   prs = Presentation(\"deck.pptx\")\n   for idx, slide in enumerate(prs.slides):\n       notes = slide.notes_slide.notes_text_frame.text if slide.has_notes_slide else \"\"\n   ```\n4. **Verification Gate**:\n   Verify that generated files open without XML corruption warnings:\n   - File size > 0 bytes.\n   - ZIP container structure valid (`python -m zipfile -t <file>`).\n5. **Remediation**:\n   If a library is missing, fall back to converting documents to Markdown/CSV via `tools/ingest_multimodal.py`.",
+      "sha256": "aa871c5c9b2200abdc02fcaa4294d7fa80575721ab859fc3b445f2712f533f29"
     },
     {
       "name": "icm-architect",
@@ -495,6 +738,33 @@
       "sha256": "efa4f3770b2cb3763bce1abc1a2dc90ccfc4a1bab3e4581e4121e1a60499b833"
     },
     {
+      "name": "memory-consolidation",
+      "directory": "memory-consolidation",
+      "path": "skills/memory-consolidation/SKILL.md",
+      "domain": "architecture",
+      "academic_domain": "architecture",
+      "description": "Long-term memory hygiene consolidating daily conversational ephemera into durable, indexed second-brain concept notes while decaying noise.",
+      "triggers": [
+        "memory consolidation",
+        "consolidate memories",
+        "prune memory noise",
+        "long term memory sync",
+        "memory hygiene"
+      ],
+      "tags": [
+        "memory",
+        "consolidation",
+        "second-brain",
+        "rag",
+        "hygiene",
+        "decay",
+        "persistence"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Consolidating Session Working Memory into Second Brain\n\n## Objective\nDistill a completed agent session transcript into durable, structured memory notes and refresh the second-brain search index.\n\n## Prerequisites\n- Completed session transcript or conversation history in `agent/session.py`.\n- Obsidian second-brain vault.\n\n## Execution Recipe\n1. **Extract Durable Decisions and Preferences**:\n   Scan transcript turns for:\n   - System configurations adopted (e.g. \"always use Python 3.11 for gates\").\n   - User project decisions and architectural dispositions.\n   - Newly discovered book/concept relationships.\n2. **Draft Atomic Concept or Preference Note**:\n   Create Markdown note under `wiki/library/knowledge/` or `wiki/decisions/`:\n   ```markdown\n   ---\n   type: DecisionNote\n   title: \"Session Resumption Invalidation on 1007\"\n   domain: applied-sciences/engineering-and-technology\n   status: reviewed\n   date: 2026-11-10\n   ---\n   # Decision: Invalidate Resumption Handle on 1007 Error\n   ...\n   ```\n3. **Re-Index Second Brain Search**:\n   ```powershell\n   python tools/brain_sync.py --no-embed\n   ```\n4. **Verification Gate**:\n   Query the newly consolidated memory via `python -m agent run \"brain_search query='<topic>'\"` and confirm retrieval.\n5. **Remediation**:\n   If index shows stale entries, run `python tools/brain_sync.py --rebuild` for a fresh SQLite FTS5 rebuild.",
+      "sha256": "77c9bf76a17220e4824c5abfea3a128b029d420ade9ec57475ff59a8c786e18a"
+    },
+    {
       "name": "occams-razor",
       "directory": "occams-razor",
       "path": "skills/occams-razor/SKILL.md",
@@ -519,6 +789,60 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Complexity Pruning via Occam's Razor\n\n## Objective\nStrip speculative complexity and excess dependencies from a code module, leaving only minimal, verified primitives.\n\n## Prerequisites\n- A working test suite covering the target module's functional requirements.\n\n## Execution Recipe\n1. **Audit External Imports**:\n   Scan target files for heavy third-party dependencies:\n   ```powershell\n   Select-String -Path \".\\*.py\" -Pattern \"^import |^from \" | Group-Object Line\n   ```\n2. **Evaluate In-House Substitution**:\n   Identify libraries imported for trivial utilities (e.g., `requests` for a single GET request, `lodash` for cloning). Replace with Python stdlib (`urllib.request`, `copy.deepcopy`).\n3. **Flatten Class Hierarchies**:\n   Collapse multi-level class inheritances into simple data classes or pure functions when no polymorphic behavior is needed.\n4. **Remove Unused Knobs**:\n   Delete configuration parameters that have never been overridden in production or tests.\n5. **Verification Gate**:\n   Run unit tests and lint checks:\n   ```powershell\n   python -m ruff check .\n   python -m pytest tests -q\n   ```\n   All tests must pass with zero behavioral regressions and fewer dependencies.\n6. **Remediation**:\n   If an edge case required a deleted abstraction, restore only the minimum inline logic needed to handle that specific edge case.",
       "sha256": "189e6e310d09487315bc23f151f7b095d626d72d5f245b90affcd19eb8cec0dd"
+    },
+    {
+      "name": "open-codesign",
+      "directory": "open-codesign",
+      "path": "skills/open-codesign/SKILL.md",
+      "domain": "coding",
+      "academic_domain": "coding",
+      "description": "Rapid UI/UX prototyping to generate accessible HTML/CSS components, design tokens, responsive layouts, and slide prototypes from user briefs.",
+      "triggers": [
+        "open codesign",
+        "ui prototype",
+        "design component",
+        "create slide deck",
+        "mockup interface",
+        "generate layout"
+      ],
+      "tags": [
+        "ui",
+        "ux",
+        "design",
+        "prototyping",
+        "css",
+        "components",
+        "frontend"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Rapid UI Component Prototyping\n\n## Objective\nGenerate a complete, accessible, and responsive frontend component prototype from a functional specification.\n\n## Prerequisites\n- UI requirement or wireframe brief.\n\n## Execution Recipe\n1. **Declare Semantic Design Tokens**:\n   Setup base palette and spacing tokens in CSS `:root`:\n   ```css\n   :root {\n       --primary: #3b82f6;\n       --background: #0f172a;\n       --surface: #1e293b;\n       --text: #f8fafc;\n       --radius: 8px;\n   }\n   ```\n2. **Structure Semantic HTML**:\n   Write clean markup using appropriate HTML5 tags (`<header>`, `<section>`, `<article>`).\n3. **Apply Responsive CSS Grid/Flexbox**:\n   Structure elements with auto-fit grids:\n   ```css\n   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }\n   ```\n4. **Style State Transitions**:\n   Add subtle, performant transitions (`transform`, `opacity`) for interactive controls.\n5. **Verification Gate**:\n   - Check contrast ratio $\\ge$ 4.5:1.\n   - Verify keyboard navigability via `Tab` key.\n   - Verify layout scales gracefully on 375px mobile view.\n6. **Remediation**:\n   If layout wraps awkwardly on small screens, adjust flex-wrap rules or decrease minimum column width.",
+      "sha256": "5fe6b7f08c08afefc9bb4386acd888da40ed4066f16a2f938859ed215a39f360"
+    },
+    {
+      "name": "opportunity-cost-evaluator",
+      "directory": "opportunity-cost-evaluator",
+      "path": "skills/opportunity-cost-evaluator/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "cognitive",
+      "description": "Economic evaluation framework assessing the forgone alternatives, maintenance burdens, and sacrificed capabilities of a technical decision.",
+      "triggers": [
+        "opportunity cost",
+        "what are we giving up",
+        "forgone alternatives",
+        "evaluate technical sacrifice",
+        "opportunity cost analysis"
+      ],
+      "tags": [
+        "thinking",
+        "reasoning",
+        "opportunity-cost",
+        "trade-offs",
+        "economics",
+        "decision-making"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Evaluating Opportunity Costs of Architectural Choices\n\n## Objective\nEvaluate competing technical directions by explicitly measuring what capabilities, maintenance cycles, and simplifications are sacrificed.\n\n## Prerequisites\n- A non-trivial engineering decision with at least two viable implementation approaches.\n\n## Execution Recipe\n1. **List the Competing Alternatives**:\n   - *Option A*: Build custom in-house implementation (e.g. custom AST validator).\n   - *Option B*: Standardize on established stdlib / existing tool (e.g. `ast.parse` + existing `scripts_index.py`).\n2. **Tabulate Costs Beyond Initial Code**:\n   For each option, quantify:\n   - Initial implementation turns/hours.\n   - Ongoing CI maintenance and test execution time.\n   - Cognitive burden on other developers/agents.\n3. **Identify the True Forgone Value**:\n   Ask: \"If we spend 3 days building Option A, which critical roadmap features get delayed?\"\n4. **Choose the Maximum Net-Leverage Option**:\n   Select the direction that maximizes system value per unit of ongoing maintenance risk.\n5. **Verification Gate**:\n   Document the trade-off in an ADR or commit message justifying why the forgone alternative was inferior.\n6. **Remediation**:\n   If an in-house bespoke implementation begins consuming disproportionate debugging cycles, retire it in favor of a standard solution.",
+      "sha256": "c656adcd712baa314119e361b59554093fdae68a6675b3d8d8cb53d1d6a60df7"
     },
     {
       "name": "pareto-principle-80-20",
@@ -547,6 +871,33 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Pareto Optimization and Leverage Point Discovery\n\n## Objective\nIdentify and resolve the top 20% of code paths or failure vectors causing 80% of latency, resource consumption, or bugs.\n\n## Prerequisites\n- Performance profile, test failure logs, or benchmark telemetry.\n\n## Execution Recipe\n1. **Gather Performance / Defect Distribution**:\n   Run profiler or aggregate logs to identify hotspot frequencies:\n   ```powershell\n   python -m cProfile -s tottime main.py\n   ```\n2. **Sort Hotspots Descending**:\n   Create a ranked table of functions by total time or error frequency.\n3. **Select the Top 20% Cutoff**:\n   Identify the top 1 to 3 functions that account for the bulk of execution time.\n4. **Formulate High-Leverage Fix**:\n   Apply algorithmic optimizations, caching, or early-exit gates strictly to those top hotspots.\n   - Example: Adding an LRU cache or indexing a database column.\n5. **Verification Gate**:\n   Benchmark the optimized code against the baseline to prove measurable gains (> 50% improvement in targeted metric).\n6. **Remediation**:\n   If an optimization on a top hotspot does not move the needle, re-profile to detect whether external I/O or waiting states were misattributed.",
       "sha256": "7582072e04ef8e9fe1a8eaacfebbfd87934e3217f6cd6c352df4f84d8f5ebe64"
+    },
+    {
+      "name": "parkinsons-law-compression",
+      "directory": "parkinsons-law-compression",
+      "path": "skills/parkinsons-law-compression/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "cognitive",
+      "description": "Force radical simplicity and eliminate scope creep by imposing strict artificial constraints on token budgets, turns, and diff sizes.",
+      "triggers": [
+        "parkinsons law compression",
+        "force radical simplicity",
+        "tighten budget constraints",
+        "cut scope creep",
+        "compressed execution"
+      ],
+      "tags": [
+        "thinking",
+        "reasoning",
+        "parkinsons-law",
+        "compression",
+        "scoping",
+        "simplicity",
+        "constraints"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Radical Scope Compression via Artificial Constraints\n\n## Objective\nCompress a sprawling task or bloated implementation by applying strict boundaries on turns, token budgets, and lines of code.\n\n## Prerequisites\n- A complex, over-engineered task or sprawling pull request.\n\n## Execution Recipe\n1. **Set Hard Artificial Constraints**:\n   - Limit turn budget: `max_turns = 4`.\n   - Limit diff size: `max_lines_changed = 30`.\n   - Limit prompt size: `max_chars = 1200`.\n2. **Prune Speculative Features**:\n   Strip all \"nice-to-have\" abstractions, premature helper functions, and speculative edge cases that are not directly tested.\n3. **Draft the Minimal Bedrock Solution**:\n   Write the simplest working code that passes the unit test using existing stdlib primitives.\n4. **Compare Compressed Solution Against Sprawling Solution**:\n   Evaluate whether the compressed solution achieves 95% of the value with 10% of the complexity.\n5. **Verification Gate**:\n   ```powershell\n   python -m pytest tests -q\n   python -m ruff check .\n   ```\n6. **Remediation**:\n   If a compressed solution fails tests, add back only the specific missing check required by the failure, not the entire sprawling architecture.",
+      "sha256": "ef6471853ddeb36a656c61bf72b03fe2ca430ec1480f567374c24a6528fec1ef"
     },
     {
       "name": "performance-profiler",
@@ -646,6 +997,33 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Decision Triage via Reversibility Analysis\n\n## Objective\nClassify a pending engineering choice as Type 1 or Type 2, match it with the correct decision process, and prevent unnecessary paralysis on reversible items.\n\n## Prerequisites\n- A proposed technical change, architectural decision, or implementation direction.\n\n## Execution Recipe\n1. **Assess Reversibility Cost**:\n   Ask: \"If this change fails completely in production, how long does it take to restore the prior state and what is the blast radius?\"\n   - If rollback requires > 1 day or causes permanent data loss $\\rightarrow$ **Type 1 (One-Way Door)**.\n   - If rollback requires `git revert` or restoring a backup table $\\rightarrow$ **Type 2 (Two-Way Door)**.\n2. **If Type 1 (One-Way Door)**:\n   - Halt fast execution.\n   - Author a formal spec using `spec-driven-development`.\n   - Run a `pre-mortem-analysis` to map failure vectors.\n   - Require explicit human/supervisor review before merging.\n3. **If Type 2 (Two-Way Door)**:\n   - Maximize decision velocity.\n   - Write a quick unit test, apply the change, run verification.\n   - Ship and iterate.\n4. **Build the Rollback Handle**:\n   Even for Type 2 decisions, ensure the rollback path is verified (e.g. clean git tree, database transaction).\n5. **Verification Gate**:\n   Type 2 changes must pass existing CI gates (`pytest`, `ruff`) without requiring architectural ratchets or policy changes.\n6. **Remediation**:\n   If a Type 2 decision turns out to have hidden one-way dependencies, immediately pause, roll back, and re-classify as Type 1.",
       "sha256": "bc49c73a8ba5511e70ea3f22f851878940916c181789585644f95982d348cf8c"
+    },
+    {
+      "name": "root-cause-fishbone",
+      "directory": "root-cause-fishbone",
+      "path": "skills/root-cause-fishbone/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "cognitive",
+      "description": "Ishikawa fishbone causal decomposition analyzing defects across 6 dimensions Machine, Method, Material, Manpower, Measurement, and Milieu.",
+      "triggers": [
+        "root cause fishbone",
+        "ishikawa diagram",
+        "fishbone failure analysis",
+        "multi factor root cause",
+        "systemic defect breakdown"
+      ],
+      "tags": [
+        "thinking",
+        "reasoning",
+        "ishikawa",
+        "fishbone",
+        "root-cause",
+        "failure-analysis",
+        "quality"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: 6M Fishbone Root-Cause Analysis\n\n## Objective\nIsolate complex, non-obvious defects by analyzing contributing factors across the 6 Ishikawa categories.\n\n## Prerequisites\n- System defect with intermittent, multi-variable, or platform-specific symptoms.\n\n## Execution Recipe\n1. **Define the Defect Spine**:\n   Write the exact symptom at the head of the fishbone (e.g. \"WebSocket drops with 1007 error during voice turns\").\n2. **Brainstorm across the 6 Categories**:\n   - **Machine**: Windows Store Python 3.12, directsound audio drivers.\n   - **Method**: Concurrent microphone audio chunk streaming while tool execution is active.\n   - **Material**: Resumption handle string corrupted or rejected by server.\n   - **Manpower**: User speaks while model executes a 5-second tool call.\n   - **Measurement**: Log trace caught `1007 invalid frame payload data`.\n   - **Milieu**: Gemini Live server enforcing strict full-duplex protocol framing.\n3. **Isolate Primary vs Secondary Drivers**:\n   Circle the intersecting factors causing the failure (e.g., Method + Machine + Milieu).\n4. **Draft Multi-Layered Remediation**:\n   Implement a fix that addresses both the trigger (pause audio streaming during tool execution) and the recovery (clear resumption handle on 1007).\n5. **Verification Gate**:\n   Execute simulated defect scenario; verify both layers hold.\n6. **Remediation**:\n   If defect recurs, inspect the remaining unaddressed 6M branches.",
+      "sha256": "77d7a3c93e574acbb8948c78fa2e204ece316086a48e67581c1758b0280cefe2"
     },
     {
       "name": "second-order-thinking",
@@ -850,6 +1228,33 @@
       "sha256": "c3025ce3660db0bbeea0c8865fad4e42e35eed571fb399a856a34ecf3f9cd046"
     },
     {
+      "name": "system-architecture-diagrammer",
+      "directory": "system-architecture-diagrammer",
+      "path": "skills/system-architecture-diagrammer/SKILL.md",
+      "domain": "architecture",
+      "academic_domain": "architecture",
+      "description": "Generate clean, readable system architecture diagrams, state machines, and component maps using Mermaid and pure SVG.",
+      "triggers": [
+        "draw architecture diagram",
+        "system diagram",
+        "generate mermaid chart",
+        "component flowchart",
+        "visualize architecture",
+        "state machine diagram"
+      ],
+      "tags": [
+        "diagrams",
+        "mermaid",
+        "architecture",
+        "svg",
+        "visualization",
+        "dataflow"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Authoring Syntax-Valid Mermaid Architecture Diagrams\n\n## Objective\nAuthor a clean, syntax-valid Mermaid diagram visualizing a system's components, seams, or lifecycles.\n\n## Prerequisites\n- System components, API interfaces, and dataflow direction to visualize.\n\n## Execution Recipe\n1. **Choose Direction and Layout**:\n   - For sequential pipelines: `flowchart LR`.\n   - For hierarchical trees: `flowchart TD`.\n   - For message exchanges: `sequenceDiagram`.\n2. **Define Subgraphs for Logical Seams**:\n   Group components into functional clusters:\n   ```mermaid\n   flowchart TD\n       subgraph UI[\"User Interface Layer\"]\n           HUD[\"HUD Window\"]\n       end\n       subgraph CORE[\"Harness Core\"]\n           RT[\"AgentRuntime\"]\n       end\n       HUD -->|dispatch| RT\n   ```\n3. **Quote All Special Characters**:\n   Ensure every label with spaces, brackets, or math symbols is double-quoted (`[\"...\"]`).\n4. **Style Key Decision Nodes**:\n   Use standard shapes: diamonds (`{\"Decision?\"}`) for branching, cylinders (`[(\"Database\")]`) for storage.\n5. **Verification Gate**:\n   Validate Mermaid syntax rendering without parse exceptions.\n6. **Remediation**:\n   If a rendering syntax error occurs, check for unquoted parentheses `(` `)` or reserved keywords in node IDs.",
+      "sha256": "f4902611221b4c3d90492f3b76724242efd0413b1106820360d42d40e8ced4a7"
+    },
+    {
       "name": "systematic-debugging",
       "directory": "systematic-debugging",
       "path": "skills/systematic-debugging/SKILL.md",
@@ -919,6 +1324,33 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Trade-Off Balancing and Boundary Enforcement\n\n## Objective\nQuantify and enforce boundaries on engineering compromises to prevent uncontrolled resource exhaustion or latency degradation.\n\n## Prerequisites\n- A proposed optimization that trades one system property for another.\n\n## Execution Recipe\n1. **Define the Trade-Off Statement**:\n   Fill in the template: \"We are trading [Property A: e.g., Disk Space] to maximize [Property B: e.g., Turn Context Assembly Speed].\"\n2. **Measure Baseline Metrics**:\n   Record initial benchmarks:\n   - Peak RAM usage: `<x> MB`\n   - Assembly Latency: `<y> ms`\n   - Disk footprint: `<z> MB`\n3. **Set Hard Ceiling on Sacrificed Metric**:\n   Establish maximum allowable tolerance for the sacrificed dimension (e.g., Disk cache must never exceed 250MB).\n4. **Implement Automatic Throttling / Eviction**:\n   Write cleanup logic that monitors the metric and evicts oldest items when 90% of tolerance is reached:\n   ```python\n   if current_disk_usage > MAX_CACHE_BYTES * 0.9:\n       prune_oldest_cache_entries()\n   ```\n5. **Verification Gate**:\n   Execute a stress test pushing data past the threshold; assert that memory or disk never exceeds the ceiling and performance gracefully degrades rather than crashing:\n   ```powershell\n   python -m pytest tests -q -k \"stress or cache\"\n   ```\n6. **Remediation**:\n   If the ceiling is breached, switch from in-process storage to compressed on-disk SQLite or memory-mapped files.",
       "sha256": "057122fdc56095f2b565f9541dc28be2856dd372d2b37a97a7eb6504d691d4ec"
+    },
+    {
+      "name": "triangulation-validation",
+      "directory": "triangulation-validation",
+      "path": "skills/triangulation-validation/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "research",
+      "description": "Multi-source validation protocol requiring technical claims and bug diagnoses to be verified by at least 3 independent methods.",
+      "triggers": [
+        "triangulation validation",
+        "verify with 3 sources",
+        "triangulate this finding",
+        "multi source proof",
+        "independent verification"
+      ],
+      "tags": [
+        "thinking",
+        "reasoning",
+        "triangulation",
+        "verification",
+        "multi-source",
+        "proof",
+        "truthfulness"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: 3-Point Triangulation of Technical Claims\n\n## Objective\nRigorously verify an architectural assumption, root-cause diagnosis, or third-party claim using three independent verification channels.\n\n## Prerequisites\n- A critical claim, bug diagnosis, or platform assumption requiring certainty.\n\n## Execution Recipe\n1. **Define the Hypothesis Under Test**:\n   State the exact claim: e.g., \"Windows Store Python 3.12 triggers Access Denied when assigning child processes to Job Objects.\"\n2. **Channel 1 — Static Code & AST Inspection**:\n   Examine source implementation: inspect `agent/process.py` and confirm `AssignProcessToJobObject` calls.\n3. **Channel 2 — Empirical Runtime Execution**:\n   Execute isolated reproduction test and capture exit code:\n   ```powershell\n   python -c \"import ctypes; # simulate assign process to job object\"\n   ```\n   Confirm exact error code (`ERROR_ACCESS_DENIED = 5`).\n4. **Channel 3 — External Documentation / System Behavior**:\n   Cross-reference Microsoft documentation on AppX/MSIX package execution aliases and job object security boundaries.\n5. **Compile Triangulated Proof**:\n   Synthesize all three channels into a conclusive finding with code references.\n6. **Verification Gate**:\n   Do all 3 channels agree without contradictory evidence?\n7. **Remediation**:\n   If channel 1 and channel 2 disagree (e.g. code says one thing, runtime shows another), investigate environment variables or dynamic imports causing divergence.",
+      "sha256": "cf19cf05b37ebe6122121419d0b0043c8201c7e1156872941ac0d52cf0339a4f"
     },
     {
       "name": "web-scraper-stealth",
