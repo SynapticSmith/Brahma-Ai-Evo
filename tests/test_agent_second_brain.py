@@ -248,6 +248,82 @@ def test_brain_sync_tool_caps_embeddings(vault: Path, monkeypatch):
     assert captured["embed_limit"] is None
 
 
+def test_sync_shelf_backfill_stays_inside_the_requested_shelf(
+    vault: Path, monkeypatch
+):
+    (vault / "wiki" / "concepts").mkdir(parents=True)
+    (vault / "wiki" / "concepts" / "other.md").write_text(
+        "# Other\n\nA note about the other shelf and its own knowledge.\n",
+        encoding="utf-8",
+    )
+    second_brain.sync(embed=False)
+
+    embedded: list[str] = []
+
+    def fake_embed(texts, *, prefixes=True):
+        embedded.extend(texts)
+        return [[0.01] * second_brain.EMBED_DIM for _ in texts]
+
+    monkeypatch.setattr(second_brain, "_embed_documents", fake_embed)
+    stats = second_brain.sync(shelf="wiki/entities", embed=True, embed_limit=8)
+
+    assert stats["vectors"] == 1
+    assert any("Calyx" in text for text in embedded)
+    assert not any("other shelf" in text for text in embedded)
+
+
+def test_with_retrieval_does_not_mutate_the_seed(monkeypatch):
+    monkeypatch.setattr(
+        second_brain,
+        "context_for_turn",
+        lambda text, budget=None: "SECOND BRAIN BLOCK",
+    )
+    messages = [
+        {"role": "system", "content": "SYSTEM"},
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": "answer"},
+        {"role": "user", "content": "second"},
+    ]
+    preview, block = second_brain.with_retrieval(messages, "second")
+
+    assert block == "SECOND BRAIN BLOCK"
+    assert preview[-2]["content"] == "SECOND BRAIN BLOCK"
+    assert preview[-1]["content"] == "second"
+    assert len(preview) == len(messages) + 1
+    assert all(m.get("content") != "SECOND BRAIN BLOCK" for m in messages)
+
+
+def test_loop_reuses_a_precomputed_retrieval_block(tmp_path: Path, monkeypatch):
+    queries: list[str] = []
+
+    def fake_context(text, budget=None):
+        queries.append(text)
+        return "FRESH BLOCK"
+
+    monkeypatch.setattr(second_brain, "context_for_turn", fake_context)
+    calls: list[list[dict]] = []
+
+    def complete(messages, tools):
+        calls.append([dict(m) for m in messages])
+        return {"role": "assistant", "content": "answered"}
+
+    runtime = AgentRuntime(
+        workspace=tmp_path,
+        policy=PermissionPolicy.from_dict(
+            {"classes": {"read": "allow", "write": "allow", "native": "allow"}}
+        ),
+        headless=True,
+    )
+    result = AgentLoop(
+        complete, runtime=runtime, max_turns=1, retrieval="PRECOMPUTED BLOCK"
+    ).run("what is calyx?")
+
+    assert result.text == "answered"
+    assert queries == []  # the host already rendered this turn's block
+    assert calls[0][-2] == {"role": "system", "content": "PRECOMPUTED BLOCK"}
+    assert calls[0][-1]["content"] == "what is calyx?"
+
+
 def test_voice_brain_map_does_not_promise_automatic_retrieval(vault: Path):
     second_brain.sync(embed=False)
     voice = second_brain.brain_map(automatic=False)

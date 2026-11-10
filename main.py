@@ -2670,11 +2670,17 @@ class BrahmaLive:
         source: str,
         model_label: str,
         tools: list | None = None,
+        retrieval: str = "",
     ) -> str:
         from core.text_turn_controller import TextTurnController
 
         return TextTurnController(self).finish_tool_turn(
-            res, messages, source=source, model_label=model_label, tools=tools
+            res,
+            messages,
+            source=source,
+            model_label=model_label,
+            tools=tools,
+            retrieval=retrieval,
         )
 
     def _agent_event(self, event: dict) -> None:

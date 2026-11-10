@@ -43,6 +43,22 @@ EXIT_USAGE = 3
 EXIT_INTERRUPTED = 130
 
 
+def _configure_stdio() -> None:
+    """Keep model text from crashing a cp1252 Windows console.
+
+    A retrieved note or a model answer can contain an arrow, an em dash, CJK or
+    an emoji. ``sys.stdout`` defaults to the ANSI code page when redirected, so
+    ``json.dumps(..., ensure_ascii=False)`` and a plain ``result.text`` write
+    both raise ``UnicodeEncodeError``. UTF-8 is also the encoding the MCP
+    stdio transport requires.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError, ValueError):
+            pass
+
+
 # --------------------------------------------------------------------------- #
 # Human-readable event rendering
 # --------------------------------------------------------------------------- #
@@ -804,6 +820,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    _configure_stdio()
     parser = build_parser()
     argv = list(sys.argv[1:] if argv is None else argv)
 

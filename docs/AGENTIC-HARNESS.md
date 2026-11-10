@@ -1022,10 +1022,11 @@ The `brain_search`, `brain_read`, `brain_status` and `brain_sync` specs are for
 deliberate depth. A tool-triggered sync is capped (`TOOL_EMBED_LIMIT`); the CLI
 is the unbounded path. `brain_read` takes `page`, not `path`, because it is
 contained to the vault root by construction and must not be mistaken for a
-general filesystem tool. The CLI, GUI text path and subagent children get
-automatic injection; the Gemini Live voice surface gets the resident map and
-the tools but no per-turn block, because the audio socket has no pre-turn text
-hook. The map it receives says so.
+general filesystem tool. The CLI and GUI text path get automatic injection; the
+Gemini Live voice surface gets the resident map and the tools but no per-turn
+block, because the audio socket has no pre-turn text hook. Subagent children
+get neither the automatic block nor the resident map: they are focused workers,
+and a map that promises retrieval they do not receive is misleading.
 
 ### Subdirectory instructions are path-driven
 

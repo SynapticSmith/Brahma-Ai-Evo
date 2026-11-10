@@ -620,7 +620,7 @@ def sync(
 
             meta, body = _split_frontmatter(text)
             title = _title_for(rel, body, meta)
-            shelf = rel.split("/")[0] if "/" in rel else "(root)"
+            page_shelf = rel.split("/")[0] if "/" in rel else "(root)"
             pieces = chunk_text(body)
 
             old_ids = [
@@ -652,7 +652,7 @@ def sync(
             conn.execute(
                 "INSERT OR REPLACE INTO pages(path, mtime, size, sha, title, shelf) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
-                (rel, stat.st_mtime, stat.st_size, sha, title, shelf),
+                (rel, stat.st_mtime, stat.st_size, sha, title, page_shelf),
             )
             stats["pages_indexed"] += 1
             stats["chunks"] += len(inserted)
@@ -1033,6 +1033,46 @@ def should_retrieve(text: str) -> bool:
         return False
     # A turn with no content word ("hi", "ok then") has nothing to retrieve.
     return bool(_content_tokens(cleaned))
+
+
+def retrieval_sources(block: str) -> List[str]:
+    """The note paths named in a rendered SECOND BRAIN block, in order."""
+    sources: List[str] = []
+    for line in str(block or "").splitlines():
+        if not line.startswith("["):
+            continue
+        try:
+            path = line.split("] ", 1)[1].split(" ›", 1)[0]
+        except IndexError:
+            continue
+        if path and path not in sources:
+            sources.append(path)
+    return sources
+
+
+def with_retrieval(
+    messages: Sequence[Dict[str, Any]],
+    text: str,
+    *,
+    budget: Optional[int] = None,
+) -> Tuple[List[Dict[str, Any]], str]:
+    """Return a copy of ``messages`` with this turn's notes before the last user.
+
+    The GUI text path makes its first model call before ``AgentLoop`` exists.
+    This helper lets that call see the same block without mutating the seed
+    handed to the session bridge: the block is request context, not transcript.
+    """
+    block = context_for_turn(text, budget=budget)
+    copied = [dict(message) for message in messages]
+    if not block:
+        return copied, ""
+    at = len(copied)
+    for index in range(len(copied) - 1, -1, -1):
+        if copied[index].get("role") == "user":
+            at = index
+            break
+    copied.insert(at, {"role": "system", "content": block})
+    return copied, block
 
 
 # --------------------------------------------------------------------------- #

@@ -1282,8 +1282,17 @@ class TextTurnController:
             f"'{m._prompt_tier()}', {len(messages[0]['content'])} chars, "
             f"{len(local_tools)} tool(s) for {local_model_target}."
         )
+        # The first model call happens before AgentLoop exists, so retrieve here
+        # and hand the same block to the loop for its later turns. The seed
+        # itself stays untouched: the block must not be persisted as transcript.
+        try:
+            from agent import second_brain
+
+            preview, retrieval = second_brain.with_retrieval(messages, request_text)
+        except Exception:  # noqa: BLE001 - retrieval must never fail a turn
+            preview, retrieval = messages, ""
         res = local_brain.chat_complete(
-            messages, model=local_model_target, tools=local_tools, focus_core=True
+            preview, model=local_model_target, tools=local_tools, focus_core=True
         )
         return host._finish_tool_turn(
             res,
@@ -1291,6 +1300,7 @@ class TextTurnController:
             source="local",
             model_label=local_model_target,
             tools=local_tools,
+            retrieval=retrieval,
         )
 
     def agentic_seed_messages(
@@ -1398,6 +1408,7 @@ class TextTurnController:
         source: str,
         model_label: str,
         tools: list | None = None,
+        retrieval: str = "",
     ) -> str:
         """Continue an OpenAI-protocol turn until the model stops calling tools."""
         host = self._host
@@ -1479,6 +1490,7 @@ class TextTurnController:
             on_event=host._agent_event,
             cancel=runtime.cancel_event,
             stream=source in ("local", "custom"),
+            retrieval=retrieval or None,
         )
         try:
             result = loop.run(first_response=res)
@@ -1632,6 +1644,12 @@ class TextTurnController:
         messages = host._agentic_seed_messages(
             request_text, advertise_discovery=not host._custom_tools_broken
         )
+        try:
+            from agent import second_brain
+
+            preview, retrieval = second_brain.with_retrieval(messages, request_text)
+        except Exception:  # noqa: BLE001 - retrieval must never fail a turn
+            preview, retrieval = messages, ""
         tools: list = []
         if not host._custom_tools_broken:
             tools, _skill_ctx = local_brain.resolve_tools(
@@ -1641,7 +1659,7 @@ class TextTurnController:
             tools = local_brain.format_tools_for_local(tools)
         try:
             msg = openrouter_client.chat_as_completion(
-                "custom", "", full_messages=messages, tools=tools
+                "custom", "", full_messages=preview, tools=tools
             )
         except Exception as exc:
             if not tools or "tool" not in str(exc).lower():
@@ -1652,7 +1670,7 @@ class TextTurnController:
                 "this endpoint will be treated as tool-less for the session."
             )
             msg = openrouter_client.chat_as_completion(
-                "custom", "", full_messages=messages
+                "custom", "", full_messages=preview
             )
         return host._finish_tool_turn(
             {"choices": [{"message": msg}]},
@@ -1660,6 +1678,7 @@ class TextTurnController:
             source="custom",
             model_label=label,
             tools=tools,
+            retrieval=retrieval,
         )
 
     def fallback_reply(self, text: str, memory_ctx: str = "") -> None:

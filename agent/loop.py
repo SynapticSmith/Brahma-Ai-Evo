@@ -241,6 +241,7 @@ class AgentLoop:
         allow_subagents: bool = True,
         batch_readonly: bool = False,
         retrieval_budget: Optional[int] = None,
+        retrieval: Optional[str] = None,
         retrieve: bool = True,
     ):
         self._complete = complete
@@ -325,8 +326,12 @@ class AgentLoop:
         #: exists for hosts that already injected their own context, and
         #: ``retrieval_budget`` caps the rendered block (a 1.7B model on an 8K
         #: window needs a much smaller block than a 200K Gemini session).
+        #: ``retrieval`` is a block the host already rendered for its first
+        #: model call; reusing it avoids a second index query and keeps the
+        #: telemetry event identical.
         self._retrieve = bool(retrieve)
         self._retrieval_budget = retrieval_budget
+        self._retrieval_override = str(retrieval or "").strip() or None
         self._retrieval_sources: List[str] = []
 
         if context is not None:
@@ -646,6 +651,7 @@ class AgentLoop:
                 permission_note=policy_note(self._runtime),
                 extra=extra,
                 include_subagents=False,
+                include_brain=False,
             ),
             session=None,
             max_turns=turns,
@@ -1020,28 +1026,32 @@ class AgentLoop:
         """
         if not self._retrieve or self._is_child:
             return
-        text = str(prompt or "").strip()
-        if not text:
-            for message in reversed(self._context.messages):
-                if message.get("role") == "user":
-                    text = str(message.get("content") or "").strip()
-                    break
-        if not text:
-            return
-        try:
-            from .second_brain import context_for_turn
+        block = self._retrieval_override
+        self._retrieval_override = None
+        if block is None:
+            text = str(prompt or "").strip()
+            if not text:
+                for message in reversed(self._context.messages):
+                    if message.get("role") == "user":
+                        text = str(message.get("content") or "").strip()
+                        break
+            if not text:
+                return
+            try:
+                from .second_brain import context_for_turn
 
-            block = context_for_turn(text, budget=self._retrieval_budget)
-        except Exception:  # noqa: BLE001 - retrieval must never fail a turn
-            block = ""
+                block = context_for_turn(text, budget=self._retrieval_budget)
+            except Exception:  # noqa: BLE001 - retrieval must never fail a turn
+                block = ""
         self._context.set_retrieval(block)
         if not block:
             return
-        self._retrieval_sources = [
-            line.split("] ", 1)[1].split(" ›", 1)[0]
-            for line in block.splitlines()
-            if line.startswith("[")
-        ]
+        try:
+            from .second_brain import retrieval_sources
+
+            self._retrieval_sources = retrieval_sources(block)
+        except Exception:  # noqa: BLE001 - telemetry is not worth a failure
+            self._retrieval_sources = []
         self._emit(
             "retrieval",
             chars=len(block),

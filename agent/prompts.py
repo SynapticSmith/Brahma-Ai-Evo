@@ -467,6 +467,7 @@ def build_system_prompt(
     max_parents: Optional[int] = None,
     trusted: Optional[bool] = None,
     include_subagents: bool = True,
+    include_brain: bool = True,
 ) -> str:
     parts = [BASE_SYSTEM]
     if workspace is not None:
@@ -476,9 +477,13 @@ def build_system_prompt(
     project = project_context(workspace, max_parents=max_parents, trusted=trusted)
     if project:
         parts.append(project)
-    brain = brain_prompt_block()
-    if brain:
-        parts.append(brain)
+    if include_brain:
+        # Children skip this block: ``AgentLoop._prepare_retrieval`` does not
+        # inject a per-turn block into a child, so a map that promises one
+        # would tell the child to wait for context it will never receive.
+        brain = brain_prompt_block()
+        if brain:
+            parts.append(brain)
     if include_subagents:
         # The index is machine configuration, not workspace context, so it is
         # not part of project_context. A child loop turns it off: children never
