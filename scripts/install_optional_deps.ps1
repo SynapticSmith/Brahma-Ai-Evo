@@ -33,7 +33,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('speech', 'osc', 'avatar-l2d', 'avatar-vrm', 'vrm-runtime', 'all')]
+    [ValidateSet('speech', 'osc', 'avatar-l2d', 'avatar-vrm', 'vrm-runtime', 'system-tools', 'all')]
     [string]$Group = 'all',
 
     # Re-download even if already present.
@@ -90,6 +90,39 @@ function Resolve-Python {
         }
     }
 
+    # Query EVO.bat directly to find what interpreter the app actually launches.
+    if ($PSScriptRoot) {
+        $bat = Join-Path (Split-Path -Parent $PSScriptRoot) 'EVO.bat'
+        if (Test-Path $bat) {
+            $prev = $env:BRAHMA_PRINT_PY
+            try {
+                $env:BRAHMA_PRINT_PY = '1'
+                $chosen = & cmd.exe /c "`"$bat`"" 2>$null
+                if ($chosen) {
+                    $cmdStr = ($chosen | Select-Object -Last 1).Trim()
+                    if ($cmdStr -match '^"([^"]+)"$') {
+                        $exe = $Matches[1]
+                        if (Test-Path $exe) {
+                            Write-Host "[info] using interpreter from EVO.bat: $exe"
+                            return @($exe)
+                        }
+                    } elseif ($cmdStr -match '^py\s+-(\d+\.\d+)$') {
+                        $arg = "-$($Matches[1])"
+                        if (Get-Command 'py' -ErrorAction SilentlyContinue) {
+                            Write-Host "[info] using interpreter from EVO.bat: py $arg"
+                            return @('py', $arg)
+                        }
+                    } elseif ($cmdStr -and (Get-Command $cmdStr -ErrorAction SilentlyContinue)) {
+                        Write-Host "[info] using interpreter from EVO.bat: $cmdStr"
+                        return @($cmdStr)
+                    }
+                }
+            } finally {
+                $env:BRAHMA_PRINT_PY = $prev
+            }
+        }
+    }
+
     $want = Get-TargetPythonVersion
     Write-Host "[info] app runs on Python $want (read from EVO.bat)"
 
@@ -110,10 +143,8 @@ function Resolve-Python {
     }
 
     if ($fallback) {
-        throw ("Found Python $($fallback[1]) but the app needs $want. " +
-               "Install Python $want, or run this script with that interpreter " +
-               "on PATH. Installing into $($fallback[1]) would put every " +
-               "dependency somewhere Brahma Evo never looks.")
+        Write-Host "[warn] Python $want not found; falling back to $($fallback[1]): $($fallback[0] -join ' ')"
+        return $fallback[0]
     }
     throw "No suitable Python interpreter found. Install Python $want and re-run."
 }
@@ -218,6 +249,11 @@ function Install-VrmModel {
 }
 
 function Install-VrmRuntime {
+    $vendorJson = Join-Path $Repo 'assets\avatar_vrm\vendor\VENDOR.json'
+    if ((Test-Path $vendorJson) -and (-not $Force)) {
+        Ok 'VRM runtime already vendored in assets/avatar_vrm/vendor (use -Force to re-vendor)'
+        return
+    }
     Step 'resolving the three.js / @pixiv/three-vrm packages'
     Push-Location $Repo
     try {
@@ -231,8 +267,17 @@ function Install-VrmRuntime {
     Ok 'VRM is now fully self-contained: no network needed at render time'
 }
 
+function Install-SystemTools {
+    Step 'verifying recommended external CLI tools (ripgrep, ffmpeg, yt-dlp, pandoc, sqlite3)'
+    $sysScript = Join-Path $Repo 'scripts\install_system_tools.ps1'
+    if (Test-Path $sysScript) {
+        & powershell -ExecutionPolicy Bypass -File $sysScript
+        Ok 'system tools verified'
+    }
+}
+
 # --------------------------------------------------------------------------
-$groups = if ($Group -eq 'all') { @('speech', 'osc', 'avatar-l2d', 'avatar-vrm', 'vrm-runtime') } else { @($Group) }
+$groups = if ($Group -eq 'all') { @('speech', 'osc', 'avatar-l2d', 'avatar-vrm', 'vrm-runtime', 'system-tools') } else { @($Group) }
 
 Write-Host ""
 Write-Host "Installing group(s): $($groups -join ', ')" -ForegroundColor Cyan
@@ -241,11 +286,12 @@ Write-Host ""
 
 foreach ($g in $groups) {
     switch ($g) {
-        'speech'      { Install-Speech }
-        'osc'         { Install-Osc }
-        'avatar-l2d'  { Install-Live2DModel }
-        'avatar-vrm'  { Install-VrmModel }
-        'vrm-runtime' { Install-VrmRuntime }
+        'speech'       { Install-Speech }
+        'osc'          { Install-Osc }
+        'avatar-l2d'   { Install-Live2DModel }
+        'avatar-vrm'   { Install-VrmModel }
+        'vrm-runtime'  { Install-VrmRuntime }
+        'system-tools' { Install-SystemTools }
     }
 }
 

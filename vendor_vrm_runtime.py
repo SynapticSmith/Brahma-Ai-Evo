@@ -34,7 +34,11 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parent
 DEST = BASE / "assets" / "avatar_vrm" / "vendor"
 PAGE = BASE / "assets" / "avatar_vrm" / "index.html"
-DEFAULT_SOURCE = (Path(__file__).resolve().parent.parent / "node_modules")
+DEFAULT_SOURCE = (
+    (BASE / "node_modules")
+    if (BASE / "node_modules").exists()
+    else (BASE.parent / "node_modules")
+)
 
 # (package dir under node_modules, source file, destination name, npm version)
 PACKAGES = [

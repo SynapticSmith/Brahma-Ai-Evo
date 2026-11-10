@@ -31,6 +31,7 @@
 | **Track 15** | **Portfolio & OpenMono Absorption (Batch 4: 8 Skills)** | 🟢 **COMPLETED** | 8 skills: `server-deploy`, `llms-txt`, `windows-gui`, `web-research`, `scroll-craft`, `grounded-claims`, `mimic-ipc`, `pg-opt` (70 total) | [x] Passed |
 | **Track 16** | **Portfolio Skills Absorption (Batch 5: 10 Skills)** | 🟢 **COMPLETED** | 10 skills: `text-to-cad`, `book-to-skill`, `vega-viz`, `canvas-designer`, `media-crawler`, `sqlite-fts`, `openapi-contract`, `circuit-breaker`, `canary-deploy`, `epistemic-arbitrage` (80 total) | [x] Passed |
 | **Track 17** | **Portfolio Skills Absorption (Batch 6: 10 Skills) & UX Integration** | 🟢 **COMPLETED** | 10 skills: `smart-scraper`, `graph-rag`, `structured-grammar`, `answer-engine`, `doc-converter`, `flakiness-hunter`, `sunk-cost`, `loss-aversion`, `survivorship-bias`, `confirmation-bias` (90 total) + `/domains`, `/brain` HUD commands & CLI `--domain` filter | [x] Passed |
+| **Track 18** | **External Software Installation & Bootstrap Automation** | 🟢 **COMPLETED** | Installed `rg`, `ffmpeg`, `yt-dlp`, `pandoc`, `sqlite3`, `openscad`; enhanced `setup.py`, `scripts/setup_dev.ps1`, `scripts/install_system_tools.ps1` | [x] Passed |
 | **Verification Gate** | **Full Portable Test Suite & Ratchets** | 🟢 **COMPLETED** | 1,594+ tests passed, 0 ruff errors, architecture ratchets clean | [x] Passed |
 
 ---
@@ -209,6 +210,21 @@ flowchart TD
 - [x] Unit tests in `tests/test_routing_authority.py`: 106/106 passed.
 - [x] **Second Brain Maintenance**: Executed `sync(embed=False)` over 3,646 vault pages and optimized `chunks_fts` virtual table.
 - [x] Full agent test suite: 614 passed, 4 skipped, 0 failed.
+
+### Track 18: External Software Installation & Bootstrap Automation
+- [x] **Audit & Installation of External CLI Software**:
+  - `rg` (ripgrep 15.2.0): Installed in user environment via winget link (`BurntSushi.ripgrep.MSVC`).
+  - `ffmpeg` & `ffprobe`: Installed in user environment via winget link (`yt-dlp.FFmpeg`).
+  - `yt-dlp` (2026.10.26): Installed in user environment via winget link (`yt-dlp.yt-dlp`).
+  - `pandoc` (3.13): Installed in user environment (`JohnMacFarlane.Pandoc`).
+  - `sqlite3` (3.54.1): Installed in user environment via winget link (`SQLite.SQLite`).
+  - `openscad` (2021.01): Resolved winget GUI installer hang by automating silent official portable zip installation to `%LOCALAPPDATA%\OpenSCAD` and binding to user `PATH` (verified headless 3D CAD to STL rendering in 0.001s).
+  - Skipped Docker as explicitly requested by user.
+- [x] **Setup & Bootstrap Integration**:
+  - Created [`scripts/install_system_tools.ps1`](file:///C:/Users/Admin/Brahma-Ai-Evo/scripts/install_system_tools.ps1) with `-CheckOnly` flag and automated portable zip fallback for OpenSCAD.
+  - Enhanced [`setup.py`](file:///C:/Users/Admin/Brahma-Ai-Evo/setup.py) to check and install all 6 recommended tools, dynamically refreshing Windows registry PATH across sessions.
+  - Updated [`scripts/setup_dev.ps1`](file:///C:/Users/Admin/Brahma-Ai-Evo/scripts/setup_dev.ps1) to add Step 5 tool auditing and `-InstallSystemTools` parameter.
+  - Updated [`scripts/install_optional_deps.ps1`](file:///C:/Users/Admin/Brahma-Ai-Evo/scripts/install_optional_deps.ps1) to include the `system-tools` group.
 
 ### Verification Gate (AGENTS.md)
 - [x] `python -m ruff check .` -> All checks passed (0 errors).

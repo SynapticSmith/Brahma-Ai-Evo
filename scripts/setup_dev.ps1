@@ -15,7 +15,8 @@
 param(
     [switch]$Force,
     [switch]$SkipPlaywright,
-    [switch]$NoUpgradePip
+    [switch]$NoUpgradePip,
+    [switch]$InstallSystemTools
 )
 
 $ErrorActionPreference = "Stop"
@@ -123,6 +124,16 @@ Write-Host "PyInstaller: $pyiVersion" -ForegroundColor Green
 Write-Host "Ruff:       $ruffVersion" -ForegroundColor Green
 Write-Host "Pytest:     $pytestVersion" -ForegroundColor Green
 Write-Host ""
+
+# --- 5. External CLI tools verification -----------------------------------
+$installToolsScript = Join-Path $RepoRoot "scripts\install_system_tools.ps1"
+if (Test-Path $installToolsScript) {
+    if ($InstallSystemTools) {
+        & powershell -ExecutionPolicy Bypass -File $installToolsScript
+    } else {
+        & powershell -ExecutionPolicy Bypass -File $installToolsScript -CheckOnly
+    }
+}
 Write-Host "Gates:" -ForegroundColor Cyan
 Write-Host "  .\.venv\Scripts\python.exe -m ruff check ." -ForegroundColor Gray
 Write-Host "  `$env:QT_QPA_PLATFORM='offscreen'; .\.venv\Scripts\python.exe -m pytest tests -q" -ForegroundColor Gray
