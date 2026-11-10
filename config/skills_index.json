@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "total_skills": 62,
+  "total_skills": 70,
   "domains": [
     "architecture",
     "coding",
@@ -135,6 +135,33 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Background Browser Automation via Persistent Context\n\n## Objective\nLaunch an isolated headless browser session that inherits local browser cookies to inspect authenticated pages.\n\n## Prerequisites\n- Playwright or CDP client available (`python -m playwright` or Chrome remote debugging port).\n\n## Execution Recipe\n1. **Locate Chrome User Profile or Exported Cookies**:\n   Identify path to user data directory or exported session state (`%LOCALAPPDATA%\\Google\\Chrome\\User Data`).\n2. **Launch Background Context**:\n   Use Playwright `launch_persistent_context` in headless mode:\n   ```python\n   from playwright.sync_api import sync_playwright\n   with sync_playwright() as p:\n       browser = p.chromium.launch_persistent_context(\n           user_data_dir=user_data_path,\n           headless=True,\n           args=[\"--disable-blink-features=AutomationControlled\"]\n       )\n       page = browser.new_page()\n       page.goto(target_url, wait_until=\"networkidle\")\n   ```\n3. **Inspect Authenticated DOM**:\n   Extract content or take background screenshot:\n   ```python\n   content = page.locator(\"main\").inner_text()\n   ```\n4. **Verification Gate**:\n   - Status 200 received without redirect to login page.\n   - User foreground focus was not interrupted.\n5. **Remediation**:\n   If an anti-bot challenge is encountered, stop immediately, alert the user, and allow manual completion in visible browser.",
       "sha256": "3934ec8e5cc676121338a06abe91119f03a3fef3dec785a7584d8639c3cd23a0"
+    },
+    {
+      "name": "autonomous-web-research",
+      "directory": "autonomous-web-research",
+      "path": "skills/autonomous-web-research/SKILL.md",
+      "domain": "research",
+      "academic_domain": "research",
+      "description": "Autonomous multi-query web research, evidence triangulation, source fact-checking, and structured markdown synthesis for second-brain knowledge capture.",
+      "triggers": [
+        "autonomous web research",
+        "research topic online",
+        "synthesize web research",
+        "deep web investigation",
+        "triangulate web sources",
+        "compile research note"
+      ],
+      "tags": [
+        "research",
+        "web-search",
+        "knowledge-capture",
+        "second-brain",
+        "synthesis",
+        "triangulation"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Autonomous Multi-Source Web Research & Synthesis\n\n## Objective\nExecute multi-query search, triangulate claims across authoritative domains, and author a citation-grounded research note.\n\n## Prerequisites\n- Web search / scraper tool or API connectivity.\n\n## Execution Recipe\n1. **Generate 3 Search Angles**:\n   - Query 1: `<topic> official documentation architecture`\n   - Query 2: `<topic> github implementation benchmarks`\n   - Query 3: `<topic> limitations pitfalls failure modes`\n2. **Execute Searches & Extract Clean Content**:\n   Query top 3 distinct domains per angle; extract headings and code snippets.\n3. **Triangulate Invariants**:\n   Identify claims verified by $\\ge 2$ independent sources. Flag conflicting statements as open questions.\n4. **Author Research Note**:\n   Draft markdown document with:\n   - **Executive Summary**: Core definition and purpose.\n   - **Technical Deep-Dive**: Invariants, data structures, and APIs.\n   - **Trade-offs**: Failure modes and scaling limits.\n   - **Citations**: Full URLs and dates.\n5. **Verification Gate**:\n   *Gate: All factual claims cite a verifiable URL; zero unsourced assertions.*\n6. **Remediation**:\n   If conflicting claims cannot be resolved, document both positions explicitly with respective citations.",
+      "sha256": "f966ee887cb6253d5bc863c4af5373b2edca767dd9b380e4b9c544ee777c9028"
     },
     {
       "name": "blast-radius-analyzer",
@@ -490,6 +517,34 @@
       "sha256": "ca4783e52d20a866148d93dcd951b1c81616c9699c716c78032d0a46687ee4d6"
     },
     {
+      "name": "desktop-app-instrumentation",
+      "directory": "desktop-app-instrumentation",
+      "path": "skills/desktop-app-instrumentation/SKILL.md",
+      "domain": "coding",
+      "academic_domain": "coding",
+      "description": "Intercepting, inspecting, and instrumenting native desktop application IPC, local sockets, named pipes, and RPC protocols to call GUI apps programmatically from Python.",
+      "triggers": [
+        "desktop app instrumentation",
+        "intercept desktop app",
+        "call gui app from python",
+        "reverse engineer desktop app",
+        "instrument desktop process",
+        "local ipc wrapper"
+      ],
+      "tags": [
+        "reverse-engineering",
+        "ipc",
+        "sockets",
+        "windows",
+        "instrumentation",
+        "api-wrapper",
+        "coding"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Desktop Process Interception & Python Wrapping\n\n## Objective\nIdentify local IPC channels (ports, pipes, COM) of a desktop app and generate a scriptable Python wrapper.\n\n## Prerequisites\n- Target desktop app running locally.\n- PowerShell or Python with `requests`, `websockets`, or `pywin32`.\n\n## Execution Recipe\n1. **Find Process PID & Local Listening Ports**:\n   ```powershell\n   $proc = Get-Process \"<AppName>\"\n   Get-NetTCPConnection -OwningProcess $proc.Id | Where-Object { $_.State -eq \"Listen\" }\n   ```\n2. **Inspect Named Pipes**:\n   ```powershell\n   [System.IO.Directory]::GetFiles(\"\\\\.\\\\pipe\\\\\") | Select-String \"<AppName>\"\n   ```\n3. **Probe Endpoint with JSON-RPC / HTTP**:\n   ```powershell\n   Invoke-RestMethod -Uri \"http://127.0.0.1:<port>/api\" -Method Get\n   ```\n4. **Author Python Wrapper Class**:\n   Wrap discovered endpoints into typed methods (`def perform_action(self, payload): ...`) using `urllib` or `requests`.\n5. **Verification Gate**:\n   *Gate: Python wrapper executes commands and retrieves state from the running app in <100ms.*\n6. **Remediation**:\n   If endpoints require auth tokens, locate session tokens in `%APPDATA%/<AppName>/Local State` or launch flags.",
+      "sha256": "87ff5f3a0b6bf7416628cfe724c9bf7f554fc1a85f563004ffbf11c37c9db3e1"
+    },
+    {
       "name": "desloppify",
       "directory": "desloppify",
       "path": "skills/desloppify/SKILL.md",
@@ -719,6 +774,34 @@
       "sha256": "0116b65525b8715b91bb320b217cd4ba9ab69d30cd790fba12d0492afd5cb49a"
     },
     {
+      "name": "grounded-claim-verification",
+      "directory": "grounded-claim-verification",
+      "path": "skills/grounded-claim-verification/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "cognitive",
+      "description": "Rigorous epistemic grounding and verification protocol ensuring every assertion about codebase architecture, performance, or behavior is grounded in line-level file provenance.",
+      "triggers": [
+        "grounded claim verification",
+        "verify claims",
+        "ground assertions",
+        "provenance check",
+        "verify codebase facts",
+        "grounded intelligence"
+      ],
+      "tags": [
+        "grounding",
+        "verification",
+        "epistemic-humility",
+        "provenance",
+        "citations",
+        "claims",
+        "cognitive"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Codebase Claim Grounding & Provenance Audit\n\n## Objective\nAudit technical claims, anchor them with exact line-level hyperlinks, and eliminate hallucinated assertions.\n\n## Prerequisites\n- Local workspace access with grep / ripgrep.\n\n## Execution Recipe\n1. **Extract High-Risk Assertions**:\n   Identify statements regarding interface contracts, dependency versions, or performance metrics.\n2. **Retrieve File Provenance**:\n   ```powershell\n   rg -n \"<symbol_or_keyword>\" <directory>\n   ```\n3. **Format Grounded File Link**:\n   Format every assertion with standard markdown file links:\n   `[filename.py#L42-L48](file:///C:/path/to/file#L42-L48)`\n4. **Empirical Gate Verification**:\n   If claiming a test passes or fails, run the command and include the exact return code and tail output:\n   ```powershell\n   py -3.11 -m pytest tests/test_target.py -q\n   ```\n5. **Verification Gate**:\n   *Gate: 100% of technical assertions are anchored by valid file hyperlinks or verifiable command outputs.*\n6. **Remediation**:\n   If an assertion cannot be verified on disk, mark it explicitly as \"Unverified Hypothesis\" or discard it entirely.",
+      "sha256": "fbc6a2db91538a4f2240b198cbee2122c3686c24e5d0163f762ed994a612ca87"
+    },
+    {
       "name": "hanlons-razor",
       "directory": "hanlons-razor",
       "path": "skills/hanlons-razor/SKILL.md",
@@ -851,6 +934,33 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Inversion-Based Problem Solving\n\n## Objective\nApply inversion thinking to discover hidden flaws, anti-patterns, and fatal failure paths in an architecture or codebase before implementation.\n\n## Prerequisites\n- A clear technical objective or architectural decision.\n\n## Execution Recipe\n1. **Identify Success Goal**:\n   Formulate the desired state in one concise sentence (e.g., \"Harness runs untrusted code safely without resource exhaustion\").\n2. **Construct Anti-Goal**:\n   Formulate the opposite condition (e.g., \"Harness allows runaway fork-bombs, memory leaks, and disk exhaustion\").\n3. **Brainstorm Failure Mechanisms**:\n   List at least 4 ways to cause the anti-goal:\n   - Unbounded memory allocations\n   - Subprocesses not attached to job objects\n   - Infinite recursive loops without turn limits\n   - File descriptors left unclosed\n4. **Translate to Active Invariants**:\n   Convert each failure mechanism into an automated test or architectural gate:\n   - Cap subprocess memory with Job Object limits.\n   - Enforce hard turn budgets (max 12 iterations).\n   - Use `with` blocks or explicit try-finally cleanup for all I/O handles.\n5. **Verification Gate**:\n   Execute test suite to prove each anti-goal scenario is blocked and raises expected exceptions.\n6. **Remediation**:\n   If an anti-goal scenario slips through, insert an AST check or policy rule to reject it before runtime.",
       "sha256": "efa4f3770b2cb3763bce1abc1a2dc90ccfc4a1bab3e4581e4121e1a60499b833"
+    },
+    {
+      "name": "llms-txt-generator",
+      "directory": "llms-txt-generator",
+      "path": "skills/llms-txt-generator/SKILL.md",
+      "domain": "coding",
+      "academic_domain": "coding",
+      "description": "Generates standardized llms.txt and llms-full.txt project documentation indices for LLMs and AI agent indexing according to the llms.txt proposal.",
+      "triggers": [
+        "llms txt generator",
+        "generate llms.txt",
+        "create llms-full.txt",
+        "build llms text manifest",
+        "llm documentation index",
+        "generate llms documentation"
+      ],
+      "tags": [
+        "llms-txt",
+        "documentation",
+        "ai-indexing",
+        "markdown",
+        "project-manifest",
+        "coding"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Project LLMs.txt & LLMs-Full.txt Generation\n\n## Objective\nGenerate standardized `llms.txt` and `llms-full.txt` index manifests from repository markdown documentation.\n\n## Prerequisites\n- Repository documentation directory (`docs/` or root markdown files).\n- Python 3.11+.\n\n## Execution Recipe\n1. **Catalog Markdown Specifications**:\n   ```powershell\n   Get-ChildItem -Path docs/ -Filter \"*.md\" | Select-Object Name, FullName\n   ```\n2. **Compile `llms.txt` Header & Core Links**:\n   Format project summary and annotate each primary document:\n   ```markdown\n   # <Project Name>\n   > <Canonical project mission and invariants>\n\n   ## Core Documentation\n   - [Architecture Spec](docs/ARCHITECTURE-SPEC.md): System map and invariants.\n   - [Harness Guide](docs/AGENTIC-HARNESS.md): Agent runtime and tool protocol.\n   ```\n3. **Assemble `llms-full.txt`**:\n   Concatenate all referenced markdown documents with clear section delimiters into a single offline reference file.\n4. **Verification Gate**:\n   *Gate: `llms.txt` passes markdown lint; all link targets exist on disk.*\n5. **Remediation**:\n   If broken relative links are detected, update paths to match actual file system locations.",
+      "sha256": "e24f83b4a645faebab21b87df7e4c384d445969b91d1af253cbe2cf28b9f24ef"
     },
     {
       "name": "memory-consolidation",
@@ -1033,6 +1143,34 @@
       "sha256": "78331fdb79118f6640b74fb3980a356558e2ef1a05adb498a1470c92d154e647"
     },
     {
+      "name": "postgres-query-optimizer",
+      "directory": "postgres-query-optimizer",
+      "path": "skills/postgres-query-optimizer/SKILL.md",
+      "domain": "devops",
+      "academic_domain": "devops",
+      "description": "PostgreSQL query performance optimization, EXPLAIN ANALYZE execution plan breakdown, sequential scan elimination, index design, and slow query tuning.",
+      "triggers": [
+        "postgres query optimizer",
+        "optimize postgres query",
+        "analyze postgres query plan",
+        "slow sql query",
+        "explain analyze",
+        "fix sequential scan"
+      ],
+      "tags": [
+        "postgres",
+        "sql",
+        "performance",
+        "explain-analyze",
+        "indexing",
+        "query-optimizer",
+        "devops"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: PostgreSQL Query Plan Optimization & Indexing\n\n## Objective\nDiagnose slow PostgreSQL queries using `EXPLAIN (ANALYZE, BUFFERS)` and deploy non-blocking index fixes.\n\n## Prerequisites\n- Access to PostgreSQL database via `psql` or connection string.\n\n## Execution Recipe\n1. **Run Deep Execution Plan**:\n   ```sql\n   EXPLAIN (ANALYZE, BUFFERS, VERBOSE, SETTINGS)\n   <YOUR_QUERY_HERE>;\n   ```\n2. **Audit Bottleneck Nodes**:\n   - Check for `Seq Scan` on large tables: indicates missing index on filter columns.\n   - Check `Buffers: read=...`: indicates physical disk I/O instead of shared memory cache hit.\n   - Check `Rows Removed by Filter`: high numbers indicate poor index selectivity.\n3. **Deploy Non-Blocking Index**:\n   ```sql\n   CREATE INDEX CONCURRENTLY idx_orders_customer_created\n   ON orders (customer_id, created_at DESC);\n   ```\n4. **Re-Run & Compare Execution Plan**:\n   Verify node converted from `Seq Scan` to `Index Scan` or `Bitmap Index Scan`.\n5. **Verification Gate**:\n   *Gate: Execution time drops by $\\ge 80\\%$ and physical disk reads (`read=`) drop to 0.*\n6. **Remediation**:\n   If planner still chooses sequential scan, verify row estimates via `ANALYZE orders;` or adjust `random_page_cost`.",
+      "sha256": "4e21996d70a025acc47153e06e1bc58f57a3d18e60b26b7d2121a8db1e7f4f33"
+    },
+    {
       "name": "pr-readiness",
       "directory": "pr-readiness",
       "path": "skills/pr-readiness/SKILL.md",
@@ -1200,6 +1338,34 @@
       "sha256": "77d7a3c93e574acbb8948c78fa2e204ece316086a48e67581c1758b0280cefe2"
     },
     {
+      "name": "scroll-driven-web-design",
+      "directory": "scroll-driven-web-design",
+      "path": "skills/scroll-driven-web-design/SKILL.md",
+      "domain": "coding",
+      "academic_domain": "coding",
+      "description": "Architecting and implementing scroll-driven web animations, interactive narrative timelines, CSS animation-timeline view(), and progressive scroll layout validation.",
+      "triggers": [
+        "scroll driven web design",
+        "scroll animations",
+        "css animation timeline",
+        "build scroll landing page",
+        "scroll narrative",
+        "scroll-driven experience"
+      ],
+      "tags": [
+        "frontend",
+        "scroll-animation",
+        "css",
+        "web-design",
+        "animation-timeline",
+        "interactive",
+        "coding"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Native CSS Scroll-Driven Animation & Layout\n\n## Objective\nBuild a performant, 60fps scroll-driven landing page section using native CSS `animation-timeline`.\n\n## Prerequisites\n- HTML5 & modern CSS environment (Chrome 115+, Safari 17+ support).\n\n## Execution Recipe\n1. **Scaffold Sticky Timeline Section**:\n   ```html\n   <div class=\"scroll-track\" style=\"height: 300vh; position: relative;\">\n     <div class=\"sticky-viewport\" style=\"position: sticky; top: 0; height: 100vh; overflow: hidden;\">\n       <div class=\"hero-card\">Interactive Narrative</div>\n     </div>\n   </div>\n   ```\n2. **Define Pure CSS Animation Timeline**:\n   ```css\n   @keyframes revealFade {\n     from { opacity: 0; transform: translateY(40px) scale(0.95); }\n     to { opacity: 1; transform: translateY(0) scale(1); }\n   }\n   .hero-card {\n     animation: revealFade linear both;\n     animation-timeline: view();\n     animation-range: entry 15% cover 50%;\n   }\n   ```\n3. **Add Accessible Fallback**:\n   ```css\n   @supports not (animation-timeline: view()) {\n     .hero-card { opacity: 1; transform: none; }\n   }\n   ```\n4. **Verification Gate**:\n   *Gate: Animations run smoothly at 60fps; content is 100% visible if animation is disabled.*\n5. **Remediation**:\n   If layout jitters occur, replace animated `margin`/`top` with `transform: translate3d()`.",
+      "sha256": "1e999bea0178911b7068da43f3a2af146d758a81859834559045046c6090e514"
+    },
+    {
       "name": "second-order-thinking",
       "directory": "second-order-thinking",
       "path": "skills/second-order-thinking/SKILL.md",
@@ -1271,6 +1437,35 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Security Audit & Secret Scanning\n\n## Objective\nScan codebase for hardcoded credentials, API keys, unsafe subprocess calls, and known vulnerabilities.\n\n## Prerequisites\n- git\n- python 3.11+\n\n## Execution Recipe\n1. **Scan for Hardcoded Secrets**:\n   Search for common key prefixes (`AIza`, `sk-`, `ghp_`, `Bearer`):\n   ```powershell\n   git grep -E \"(AIza|sk-[a-zA-Z0-9]{20,}|ghp_)\"\n   ```\n2. **Audit Shell Invocations**:\n   Check for `shell=True` without sanitization in python files:\n   ```powershell\n   git grep \"shell=True\"\n   ```\n3. **Verify File Permissions & Sandbox Policies**:\n   Inspect `config/agent_permissions.example.json` to ensure least-privilege defaults.\n4. **Verification Gate**:\n   Verify 0 exposed secrets and all subprocess executions use array arguments (`shell=False`).\n5. **Remediation**:\n   Move detected keys to environment variables and scrub git history if needed.",
       "sha256": "cbd3bdc93c41fb1f00bfe333469dd92ac71cc25e448ce2a67d3393c59ec5707c"
+    },
+    {
+      "name": "server-deployment-ops",
+      "directory": "server-deployment-ops",
+      "path": "skills/server-deployment-ops/SKILL.md",
+      "domain": "devops",
+      "academic_domain": "devops",
+      "description": "Automated host and container server deployment playbook enforcing repo sync, scope review, rolling compose restart, health verification, and rollback guards.",
+      "triggers": [
+        "server deployment ops",
+        "deploy backend",
+        "update the server",
+        "pull and deploy",
+        "deploy server",
+        "rolling deploy",
+        "host deployment"
+      ],
+      "tags": [
+        "deploy",
+        "server",
+        "docker-compose",
+        "hosting",
+        "devops",
+        "rolling-deploy",
+        "healthcheck"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Zero-Downtime Server Deployment & Verification\n\n## Objective\nSafely pull code updates, rebuild containers, execute rolling restarts, and verify service health probes.\n\n## Prerequisites\n- SSH / local shell access to server host.\n- Docker & Docker Compose installed.\n\n## Execution Recipe\n1. **Sync Target Branch**:\n   ```powershell\n   git fetch origin main; git pull --ff-only origin main\n   ```\n2. **Review Deployment Scope**:\n   ```powershell\n   git log -1 --stat\n   docker compose config --services\n   ```\n3. **Execute Rolling Rebuild & Launch**:\n   ```powershell\n   docker compose up -d --build --remove-orphans\n   ```\n4. **Poll Health Check Probe**:\n   ```powershell\n   curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8080/health\n   ```\n5. **Inspect Startup Logs**:\n   ```powershell\n   docker compose logs --tail 30\n   ```\n6. **Verification Gate**:\n   *Gate: Health check probe returns 200 OK and container logs show 0 fatal errors.*\n7. **Remediation**:\n   If health check returns non-200 or times out, immediately roll back to previous image tag:\n   ```powershell\n   docker compose rollback || docker compose up -d --build --rollback\n   ```",
+      "sha256": "03e7b284ad1475bcd09daa918fac83e7a2c4cf9f20b9854c055d77529c6cf4bc"
     },
     {
       "name": "simplified-technical-english",
@@ -1572,6 +1767,34 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Web Scraping & Content Ingestion\n\n## Objective\nFetch, sanitize, and structure web content with polite rate limiting and fallback headers.\n\n## Prerequisites\n- python 3.11+\n\n## Execution Recipe\n1. **Check robots.txt**:\n   Inspect target site's robots.txt for disallowed routes and crawl delays.\n2. **Execute Polite Fetch**:\n   Use standard User-Agent header, timeout clamping, and exponential backoff.\n3. **Sanitize & Convert HTML to Markdown**:\n   Strip scripts, styles, and navigation elements. Extract article body.\n4. **Verification Gate**:\n   Check that extracted text is non-empty, contains article headers, and has no raw HTML tags.\n5. **Remediation**:\n   If 403 Forbidden is returned, rotate User-Agent or fall back to cached copy.",
       "sha256": "4cf6d225627f9d010426d982989c2d9a6ed1393c25685adddcb5bd0400c78223"
+    },
+    {
+      "name": "windows-gui-automation",
+      "directory": "windows-gui-automation",
+      "path": "skills/windows-gui-automation/SKILL.md",
+      "domain": "architecture",
+      "academic_domain": "architecture",
+      "description": "Native Windows GUI desktop automation protocol leveraging pywin32, UI Automation, window handles, coordinate clicks, and accessibility tree inspection.",
+      "triggers": [
+        "windows gui automation",
+        "automate windows desktop",
+        "click desktop element",
+        "inspect window handle",
+        "desktop ui automation",
+        "interact with windows app"
+      ],
+      "tags": [
+        "windows",
+        "gui",
+        "automation",
+        "uia",
+        "win32",
+        "accessibility",
+        "desktop"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Windows Desktop GUI Inspection & Control\n\n## Objective\nLocate a target Windows application window, inspect its UI Automation tree, and invoke actions without blind coordinate clicking.\n\n## Prerequisites\n- Windows OS with Python `pywin32` or PowerShell UIA access.\n\n## Execution Recipe\n1. **Find Target Window Handle**:\n   ```powershell\n   Get-Process | Where-Object { $_.MainWindowTitle -match \"<AppName>\" } | Select-Object Id, MainWindowTitle, MainWindowHandle\n   ```\n2. **Bring Target Window to Foreground**:\n   ```powershell\n   [Microsoft.VisualBasic.Interaction]::AppActivate(\"<AppName>\")\n   ```\n3. **Inspect UIA Control Tree via PowerShell**:\n   ```powershell\n   Add-Type -AssemblyName UIAutomationClient\n   $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)\n   $condition = [System.Windows.Automation.Condition]::TrueCondition\n   $elements = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)\n   ```\n4. **Trigger UIA Button or Input Pattern**:\n   Invoke `InvokePattern` on the matching `AutomationId` or `Name`.\n5. **Verification Gate**:\n   *Gate: Element state or window text changes within 3 seconds of invocation.*\n6. **Remediation**:\n   If UIA tree is empty, bring window to foreground and dispatch synthetic keyboard accelerators (`Alt+<key>`).",
+      "sha256": "3d9f55827349114525475ec49b7224ab13cc7eca958c5b207e5ba028b53ad586"
     }
   ]
 }

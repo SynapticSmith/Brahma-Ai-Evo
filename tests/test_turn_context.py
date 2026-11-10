@@ -295,3 +295,55 @@ def test_openmono_playbooks_triggers_and_cookbooks():
     assert blast_skills[0]["name"] == "blast-radius-analyzer"
     assert "Blast Radius" in blast_skills[0]["cookbook"]
 
+
+def test_batch4_skills_triggers_and_cookbooks():
+    """Verify triggers and cookbooks for Batch 4 portfolio and OpenMono skills."""
+    # Server deployment ops
+    deploy_skills = shortlist_skills("server deployment ops to pull and deploy backend")
+    assert len(deploy_skills) >= 1
+    assert deploy_skills[0]["name"] == "server-deployment-ops"
+    assert "Server Deployment" in deploy_skills[0]["cookbook"]
+
+    # LLMs.txt generator
+    llms_skills = shortlist_skills("generate llms.txt and create llms-full.txt documentation index")
+    assert len(llms_skills) >= 1
+    assert llms_skills[0]["name"] == "llms-txt-generator"
+    assert "LLMs.txt" in llms_skills[0]["cookbook"]
+
+    # Windows GUI automation
+    gui_skills = shortlist_skills("windows gui automation to inspect window handle and click desktop element")
+    assert len(gui_skills) >= 1
+    assert gui_skills[0]["name"] == "windows-gui-automation"
+    assert "Windows Desktop GUI" in gui_skills[0]["cookbook"]
+
+    # Autonomous web research
+    web_skills = shortlist_skills("autonomous web research to triangulate web sources and synthesize notes")
+    assert len(web_skills) >= 1
+    assert web_skills[0]["name"] == "autonomous-web-research"
+    assert "Web Research" in web_skills[0]["cookbook"]
+
+    # Scroll-driven web design
+    scroll_skills = shortlist_skills("scroll driven web design with css animation timeline")
+    assert len(scroll_skills) >= 1
+    assert scroll_skills[0]["name"] == "scroll-driven-web-design"
+    assert "Scroll-Driven" in scroll_skills[0]["cookbook"]
+
+    # Grounded claim verification
+    claim_skills = shortlist_skills("grounded claim verification and provenance check for codebase facts")
+    assert len(claim_skills) >= 1
+    assert claim_skills[0]["name"] == "grounded-claim-verification"
+    assert "Provenance" in claim_skills[0]["cookbook"]
+
+    # Desktop app instrumentation
+    app_skills = shortlist_skills("desktop app instrumentation to intercept desktop app from python")
+    assert len(app_skills) >= 1
+    assert app_skills[0]["name"] == "desktop-app-instrumentation"
+    assert "Desktop Process Interception" in app_skills[0]["cookbook"]
+
+    # Postgres query optimizer
+    sql_skills = shortlist_skills("postgres query optimizer to run explain analyze on slow sql query")
+    assert len(sql_skills) >= 1
+    assert sql_skills[0]["name"] == "postgres-query-optimizer"
+    assert "PostgreSQL Query Plan" in sql_skills[0]["cookbook"]
+
+
