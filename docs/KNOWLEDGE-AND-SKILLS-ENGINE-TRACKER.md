@@ -12,8 +12,8 @@
 | Phase | Description | Status | Deliverables | Exit Criteria Met? |
 |:---|:---|:---:|:---|:---:|
 | **Phase 0** | Audit & Snapshot (read-only) | 🟢 **COMPLETED** | `_audit/taxonomy-audit.md`, `taxonomy.json`, vault tag/branch `taxonomy/audit-v1` | [x] Passed |
-| **Phase 1** | Normalize Tree & Transplant Notes | 🟡 **IN PROGRESS** | `taxonomy-migration.json`, `_audit/link-rewrite.json`, `tools/taxonomy.py` | [ ] Pending |
-| **Phase 2** | Wikipedia Knowledge Tree Seeding | ⚪ Queued | `tools/seed_academic_taxonomy.py`, cached JSON/MD in `raw/wikipedia/` | [ ] Pending |
+| **Phase 1** | Normalize Tree & Transplant Notes | 🟢 **COMPLETED** | `taxonomy-migration.json`, `_audit/link-rewrite.json`, `tools/taxonomy.py` | [x] Passed |
+| **Phase 2** | Wikipedia Knowledge Tree Seeding | 🟡 **IN PROGRESS** | `tools/seed_academic_taxonomy.py`, cached JSON/MD in `raw/wikipedia/` | [ ] Pending |
 | **Phase 3** | Retrieval Schema v2 & Type-Weighted Ranking | ⚪ Queued | SQLite schema migration, type-weighted FTS5, `max 2 index pages` rule | [ ] Pending |
 | **Phase 4** | Multimodal Conversion & OCR Pipeline | ⚪ Queued | `tools/ingest_multimodal.py`, `markitdown` + `Unlimited-OCR` integration | [ ] Pending |
 | **Phase 5** | Knowledge Extraction & Placement | ⚪ Queued | `tools/extract_knowledge.py`, segmentation, atomization, `_inbox/` routing | [ ] Pending |
@@ -36,15 +36,17 @@
 - [x] Create initial human overrides file `_taxonomy/taxonomy.overrides.yaml`.
 - [x] Verify zero vault mutations occurred during audit. Exit criteria passed.
 
-### Phase 1: Normalize Existing Tree & Transplant Substantive Notes
-- [ ] Build `tools/taxonomy.py` with CLI flags: `--check`, `--lint-notes`, `--check-links`, `--plan`, `--apply`, `--prune`.
-- [ ] Generate migration plan: `taxonomy-migration.json` and `_audit/link-rewrite.json`.
-- [ ] Scaffold the clean 5-division spine under `wiki/library/knowledge/` (`humanities/`, `social-sciences/`, `natural-sciences/`, `formal-sciences/`, `applied-sciences/`).
-- [ ] Transplant the ~320 substantive notes into their exact canonical subdiscipline destinations.
-- [ ] Prune empty/stub directories from old structure.
-- [ ] Rewrite all 40 path-form inbound links using `_audit/link-rewrite.json`.
-- [ ] Verify zero broken links with `python tools/taxonomy.py --check-links`.
-- [ ] Rebuild second brain index: `python tools/brain_sync.py --no-embed`.
+### Phase 1: Normalize Existing Tree & Transplant Substantive Notes — 🟢 COMPLETED
+- [x] Build `tools/taxonomy.py` with CLI flags: `--check`, `--lint-notes`, `--check-links`, `--plan`, `--apply`, `--prune`.
+- [x] Generate migration plan: `taxonomy-migration.json` and `_audit/link-rewrite.json`.
+- [x] Scaffold the clean 5-division spine under `wiki/library/knowledge/` (`humanities/`, `social-sciences/`, `natural-sciences/`, `formal-sciences/`, `applied-sciences/`).
+- [x] Transplant all 321 substantive notes into their exact canonical subdiscipline destinations.
+- [x] Prune empty/stub directories from old structure (purged 2,520 phrase stubs).
+- [x] Rewrite all 54 inbound links (including the 40 path-form links) across 16 link-bearing files.
+- [x] Verify zero broken links with `python tools/taxonomy.py --check-links` (54/54 verified).
+- [x] Regenerate Calibre vocabulary `book-library/_taxonomy.md` from `taxonomy.json`.
+- [x] Rebuild second brain index: `python tools/brain_sync.py --no-embed --rebuild` (indexed 3,317 active pages, 5,528 chunks in 28.9s).
+- [x] Commit clean migration state to vault branch `taxonomy/spine-v1`. Exit criteria passed.
 
 ### Phase 2: Wikipedia Knowledge Tree Seeding
 - [ ] Implement `tools/seed_academic_taxonomy.py` with caching in `raw/wikipedia/`.
