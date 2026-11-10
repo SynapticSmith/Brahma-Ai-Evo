@@ -196,8 +196,7 @@ def run_batch_ingestion(
     sync_stats = {}
     if not dry_run and total_units_extracted > 0:
         try:
-            sync_stats = second_brain.sync_shelf(
-                vault=vroot,
+            sync_stats = second_brain.sync(
                 embed=False,
                 rebuild=False,
             )

@@ -112,7 +112,7 @@
       "2": "invalid input",
       "4": "verification failed"
     },
-    "source_sha256": "ba0fe732f31152c527299838c32317a94b74b00bbaa7da1e741473b18dee1526",
+    "source_sha256": "df5805e6226fdc20772c0a733e1d370a1222b50857fce407742ceb12dc966b30",
     "status": "active"
   },
   {
@@ -124,8 +124,8 @@
     "domain": "applied-sciences/engineering-and-technology",
     "tags": [
       "bootstrap-cookbooks",
-      "tool",
-      "cli"
+      "cli",
+      "tool"
     ],
     "invoke": {
       "argv": [
@@ -1126,9 +1126,9 @@
     "description": "Taxonomized Skills Indexer and OpenMonoAgent Cookbook Engine.",
     "domain": "applied-sciences/engineering-and-technology",
     "tags": [
+      "cli",
       "skills-index",
-      "tool",
-      "cli"
+      "tool"
     ],
     "invoke": {
       "argv": [
