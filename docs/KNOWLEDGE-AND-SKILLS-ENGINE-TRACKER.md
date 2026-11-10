@@ -24,6 +24,8 @@
 | **Track 10** | **Cognitive Thinking Skills Portfolio Ingestion** | 🟢 **COMPLETED** | Port 9 mental model skills from `cc-thinking-skills` into `skills/` + cookbooks | [x] Passed |
 | **Harness Tool** | **`search_scripts` & HUD / CLI Integration** | 🟢 **COMPLETED** | `search_scripts` ToolSpec (§9.9, §16), CLI `scripts`/`cookbook`, HUD slash commands | [x] Passed |
 | **Live Ingestion** | **Companion Books Batch Extraction & Placement** | 🟢 **COMPLETED** | 6 companion books scanned, 153 units extracted (102 placed, 51 inboxed), 854 chunks indexed | [x] Passed |
+| **Track 11** | **Inbox Note Promotion Engine & Placement** | 🟢 **COMPLETED** | `tools/promote_inbox.py` (`--list`, `--promote`, `--auto-source`), 89 notes promoted | [x] Passed |
+| **Verification Gate** | **Full Portable Test Suite & Ratchets** | 🟢 **COMPLETED** | 1,594 tests passed, 0 ruff errors, architecture ratchets clean | [x] Passed |
 
 ---
 
@@ -82,4 +84,20 @@ flowchart TD
   - `tradeoff-evaluator` (Thomas Sowell: Deliberate, bounded compromises)
   - `context-boundary-optimizer` (ICM: Progressive context disclosure L0-L3)
 - [x] Connect turn context compiler (`agent/turn_context.py`) to `config/skills_index.json` with trigger phrase matching.
-- [x] Unit and regression tests passing (`test_turn_context.py`, 609 agent tests passing, 0 ruff errors).
+- [x] Unit and regression tests passing (`test_turn_context.py`, 614 agent tests passing, 0 ruff errors).
+
+### Track 11: Inbox Note Promotion Engine (`tools/promote_inbox.py`)
+- [x] Implement `tools/promote_inbox.py` (§7, §16 Decision 6):
+  - `--list`: Inspect all quarantined units under `wiki/library/knowledge/_inbox/unsorted/` with extraction confidence score and inferred domain.
+  - `--promote <file> --domain <target>`: Atomic move to target taxonomy directory, frontmatter status update (`status: reviewed`, `promoted_at: <ISO>`), and empty folder cleanup.
+  - `--auto-source <slug|all> --domain <target>`: Batch promotion of all notes originating from a source book.
+  - `--dry-run`: Preview promotion actions and path targets without disk modifications.
+- [x] Unit tests in `tests/test_promote_inbox.py` covering listing, dry-run, invalid domain rejection, and real promotion lifecycle.
+- [x] Execute promotion of all 89 quarantined companion book notes to `humanities/philosophy/eastern-philosophy/buddhism/` and sync second-brain search index.
+- [x] Commit clean taxonomy state in Obsidian vault branch `taxonomy/spine-v1`.
+
+### Verification Gate (AGENTS.md)
+- [x] `python -m ruff check .` -> All checks passed (0 errors).
+- [x] `$env:QT_QPA_PLATFORM="offscreen"; python -m pytest tests -q` -> 1,594 passed, 8 skipped, 0 failed.
+- [x] Stub provider verification: `python -m agent run "say hello" --provider stub --json --no-session` -> clean execution.
+- [x] Architecture ratchets clean (`core/tool_exec.py` 0 `elif` branches, line ceilings respected).
