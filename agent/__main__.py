@@ -581,6 +581,60 @@ def _cmd_skills(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_scripts(args: argparse.Namespace) -> int:
+    """Show verified scripts from config/scripts.json."""
+    from .turn_context import _load_scripts_catalogue
+
+    catalogue = _load_scripts_catalogue()
+    domain_filter = (args.domain or "").strip().lower()
+    if domain_filter:
+        catalogue = [s for s in catalogue if domain_filter in str(s.get("domain") or "").lower()]
+
+    if args.json:
+        sys.stdout.write(json.dumps(catalogue, ensure_ascii=False, indent=2) + "\n")
+        return EXIT_OK
+
+    if not catalogue:
+        sys.stdout.write("No matching verified scripts found.\n")
+        return EXIT_OK
+
+    sys.stdout.write(f"Verified scripts ({len(catalogue)}):\n")
+    for s in catalogue:
+        safety = s.get("safety", "read_only")
+        domain = s.get("domain", "")
+        summary = s.get("summary") or s.get("description") or ""
+        sys.stdout.write(f"  {s['name']:<28} [{safety}] ({domain})\n    {summary}\n")
+    return EXIT_OK
+
+
+def _cmd_cookbook(args: argparse.Namespace) -> int:
+    """Display the OpenMonoAgent cookbook recipe for a skill."""
+    from .turn_context import _load_skills_index
+
+    skill_name = (args.name or "").strip().lower()
+    index = _load_skills_index()
+    matched = None
+    for sk in index:
+        if sk.get("name", "").lower() == skill_name:
+            matched = sk
+            break
+
+    if not matched:
+        sys.stderr.write(f"Error: skill '{skill_name}' not found in skills index.\n")
+        return EXIT_USAGE
+
+    if args.json:
+        sys.stdout.write(json.dumps(matched, ensure_ascii=False, indent=2) + "\n")
+        return EXIT_OK
+
+    cookbook = matched.get("cookbook") or "No cookbook recipe provided."
+    sys.stdout.write(f"=== COOKBOOK: {matched.get('name', skill_name)} ===\n")
+    sys.stdout.write(f"Domain: {matched.get('domain', 'general')}\n")
+    sys.stdout.write(f"Summary: {matched.get('description', '')}\n\n")
+    sys.stdout.write(f"{cookbook}\n")
+    return EXIT_OK
+
+
 def _cmd_mcp(args: argparse.Namespace) -> int:
     workspace = Path(args.cwd or os.getcwd()).expanduser().resolve()
     explicit = Path(args.config).expanduser() if args.config else None
@@ -764,6 +818,14 @@ def build_parser() -> argparse.ArgumentParser:
     skills.add_argument("--cwd", help="Workspace root used for discovery")
     skills.add_argument("--json", action="store_true")
 
+    scripts = sub.add_parser("scripts", help="List verified repository scripts")
+    scripts.add_argument("--domain", help="Filter by taxonomy domain")
+    scripts.add_argument("--json", action="store_true")
+
+    cookbook = sub.add_parser("cookbook", help="Show executable cookbook recipe for a skill")
+    cookbook.add_argument("name", help="Skill name (e.g. inversion-thinking, api-mock-engine)")
+    cookbook.add_argument("--json", action="store_true")
+
     subagents = sub.add_parser(
         "subagents", help="List specialist subagent templates"
     )
@@ -826,7 +888,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # `python -m agent "do the thing"` -> treat the first bare word as a run.
     known = {
-        "run", "resume", "sessions", "tools", "skills", "subagents", "mcp", "mcp-server", "permissions", "sandbox",
+        "run", "resume", "sessions", "tools", "skills", "scripts", "cookbook", "subagents", "mcp", "mcp-server", "permissions", "sandbox",
         "-h", "--help",
     }
     if argv and argv[0] not in known:
@@ -848,6 +910,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             return _cmd_tools(args)
         if args.command == "skills":
             return _cmd_skills(args)
+        if args.command == "scripts":
+            return _cmd_scripts(args)
+        if args.command == "cookbook":
+            return _cmd_cookbook(args)
         if args.command == "subagents":
             return _cmd_subagents(args)
         if args.command == "mcp":

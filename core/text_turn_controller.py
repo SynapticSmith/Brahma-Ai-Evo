@@ -172,13 +172,13 @@ class TextTurnController:
         self._host = host
 
     def handle_agent_session_command(self, text: str) -> bool:
-        """Handle ``/sessions``, ``/resume`` and ``/new`` for the text path."""
+        """Handle ``/sessions``, ``/resume``, ``/new``, ``/skills``, ``/cookbook``, and ``/scripts``."""
         host = self._host
         parts = (text or "").strip().split()
         if not parts:
             return False
         command = parts[0].lower()
-        if command not in ("/sessions", "/resume", "/new"):
+        if command not in ("/sessions", "/resume", "/new", "/skills", "/cookbook", "/scripts"):
             return False
 
         from agent import session_bridge as bridge
@@ -187,6 +187,58 @@ class TextTurnController:
         if command == "/new":
             host._agent_session = None
             host.ui.write_log("SYS: New agent session. The next message starts fresh.")
+            return True
+
+        if command == "/skills":
+            from agent.turn_context import _load_skills_index
+
+            index = _load_skills_index()
+            domain_filter = parts[1].lower() if len(parts) > 1 else ""
+            if domain_filter:
+                index = [s for s in index if domain_filter in str(s.get("domain") or "").lower()]
+            if not index:
+                host.ui.write_log(f"SYS: No skills found matching domain '{domain_filter}'.")
+                return True
+            host.ui.write_log(f"SYS: Available skills ({len(index)}):")
+            for sk in index:
+                host.ui.write_log(f"SYS:   [{sk.get('domain', 'general')}] {sk.get('name')}: {sk.get('description', '')}")
+            return True
+
+        if command == "/cookbook":
+            if len(parts) < 2:
+                host.ui.write_log("SYS: Usage: /cookbook <skill-name> (e.g. /cookbook inversion-thinking)")
+                return True
+            from agent.turn_context import _load_skills_index
+
+            skill_name = parts[1].lower()
+            index = _load_skills_index()
+            matched = next((s for s in index if s.get("name", "").lower() == skill_name), None)
+            if not matched:
+                host.ui.write_log(f"ERR: Skill '{skill_name}' not found. Use /skills to list available skills.")
+                return True
+            cookbook = matched.get("cookbook") or "No cookbook recipe provided."
+            host.ui.write_log(f"SYS: === COOKBOOK: {matched.get('name')} [{matched.get('domain')}] ===")
+            for line in cookbook.splitlines():
+                host.ui.write_log(f"SYS: {line}")
+            return True
+
+        if command == "/scripts":
+            from agent.turn_context import _load_scripts_catalogue
+
+            catalogue = _load_scripts_catalogue()
+            query = " ".join(parts[1:]).lower() if len(parts) > 1 else ""
+            if query:
+                from agent.turn_context import shortlist_scripts
+
+                catalogue = shortlist_scripts(query, limit=10)
+            if not catalogue:
+                host.ui.write_log(f"SYS: No scripts found for '{query}'.")
+                return True
+            host.ui.write_log(f"SYS: Verified scripts ({len(catalogue)}):")
+            for sc in catalogue:
+                safety = sc.get("safety", "read_only")
+                summary = sc.get("summary") or sc.get("description") or ""
+                host.ui.write_log(f"SYS:   {sc.get('name')} [{safety}]: {summary}")
             return True
 
         if command == "/sessions":

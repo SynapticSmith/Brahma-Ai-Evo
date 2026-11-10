@@ -238,7 +238,27 @@ def test_session_commands_need_the_slash():
     controller = TextTurnController(types.SimpleNamespace())
     assert controller.handle_agent_session_command("sessions") is False
     assert controller.handle_agent_session_command("resume please") is False
+    assert controller.handle_agent_session_command("skills") is False
+    assert controller.handle_agent_session_command("scripts") is False
+    assert controller.handle_agent_session_command("cookbook") is False
     assert controller.handle_agent_session_command("") is False
+
+
+def test_slash_commands_skills_and_cookbooks():
+    logs = []
+    host = types.SimpleNamespace(ui=types.SimpleNamespace(write_log=logs.append))
+    controller = TextTurnController(host)
+
+    assert controller.handle_agent_session_command("/skills") is True
+    assert any("Available skills" in line for line in logs)
+
+    logs.clear()
+    assert controller.handle_agent_session_command("/cookbook inversion-thinking") is True
+    assert any("COOKBOOK: inversion-thinking" in line for line in logs)
+
+    logs.clear()
+    assert controller.handle_agent_session_command("/scripts") is True
+    assert any("Verified scripts" in line for line in logs)
 
 
 def test_offline_phrases_are_word_bounded():

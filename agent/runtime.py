@@ -27,6 +27,7 @@ from typing import Any, Callable, Dict, Mapping, Optional
 
 from . import brain_tools  # noqa: F401  (import registers brain_search/brain_read/...)
 from . import code_tools  # noqa: F401  (import registers the six tools)
+from . import scripts_tool  # noqa: F401  (import registers search_scripts)
 from . import skills as _skills  # noqa: F401  (import registers load_project_skill)
 from . import subagent  # noqa: F401  (import registers run_subagent)
 from . import web as _web  # noqa: F401  (import registers web_search/web_fetch)

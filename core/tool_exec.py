@@ -84,7 +84,7 @@ class ToolExecutor:
             dispatch_name = "google_workspace"
 
         try:
-            from agent import brain_tools, code_tools  # noqa: F401  (import registers specs)
+            from agent import brain_tools, code_tools, scripts_tool  # noqa: F401  (import registers specs)
             from agent import runtime as agent_runtime
             from agent.spec import get as get_spec
 
