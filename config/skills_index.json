@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "total_skills": 70,
+  "total_skills": 80,
   "domains": [
     "architecture",
     "coding",
@@ -218,6 +218,34 @@
       "sha256": "13ebd55547cc021b037e3ed356ee3d70141afe192d1c5d043f9fdbcf1c58591c"
     },
     {
+      "name": "book-to-skill-compiler",
+      "directory": "book-to-skill-compiler",
+      "path": "skills/book-to-skill-compiler/SKILL.md",
+      "domain": "research",
+      "academic_domain": "methodology",
+      "description": "End-to-end framework to distill technical books, manuals, and PDF guides into reusable, executable agent skills with progressive disclosure and small-model cookbooks.",
+      "triggers": [
+        "book to skill compiler",
+        "compile book into skill",
+        "distill technical book",
+        "turn book into skill",
+        "extract actionable skill from book",
+        "book to skill",
+        "distill book"
+      ],
+      "tags": [
+        "skill-distillation",
+        "book-to-skill",
+        "learning",
+        "technical-books",
+        "sop-compiler",
+        "methodology"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Technical Book Distillation to Agent Skill\n\n## Objective\nConvert a technical book chapter or manual into a standardized `SKILL.md` and small-model `cookbook.md`.\n\n## Prerequisites\n- Markdown or text extraction of the source book (`markitdown` or OCR).\n\n## Execution Recipe\n1. **Extract Core Architectural Invariants**:\n   Identify author-mandated constraints: rules that must never be broken (e.g. \"always validate schema\", \"never catch generic Exception\").\n2. **Draft YAML Frontmatter**:\n   ```yaml\n   ---\n   name: <kebab-slug>\n   description: <one-sentence summary>\n   metadata:\n     domain: <canonical-domain>\n     tags: [<tag1>, <tag2>]\n   triggers: [\"<trigger 1>\", \"<trigger 2>\"]\n   ---\n   ```\n3. **Synthesize Progressive Disclosure Body**:\n   Write `SKILL.md` with Overview, Invariant Rules, and Multi-Step Procedure.\n4. **Author 5-Header Compact Cookbook**:\n   Write `cookbook.md` ($\\le 1,200$ chars) containing:\n   - Objective & Prerequisites\n   - Execution Recipe with concrete CLI commands\n   - Verification Gate with quantitative pass condition\n   - Remediation branch\n5. **Verification Gate**:\n   *Gate: `python tools/skills_index.py --check` passes cleanly for the new skill directory.*\n6. **Remediation**:\n   If validation fails on YAML or missing headers, adjust frontmatter formatting and ensure exact header spelling.",
+      "sha256": "ab970b46f560359ad4c10d1cf7c2cbb3a50c63e9bac1d37eb352402bb60cf86d"
+    },
+    {
       "name": "browser-automation",
       "directory": "browser-automation",
       "path": "skills/browser-automation/SKILL.md",
@@ -291,6 +319,35 @@
       "sha256": "dd6a97d2745df9305045b487cb6a60492eef834e157b1a48567bdfd32307a2fd"
     },
     {
+      "name": "circuit-breaker-resilience",
+      "directory": "circuit-breaker-resilience",
+      "path": "skills/circuit-breaker-resilience/SKILL.md",
+      "domain": "devops",
+      "academic_domain": "devops",
+      "description": "Distributed systems fault-tolerance protocol implementing Circuit Breaker, Exponential Backoff with Full Jitter, and Bulkhead concurrency isolation.",
+      "triggers": [
+        "circuit breaker resilience",
+        "implement circuit breaker",
+        "retry with exponential backoff",
+        "prevent cascading failures",
+        "resilience pattern",
+        "transient fault handling",
+        "circuit breaker state machine"
+      ],
+      "tags": [
+        "resilience",
+        "circuit-breaker",
+        "retry",
+        "backoff",
+        "jitter",
+        "fault-tolerance",
+        "devops"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Python Circuit Breaker & Jittered Retry Engine\n\n## Objective\nImplement a thread-safe, 3-state Circuit Breaker with exponential backoff and randomized jitter in pure Python stdlib.\n\n## Prerequisites\n- Python 3.11+ (stdlib `time`, `random`, `threading`).\n\n## Execution Recipe\n1. **Author State Machine & Retry Wrapper**:\n   ```python\n   import random, time, threading\n\n   class CircuitBreaker:\n       def __init__(self, failure_threshold=5, recovery_timeout=30.0):\n           self.threshold = failure_threshold\n           self.timeout = recovery_timeout\n           self.failure_count = 0\n           self.state = \"CLOSED\" # CLOSED, OPEN, HALF_OPEN\n           self.last_failure_time = 0.0\n           self.lock = threading.Lock()\n\n       def call(self, func, *args, **kwargs):\n           with self.lock:\n               now = time.time()\n               if self.state == \"OPEN\":\n                   if now - self.last_failure_time > self.timeout:\n                       self.state = \"HALF_OPEN\"\n                   else:\n                       raise RuntimeError(\"CircuitBreaker is OPEN; call rejected\")\n           try:\n               res = func(*args, **kwargs)\n               with self.lock:\n                   if self.state == \"HALF_OPEN\":\n                       self.state = \"CLOSED\"\n                       self.failure_count = 0\n               return res\n           except Exception as exc:\n               with self.lock:\n                   self.failure_count += 1\n                   self.last_failure_time = time.time()\n                   if self.failure_count >= self.threshold or self.state == \"HALF_OPEN\":\n                       self.state = \"OPEN\"\n               raise exc\n   ```\n2. **Verification Gate**:\n   *Gate: Breaker trips to OPEN after threshold failures; rejects subsequent calls instantly in < 0.1ms.*\n3. **Remediation**:\n   If canary request hangs in HALF_OPEN, wrap invocation with an explicit socket timeout.",
+      "sha256": "446d2a45d9adfe9ba6adf0d708191171ab5ff126d0243faaabe9dc4cf5e98486"
+    },
+    {
       "name": "cli-wrapper-generator",
       "directory": "cli-wrapper-generator",
       "path": "skills/cli-wrapper-generator/SKILL.md",
@@ -360,6 +417,36 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Automated Code Review\n\n## Objective\nPerform a structured, line-by-line architectural and syntax review on git diffs before merging.\n\n## Prerequisites\n- git\n- python 3.11+\n\n## Execution Recipe\n1. **Inspect Staged Diffs**:\n   ```powershell\n   git diff --staged\n   ```\n2. **Run Linter & Static Analysis**:\n   ```powershell\n   python -m ruff check .\n   ```\n3. **Execute Targeted Regression Tests**:\n   ```powershell\n   python -m pytest tests -q\n   ```\n4. **Verification Gate**:\n   Ensure 0 lint errors, 0 test failures, and no unprotected secret keys or temporary debug statements.\n5. **Remediation**:\n   Use `ruff check --fix .` for automated fixes; revert manual regressions if tests fail.",
       "sha256": "e8eb4e5ee6cb557a11d7675b44045aaf734345e00573abafcddaa8f24c8d897a"
+    },
+    {
+      "name": "collaborative-canvas-designer",
+      "directory": "collaborative-canvas-designer",
+      "path": "skills/collaborative-canvas-designer/SKILL.md",
+      "domain": "coding",
+      "academic_domain": "coding",
+      "description": "Declarative visual UI/UX wireframing and multiplayer canvas authoring protocol generating structured SVG canvas mockups, layout boards, and design tokens.",
+      "triggers": [
+        "collaborative canvas designer",
+        "generate canvas wireframe",
+        "author visual mockup",
+        "whiteboard diagram canvas",
+        "interactive ui canvas",
+        "design canvas mockup",
+        "canvas layout board"
+      ],
+      "tags": [
+        "design",
+        "canvas",
+        "wireframe",
+        "svg",
+        "whiteboard",
+        "ui-design",
+        "design-system",
+        "coding"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Structured SVG Canvas Wireframe Generation\n\n## Objective\nAuthor a semantic, scalable SVG visual mockup with header, metric cards, and layout grid.\n\n## Prerequisites\n- Standard SVG viewer or browser.\n\n## Execution Recipe\n1. **Define Root ViewBox & Design Tokens**:\n   ```xml\n   <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1200 800\" width=\"100%\" height=\"100%\">\n     <defs>\n       <style>\n         .bg { fill: #0f172a; }\n         .card { fill: #1e293b; stroke: #334155; rx: 8px; }\n         .text-title { fill: #f8fafc; font-family: system-ui; font-size: 20px; font-weight: 600; }\n         .text-metric { fill: #38bdf8; font-family: system-ui; font-size: 32px; font-weight: 700; }\n         .text-sub { fill: #94a3b8; font-family: system-ui; font-size: 14px; }\n       </style>\n     </defs>\n     <rect width=\"1200\" height=\"800\" class=\"bg\"/>\n   ```\n2. **Assemble Layout Grid & Components**:\n   ```xml\n     <g id=\"navbar\">\n       <rect x=\"40\" y=\"30\" width=\"1120\" height=\"60\" class=\"card\"/>\n       <text x=\"70\" y=\"68\" class=\"text-title\">Brahma Canvas Dashboard</text>\n     </g>\n     <g id=\"metric-card-1\">\n       <rect x=\"40\" y=\"120\" width=\"350\" height=\"160\" class=\"card\"/>\n       <text x=\"70\" y=\"160\" class=\"text-sub\">Total Active Nodes</text>\n       <text x=\"70\" y=\"210\" class=\"text-metric\">1,024</text>\n     </g>\n   </svg>\n   ```\n3. **Verification Gate**:\n   *Gate: SVG renders valid XML with 0 parsing errors; all elements render inside viewBox.*\n4. **Remediation**:\n   If text overlaps rects, calculate vertical offset as `y = top + font_size + padding`.",
+      "sha256": "ac4f329124c9d366f05a9f41eff5d118b1cd104536cfee96221c52654fd7f669"
     },
     {
       "name": "context-boundary-optimizer",
@@ -613,6 +700,35 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Docker Build & Container Testing\n\n## Objective\nContainerize python applications using minimal multi-stage builds and verify container launch.\n\n## Prerequisites\n- Docker CLI or Podman\n\n## Execution Recipe\n1. **Audit Dockerfile**:\n   Ensure non-root user, slim base image (e.g. `python:3.11-slim`), and cached dependency layers.\n2. **Build Image**:\n   ```powershell\n   docker build -t app:latest .\n   ```\n3. **Execute Container Smoke Test**:\n   ```powershell\n   docker run --rm app:latest python --version\n   ```\n4. **Verification Gate**:\n   Verify container exits with code 0 and image size is within budget (< 500MB).\n5. **Remediation**:\n   If build fails on missing compiler, add build dependencies in builder stage only.",
       "sha256": "f9991f2b6771026dbf476da51d864bb71bc12bc25c33a64c9a14c7441474cb35"
+    },
+    {
+      "name": "epistemic-arbitrage",
+      "directory": "epistemic-arbitrage",
+      "path": "skills/epistemic-arbitrage/SKILL.md",
+      "domain": "cognitive",
+      "academic_domain": "cognitive",
+      "description": "Cognitive strategic framework identifying and leveraging asymmetric information gaps between AI foundation models, human experts, and local codebase reality.",
+      "triggers": [
+        "epistemic arbitrage",
+        "exploit information asymmetry",
+        "model vs human knowledge gap",
+        "epistemic advantage",
+        "find information edge",
+        "reasoning arbitrage",
+        "leverage knowledge asymmetry"
+      ],
+      "tags": [
+        "epistemology",
+        "mental-model",
+        "cognitive",
+        "reasoning",
+        "decision-making",
+        "information-asymmetry",
+        "strategy"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Epistemic Arbitrage & Context Gap Bridging\n\n## Objective\nIdentify where a task depends on local ground truth vs general reasoning, and inject targeted context to eliminate model hallucinations.\n\n## Prerequisites\n- Complex reasoning or architectural refactoring task.\n\n## Execution Recipe\n1. **Classify Epistemic Requirements**:\n   - Class A (General Knowledge): Standard algorithms, RFC protocols -> *Handled by model alone.*\n   - Class B (Local Facts): Function signatures, schema, config -> *Must inject exact file text.*\n   - Class C (User Intent): Strategic priority, risk tolerance -> *Must confirm via question.*\n2. **Retrieve & Anchor Local Facts Before Prompting**:\n   Read exact file contents or run AST search:\n   ```powershell\n   python -m agent search_code \"<target_symbol>\"\n   ```\n3. **Formulate High-Leverage Arbitrage Prompt**:\n   Feed verified local context (Class B) into the model's generalized reasoning engine (Class A):\n   `\"Given this verified schema <SCHEMA>, generate an optimized query following RFC 3339.\"`\n4. **Verification Gate**:\n   *Gate: Zero hallucinated class names or methods; output directly runs on the local repo.*\n5. **Remediation**:\n   If the model invents a non-existent parameter, prune model discretion by supplying a strict interface contract.",
+      "sha256": "8302d1ec4a1a78effd79d5722941b33976cba0f4b48cc55126720f6a1192dcc5"
     },
     {
       "name": "ffmpeg-media-processing",
@@ -911,6 +1027,36 @@
       "sha256": "f2f9ee695d93fdbe79447a1808a8ef1947105c08f63569c0c3e1f93eb1e5cf5f"
     },
     {
+      "name": "interactive-data-visualization",
+      "directory": "interactive-data-visualization",
+      "path": "skills/interactive-data-visualization/SKILL.md",
+      "domain": "coding",
+      "academic_domain": "coding",
+      "description": "Interactive exploratory data analysis and declarative visualization protocol converting tabular data into responsive Vega-Lite, ECharts, or static charts.",
+      "triggers": [
+        "interactive data visualization",
+        "generate interactive chart",
+        "create vega lite chart",
+        "plot data chart",
+        "interactive dashboard plot",
+        "visualize tabular data",
+        "render data visualization"
+      ],
+      "tags": [
+        "data-visualization",
+        "charts",
+        "vega-lite",
+        "echarts",
+        "matplotlib",
+        "analytics",
+        "exploratory-analysis",
+        "coding"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Declarative Interactive Vega-Lite Chart Generation\n\n## Objective\nConvert tabular data into an interactive, standalone HTML chart with zoom, pan, and hover tooltips.\n\n## Prerequisites\n- Tabular data file (`data.csv` or `data.json`).\n- Python `altair` or pure Vega-Lite HTML template.\n\n## Execution Recipe\n1. **Prepare Data & Encoding Channels**:\n   Map X (timestamp/category), Y (metric value), and Color (grouping).\n2. **Author Self-Contained Vega-Lite Specification**:\n   ```html\n   <!DOCTYPE html>\n   <html>\n   <head>\n     <script src=\"https://cdn.jsdelivr.net/npm/vega@5\"></script>\n     <script src=\"https://cdn.jsdelivr.net/npm/vega-lite@5\"></script>\n     <script src=\"https://cdn.jsdelivr.net/npm/vega-embed@6\"></script>\n   </head>\n   <body>\n     <div id=\"vis\"></div>\n     <script>\n       const spec = {\n         \"$schema\": \"https://vega.github.io/schema/vega-lite/v5.json\",\n         \"description\": \"Interactive metric trends\",\n         \"data\": { \"values\": [ {\"x\": \"2026-01\", \"y\": 28}, {\"x\": \"2026-02\", \"y\": 55} ] },\n         \"mark\": \"bar\",\n         \"encoding\": {\n           \"x\": {\"field\": \"x\", \"type\": \"nominal\", \"axis\": {\"title\": \"Month\"}},\n           \"y\": {\"field\": \"y\", \"type\": \"quantitative\", \"axis\": {\"title\": \"Latency (ms)\"}},\n           \"tooltip\": [{\"field\": \"x\"}, {\"field\": \"y\"}]\n         }\n       };\n       vegaEmbed(\"#vis\", spec);\n     </script>\n   </body>\n   </html>\n   ```\n3. **Verification Gate**:\n   *Gate: HTML file renders cleanly in browser; tooltips trigger on hover without console errors.*\n4. **Remediation**:\n   If axes clip text, add `\"autosize\": {\"type\": \"fit\", \"contains\": \"padding\"}` to spec.",
+      "sha256": "d4312f141ffb701fe934b2c6e526ec00c22e7c7653f609b725ee66b66bda802d"
+    },
+    {
       "name": "inversion-thinking",
       "directory": "inversion-thinking",
       "path": "skills/inversion-thinking/SKILL.md",
@@ -988,6 +1134,36 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Consolidating Session Working Memory into Second Brain\n\n## Objective\nDistill a completed agent session transcript into durable, structured memory notes and refresh the second-brain search index.\n\n## Prerequisites\n- Completed session transcript or conversation history in `agent/session.py`.\n- Obsidian second-brain vault.\n\n## Execution Recipe\n1. **Extract Durable Decisions and Preferences**:\n   Scan transcript turns for:\n   - System configurations adopted (e.g. \"always use Python 3.11 for gates\").\n   - User project decisions and architectural dispositions.\n   - Newly discovered book/concept relationships.\n2. **Draft Atomic Concept or Preference Note**:\n   Create Markdown note under `wiki/library/knowledge/` or `wiki/decisions/`:\n   ```markdown\n   ---\n   type: DecisionNote\n   title: \"Session Resumption Invalidation on 1007\"\n   domain: applied-sciences/engineering-and-technology\n   status: reviewed\n   date: 2026-11-10\n   ---\n   # Decision: Invalidate Resumption Handle on 1007 Error\n   ...\n   ```\n3. **Re-Index Second Brain Search**:\n   ```powershell\n   python tools/brain_sync.py --no-embed\n   ```\n4. **Verification Gate**:\n   Query the newly consolidated memory via `python -m agent run \"brain_search query='<topic>'\"` and confirm retrieval.\n5. **Remediation**:\n   If index shows stale entries, run `python tools/brain_sync.py --rebuild` for a fresh SQLite FTS5 rebuild.",
       "sha256": "77c9bf76a17220e4824c5abfea3a128b029d420ade9ec57475ff59a8c786e18a"
+    },
+    {
+      "name": "multimodal-media-crawler",
+      "directory": "multimodal-media-crawler",
+      "path": "skills/multimodal-media-crawler/SKILL.md",
+      "domain": "devops",
+      "academic_domain": "multimodal",
+      "description": "Multimodal media extraction protocol capturing video streams, audio tracks, closed captions, and post metadata from public platforms for offline analysis.",
+      "triggers": [
+        "multimodal media crawler",
+        "extract video transcript",
+        "crawl social media post",
+        "download media assets",
+        "multimodal content extraction",
+        "scrape media stream",
+        "ingest video content"
+      ],
+      "tags": [
+        "crawler",
+        "media",
+        "video",
+        "audio",
+        "transcription",
+        "social-media",
+        "yt-dlp",
+        "multimodal"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Video Subtitle & Audio Extraction via yt-dlp\n\n## Objective\nExtract closed captions and compressed audio tracks from a video URL without downloading full video files.\n\n## Prerequisites\n- `yt-dlp` and `ffmpeg` installed and in PATH.\n\n## Execution Recipe\n1. **Probe Available Subtitle Languages**:\n   ```powershell\n   yt-dlp --list-subs \"<media_url>\"\n   ```\n2. **Download Subtitle Track to Clean VTT**:\n   ```powershell\n   yt-dlp --write-sub --write-auto-sub --sub-lang \"en.*\" --skip-download --sub-format vtt -o \"%(title)s.%(ext)s\" \"<media_url>\"\n   ```\n3. **Extract Lightweight Speech Audio (if subtitles missing)**:\n   ```powershell\n   yt-dlp -x --audio-format mp3 --audio-quality 5 -o \"%(title)s.%(ext)s\" \"<media_url>\"\n   ```\n4. **Convert VTT to Clean Paragraph Markdown**:\n   Filter out VTT timestamps and duplicate lines using regex:\n   ```powershell\n   (Get-Content -Path \"*.vtt\") | Where-Object { $_ -notmatch '-->|^[0-9]+$|^WEBVTT' } | Out-File \"transcript.md\"\n   ```\n5. **Verification Gate**:\n   *Gate: Subtitle or audio file exists on disk with size > 1KB.*\n6. **Remediation**:\n   If video is geo-restricted or bot-blocked, pass browser cookies via `--cookies-from-browser chrome`.",
+      "sha256": "b0c3afedad793f0a1de9dc152d9959dcd88179f1b9e13011409c430725dc843e"
     },
     {
       "name": "occams-razor",
@@ -1281,6 +1457,35 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Production Release & Version Tagging\n\n## Objective\nOrchestrate a verified, reproducible release with changelog generation, semver bump, and annotated git tagging.\n\n## Prerequisites\n- Clean git working tree on target release branch (`main` / `release`).\n- Full test runner configured and passing.\n\n## Execution Recipe\n1. **Pre-Flight Validation**:\n   ```powershell\n   git status --porcelain\n   # Must return 0 lines\n   ```\n2. **Analyze Commits Since Last Tag**:\n   ```powershell\n   $lastTag = git describe --tags --abbrev=0 2>$null\n   if (-not $lastTag) { git log --oneline -n 20 } else { git log \"$lastTag..HEAD\" --oneline }\n   ```\n3. **Draft Changelog & Bump Version**:\n   Update `CHANGELOG.md` with Added/Fixed/Changed entries. Bump version in project manifest (`pyproject.toml`, `package.json`, or version file).\n4. **Execute Verification Gate**:\n   ```powershell\n   py -3.11 -m pytest tests -q\n   py -3.11 -m ruff check .\n   ```\n   *Gate: All tests must pass and 0 lint warnings.*\n5. **Create Tag & Publish (or Dry Run)**:\n   ```powershell\n   git commit -am \"chore(release): bump version to v<new_version>\"\n   git tag -a \"v<new_version>\" -m \"Release v<new_version>\"\n   ```\n6. **Remediation**:\n   If tests fail during validation, do not tag. Revert version bump edits via `git restore .` and address defects before retrying.",
       "sha256": "d41fed9ac41398b1f36e69eb863a3858cff59e281fb649e1e47ddd32b797937f"
+    },
+    {
+      "name": "rest-api-contract-generator",
+      "directory": "rest-api-contract-generator",
+      "path": "skills/rest-api-contract-generator/SKILL.md",
+      "domain": "coding",
+      "academic_domain": "coding",
+      "description": "Contract-first REST API specification protocol authoring strict OpenAPI 3.1 definitions, JSON schemas, typed response status codes, and mock endpoints.",
+      "triggers": [
+        "rest api contract generator",
+        "generate openapi spec",
+        "author rest contract",
+        "create swagger spec",
+        "api contract design",
+        "contract first development",
+        "openapi specification"
+      ],
+      "tags": [
+        "openapi",
+        "swagger",
+        "rest",
+        "api-contract",
+        "mock-server",
+        "contract-first",
+        "coding"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: OpenAPI 3.1 Contract Design & Mock Testing\n\n## Objective\nAuthor a strict OpenAPI 3.1 specification and spin up an instant local mock server for testing.\n\n## Prerequisites\n- Node.js (`npx @stoplight/prism-cli`) or Python `openapi-spec-validator`.\n\n## Execution Recipe\n1. **Draft Core OpenAPI 3.1 Document**:\n   ```yaml\n   openapi: 3.1.0\n   info:\n     title: Brahma Agent API\n     version: 1.0.0\n   paths:\n     /api/v1/tasks:\n       post:\n         summary: Submit an agent task\n         requestBody:\n           required: true\n           content:\n             application/json:\n               schema:\n                 $ref: '#/components/schemas/TaskRequest'\n         responses:\n           '201':\n             description: Created\n             content:\n               application/json:\n                 schema:\n                   $ref: '#/components/schemas/TaskResponse'\n   components:\n     schemas:\n       TaskRequest:\n         type: object\n         required: [prompt]\n         properties:\n           prompt: { type: string }\n       TaskResponse:\n         type: object\n         required: [id, status]\n         properties:\n           id: { type: string }\n           status: { type: string, enum: [pending, running, done] }\n   ```\n2. **Validate Contract Syntax**:\n   ```powershell\n   npx @stoplight/prism-cli mock openapi.yaml --port 4010\n   ```\n3. **Verification Gate**:\n   *Gate: Prism mock server starts without schema errors; returns 201 on valid POST requests.*\n4. **Remediation**:\n   If validation reports unresolved references, check `$ref` pointer paths against `components/schemas`.",
+      "sha256": "cb66c8ac328a2b395025222c98f9ef05b59181abb7ebb23e0f82d61310dc1752"
     },
     {
       "name": "reversibility-two-way-doors",
@@ -1600,6 +1805,36 @@
       "sha256": "d0025d9bbee09a6cec4edfced082411d8d79ef01b52e65e3466eba5f934255c4"
     },
     {
+      "name": "sqlite-fts-optimizer",
+      "directory": "sqlite-fts-optimizer",
+      "path": "skills/sqlite-fts-optimizer/SKILL.md",
+      "domain": "architecture",
+      "academic_domain": "architecture",
+      "description": "SQLite FTS5 full-text search tuning, BM25 tokenizer optimization, index integrity verification, and zero-downtime database optimization for second-brain retrieval.",
+      "triggers": [
+        "sqlite fts optimizer",
+        "optimize sqlite search",
+        "tune fts5 index",
+        "bm25 ranking tuning",
+        "sqlite fts5 maintenance",
+        "rebuild second brain index",
+        "fts5 search tuning"
+      ],
+      "tags": [
+        "sqlite",
+        "fts5",
+        "search",
+        "bm25",
+        "second-brain",
+        "indexing",
+        "database",
+        "architecture"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: SQLite FTS5 Index Maintenance & BM25 Tuning\n\n## Objective\nOptimize SQLite FTS5 full-text search indexes, merge b-tree segments, and tune BM25 weights.\n\n## Prerequisites\n- SQLite3 CLI or Python `sqlite3` module.\n\n## Execution Recipe\n1. **Verify Index Integrity**:\n   ```sql\n   INSERT INTO fts_chunks(fts_chunks) VALUES('integrity-check');\n   -- Must return 0 rows (no error)\n   ```\n2. **Execute Segment Merge & Optimization**:\n   Merge b-tree leaf segments to accelerate lookup latency:\n   ```sql\n   INSERT INTO fts_chunks(fts_chunks) VALUES('optimize');\n   PRAGMA optimize;\n   ```\n3. **Query with Weighted BM25 Ranking**:\n   Give higher weight to title (column 0) over content (column 1):\n   ```sql\n   SELECT page_id, chunk_index, rank\n   FROM fts_chunks\n   WHERE fts_chunks MATCH 'buddhism philosophy'\n   ORDER BY bm25(fts_chunks, 10.0, 1.0)\n   LIMIT 10;\n   ```\n4. **Shrink Database Footprint**:\n   ```sql\n   VACUUM;\n   ```\n5. **Verification Gate**:\n   *Gate: `integrity-check` passes without errors; query execution completes in < 5ms.*\n6. **Remediation**:\n   If index corruption is reported, rebuild the virtual table using `INSERT INTO fts_chunks(fts_chunks) VALUES('rebuild')`.",
+      "sha256": "efd114ba1cd2c178f68efa646e84bf18263b4a21be91081cbce30fce6842c584"
+    },
+    {
       "name": "structured-task-planning",
       "directory": "structured-task-planning",
       "path": "skills/structured-task-planning/SKILL.md",
@@ -1699,6 +1934,37 @@
       "sha256": "13163ca855bb3ec88d3799ee985472eefcf7b38164454e9e812ba3f166a625f1"
     },
     {
+      "name": "text-to-cad-modeling",
+      "directory": "text-to-cad-modeling",
+      "path": "skills/text-to-cad-modeling/SKILL.md",
+      "domain": "coding",
+      "academic_domain": "coding",
+      "description": "Parametric 3D CAD modeling protocol converting natural language geometry specifications into programmatic OpenSCAD, CadQuery, or STEP/STL assets.",
+      "triggers": [
+        "text to cad modeling",
+        "generate cad model",
+        "create 3d cad script",
+        "parametric 3d design",
+        "cad script generator",
+        "export stl model",
+        "build 3d part"
+      ],
+      "tags": [
+        "cad",
+        "cae",
+        "cam",
+        "3d-modeling",
+        "parametric",
+        "openscad",
+        "cadquery",
+        "stl",
+        "coding"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: Parametric OpenSCAD Part Modeling & STL Export\n\n## Objective\nGenerate a parameterized, watertight OpenSCAD 3D solid model and compile it to an STL file.\n\n## Prerequisites\n- OpenSCAD CLI installed (`openscad.exe` in PATH).\n\n## Execution Recipe\n1. **Define Parametric Headers**:\n   Declare all mechanical dimensions, tolerances, and mesh resolution:\n   ```openscad\n   $fn = 64; // Fragment resolution\n   length = 50.0; width = 30.0; height = 15.0;\n   wall_thick = 2.5; hole_diam = 4.2;\n   ```\n2. **Author Constructive Solid Geometry**:\n   ```openscad\n   module enclosure_base() {\n     difference() {\n       cube([length, width, height], center=true);\n       translate([0, 0, wall_thick])\n         cube([length - 2*wall_thick, width - 2*wall_thick, height], center=true);\n       cylinder(d=hole_diam, h=height+2, center=true);\n     }\n   }\n   enclosure_base();\n   ```\n3. **Compile Script to STL**:\n   ```powershell\n   openscad -o model.stl model.scad\n   ```\n4. **Verification Gate**:\n   *Gate: OpenSCAD CLI exits code 0; generated STL file size > 0 and geometry is manifold.*\n5. **Remediation**:\n   If mesh contains non-manifold edges, add a small epsilon overlap (`0.01mm`) to CSG `difference()` cutouts.",
+      "sha256": "cfa41bcbd32528d8869e8e504982c8267605aa803873f111c89effcfc726b9ef"
+    },
+    {
       "name": "tradeoff-evaluator",
       "directory": "tradeoff-evaluator",
       "path": "skills/tradeoff-evaluator/SKILL.md",
@@ -1795,6 +2061,35 @@
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Windows Desktop GUI Inspection & Control\n\n## Objective\nLocate a target Windows application window, inspect its UI Automation tree, and invoke actions without blind coordinate clicking.\n\n## Prerequisites\n- Windows OS with Python `pywin32` or PowerShell UIA access.\n\n## Execution Recipe\n1. **Find Target Window Handle**:\n   ```powershell\n   Get-Process | Where-Object { $_.MainWindowTitle -match \"<AppName>\" } | Select-Object Id, MainWindowTitle, MainWindowHandle\n   ```\n2. **Bring Target Window to Foreground**:\n   ```powershell\n   [Microsoft.VisualBasic.Interaction]::AppActivate(\"<AppName>\")\n   ```\n3. **Inspect UIA Control Tree via PowerShell**:\n   ```powershell\n   Add-Type -AssemblyName UIAutomationClient\n   $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)\n   $condition = [System.Windows.Automation.Condition]::TrueCondition\n   $elements = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)\n   ```\n4. **Trigger UIA Button or Input Pattern**:\n   Invoke `InvokePattern` on the matching `AutomationId` or `Name`.\n5. **Verification Gate**:\n   *Gate: Element state or window text changes within 3 seconds of invocation.*\n6. **Remediation**:\n   If UIA tree is empty, bring window to foreground and dispatch synthetic keyboard accelerators (`Alt+<key>`).",
       "sha256": "3d9f55827349114525475ec49b7224ab13cc7eca958c5b207e5ba028b53ad586"
+    },
+    {
+      "name": "zero-downtime-canary-deploy",
+      "directory": "zero-downtime-canary-deploy",
+      "path": "skills/zero-downtime-canary-deploy/SKILL.md",
+      "domain": "devops",
+      "academic_domain": "devops",
+      "description": "High-availability canary deployment protocol enforcing progressive traffic splitting (1% -> 10% -> 50% -> 100%), error-budget monitoring, and automated rollbacks.",
+      "triggers": [
+        "zero downtime canary deploy",
+        "canary deployment",
+        "traffic split deploy",
+        "gradual rollout",
+        "canary analysis",
+        "automated canary rollback",
+        "progressive traffic rollout"
+      ],
+      "tags": [
+        "canary",
+        "deployment",
+        "devops",
+        "traffic-routing",
+        "zero-downtime",
+        "metrics",
+        "automated-rollback"
+      ],
+      "has_dedicated_cookbook": true,
+      "cookbook": "# Cookbook: NGINX Dynamic Traffic Splitting & Canary Rollout\n\n## Objective\nConfigure an NGINX reverse proxy with weighted traffic splitting for safe canary verification and instant rollback.\n\n## Prerequisites\n- NGINX or reverse proxy with `split_clients` or `upstream weight`.\n\n## Execution Recipe\n1. **Configure Weighted Upstream Ingress**:\n   ```nginx\n   upstream app_backend {\n     server 127.0.0.1:8001 weight=98; # Stable baseline\n     server 127.0.0.1:8002 weight=2;  # Canary instance\n   }\n   server {\n     listen 80;\n     location / {\n       proxy_pass http://app_backend;\n       proxy_set_header X-Canary $upstream_addr;\n     }\n   }\n   ```\n2. **Reload NGINX Non-Disruptively**:\n   ```powershell\n   nginx -s reload\n   ```\n3. **Monitor Error Rates for 5 Minutes**:\n   ```powershell\n   # Sample canary responses:\n   1..100 | ForEach-Object { curl -s -I http://localhost/health } | Select-String \"HTTP/1.1 200\"\n   ```\n4. **Promote Canary or Roll Back**:\n   - Promote: Set canary weight to 100, reload.\n   - Rollback: Set canary weight to 0, reload.\n5. **Verification Gate**:\n   *Gate: Canary handles requests; error rate $\\le 0.01\\%$; P99 latency within baseline.*\n6. **Remediation**:\n   If errors detected, immediately revert upstream weight=0 and reload NGINX in < 1 second.",
+      "sha256": "81f4f17acba42ad71339cd1ceef849b4618a50ab820c9b642d2b3a75fad3c156"
     }
   ]
 }

@@ -347,3 +347,67 @@ def test_batch4_skills_triggers_and_cookbooks():
     assert "PostgreSQL Query Plan" in sql_skills[0]["cookbook"]
 
 
+def test_batch5_skills_triggers_and_cookbooks():
+    """Verify triggers and cookbooks for Batch 5 skills (71-80)."""
+    # Text to CAD modeling
+    cad_skills = shortlist_skills("text to cad modeling to generate cad model and export stl model")
+    assert len(cad_skills) >= 1
+    assert cad_skills[0]["name"] == "text-to-cad-modeling"
+    assert "OpenSCAD" in cad_skills[0]["cookbook"]
+
+    # Book to skill compiler
+    book_skills = shortlist_skills("compile book into skill with book to skill compiler")
+    assert len(book_skills) >= 1
+    assert book_skills[0]["name"] == "book-to-skill-compiler"
+    assert "Book Distillation" in book_skills[0]["cookbook"]
+
+    # Interactive data visualization
+    viz_skills = shortlist_skills("interactive data visualization to generate interactive chart and create vega lite chart")
+    assert len(viz_skills) >= 1
+    assert viz_skills[0]["name"] == "interactive-data-visualization"
+    assert "Vega-Lite" in viz_skills[0]["cookbook"]
+
+    # Collaborative canvas designer
+    canvas_skills = shortlist_skills("collaborative canvas designer to generate canvas wireframe and author visual mockup")
+    assert len(canvas_skills) >= 1
+    assert canvas_skills[0]["name"] == "collaborative-canvas-designer"
+    assert "SVG Canvas" in canvas_skills[0]["cookbook"]
+
+    # Multimodal media crawler
+    crawler_skills = shortlist_skills("multimodal media crawler to extract video transcript and crawl social media post")
+    assert len(crawler_skills) >= 1
+    assert crawler_skills[0]["name"] == "multimodal-media-crawler"
+    assert "Subtitle" in crawler_skills[0]["cookbook"]
+
+    # SQLite FTS optimizer
+    fts_skills = shortlist_skills("sqlite fts optimizer to optimize sqlite search and tune fts5 index")
+    assert len(fts_skills) >= 1
+    assert fts_skills[0]["name"] == "sqlite-fts-optimizer"
+    assert "FTS5" in fts_skills[0]["cookbook"]
+
+    # REST API contract generator
+    api_skills = shortlist_skills("rest api contract generator to generate openapi spec and create swagger spec")
+    assert len(api_skills) >= 1
+    assert api_skills[0]["name"] == "rest-api-contract-generator"
+    assert "OpenAPI" in api_skills[0]["cookbook"]
+
+    # Circuit breaker resilience
+    resilience_skills = shortlist_skills("circuit breaker resilience to implement circuit breaker and retry with exponential backoff")
+    assert len(resilience_skills) >= 1
+    assert resilience_skills[0]["name"] == "circuit-breaker-resilience"
+    assert "Circuit Breaker" in resilience_skills[0]["cookbook"]
+
+    # Zero downtime canary deploy
+    canary_skills = shortlist_skills("zero downtime canary deploy and canary deployment with traffic split deploy")
+    assert len(canary_skills) >= 1
+    assert canary_skills[0]["name"] == "zero-downtime-canary-deploy"
+    assert "Canary" in canary_skills[0]["cookbook"]
+
+    # Epistemic arbitrage
+    arb_skills = shortlist_skills("epistemic arbitrage to exploit information asymmetry and find information edge")
+    assert len(arb_skills) >= 1
+    assert arb_skills[0]["name"] == "epistemic-arbitrage"
+    assert "Epistemic Arbitrage" in arb_skills[0]["cookbook"]
+
+
+
