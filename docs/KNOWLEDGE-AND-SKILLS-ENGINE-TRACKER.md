@@ -28,6 +28,7 @@
 | **Track 12** | **Portfolio Skills Absorption (Batch 1: 15 Skills)** | 🟢 **COMPLETED** | 15 skills from `superpowers`, `spec-kit`, `procedure-ops`, `cc-thinking-skills`, `SkillOpt` (39 total) | [x] Passed |
 | **Track 13** | **Portfolio Skills Absorption (Batch 2: 16 Skills)** | 🟢 **COMPLETED** | 16 skills from `answer-me-with-html`, `anatomy`, `ffmpeg-skill`, `OfficeCLI`, `code-graph-rag` (55 total) | [x] Passed |
 | **Track 14** | **OpenMonoAgent Playbooks Absorption (7 Skills)** | 🟢 **COMPLETED** | 7 production playbooks: `incident-response`, `db-migrate`, `release`, `pr-ready`, `secret-scan`, `commit`, `blast-radius` (62 total) | [x] Passed |
+| **Track 15** | **Portfolio & OpenMono Absorption (Batch 4: 8 Skills)** | 🟢 **COMPLETED** | 8 skills: `server-deploy`, `llms-txt`, `windows-gui`, `web-research`, `scroll-craft`, `grounded-claims`, `mimic-ipc`, `pg-opt` (70 total) | [x] Passed |
 | **Verification Gate** | **Full Portable Test Suite & Ratchets** | 🟢 **COMPLETED** | 1,594+ tests passed, 0 ruff errors, architecture ratchets clean | [x] Passed |
 
 ---
@@ -158,6 +159,19 @@ flowchart TD
 - [x] Recompile `config/skills_index.json`: **62 verified skills** across 6 academic domains.
 - [x] Unit test in `tests/test_turn_context.py` (`test_openmono_playbooks_triggers_and_cookbooks`): 9/9 passed.
 - [x] Full agent test suite: 614 passed, 4 skipped, 0 failed.
+
+### Track 15: Portfolio & OpenMono Skills Absorption (Batch 4: 8 Skills -> 70 Total Skills)
+- [x] Absorb 8 production skills across DevOps, Architecture, Coding, Research, and Cognition with YAML frontmatter triggers and OpenMonoAgent-style `cookbook.md` recipes:
+  1. `server-deployment-ops` (`OpenMonoAgent.ai` server-deploy: host bridge contracts, docker compose zero-downtime rolling deploys, health verification)
+  2. `llms-txt-generator` (`automatic-ai-experiments`: standardized `llms.txt` and `llms-full.txt` project documentation indices)
+  3. `windows-gui-automation` (`Windows-Use`: desktop OS control via Win32 and UI Automation accessibility tree traversal)
+  4. `autonomous-web-research` (`hyperresearch` / `WeKnora`: multi-query source triangulation and markdown research note synthesis)
+  5. `scroll-driven-web-design` (`scroll-craft`: CSS animation-timeline view(), 60fps transform pinning, accessible fallbacks)
+  6. `grounded-claim-verification` (`Astrolabe`: epistemic claim grounding, line-level file provenance hyperlinks, empirical verification)
+  7. `desktop-app-instrumentation` (`mimic`: native desktop app IPC interception via localhost HTTP/WS/pipes and Python wrapping)
+  8. `postgres-query-optimizer` (`pgbot`: EXPLAIN ANALYZE execution plan breakdown, buffer hit auditing, non-blocking CONCURRENT index deployment)
+- [x] Recompile `config/skills_index.json`: **70 verified skills** across 6 academic domains.
+- [x] Unit test in `tests/test_turn_context.py` (`test_batch4_skills_triggers_and_cookbooks`): 10/10 passed.
 
 ### Verification Gate (AGENTS.md)
 - [x] `python -m ruff check .` -> All checks passed (0 errors).
