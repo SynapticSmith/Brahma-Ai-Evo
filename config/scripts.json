@@ -1,0 +1,50 @@
+[
+  {
+    "name": "taxonomy.py",
+    "path": "tools/taxonomy.py",
+    "description": "Normalize academic taxonomy spine, verify links, and audit notes.",
+    "domain": "formal-sciences/computer-science",
+    "safety": "workspace_write",
+    "tags": ["taxonomy", "normalize", "audit", "vault", "links"]
+  },
+  {
+    "name": "seed_academic_taxonomy.py",
+    "path": "tools/seed_academic_taxonomy.py",
+    "description": "Fetch and cache Wikipedia lead sections and reference companions for taxonomy nodes.",
+    "domain": "formal-sciences/computer-science",
+    "safety": "network",
+    "tags": ["wikipedia", "seed", "taxonomy", "offline", "cache"]
+  },
+  {
+    "name": "ingest_multimodal.py",
+    "path": "tools/ingest_multimodal.py",
+    "description": "Multimodal document conversion (PDF, EPUB, DOCX, OCR) and asset extraction.",
+    "domain": "applied-sciences/engineering-and-technology",
+    "safety": "sandbox",
+    "tags": ["convert", "pdf", "epub", "ocr", "multimodal", "assets"]
+  },
+  {
+    "name": "extract_knowledge.py",
+    "path": "tools/extract_knowledge.py",
+    "description": "Segment book companions into atomic knowledge units and place in academic tree.",
+    "domain": "humanities/philosophy",
+    "safety": "workspace_write",
+    "tags": ["extract", "knowledge", "segment", "classify", "concept", "inbox"]
+  },
+  {
+    "name": "brain_sync.py",
+    "path": "tools/brain_sync.py",
+    "description": "Index Obsidian second brain pages into SQLite FTS5 and vector cache.",
+    "domain": "formal-sciences/computer-science",
+    "safety": "read_only",
+    "tags": ["search", "index", "brain", "sync", "fts5"]
+  },
+  {
+    "name": "calyx_sync.py",
+    "path": "tools/calyx_sync.py",
+    "description": "Ground notes into Calyx tamper-evident cryptographic hash chains.",
+    "domain": "formal-sciences/computer-science",
+    "safety": "read_only",
+    "tags": ["calyx", "grounding", "provenance", "ledger", "constellations"]
+  }
+]

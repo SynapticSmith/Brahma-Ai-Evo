@@ -1307,6 +1307,52 @@ def with_retrieval(
     return copied, block
 
 
+def with_turn_context(
+    messages: Sequence[Dict[str, Any]],
+    text: str,
+    *,
+    knowledge_budget: Optional[int] = None,
+    skill_budget: Optional[int] = None,
+    workspace: Optional[Path] = None,
+    include_skills: bool = True,
+) -> Tuple[List[Dict[str, Any]], str, str]:
+    """Return a copy of ``messages`` with second brain and JIT skill blocks inserted before the last user.
+
+    The GUI text path makes its first model call before ``AgentLoop`` exists.
+    This helper compiles both the knowledge block and JIT task skill / SOP block,
+    injecting them in that exact order immediately preceding the final user turn (§10.1).
+
+    Returns:
+        (messages_copy, knowledge_block, skill_block)
+    """
+    from .turn_context import compile_turn_context
+
+    plan = compile_turn_context(
+        text,
+        workspace=workspace,
+        knowledge_budget=knowledge_budget if knowledge_budget is not None else DEFAULT_CONTEXT_CHARS,
+        skill_budget=skill_budget if skill_budget is not None else 1_200,
+        include_skills=include_skills,
+    )
+    copied = [dict(message) for message in messages]
+    at = len(copied)
+    for index in range(len(copied) - 1, -1, -1):
+        if copied[index].get("role") == "user":
+            at = index
+            break
+
+    to_insert: List[Dict[str, Any]] = []
+    if plan.knowledge_block:
+        to_insert.append({"role": "system", "content": plan.knowledge_block})
+    if plan.skill_block:
+        to_insert.append({"role": "system", "content": plan.skill_block})
+
+    for offset, msg in enumerate(to_insert):
+        copied.insert(at + offset, msg)
+
+    return copied, plan.knowledge_block, plan.skill_block
+
+
 # --------------------------------------------------------------------------- #
 # Prompt block, page reading, status
 # --------------------------------------------------------------------------- #

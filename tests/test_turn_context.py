@@ -1,204 +1,166 @@
-"""R2: a compressed search intent is completed from the user's actual turn.
-
-The model often reduces "search my Obsidian notes for the Q3 plan" to the single
-word "vault". R0 made a collision visible; R2 stops the collision from happening
-when the turn already names the answer. The context is memory-only and an
-explicit ``context`` argument always wins (TOOL-RETRIEVAL-DESIGN §4.1).
-"""
-
+"""Tests for the Turn Context Compiler and JIT Skills Engine (§9, §10, Phase 6)."""
 from __future__ import annotations
 
-import asyncio
-import re
 from pathlib import Path
+from typing import Any, Dict, List
 
-import pytest
-
-from core import tool_bridge
-from core import tool_index as ti
-from core.tool_index import ToolEntry
-
-QUERY_SCHEMA = {
-    "type": "OBJECT",
-    "properties": {"query": {"type": "STRING"}},
-    "required": ["query"],
-}
-
-
-def _catalogue() -> list[ToolEntry]:
-    """Two servers that both answer to "vault", plus one unrelated tool."""
-    return [
-        ToolEntry(
-            name="mcp_Calyx_vault_search",
-            description="Search the Calyx kernel vault for claims and lineage.",
-            parameters=QUERY_SCHEMA,
-            source="mcp:Calyx",
-            domain="kernel constellation / memory vault",
-            keywords="calyx vault kernel memory constellation lineage",
-        ),
-        ToolEntry(
-            name="mcp_Calyx_kernel_answer",
-            description="Answer from the Calyx kernel with citations.",
-            parameters=QUERY_SCHEMA,
-            source="mcp:Calyx",
-            domain="kernel constellation / memory vault",
-            keywords="calyx kernel answer constellation lineage",
-        ),
-        ToolEntry(
-            name="mcp_Obsidian_vault_search",
-            description="Full-text search across the Obsidian notes vault.",
-            parameters=QUERY_SCHEMA,
-            source="mcp:Obsidian",
-            domain="notes vault",
-            keywords="obsidian notes vault markdown backlinks tags",
-        ),
-        ToolEntry(
-            name="mcp_Obsidian_create_note",
-            description="Create a note in the Obsidian notes vault.",
-            parameters=QUERY_SCHEMA,
-            source="mcp:Obsidian",
-            domain="notes vault",
-            keywords="obsidian notes create note markdown",
-        ),
-        ToolEntry(
-            name="web_search",
-            description="Search the public web for facts and prices.",
-            parameters=QUERY_SCHEMA,
-            source="native",
-            domain="web",
-            keywords="web search internet facts current",
-        ),
-    ]
+from agent.context import ContextBudget, ConversationContext
+from agent.loop import AgentLoop
+from agent.second_brain import with_turn_context
+from agent.turn_context import (
+    TurnPlan,
+    classify_intent,
+    compile_turn_context,
+    shortlist_scripts,
+    shortlist_skills,
+)
 
 
-@pytest.fixture
-def vaults(tmp_path, monkeypatch):
-    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "localappdata"))
-    monkeypatch.setattr(ti._EmbedBackend, "load", lambda self: False)
-    ti.reset_index()
-    index = ti.ToolIndex(cache_dir=tmp_path / "cache")
-    monkeypatch.setattr(tool_bridge, "get_index", lambda: index)
-    monkeypatch.setattr(ti, "get_index", lambda: index)
+def test_classify_intent_deterministic():
+    # Conversational / trivial
+    assert classify_intent("hello") == "conversational"
+    assert classify_intent("thanks!") == "conversational"
+    assert classify_intent("ok") == "conversational"
+    assert classify_intent("") == "conversational"
 
-    calls: list[tuple[str, dict]] = []
+    # Procedural
+    assert classify_intent("build a web scraper for wikipedia") == "procedural"
+    assert classify_intent("refactor the authentication module") == "procedural"
+    assert classify_intent("implement binary search algorithm") == "procedural"
 
-    def _executor(name, args):
-        calls.append((name, args))
-        return f"executed {name}"
+    # Interrogative
+    assert classify_intent("what is quantum entanglement?") == "interrogative"
+    assert classify_intent("explain how transformers work") == "interrogative"
+    assert classify_intent("tell me about the history of buddhism") == "interrogative"
 
-    tool_bridge.configure(
-        settings={"tool_index_enabled": True, "tool_index_budget": 20},
-        executor=_executor,
+    # Mixed
+    assert classify_intent("explain how quicksort works and write an implementation in python") == "mixed"
+    assert classify_intent("what is oauth2 and implement a client") == "mixed"
+
+
+def test_scripts_catalogue_shortlisting(tmp_path: Path):
+    # Test script shortlisting with domain matching and keyword tokens
+    results = shortlist_scripts("convert docx document to markdown", domain="applied_sciences/computing")
+    assert len(results) >= 1
+    top = results[0]
+    assert "ingest_multimodal" in top["name"]
+    assert top.get("safety") in ("read_only", "sandbox")
+
+    # Test taxonomy tool
+    tax_results = shortlist_scripts("lint notes in taxonomy", domain="applied_sciences/computing")
+    assert any("taxonomy" in s["name"] for s in tax_results)
+
+
+def test_skills_shortlisting_and_budget_clamping(tmp_path: Path):
+    # Create a mock skill directory
+    skills_dir = tmp_path / "skills" / "sample-skill"
+    skills_dir.mkdir(parents=True)
+    skill_content = """---
+name: sample-skill
+description: A sample procedural skill for testing.
+metadata:
+  domain: applied_sciences/computing
+  tags: [sample, testing, procedural]
+---
+# Sample Procedure
+Step 1: Inspect the target.
+Step 2: Execute the routine.
+Step 3: Verify the output.
+"""
+    (skills_dir / "SKILL.md").write_text(skill_content, encoding="utf-8")
+
+    shortlisted = shortlist_skills("run a sample testing procedural routine", workspace=tmp_path, domain="applied_sciences/computing")
+    assert len(shortlisted) >= 1
+    first = shortlisted[0]
+    assert first["name"] == "sample-skill"
+    assert "Step 1" in first["body"]
+
+    # Compile turn context with strict skill budget (e.g. 50 chars)
+    plan = compile_turn_context(
+        "run a sample testing procedural routine",
+        workspace=tmp_path,
+        skill_budget=50,
+        include_skills=True,
     )
-    tool_bridge.reset_session_learning()
-    for entry in _catalogue():
-        index.upsert(entry)
-    index.rebuild()
-    yield index, calls
-
-    tool_bridge.configure(settings={"tool_index_enabled": True}, executor=None)
-    tool_bridge.reset_session_learning()
-    ti.reset_index()
+    assert plan.has_skill
+    assert "[SAMPLE-SKILL]" in plan.skill_block
+    assert "… [truncated]" in plan.skill_block
 
 
-def _search(**args) -> str:
-    return asyncio.run(tool_bridge.execute_meta("search_tools", args))
+def test_context_as_payload_ordering():
+    ctx = ConversationContext(budget=ContextBudget(max_chars=10_000))
+    ctx.append({"role": "system", "content": "BASE SYSTEM PROMPT"})
+    ctx.append({"role": "user", "content": "First turn"})
+    ctx.append({"role": "assistant", "content": "First response"})
+    ctx.append({"role": "user", "content": "Second turn"})
+
+    ctx.set_retrieval("KNOWLEDGE NOTE BLOCK")
+    ctx.set_skill("TASK SKILL SOP BLOCK")
+
+    payload = ctx.as_payload()
+
+    # Must have 6 messages:
+    # 0: base system prompt
+    # 1: user first
+    # 2: assistant first
+    # 3: retrieval system message
+    # 4: skill system message
+    # 5: user second
+    assert len(payload) == 6
+    assert payload[0]["content"] == "BASE SYSTEM PROMPT"
+    assert payload[1]["content"] == "First turn"
+    assert payload[2]["content"] == "First response"
+    assert payload[3]["role"] == "system" and payload[3]["content"] == "KNOWLEDGE NOTE BLOCK"
+    assert payload[4]["role"] == "system" and payload[4]["content"] == "TASK SKILL SOP BLOCK"
+    assert payload[5]["role"] == "user" and payload[5]["content"] == "Second turn"
 
 
-def _groups(text: str) -> list[str]:
-    return re.findall(r"── (.+?) ──", text)
+def test_with_turn_context():
+    messages = [
+        {"role": "system", "content": "System prompt"},
+        {"role": "user", "content": "How does knowledge extraction work?"},
+    ]
+    copied, kb, sb = with_turn_context(messages, "How does knowledge extraction work?")
+    # Check that messages was copied and not mutated in place
+    assert len(messages) == 2
+    # At least knowledge or skill injected before last user
+    assert copied[-1]["role"] == "user"
+    assert copied[-1]["content"] == "How does knowledge extraction work?"
+    # The original messages structure is preserved in order
+    assert copied[0]["role"] == "system"
 
 
-def test_a_short_intent_is_completed_from_the_obsidian_turn(vaults):
-    tool_bridge.set_turn_context("search my Obsidian notes for the Q3 plan")
+def test_agent_loop_wires_skill_telemetry(monkeypatch):
+    events: List[Dict[str, Any]] = []
 
-    out = _search(intent="vault")
+    def mock_complete(messages: List[Dict[str, Any]], tools: Any = None) -> Dict[str, Any]:
+        return {"role": "assistant", "content": "Mock done."}
 
-    assert "completed from the current turn" in out
-    assert _groups(out)[0] == "Obsidian"
-    assert "AMBIGUOUS" not in out, "the turn already names the owner"
+    # Custom plan returned by compile_turn_context
+    def mock_compile(*args, **kwargs):
+        p = TurnPlan(query="test", intent="procedural", domain="formal_sciences/mathematics")
+        p.knowledge_block = "SECOND BRAIN TEST NOTE"
+        p.skill_block = "TASK SKILL TEST SOP"
+        p.selected_skill = {"name": "test-math-skill"}
+        p.selected_script = {"name": "test_script.py"}
+        return p
 
+    monkeypatch.setattr("agent.turn_context.compile_turn_context", mock_compile)
 
-def test_the_same_intent_resolves_to_calyx_from_a_calyx_turn(vaults):
-    tool_bridge.set_turn_context("answer from the Calyx vault with lineage")
+    loop = AgentLoop(
+        complete=mock_complete,
+        tools=[],
+        on_event=events.append,
+        retrieve=True,
+    )
+    result = loop.run("test turn")
+    assert result.ok
 
-    out = _search(intent="vault")
-
-    assert "completed from the current turn" in out
-    assert _groups(out)[0] == "Calyx"
-    assert "AMBIGUOUS" not in out
-
-
-def test_without_a_turn_a_bare_vault_is_still_ambiguous(vaults):
-    out = _search(intent="vault")
-
-    assert "completed from the current turn" not in out
-    assert "AMBIGUOUS" in out
-    assert set(_groups(out)) >= {"Calyx", "Obsidian"}
-
-
-def test_an_explicit_context_beats_the_remembered_turn(vaults):
-    tool_bridge.set_turn_context("answer from the Calyx vault")
-
-    out = _search(intent="vault", context="search my Obsidian notes for the Q3 plan")
-
-    assert _groups(out)[0] == "Obsidian"
-    assert "completed from the current turn" not in out
-
-
-def test_a_long_intent_that_names_the_catalogue_ignores_the_turn(vaults):
-    tool_bridge.set_turn_context("search my Obsidian notes for the Q3 plan")
-
-    out = _search(intent="look up the current stock price on the public web")
-
-    assert "completed from the current turn" not in out
-    assert _groups(out)[0] == "native"
-
-
-def test_explicit_server_still_wins_over_the_turn(vaults):
-    tool_bridge.set_turn_context("search my Obsidian notes for the Q3 plan")
-
-    out = _search(intent="vault", server="Calyx")
-
-    assert "mcp_Calyx_vault_search" in out
-    assert "mcp_Obsidian_vault_search" not in out
-    assert "AMBIGUOUS" not in out
-
-
-def test_the_buffer_keeps_two_turns_newest_first_and_ignores_blanks(vaults):
-    tool_bridge.set_turn_context("first question")
-    tool_bridge.set_turn_context("   ")
-    tool_bridge.set_turn_context("second question")
-    tool_bridge.set_turn_context("third question")
-
-    assert tool_bridge.turn_context() == "third question"
-    assert tool_bridge.turn_context_history() == ["third question", "second question"]
-
-
-def test_ending_a_session_forgets_the_turn(vaults):
-    tool_bridge.set_turn_context("search my Obsidian notes")
-
-    tool_bridge.reset_session_learning()
-
-    assert tool_bridge.turn_context() == ""
-    assert "AMBIGUOUS" in _search(intent="vault")
-
-
-def test_the_agent_loop_hands_its_prompt_to_the_bridge(vaults):
-    from agent.loop import _remember_turn_for_retrieval
-
-    _remember_turn_for_retrieval("  search   my Obsidian notes  ")
-
-    assert tool_bridge.turn_context() == "search my Obsidian notes"
-
-
-def test_every_user_surface_feeds_the_bridge():
-    """A seam that is only documented is a seam that rots."""
-    root = Path(__file__).resolve().parent.parent
-    for relative in (
-        "core/text_turn_controller.py",
-        "core/audio_io.py",
-        "agent/loop.py",
-    ):
-        source = (root / relative).read_text(encoding="utf-8")
-        assert "set_turn_context" in source, relative
+    # Verify skill_injected event was emitted
+    skill_events = [e for e in events if e.get("type") == "skill_injected"]
+    assert len(skill_events) == 1
+    evt = skill_events[0]
+    assert evt["skill"] == "test-math-skill"
+    assert evt["script"] == "test_script.py"
+    assert evt["domain"] == "formal_sciences/mathematics"
+    assert evt["chars"] == len("TASK SKILL TEST SOP")

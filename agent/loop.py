@@ -243,6 +243,9 @@ class AgentLoop:
         retrieval_budget: Optional[int] = None,
         retrieval: Optional[str] = None,
         retrieve: bool = True,
+        skill_budget: Optional[int] = None,
+        skill: Optional[str] = None,
+        include_skills: bool = True,
     ):
         self._complete = complete
         self._native_dispatch = native_dispatch
@@ -333,6 +336,9 @@ class AgentLoop:
         self._retrieval_budget = retrieval_budget
         self._retrieval_override = str(retrieval or "").strip() or None
         self._retrieval_sources: List[str] = []
+        self._include_skills = bool(include_skills)
+        self._skill_budget = skill_budget
+        self._skill_override = str(skill or "").strip() or None
 
         if context is not None:
             self._context = context
@@ -1018,9 +1024,9 @@ class AgentLoop:
     # -- run ---------------------------------------------------------------
 
     def _prepare_retrieval(self, prompt: Optional[str]) -> None:
-        """Inject the user's curated notes before the model sees the turn.
+        """Inject the user's curated notes and JIT task skills before the model sees the turn (§9, §10).
 
-        Retrieval is computed once per run, not once per model call: the user
+        Retrieval and skills are computed once per run, not once per model call: the user
         turn stays at the end of the transcript while tools run, so re-querying
         it would only rebuild the same block and pay for another embedding.
         """
@@ -1028,22 +1034,77 @@ class AgentLoop:
             return
         block = self._retrieval_override
         self._retrieval_override = None
-        if block is None:
-            text = str(prompt or "").strip()
-            if not text:
-                for message in reversed(self._context.messages):
-                    if message.get("role") == "user":
-                        text = str(message.get("content") or "").strip()
-                        break
+
+        skill_block = self._skill_override
+        self._skill_override = None
+
+        text = str(prompt or "").strip()
+        if not text:
+            for message in reversed(self._context.messages):
+                if message.get("role") == "user":
+                    text = str(message.get("content") or "").strip()
+                    break
+
+        plan = None
+        if block is None and skill_block is None:
             if not text:
                 return
             try:
-                from .second_brain import context_for_turn
+                from .turn_context import compile_turn_context
 
-                block = context_for_turn(text, budget=self._retrieval_budget)
-            except Exception:  # noqa: BLE001 - retrieval must never fail a turn
+                kb = self._retrieval_budget if self._retrieval_budget is not None else 2_400
+                sb = self._skill_budget if self._skill_budget is not None else 1_200
+                plan = compile_turn_context(
+                    text,
+                    workspace=self._runtime.workspace,
+                    knowledge_budget=kb,
+                    skill_budget=sb,
+                    include_skills=self._include_skills,
+                )
+                block = plan.knowledge_block
+                skill_block = plan.skill_block
+            except Exception:  # noqa: BLE001 - retrieval/skills must never fail a turn
+                try:
+                    from .second_brain import context_for_turn
+
+                    block = context_for_turn(text, budget=self._retrieval_budget)
+                except Exception:
+                    block = ""
+                skill_block = ""
+        elif block is None:
+            if text:
+                try:
+                    from .second_brain import context_for_turn
+
+                    block = context_for_turn(text, budget=self._retrieval_budget)
+                except Exception:
+                    block = ""
+            else:
                 block = ""
-        self._context.set_retrieval(block)
+
+        self._context.set_retrieval(block or "")
+        if skill_block:
+            self._context.set_skill(skill_block)
+
+        if plan and (plan.selected_skill or plan.selected_script):
+            sk_name = plan.selected_skill["name"] if plan.selected_skill else ""
+            sc_name = plan.selected_script["name"] if plan.selected_script else ""
+            self._emit(
+                "skill_injected",
+                skill=sk_name,
+                script=sc_name,
+                domain=plan.domain or "",
+                chars=len(skill_block),
+            )
+        elif skill_block:
+            self._emit(
+                "skill_injected",
+                skill="",
+                script="",
+                domain="",
+                chars=len(skill_block),
+            )
+
         if not block:
             return
         try:
@@ -1064,6 +1125,8 @@ class AgentLoop:
             kinds=kinds,
             domains=domains,
         )
+
+    _prepare_turn_context = _prepare_retrieval
 
     def run(
         self,

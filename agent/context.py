@@ -93,6 +93,8 @@ class ConversationContext:
     #: time and is deliberately *not* part of ``messages``: it is per-turn
     #: context, not transcript, so it must not be persisted or replayed.
     retrieval: Optional[str] = None
+    #: Selected procedural guidance / skill SOP for the current turn (§9, §10).
+    skill: Optional[str] = None
 
     # -- assembly ----------------------------------------------------------
 
@@ -100,24 +102,31 @@ class ConversationContext:
         cleaned = str(text or "").strip()
         self.retrieval = cleaned or None
 
+    def set_skill(self, text: Optional[str]) -> None:
+        cleaned = str(text or "").strip()
+        self.skill = cleaned or None
+
     def as_payload(self) -> List[Dict[str, Any]]:
-        """System message first, exactly once; retrieval before the user turn."""
+        """System message first, exactly once; retrieval & skill before the user turn."""
         payload: List[Dict[str, Any]] = []
         if self.system:
             payload.append({"role": "system", "content": self.system})
-        if not self.retrieval:
+        if not self.retrieval and not self.skill:
             payload.extend(self.messages)
             return payload
-        # Put retrieved knowledge immediately before the most recent user
-        # message: small models weight the nearest system block far more than
-        # one that scrolled away at the top of the window.
+        # Put retrieved knowledge & skill guidance immediately before the most
+        # recent user message: small models weight the nearest system block far
+        # more than one that scrolled away at the top of the window (§10.3).
         at = len(self.messages)
         for index in range(len(self.messages) - 1, -1, -1):
             if self.messages[index].get("role") == "user":
                 at = index
                 break
         payload.extend(self.messages[:at])
-        payload.append({"role": "system", "content": self.retrieval})
+        if self.retrieval:
+            payload.append({"role": "system", "content": self.retrieval})
+        if self.skill:
+            payload.append({"role": "system", "content": self.skill})
         payload.extend(self.messages[at:])
         return payload
 
