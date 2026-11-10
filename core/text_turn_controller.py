@@ -1576,17 +1576,19 @@ class TextTurnController:
             elif kind == "retrieval":
                 sources = event.get("sources") or []
                 chars = event.get("chars", 0)
+                kinds = event.get("kinds") or {}
                 summary_sources = ", ".join(sources[:3])
                 if len(sources) > 3:
                     summary_sources += f" (+{len(sources)-3} more)"
+                kinds_str = f" [{', '.join(f'{k}:{v}' for k, v in kinds.items())}]" if kinds else ""
                 print(
                     f"[BRAHMA EVO] \U0001f9e0 second brain retrieved {chars} chars "
-                    f"({len(sources)} notes: {summary_sources})"
+                    f"({len(sources)} notes: {summary_sources}){kinds_str}"
                 )
                 if hasattr(host, "ui") and host.ui is not None:
                     try:
                         host.ui.write_log(
-                            f"\U0001f9e0 SECOND BRAIN: Retrieved {len(sources)} vault notes ({summary_sources})"
+                            f"\U0001f9e0 SECOND BRAIN: Retrieved {len(sources)} vault notes ({summary_sources}){kinds_str}"
                         )
                     except Exception:
                         pass

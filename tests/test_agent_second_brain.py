@@ -355,3 +355,175 @@ def test_voice_brain_map_does_not_promise_automatic_retrieval(vault: Path):
     assert "brain_search" in voice
     assert "retrieved automatically" not in voice
     assert "retrieved automatically" in second_brain.brain_map()
+
+
+def test_schema_v2_migration_from_v1(tmp_path: Path):
+    db_path = tmp_path / "legacy.db"
+    import sqlite3
+
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    # Create legacy v1 schema
+    conn.executescript(
+        """
+        CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        INSERT INTO meta(key, value) VALUES ('schema', '1');
+        CREATE TABLE pages (
+            path  TEXT PRIMARY KEY,
+            mtime REAL NOT NULL,
+            size  INTEGER NOT NULL,
+            sha   TEXT NOT NULL,
+            title TEXT,
+            shelf TEXT
+        );
+        CREATE TABLE chunks (
+            id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            path    TEXT NOT NULL,
+            ord     INTEGER NOT NULL,
+            heading TEXT,
+            text    TEXT NOT NULL
+        );
+        INSERT INTO pages VALUES ('wiki/library/knowledge/humanities/philosophy/index.md', 1.0, 10, 'sha1', 'Philosophy', 'wiki');
+        INSERT INTO pages VALUES ('book-library/fulltext/sample.md', 1.0, 20, 'sha2', 'Sample Book', 'book-library');
+        INSERT INTO chunks VALUES (1, 'wiki/library/knowledge/humanities/philosophy/index.md', 0, 'Overview', 'Philosophy overview');
+        INSERT INTO chunks VALUES (2, 'book-library/fulltext/sample.md', 0, 'Chapter 1', 'Book content');
+        """
+    )
+    conn.commit()
+
+    # Now run _ensure_schema
+    second_brain._ensure_schema(conn)
+
+    schema_version = int(second_brain._get_meta(conn, "schema"))
+    assert schema_version == 2
+
+    pages_cols = {row["name"] for row in conn.execute("PRAGMA table_info(pages)")}
+    assert {"kind", "domain", "quality"}.issubset(pages_cols)
+
+    chunks_cols = {row["name"] for row in conn.execute("PRAGMA table_info(chunks)")}
+    assert "kind" in chunks_cols
+
+    # Check backfilled values
+    p1 = conn.execute("SELECT * FROM pages WHERE path LIKE '%index.md'").fetchone()
+    assert p1["kind"] == "index"
+    assert p1["domain"] == "humanities/philosophy"
+
+    p2 = conn.execute("SELECT * FROM pages WHERE path LIKE 'book-library%'").fetchone()
+    assert p2["kind"] == "book"
+
+    c1 = conn.execute("SELECT * FROM chunks WHERE path LIKE '%index.md'").fetchone()
+    assert c1["kind"] == "index"
+
+    c2 = conn.execute("SELECT * FROM chunks WHERE path LIKE 'book-library%'").fetchone()
+    assert c2["kind"] == "book"
+    conn.close()
+
+
+def test_classify_kind_and_domain():
+    assert second_brain._classify_kind("wiki/library/knowledge/humanities/philosophy/index.md") == "index"
+    assert second_brain._classify_kind("wiki/library/knowledge/humanities/philosophy/wikipedia.md") == "reference"
+    assert second_brain._classify_kind("book-library/fulltext/book1.md") == "book"
+    assert second_brain._classify_kind("wiki/synthesis/overview.md") == "synthesis"
+    assert second_brain._classify_kind("wiki/entities/calyx.md") == "entity"
+    assert second_brain._classify_kind("wiki/library/knowledge/humanities/philosophy/note.md") == "concept"
+    # Frontmatter override
+    assert second_brain._classify_kind("custom.md", {"type": "BookNote"}) == "book"
+    assert second_brain._classify_kind("custom.md", {"type": "SynthesisNote"}) == "synthesis"
+
+    assert (
+        second_brain._extract_domain("wiki/library/knowledge/humanities/philosophy/epistemology/note.md")
+        == "humanities/philosophy/epistemology"
+    )
+    assert second_brain._extract_domain("other.md", {"domain": "custom/domain"}) == "custom/domain"
+
+    assert second_brain._extract_quality({"status": "reviewed"}) == 1.0
+    assert second_brain._extract_quality({"status": "draft"}) == 0.5
+    assert second_brain._extract_quality({"status": "deprecated"}) == 0.2
+
+
+def test_type_weighted_ranking_and_max_two_index_pages(vault: Path):
+    # Add multiple index pages and concept notes
+    for i in range(4):
+        p = vault / "wiki" / f"topic_{i}"
+        p.mkdir(parents=True, exist_ok=True)
+        (p / "index.md").write_text(
+            f"---\ntitle: Index {i}\n---\n# Index {i}\nInformation retrieval epistemology concept note {i}\n",
+            encoding="utf-8",
+        )
+        (p / "concept.md").write_text(
+            f"---\ntitle: Concept {i}\n---\n# Concept {i}\nInformation retrieval epistemology concept note {i}\n",
+            encoding="utf-8",
+        )
+
+    second_brain.sync(embed=False, rebuild=True)
+    results = second_brain.search("information retrieval epistemology", k=8)
+    assert len(results) > 2
+
+    # Check max 2 index pages rule
+    index_results = [r for r in results if r.get("kind") == "index" or r["path"].endswith("index.md")]
+    assert len(index_results) <= 2
+
+    # Verify concept notes rank ahead of index pages with identical BM25 text
+    first_kind = results[0].get("kind")
+    assert first_kind in ("concept", "entity", "synthesis")
+
+
+def test_status_reports_breakdowns_by_kind(vault: Path):
+    second_brain.sync(embed=False)
+    info = second_brain.status()
+    assert info["schema_version"] == 2
+    assert "pages_by_kind" in info
+    assert "chunks_by_kind" in info
+    assert "vectors_missing_by_kind" in info
+    assert info["pages_by_kind"].get("entity", 0) >= 1
+
+
+def test_taxonomy_navigation_browse_and_locate(vault: Path):
+    # Browse root returns canonical divisions
+    root_browse = second_brain.browse_node("")
+    assert root_browse["division"] == "root"
+    assert len(root_browse["children"]) == 5
+    assert any(c["slug"] == "humanities" for c in root_browse["children"])
+
+    # Browse valid spine node
+    phil_browse = second_brain.browse_node("humanities/philosophy")
+    if "error" not in phil_browse:
+        assert phil_browse["division"] == "humanities"
+        assert phil_browse["title"] == "Philosophy"
+        assert len(phil_browse["children"]) >= 1
+
+    # Browse unknown path returns structured error
+    err_browse = second_brain.browse_node("nonexistent/discipline")
+    assert err_browse["error"] == "taxonomy/unknown_path"
+    assert "valid_divisions" in err_browse
+
+    # Locate nodes
+    loc = second_brain.locate_nodes("philosophy", limit=5)
+    assert loc
+    assert any("philosophy" in c["path"] for c in loc)
+    assert loc[0]["confidence"] >= 0.8
+
+
+def test_brain_tools_browse_and_locate(vault: Path):
+    from agent import brain_tools
+    from agent.spec import ToolContext
+
+    ctx = ToolContext(workspace=vault)
+    browse_json = brain_tools.brain_browse({"path": ""}, ctx)
+    browse_data = json.loads(browse_json)
+    assert browse_data["division"] == "root"
+
+    locate_json = brain_tools.brain_locate({"query": "philosophy"}, ctx)
+    locate_data = json.loads(locate_json)
+    assert locate_data["count"] >= 1
+    assert "candidates" in locate_data
+
+
+def test_retrieval_metadata_and_telemetry(vault: Path):
+    second_brain.sync(embed=False)
+    block = second_brain.context_for_turn("calyx provenance")
+    meta = second_brain.retrieval_metadata(block)
+    assert "sources" in meta
+    assert len(meta["sources"]) >= 1
+    assert "kinds" in meta
+    assert meta["kinds"].get("entity", 0) >= 1

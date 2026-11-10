@@ -36,11 +36,21 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 EMBED_DIM = 768
 DEFAULT_EMBED_MODEL = "nomic-embed-text"
 DEFAULT_EMBED_ENDPOINT = "http://localhost:11434/v1"
 DEFAULT_VAULT = Path.home() / "Documents" / "Obsidian" / "My Vault"
+
+#: Weights by page/chunk kind for retrieval ranking (§8.2).
+KIND_WEIGHTS: Dict[str, float] = {
+    "synthesis": 1.10,
+    "concept": 1.00,
+    "entity": 0.95,
+    "book": 0.90,
+    "reference": 0.70,
+    "index": 0.55,
+}
 
 #: Directories that are not part of the searchable knowledge base. ``raw`` is
 #: deliberately absent: it is the immutable source shelf and should be found.
@@ -269,19 +279,23 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             value TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS pages (
-            path  TEXT PRIMARY KEY,
-            mtime REAL NOT NULL,
-            size  INTEGER NOT NULL,
-            sha   TEXT NOT NULL,
-            title TEXT,
-            shelf TEXT
+            path    TEXT PRIMARY KEY,
+            mtime   REAL NOT NULL,
+            size    INTEGER NOT NULL,
+            sha     TEXT NOT NULL,
+            title   TEXT,
+            shelf   TEXT,
+            kind    TEXT,
+            domain  TEXT,
+            quality REAL
         );
         CREATE TABLE IF NOT EXISTS chunks (
             id      INTEGER PRIMARY KEY AUTOINCREMENT,
             path    TEXT NOT NULL,
             ord     INTEGER NOT NULL,
             heading TEXT,
-            text    TEXT NOT NULL
+            text    TEXT NOT NULL,
+            kind    TEXT
         );
         CREATE INDEX IF NOT EXISTS chunks_path ON chunks(path);
         CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
@@ -294,10 +308,54 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         );
         """
     )
-    conn.execute(
-        "INSERT OR REPLACE INTO meta(key, value) VALUES ('schema', ?)",
-        (str(SCHEMA_VERSION),),
-    )
+    try:
+        cur_version = int(_get_meta(conn, "schema", 0) or 0)
+    except (ValueError, TypeError):
+        cur_version = 0
+
+    if cur_version < SCHEMA_VERSION:
+        try:
+            pages_cols = {row["name"] for row in conn.execute("PRAGMA table_info(pages)")}
+            if "kind" not in pages_cols:
+                conn.execute("ALTER TABLE pages ADD COLUMN kind TEXT")
+            if "domain" not in pages_cols:
+                conn.execute("ALTER TABLE pages ADD COLUMN domain TEXT")
+            if "quality" not in pages_cols:
+                conn.execute("ALTER TABLE pages ADD COLUMN quality REAL")
+
+            chunks_cols = {row["name"] for row in conn.execute("PRAGMA table_info(chunks)")}
+            if "kind" not in chunks_cols:
+                conn.execute("ALTER TABLE chunks ADD COLUMN kind TEXT")
+
+            # Backfill any pages missing kind
+            pages_to_backfill = list(
+                conn.execute("SELECT path FROM pages WHERE kind IS NULL")
+            )
+            for row in pages_to_backfill:
+                p = str(row["path"])
+                k = _classify_kind(p)
+                d = _extract_domain(p)
+                conn.execute(
+                    "UPDATE pages SET kind = ?, domain = ?, quality = 1.0 WHERE path = ?",
+                    (k, d, p),
+                )
+            # Backfill chunks kind from pages
+            conn.execute(
+                "UPDATE chunks SET kind = (SELECT kind FROM pages WHERE pages.path = chunks.path) "
+                "WHERE chunks.kind IS NULL"
+            )
+            _set_meta(conn, "schema", str(SCHEMA_VERSION))
+            conn.commit()
+        except Exception as exc:
+            # Report schema_error in meta; retrieval must not break (§8.1)
+            _set_meta(conn, "schema_error", str(exc))
+            conn.commit()
+    else:
+        conn.execute(
+            "INSERT OR REPLACE INTO meta(key, value) VALUES ('schema', ?)",
+            (str(SCHEMA_VERSION),),
+        )
+        conn.commit()
 
 
 def _set_meta(conn: sqlite3.Connection, key: str, value: Any) -> None:
@@ -381,6 +439,85 @@ def _title_for(rel: str, body: str, meta: Dict[str, str]) -> str:
         if line.startswith("# "):
             return line[2:].strip()
     return Path(rel).stem
+
+
+def _classify_kind(rel_path: str, meta: Optional[Dict[str, Any]] = None) -> str:
+    """Classify note kind into one of: index, reference, book, synthesis, entity, concept."""
+    norm_path = rel_path.replace("\\", "/").lower()
+    file_name = norm_path.split("/")[-1]
+
+    # Explicit frontmatter type/kind has highest priority
+    if meta:
+        raw_type = str(meta.get("type") or meta.get("kind") or "").strip().lower()
+        if raw_type:
+            if raw_type in ("index", "reference", "book", "synthesis", "entity", "concept"):
+                return raw_type
+            if raw_type == "note":
+                return "concept"
+            if raw_type in ("booknote", "book_note", "book-note"):
+                return "book"
+            if raw_type in ("synthesisnote", "synthesis_note", "synthesis-note"):
+                return "synthesis"
+            if raw_type in ("entitynote", "entity_note", "entity-note"):
+                return "entity"
+
+    # Path heuristics
+    if file_name == "index.md" or norm_path.endswith("/_index.md"):
+        return "index"
+    if file_name == "wikipedia.md" or norm_path.endswith("/_wikipedia.md"):
+        return "reference"
+    if norm_path.startswith("book-library/") or "/book-library/" in norm_path:
+        return "book"
+    if norm_path.startswith("wiki/synthesis/") or "/synthesis/" in norm_path:
+        return "synthesis"
+    if norm_path.startswith("wiki/entities/") or "/entities/" in norm_path:
+        return "entity"
+    if norm_path.startswith("_taxonomy/") or "/_taxonomy/" in norm_path:
+        return "index"
+
+    return "concept"
+
+
+def _extract_domain(rel_path: str, meta: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    """Extract canonical academic taxonomy domain ID for a page."""
+    if meta:
+        domain = meta.get("domain")
+        if domain and isinstance(domain, str) and domain.strip():
+            return domain.strip()
+
+    norm = rel_path.replace("\\", "/").strip("/")
+    prefix = "wiki/library/knowledge/"
+    if prefix in norm:
+        idx = norm.find(prefix) + len(prefix)
+        remainder = norm[idx:]
+        parts = remainder.split("/")
+        if len(parts) > 1:
+            return "/".join(parts[:-1])
+        elif len(parts) == 1 and parts[0].endswith(".md"):
+            stem = parts[0][:-3]
+            return stem if stem != "index" else None
+    return None
+
+
+def _extract_quality(meta: Optional[Dict[str, Any]] = None) -> float:
+    """Extract quality score (0.0 to 1.0) from note metadata."""
+    if not meta:
+        return 1.0
+    if "quality" in meta:
+        try:
+            return max(0.0, min(1.0, float(meta["quality"])))
+        except (TypeError, ValueError):
+            pass
+    status = str(meta.get("status") or "").strip().lower()
+    if status == "reviewed":
+        return 1.0
+    elif status == "draft":
+        return 0.5
+    elif status == "deprecated":
+        return 0.2
+    if meta.get("draft") is True or str(meta.get("draft", "")).lower() in ("true", "1", "yes"):
+        return 0.5
+    return 1.0
 
 
 def _split_long(text: str) -> List[str]:
@@ -541,6 +678,7 @@ def sync(
     *,
     rebuild: bool = False,
     embed: bool = True,
+    embed_index: bool = False,
     limit: Optional[int] = None,
     embed_limit: Optional[int] = None,
     progress: Optional[Any] = None,
@@ -556,6 +694,7 @@ def sync(
     ``nomic-embed-text`` needs ~1.7 s per chunk, so a full 8k-chunk pass is
     hours; bounded runs make progress without pinning the machine.
     ``shelf`` restricts indexing and embedding to a specific subfolder (e.g. 'wiki/').
+    ``embed_index`` toggles embedding of index and reference pages (default False).
     """
     root = vault_root()
     if root is None:
@@ -621,6 +760,9 @@ def sync(
             meta, body = _split_frontmatter(text)
             title = _title_for(rel, body, meta)
             page_shelf = rel.split("/")[0] if "/" in rel else "(root)"
+            kind = _classify_kind(rel, meta)
+            domain = _extract_domain(rel, meta)
+            quality = _extract_quality(meta)
             pieces = chunk_text(body)
 
             old_ids = [
@@ -639,8 +781,8 @@ def sync(
             inserted: List[Tuple[int, str]] = []
             for order, (heading, piece) in enumerate(pieces):
                 cursor = conn.execute(
-                    "INSERT INTO chunks(path, ord, heading, text) VALUES (?, ?, ?, ?)",
-                    (rel, order, heading, piece),
+                    "INSERT INTO chunks(path, ord, heading, text, kind) VALUES (?, ?, ?, ?, ?)",
+                    (rel, order, heading, piece, kind),
                 )
                 chunk_id = int(cursor.lastrowid)
                 conn.execute(
@@ -650,15 +792,21 @@ def sync(
                 inserted.append((chunk_id, piece))
 
             conn.execute(
-                "INSERT OR REPLACE INTO pages(path, mtime, size, sha, title, shelf) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (rel, stat.st_mtime, stat.st_size, sha, title, page_shelf),
+                "INSERT OR REPLACE INTO pages(path, mtime, size, sha, title, shelf, kind, domain, quality) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (rel, stat.st_mtime, stat.st_size, sha, title, page_shelf, kind, domain, quality),
             )
             stats["pages_indexed"] += 1
             stats["chunks"] += len(inserted)
             conn.commit()
 
-            if embed and inserted and not embed_error and embed_limit is None:
+            if (
+                embed
+                and inserted
+                and not embed_error
+                and embed_limit is None
+                and (embed_index or kind not in ("index", "reference"))
+            ):
                 for start in range(0, len(inserted), EMBED_BATCH):
                     batch = inserted[start : start + EMBED_BATCH]
                     try:
@@ -690,26 +838,24 @@ def sync(
             remaining = embed_limit
             while remaining is None or remaining > 0:
                 take = EMBED_BATCH if remaining is None else min(EMBED_BATCH, remaining)
+                where_clauses: List[str] = ["v.chunk_id IS NULL"]
+                query_params: List[Any] = []
                 if shelf:
                     norm_shelf = shelf.replace("\\", "/").strip("/")
-                    clean_pat = f"{norm_shelf}%"
-                    missing = list(
-                        conn.execute(
-                            "SELECT c.id, c.text FROM chunks c "
-                            "LEFT JOIN vectors v ON v.chunk_id = c.id "
-                            "WHERE v.chunk_id IS NULL AND c.path LIKE ? LIMIT ?",
-                            (clean_pat, take),
-                        )
+                    where_clauses.append("c.path LIKE ?")
+                    query_params.append(f"{norm_shelf}%")
+                if not embed_index:
+                    where_clauses.append("(c.kind IS NULL OR c.kind NOT IN ('index', 'reference'))")
+                query_params.append(take)
+                where_sql = " AND ".join(where_clauses)
+                missing = list(
+                    conn.execute(
+                        f"SELECT c.id, c.text FROM chunks c "
+                        f"LEFT JOIN vectors v ON v.chunk_id = c.id "
+                        f"WHERE {where_sql} LIMIT ?",
+                        tuple(query_params),
                     )
-                else:
-                    missing = list(
-                        conn.execute(
-                            "SELECT c.id, c.text FROM chunks c "
-                            "LEFT JOIN vectors v ON v.chunk_id = c.id "
-                            "WHERE v.chunk_id IS NULL LIMIT ?",
-                            (take,),
-                        )
-                    )
+                )
                 if not missing:
                     break
                 try:
@@ -813,11 +959,27 @@ def _cosine_scores(
     return out
 
 
-def _vector_coverage(conn: sqlite3.Connection) -> float:
-    """Fraction of chunks that have an embedding (0.0 when unknown)."""
+def _vector_coverage(conn: sqlite3.Connection, *, include_index: bool = False) -> float:
+    """Fraction of chunks that have an embedding (0.0 when unknown).
+
+    By default evaluates priority kinds (concept, book, synthesis, entity) per §8.3.
+    """
     try:
-        chunks = int(conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0])
-        vectors = int(conn.execute("SELECT COUNT(*) FROM vectors").fetchone()[0])
+        if include_index:
+            chunks = int(conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0])
+            vectors = int(conn.execute("SELECT COUNT(*) FROM vectors").fetchone()[0])
+        else:
+            chunks = int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM chunks WHERE kind IS NULL OR kind NOT IN ('index', 'reference')"
+                ).fetchone()[0]
+            )
+            vectors = int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM vectors v JOIN chunks c ON c.id = v.chunk_id "
+                    "WHERE c.kind IS NULL OR c.kind NOT IN ('index', 'reference')"
+                ).fetchone()[0]
+            )
     except sqlite3.DatabaseError:
         return 0.0
     if chunks <= 0:
@@ -909,7 +1071,9 @@ def search(
         rows = {
             int(row["id"]): row
             for row in conn.execute(
-                f"SELECT id, path, heading, text FROM chunks WHERE id IN ({placeholders})",
+                f"SELECT c.id, c.path, c.heading, c.text, c.kind, p.domain, p.quality, p.title "
+                f"FROM chunks c LEFT JOIN pages p ON p.path = c.path "
+                f"WHERE c.id IN ({placeholders})",
                 tuple(ids),
             )
         }
@@ -929,13 +1093,45 @@ def search(
             score += 1.0 / (RRF_K + fts_rank[chunk_id])
         if chunk_id in vector_rank:
             score += 1.0 / (RRF_K + vector_rank[chunk_id])
+
+        # Type-weighted ranking and quality discount (§8.2)
+        kind = str(row["kind"] or _classify_kind(path))
+        kind_weight = KIND_WEIGHTS.get(kind, 1.0)
+        quality = float(row["quality"] or 1.0) if row["quality"] is not None else 1.0
+        final_score = score * kind_weight * (quality if quality < 1.0 else 1.0)
+        if quality <= 0.5:
+            final_score *= 0.75
+
+        # Title boost
+        title = str(row["title"] or "")
+        if title:
+            t_lower = title.lower()
+            q_lower = text.lower()
+            if q_lower in t_lower or t_lower in q_lower:
+                final_score += 0.015
+            else:
+                q_toks = set(_content_tokens(text))
+                t_toks = set(_content_tokens(title))
+                if q_toks and t_toks and (q_toks & t_toks):
+                    final_score += 0.010 * (len(q_toks & t_toks) / len(q_toks))
+
+        # Domain bonus
+        domain = str(row["domain"] or "")
+        if domain:
+            domain_parts = [p.replace("-", " ") for p in domain.split("/")]
+            q_lower = text.lower()
+            if any(part in q_lower for part in domain_parts if len(part) > 2):
+                final_score += 0.008
+
         scored.append(
             {
                 "path": path,
                 "heading": str(row["heading"] or ""),
                 "text": str(row["text"]),
                 "snippet": _snippet(str(row["text"]), text),
-                "score": score,
+                "score": final_score,
+                "kind": kind,
+                "domain": domain,
                 "fts_rank": fts_rank.get(chunk_id),
                 "cosine": cosine.get(chunk_id),
             }
@@ -944,11 +1140,18 @@ def search(
     scored.sort(key=lambda item: item["score"], reverse=True)
     per_page: Dict[str, int] = {}
     out: List[Dict[str, Any]] = []
+    index_count = 0
     for item in scored:
+        is_index = (item.get("kind") == "index") or item["path"].endswith("index.md")
+        # Enforce max 2 index pages rule (§8.2)
+        if is_index and index_count >= 2:
+            continue
         count = per_page.get(item["path"], 0)
         if count >= max_chunks_per_page:
             continue
         per_page[item["path"]] = count + 1
+        if is_index:
+            index_count += 1
         out.append(item)
         if len(out) >= k:
             break
@@ -1051,6 +1254,34 @@ def retrieval_sources(block: str) -> List[str]:
     return sources
 
 
+def retrieval_metadata(block: str) -> Dict[str, Any]:
+    """Parse a rendered SECOND BRAIN block to extract sources, kind counts, and domains (§8.6)."""
+    sources = retrieval_sources(block)
+    if not sources or not index_exists():
+        return {"sources": sources, "kinds": {}, "domains": []}
+    kinds: Dict[str, int] = {}
+    domains: List[str] = []
+    try:
+        conn = _connect()
+        try:
+            placeholders = ",".join("?" for _ in sources)
+            rows = conn.execute(
+                f"SELECT path, kind, domain FROM pages WHERE path IN ({placeholders})",
+                tuple(sources),
+            ).fetchall()
+            for row in rows:
+                k = str(row["kind"] or "concept")
+                kinds[k] = kinds.get(k, 0) + 1
+                d = row["domain"]
+                if d and d not in domains:
+                    domains.append(str(d))
+        finally:
+            conn.close()
+    except Exception:
+        pass
+    return {"sources": sources, "kinds": kinds, "domains": domains}
+
+
 def with_retrieval(
     messages: Sequence[Dict[str, Any]],
     text: str,
@@ -1147,11 +1378,16 @@ def status() -> Dict[str, Any]:
         "vault_configured": str(config().get("vault") or ""),
         "index": str(index_path()),
         "index_exists": index_exists(),
+        "schema_version": 1,
+        "schema_error": "",
         "embed_model": config().get("embed_model"),
         "pages": 0,
+        "pages_by_kind": {},
         "chunks": 0,
+        "chunks_by_kind": {},
         "vectors": 0,
         "vectors_missing": 0,
+        "vectors_missing_by_kind": {},
         "vector_coverage": 0.0,
         "semantic_enabled": False,
         "last_sync": None,
@@ -1163,16 +1399,38 @@ def status() -> Dict[str, Any]:
         conn = _connect()
         try:
             _ensure_schema(conn)
+            info["schema_version"] = int(_get_meta(conn, "schema", 1) or 1)
+            info["schema_error"] = str(_get_meta(conn, "schema_error", "") or "")
             info["pages"] = int(conn.execute("SELECT COUNT(*) FROM pages").fetchone()[0])
             info["chunks"] = int(conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0])
             info["vectors"] = int(conn.execute("SELECT COUNT(*) FROM vectors").fetchone()[0])
             info["vectors_missing"] = max(0, info["chunks"] - info["vectors"])
             info["vector_coverage"] = (
-                round(info["vectors"] / info["chunks"], 3) if info["chunks"] else 0.0
+                round(_vector_coverage(conn), 3) if info["chunks"] else 0.0
             )
             info["semantic_enabled"] = info["vector_coverage"] >= VECTOR_COVERAGE_MIN
             info["last_sync"] = _get_meta(conn, "last_sync")
             info["embed_error"] = _get_meta(conn, "embed_error", "") or ""
+
+            # Backlog and breakdowns by kind (§8.3)
+            pages_by_kind: Dict[str, int] = {}
+            for row in conn.execute("SELECT kind, COUNT(*) AS cnt FROM pages GROUP BY kind"):
+                pages_by_kind[str(row["kind"] or "unknown")] = int(row["cnt"])
+            info["pages_by_kind"] = pages_by_kind
+
+            chunks_by_kind: Dict[str, int] = {}
+            for row in conn.execute("SELECT kind, COUNT(*) AS cnt FROM chunks GROUP BY kind"):
+                chunks_by_kind[str(row["kind"] or "unknown")] = int(row["cnt"])
+            info["chunks_by_kind"] = chunks_by_kind
+
+            missing_by_kind: Dict[str, int] = {}
+            for row in conn.execute(
+                "SELECT c.kind, COUNT(*) AS cnt FROM chunks c "
+                "LEFT JOIN vectors v ON v.chunk_id = c.id "
+                "WHERE v.chunk_id IS NULL GROUP BY c.kind"
+            ):
+                missing_by_kind[str(row["kind"] or "unknown")] = int(row["cnt"])
+            info["vectors_missing_by_kind"] = missing_by_kind
         finally:
             conn.close()
     except sqlite3.DatabaseError as exc:
@@ -1180,7 +1438,246 @@ def status() -> Dict[str, Any]:
     return info
 
 
+# --------------------------------------------------------------------------- #
+# Academic taxonomy navigation (§8.8)
+# --------------------------------------------------------------------------- #
+
+_TAXONOMY_CACHE: Dict[str, Any] = {"data": None, "nodes_by_id": {}}
+
+
+def _load_taxonomy() -> List[Dict[str, Any]]:
+    with _LOCK:
+        if _TAXONOMY_CACHE["data"] is not None:
+            return _TAXONOMY_CACHE["data"]
+
+    candidates: List[Path] = []
+    try:
+        repo_root = Path(__file__).resolve().parent.parent
+        candidates.append(repo_root / "config" / "taxonomy.json")
+    except Exception:
+        pass
+    root = vault_root()
+    if root is not None:
+        candidates.append(root / "wiki" / "library" / "knowledge" / "_taxonomy" / "taxonomy.json")
+        candidates.append(root / "_taxonomy" / "taxonomy.json")
+
+    data: List[Dict[str, Any]] = []
+    for cand in candidates:
+        if cand.is_file():
+            try:
+                raw = json.loads(cand.read_text(encoding="utf-8"))
+                if isinstance(raw, list):
+                    data = raw
+                    break
+            except Exception:
+                continue
+
+    nodes_by_id = {node["id"]: node for node in data if isinstance(node, dict) and "id" in node}
+    with _LOCK:
+        _TAXONOMY_CACHE["data"] = data
+        _TAXONOMY_CACHE["nodes_by_id"] = nodes_by_id
+    return data
+
+
+def locate_nodes(query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    """Locate candidate academic knowledge nodes matching a free-text topic or query (§8.8.2)."""
+    text = " ".join(str(query or "").strip().lower().split())
+    if not text:
+        return []
+    limit = max(1, min(10, int(limit)))
+    taxonomy = _load_taxonomy()
+    if not taxonomy:
+        return []
+
+    tokens = [t for t in re.findall(r"[a-z0-9_]{2,}", text) if t not in _STOPWORDS]
+    candidates: List[Dict[str, Any]] = []
+
+    for node in taxonomy:
+        node_id = str(node.get("id") or "").lower()
+        title = str(node.get("title") or "").lower()
+        aliases = [str(a).lower() for a in node.get("aliases") or []]
+        legacy = [str(l).lower() for l in node.get("legacy_domains") or []]
+        scope = str(node.get("scope") or "").lower()
+
+        slug = node_id.split("/")[-1]
+        confidence = 0.0
+        match_type = "none"
+
+        # 1. Exact slug or ID match
+        if text == node_id or text == slug:
+            confidence = 1.0
+            match_type = "exact_slug"
+        elif text == title:
+            confidence = 0.98
+            match_type = "exact_title"
+        # 2. Alias or legacy domain match
+        elif any(text == a for a in aliases):
+            confidence = 0.92
+            match_type = "alias"
+        elif any(text == l or text in l for l in legacy):
+            confidence = 0.88
+            match_type = "legacy_domain"
+        elif any(a in text or text in a for a in aliases if len(a) > 3):
+            confidence = 0.85
+            match_type = "alias_substring"
+        elif slug in text or title in text:
+            confidence = 0.82
+            match_type = "title_contained"
+        # 3. Token match across title, slug, and scope
+        elif tokens:
+            haystack = f"{node_id} {title} {' '.join(aliases)} {scope}"
+            hits = sum(1 for t in tokens if t in haystack)
+            if hits == len(tokens):
+                confidence = 0.75 + min(0.15, hits * 0.03)
+                match_type = "keyword_full"
+            elif hits >= 2 or (len(tokens) == 1 and hits == 1):
+                ratio = hits / len(tokens)
+                if ratio >= 0.5:
+                    confidence = 0.50 + 0.25 * ratio
+                    match_type = "keyword_partial"
+
+        if confidence >= 0.40:
+            candidates.append(
+                {
+                    "path": node.get("id"),
+                    "title": node.get("title"),
+                    "division": node_id.split("/")[0],
+                    "confidence": round(confidence, 2),
+                    "match_type": match_type,
+                    "summary": (node.get("scope") or "")[:240],
+                }
+            )
+
+    candidates.sort(key=lambda c: c["confidence"], reverse=True)
+    return candidates[:limit]
+
+
+def browse_node(path: str = "") -> Dict[str, Any]:
+    """Browse the academic knowledge tree at a node path (§8.8.1)."""
+    raw_path = str(path or "").strip().replace("\\", "/").strip("/")
+    _load_taxonomy()
+    nodes_by_id = _TAXONOMY_CACHE.get("nodes_by_id", {})
+
+    canonical_divisions = [
+        "humanities",
+        "social-sciences",
+        "natural-sciences",
+        "formal-sciences",
+        "applied-sciences",
+    ]
+
+    # Root browse
+    if not raw_path or raw_path.lower() in ("root", "divisions", "/"):
+        children = []
+        for div_slug in canonical_divisions:
+            div_node = nodes_by_id.get(div_slug)
+            title = div_node.get("title") if div_node else div_slug.replace("-", " ").title()
+            children.append({"slug": div_slug, "title": title, "path": div_slug})
+        return {
+            "path": "",
+            "title": "Academic Knowledge Tree Root",
+            "division": "root",
+            "parent": None,
+            "summary": "The 5 canonical divisions of the academic knowledge tree.",
+            "children": children,
+            "concepts": [],
+            "listed_under": [],
+            "has_wikipedia_article": False,
+        }
+
+    # Validate node existence
+    node = nodes_by_id.get(raw_path)
+    if not node:
+        match = None
+        suggestions: List[str] = []
+        for nid in nodes_by_id:
+            if nid.lower() == raw_path.lower():
+                match = nodes_by_id[nid]
+                raw_path = nid
+                break
+            if raw_path.lower() in nid.lower() or nid.lower() in raw_path.lower():
+                suggestions.append(nid)
+
+        if not match:
+            return {
+                "error": "taxonomy/unknown_path",
+                "requested": raw_path,
+                "valid_divisions": canonical_divisions,
+                "suggestions": suggestions[:5],
+            }
+        node = match
+
+    node_id = str(node["id"])
+    division = node_id.split("/")[0]
+
+    # Direct children from taxonomy
+    children = []
+    for nid, other in nodes_by_id.items():
+        if other.get("parent") == node_id:
+            slug = nid.split("/")[-1]
+            children.append({"slug": slug, "title": other.get("title", slug), "path": nid})
+    children.sort(key=lambda c: c["slug"])
+
+    # Concepts and Wikipedia from vault folder if vault exists
+    root = vault_root()
+    summary = node.get("scope") or ""
+    has_wikipedia = False
+    concepts: List[Dict[str, str]] = []
+
+    if root is not None:
+        node_dir = root / "wiki" / "library" / "knowledge" / Path(node_id)
+        if node_dir.is_dir():
+            index_file = node_dir / "index.md"
+            if index_file.is_file():
+                try:
+                    text = index_file.read_text(encoding="utf-8", errors="replace")
+                    meta, body = _split_frontmatter(text)
+                    if meta.get("description"):
+                        summary = meta["description"]
+                    else:
+                        for p in body.split("\n\n"):
+                            clean_p = p.strip()
+                            if clean_p and not clean_p.startswith("#"):
+                                summary = clean_p[:400]
+                                break
+                except Exception:
+                    pass
+
+            wiki_file = node_dir / "wikipedia.md"
+            has_wikipedia = wiki_file.is_file()
+
+            for item in sorted(node_dir.glob("*.md")):
+                if item.name in ("index.md", "wikipedia.md") or item.name.startswith("."):
+                    continue
+                try:
+                    c_text = item.read_text(encoding="utf-8", errors="replace")[:1000]
+                    c_meta, _ = _split_frontmatter(c_text)
+                    c_title = c_meta.get("title") or item.stem.replace("-", " ").title()
+                    c_type = c_meta.get("type") or "Concept"
+                    concepts.append({
+                        "title": c_title,
+                        "type": c_type,
+                        "path": _relative(item, root),
+                    })
+                except Exception:
+                    continue
+
+    return {
+        "path": node_id,
+        "title": str(node.get("title") or node_id.split("/")[-1]),
+        "division": division,
+        "parent": node.get("parent"),
+        "summary": summary,
+        "children": children,
+        "concepts": concepts,
+        "listed_under": node.get("listed_under", []),
+        "has_wikipedia_article": has_wikipedia,
+    }
+
+
 def clear_cache() -> None:
     with _LOCK:
         _VECTOR_CACHE["key"] = None
         _VECTOR_CACHE["rows"] = []
+        _TAXONOMY_CACHE["data"] = None
+        _TAXONOMY_CACHE["nodes_by_id"] = {}

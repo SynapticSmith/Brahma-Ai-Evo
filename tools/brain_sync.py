@@ -50,6 +50,11 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         help="Embed at most N chunks this run (a CPU needs ~1.7 s per chunk).",
     )
+    parser.add_argument(
+        "--embed-index",
+        action="store_true",
+        help="Also embed index and reference pages (default: false, only priority notes).",
+    )
     parser.add_argument("--status", action="store_true", help="Print index status.")
     parser.add_argument("--json", action="store_true", help="Machine-readable output.")
     args = parser.parse_args(argv)
@@ -76,6 +81,7 @@ def main(argv: list[str] | None = None) -> int:
     stats = second_brain.sync(
         rebuild=args.rebuild,
         embed=not args.no_embed,
+        embed_index=args.embed_index,
         limit=args.limit,
         embed_limit=args.embed_limit,
         progress=None if args.json else _progress,

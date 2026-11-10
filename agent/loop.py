@@ -1047,15 +1047,22 @@ class AgentLoop:
         if not block:
             return
         try:
-            from .second_brain import retrieval_sources
+            from .second_brain import retrieval_metadata
 
-            self._retrieval_sources = retrieval_sources(block)
+            meta = retrieval_metadata(block)
+            self._retrieval_sources = meta.get("sources", [])
+            kinds = meta.get("kinds", {})
+            domains = meta.get("domains", [])
         except Exception:  # noqa: BLE001 - telemetry is not worth a failure
             self._retrieval_sources = []
+            kinds = {}
+            domains = []
         self._emit(
             "retrieval",
             chars=len(block),
             sources=self._retrieval_sources[:8],
+            kinds=kinds,
+            domains=domains,
         )
 
     def run(

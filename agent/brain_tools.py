@@ -61,6 +61,36 @@ _READ_SCHEMA: Dict[str, Any] = {
 
 _STATUS_SCHEMA: Dict[str, Any] = {"type": "object", "properties": {}}
 
+_BROWSE_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "path": {
+            "type": "string",
+            "description": (
+                "Taxonomy node path, e.g. 'humanities/philosophy' or 'social-sciences/economics'. "
+                "Omit or pass '' for root divisions."
+            ),
+        }
+    },
+}
+
+_LOCATE_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "query": {
+            "type": "string",
+            "description": "Topic or concept to locate, e.g. 'Buddhist monasticism' or 'thermodynamic entropy'.",
+        },
+        "limit": {
+            "type": "integer",
+            "description": "Maximum number of candidate nodes to return (default 5, max 10).",
+            "minimum": 1,
+            "maximum": 10,
+        },
+    },
+    "required": ["query"],
+}
+
 _SYNC_SCHEMA: Dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -112,6 +142,25 @@ def brain_search(args: Dict[str, Any], context: ToolContext) -> str:
 def brain_read(args: Dict[str, Any], context: ToolContext) -> str:
     return second_brain.read_page(
         str(args.get("page") or ""), int(args.get("max_chars") or 8_000)
+    )
+
+
+def brain_browse(args: Dict[str, Any], context: ToolContext) -> str:
+    path = str(args.get("path") or "").strip()
+    result = second_brain.browse_node(path)
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+def brain_locate(args: Dict[str, Any], context: ToolContext) -> str:
+    query = str(args.get("query") or "").strip()
+    if not query:
+        return "brain_locate needs a query."
+    limit = int(args.get("limit") or 5)
+    candidates = second_brain.locate_nodes(query, limit=limit)
+    if not candidates:
+        return json.dumps({"candidates": [], "match_type": "none"}, ensure_ascii=False, indent=2)
+    return json.dumps(
+        {"candidates": candidates, "count": len(candidates)}, ensure_ascii=False, indent=2
     )
 
 
@@ -188,6 +237,31 @@ SPECS = (
         handler=brain_sync,
         tags=("brain", "sync", "index"),
         max_output_chars=4_000,
+    ),
+    ToolSpec(
+        name="brain_browse",
+        description=(
+            "Browse the academic knowledge tree at a node path. Returns node title, "
+            "description snippet, direct children, concept notes, cross-links, and parent. "
+            "Budgeted for ~300-500 tokens."
+        ),
+        parameters=_BROWSE_SCHEMA,
+        tool_class="read",
+        handler=brain_browse,
+        tags=("brain", "browse", "taxonomy", "knowledge"),
+        max_output_chars=8_000,
+    ),
+    ToolSpec(
+        name="brain_locate",
+        description=(
+            "Locate candidate academic knowledge nodes matching a free-text topic or query. "
+            "Returns ranked taxonomy node paths with match confidence."
+        ),
+        parameters=_LOCATE_SCHEMA,
+        tool_class="read",
+        handler=brain_locate,
+        tags=("brain", "locate", "taxonomy", "knowledge"),
+        max_output_chars=8_000,
     ),
 )
 
