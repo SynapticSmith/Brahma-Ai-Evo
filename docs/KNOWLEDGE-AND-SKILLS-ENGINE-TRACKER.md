@@ -13,8 +13,8 @@
 |:---|:---|:---:|:---|:---:|
 | **Phase 0** | Audit & Snapshot (read-only) | 🟢 **COMPLETED** | `_audit/taxonomy-audit.md`, `taxonomy.json`, vault tag/branch `taxonomy/audit-v1` | [x] Passed |
 | **Phase 1** | Normalize Tree & Transplant Notes | 🟢 **COMPLETED** | `taxonomy-migration.json`, `_audit/link-rewrite.json`, `tools/taxonomy.py` | [x] Passed |
-| **Phase 2** | Wikipedia Knowledge Tree Seeding | 🟡 **IN PROGRESS** | `tools/seed_academic_taxonomy.py`, cached JSON/MD in `raw/wikipedia/` | [ ] Pending |
-| **Phase 3** | Retrieval Schema v2 & Type-Weighted Ranking | ⚪ Queued | SQLite schema migration, type-weighted FTS5, `max 2 index pages` rule | [ ] Pending |
+| **Phase 2** | Wikipedia Knowledge Tree Seeding | 🟢 **COMPLETED** | `tools/seed_academic_taxonomy.py`, cached JSON/MD in `raw/wikipedia/` | [x] Passed |
+| **Phase 3** | Retrieval Schema v2 & Type-Weighted Ranking | 🟡 **IN PROGRESS** | SQLite schema migration, type-weighted FTS5, `max 2 index pages` rule | [ ] Pending |
 | **Phase 4** | Multimodal Conversion & OCR Pipeline | ⚪ Queued | `tools/ingest_multimodal.py`, `markitdown` + `Unlimited-OCR` integration | [ ] Pending |
 | **Phase 5** | Knowledge Extraction & Placement | ⚪ Queued | `tools/extract_knowledge.py`, segmentation, atomization, `_inbox/` routing | [ ] Pending |
 | **Phase 6** | JIT Skills & Scripts Engine | ⚪ Queued | `TurnPlan` compiler, L2 SOP injection, `tools/scripts_index.py` | [ ] Pending |
@@ -48,12 +48,14 @@
 - [x] Rebuild second brain index: `python tools/brain_sync.py --no-embed --rebuild` (indexed 3,317 active pages, 5,528 chunks in 28.9s).
 - [x] Commit clean migration state to vault branch `taxonomy/spine-v1`. Exit criteria passed.
 
-### Phase 2: Wikipedia Knowledge Tree Seeding
-- [ ] Implement `tools/seed_academic_taxonomy.py` with caching in `raw/wikipedia/`.
-- [ ] Fetch Wikipedia lead sections, definitions, subdisciplines, and major theories for each canonical node.
-- [ ] Format node index pages (`index.md`) with canonical OKF v0.2 frontmatter, CC BY-SA 4.0 attribution, and L0→L3 content sections.
-- [ ] Enforce depth cap of 6 (collapse depth-7 nodes into parent concept-hub notes).
-- [ ] Verify ≥ 95% node coverage and offline re-run idempotency.
+### Phase 2: Wikipedia Knowledge Tree Seeding — 🟢 COMPLETED
+- [x] Implement `tools/seed_academic_taxonomy.py` with caching outside git in `%LOCALAPPDATA%\BrahmaAI\cache\wikipedia\`.
+- [x] Fetch Wikipedia lead sections, definitions, subdisciplines, and major theories for all 122 canonical nodes.
+- [x] Format node index pages (`index.md`) with canonical OKF v0.2 frontmatter, CC BY-SA 4.0 attribution, and L0→L3 content sections.
+- [x] Generate companion `wikipedia.md` reference articles (capped at 40 KB, with omitted-sections manifests).
+- [x] Enforce depth cap of 6 (collapsed deeper nodes into parent concept hubs).
+- [x] Verify 100% node coverage (122/122 nodes seeded) and offline re-run idempotency (5.0s run from cache).
+- [x] Commit seeded content to vault branch `taxonomy/spine-v1` (`99a6c107`). Exit criteria passed.
 
 ### Phase 3: Retrieval Schema v2 & Type-Weighted Ranking
 - [ ] Implement SQLite schema migration (`SCHEMA_VERSION = 2`) in `agent/second_brain.py`.
