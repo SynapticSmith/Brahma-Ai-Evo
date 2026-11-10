@@ -25,6 +25,7 @@
 | **Harness Tool** | **`search_scripts` & HUD / CLI Integration** | 🟢 **COMPLETED** | `search_scripts` ToolSpec (§9.9, §16), CLI `scripts`/`cookbook`, HUD slash commands | [x] Passed |
 | **Live Ingestion** | **Companion Books Batch Extraction & Placement** | 🟢 **COMPLETED** | 6 companion books scanned, 153 units extracted (102 placed, 51 inboxed), 854 chunks indexed | [x] Passed |
 | **Track 11** | **Inbox Note Promotion Engine & Placement** | 🟢 **COMPLETED** | `tools/promote_inbox.py` (`--list`, `--promote`, `--auto-source`), 89 notes promoted | [x] Passed |
+| **Track 12** | **Portfolio Skills Absorption (15 Skills)** | 🟢 **COMPLETED** | 15 skills from `superpowers`, `spec-kit`, `procedure-ops`, `cc-thinking-skills`, `SkillOpt` (39 total) | [x] Passed |
 | **Verification Gate** | **Full Portable Test Suite & Ratchets** | 🟢 **COMPLETED** | 1,594 tests passed, 0 ruff errors, architecture ratchets clean | [x] Passed |
 
 ---
@@ -95,6 +96,29 @@ flowchart TD
 - [x] Unit tests in `tests/test_promote_inbox.py` covering listing, dry-run, invalid domain rejection, and real promotion lifecycle.
 - [x] Execute promotion of all 89 quarantined companion book notes to `humanities/philosophy/eastern-philosophy/buddhism/` and sync second-brain search index.
 - [x] Commit clean taxonomy state in Obsidian vault branch `taxonomy/spine-v1`.
+
+### Track 12: Portfolio Skills Absorption (`ai_systems_repository_catalog.md`)
+- [x] Absorb 15 high-leverage skills from portfolio repositories across 3 groups with YAML frontmatter triggers and OpenMonoAgent `cookbook.md` recipes:
+  - **Group 1: Engineering Methodology & Execution**
+    1. `systematic-debugging` (`superpowers`: 4-phase root-cause isolation and test reproduction)
+    2. `structured-task-planning` (`superpowers`: DAG dependency-ordered atomic task breakdown)
+    3. `spec-driven-development` (`spec-kit`: formal SDD design documents and invariant contracts)
+    4. `sop-builder` (`procedure-ops`: standard operating procedure and runbook compiler)
+    5. `simplified-technical-english` (`simplified-technical-english`: ASD-STE100 precision documentation)
+    6. `adhd-optimized-communication` (`i-have-adhd`: bottom line upfront (BLUF) scannable formatting)
+    7. `deterministic-code-audit` (`open-code-review`: pre-commit NPE, SQLi, and security static scan)
+  - **Group 2: Advanced Cognitive & Strategic Models** (`cc-thinking-skills`)
+    8. `pareto-principle-80-20` (80/20 leverage point discovery on bottlenecks and failure vectors)
+    9. `chestertons-fence` (provenance audit: never remove legacy guards without understanding why)
+    10. `hanlons-razor` (systemic attribution: eliminate benign configuration drift before assuming malice)
+    11. `reversibility-two-way-doors` (Bezos Type 1 irreversible vs Type 2 reversible decision triage)
+    12. `red-team-blue-team` (adversarial attack-and-patch simulation for security boundaries)
+    13. `cynefin-framework` (Snowden complexity domain sense-making: Clear, Complicated, Complex, Chaotic)
+  - **Group 3: Meta-Skill Distillation & Optimization**
+    14. `skill-distillation` (`Resource2Skill`: extract SKILL.md and cookbook.md from raw guides)
+    15. `skill-optimizer` (`SkillOpt`: text-space trajectory-driven prompt and recipe refinement)
+- [x] Recompile `config/skills_index.json`: 39 verified skills across 6 academic domains.
+- [x] Unit tests in `tests/test_turn_context.py` validating trigger shortlisting for all new skills (8 passed).
 
 ### Verification Gate (AGENTS.md)
 - [x] `python -m ruff check .` -> All checks passed (0 errors).
