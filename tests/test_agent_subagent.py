@@ -143,6 +143,7 @@ def test_child_surface_is_read_only_and_never_recursive(tmp_path: Path):
         "grep_files",
         "load_project_skill",
         "read_file",
+        "search_scripts",
         "web_fetch",
         "web_search",
     ]
@@ -454,6 +455,7 @@ def test_subagent_batch_runs_read_only_children_and_returns_ordered_reports(tmp_
             "grep_files",
             "load_project_skill",
             "read_file",
+            "search_scripts",
         ]
 
     kinds = [e.get("type") for e in result.events]
