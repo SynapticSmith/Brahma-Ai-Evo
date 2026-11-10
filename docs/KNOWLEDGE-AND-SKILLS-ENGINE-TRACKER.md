@@ -25,7 +25,8 @@
 | **Harness Tool** | **`search_scripts` & HUD / CLI Integration** | 🟢 **COMPLETED** | `search_scripts` ToolSpec (§9.9, §16), CLI `scripts`/`cookbook`, HUD slash commands | [x] Passed |
 | **Live Ingestion** | **Companion Books Batch Extraction & Placement** | 🟢 **COMPLETED** | 6 companion books scanned, 153 units extracted (102 placed, 51 inboxed), 854 chunks indexed | [x] Passed |
 | **Track 11** | **Inbox Note Promotion Engine & Placement** | 🟢 **COMPLETED** | `tools/promote_inbox.py` (`--list`, `--promote`, `--auto-source`), 89 notes promoted | [x] Passed |
-| **Track 12** | **Portfolio Skills Absorption (15 Skills)** | 🟢 **COMPLETED** | 15 skills from `superpowers`, `spec-kit`, `procedure-ops`, `cc-thinking-skills`, `SkillOpt` (39 total) | [x] Passed |
+| **Track 12** | **Portfolio Skills Absorption (Batch 1: 15 Skills)** | 🟢 **COMPLETED** | 15 skills from `superpowers`, `spec-kit`, `procedure-ops`, `cc-thinking-skills`, `SkillOpt` (39 total) | [x] Passed |
+| **Track 13** | **Portfolio Skills Absorption (Batch 2: 16 Skills)** | 🟢 **COMPLETED** | 16 skills from `answer-me-with-html`, `anatomy`, `ffmpeg-skill`, `OfficeCLI`, `code-graph-rag` (55 total) | [x] Passed |
 | **Verification Gate** | **Full Portable Test Suite & Ratchets** | 🟢 **COMPLETED** | 1,594 tests passed, 0 ruff errors, architecture ratchets clean | [x] Passed |
 
 ---
@@ -119,6 +120,30 @@ flowchart TD
     15. `skill-optimizer` (`SkillOpt`: text-space trajectory-driven prompt and recipe refinement)
 - [x] Recompile `config/skills_index.json`: 39 verified skills across 6 academic domains.
 - [x] Unit tests in `tests/test_turn_context.py` validating trigger shortlisting for all new skills (8 passed).
+
+### Track 13: Full Portfolio Skills Absorption (Batch 2: 16 Skills)
+- [x] Absorb 16 additional skills across Media, Office, Perception, Graph RAG, and Cognition:
+  - **Media, Office & Artifact Generation**:
+    1. `answer-me-with-html` (`answer-me-with-html`: self-contained single-page responsive HTML dashboards)
+    2. `system-architecture-diagrammer` (`anatomy`: Mermaid and pure SVG system architecture diagrams)
+    3. `open-codesign` (`open-codesign`: accessible HTML/CSS/Tailwind UI/UX rapid prototyping)
+    4. `ffmpeg-media-processing` (`ffmpeg-skill`: deterministic clipping, transcoding, and -14 LUFS loudness leveling)
+    5. `headless-office-automation` (`OfficeCLI`: programmatic DOCX, XLSX, and PPTX manipulation without Office)
+    6. `cli-wrapper-generator` (`CLI-Anything`: wrap CLI binaries into agent-native tools with JSON outputs)
+  - **Perception, Graph RAG & Memory**:
+    7. `authenticated-browser-automation` (`BrowserSkill`/`ego-lite`: background browser automation with persistent session cookies)
+    8. `agent-reach-scraper` (`Agent-Reach`: zero-API-cost public web, Reddit, and GitHub search and extraction)
+    9. `code-graph-navigator` (`code-graph-rag`/`graphify`: AST-based caller/callee trees and monorepo symbol navigation)
+    10. `memory-consolidation` (`mempalace`/`TencentDB-Agent-Memory`: consolidate session working memory into second brain)
+  - **Advanced Cognitive & Analytical Models** (`cc-thinking-skills`):
+    11. `circle-of-competence` (epistemic humility: strictly declare boundaries and refuse to hallucinate)
+    12. `root-cause-fishbone` (Ishikawa 6M multi-factor defect breakdown: Machine, Method, Material, Manpower, Measurement, Milieu)
+    13. `goodharts-law` (invariant audit against metric gaming and optimization pathologies)
+    14. `opportunity-cost-evaluator` (economic trade-off evaluation of forgone alternatives and maintenance tails)
+    15. `triangulation-validation` (3-channel verification of critical claims across code, runtime, and documentation)
+    16. `parkinsons-law-compression` (force radical simplicity by imposing strict artificial turn, budget, and diff caps)
+- [x] Recompile `config/skills_index.json`: **55 verified skills** across 6 academic domains.
+- [x] Unit tests in `tests/test_turn_context.py` validating trigger shortlisting for new skills (10 passed).
 
 ### Verification Gate (AGENTS.md)
 - [x] `python -m ruff check .` -> All checks passed (0 errors).
