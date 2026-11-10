@@ -172,16 +172,17 @@ def run_batch_ingestion(
                     vault=vroot,
                     sync_calyx=sync_calyx,
                 )
-                placed = len(extract_res.get("placed", []))
-                inbox = len(extract_res.get("inbox", []))
+                placed = int(extract_res.get("placed", 0))
+                inbox = int(extract_res.get("inboxed", 0))
+                sections = int(extract_res.get("sections_total", 0))
 
-                total_units_extracted += extract_res.get("units_extracted", 0)
+                total_units_extracted += sections
                 total_placed_in_spine += placed
                 total_placed_in_inbox += inbox
                 if sync_calyx and calyx_bridge.is_available():
                     total_calyx_anchors += placed + inbox
 
-                book_info["units_extracted"] = extract_res.get("units_extracted", 0)
+                book_info["units_extracted"] = sections
                 book_info["placed_in_spine"] = placed
                 book_info["placed_in_inbox"] = inbox
                 book_info["extract_status"] = "success"
