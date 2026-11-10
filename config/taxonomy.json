@@ -1,0 +1,3076 @@
+[
+  {
+    "id": "humanities",
+    "title": "Humanities",
+    "parent": null,
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Humanities",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [
+      "humanities"
+    ],
+    "scope": "Disciplines that study human culture, history, philosophy, languages, and artistic expression.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/history",
+    "title": "History",
+    "parent": "humanities",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "History",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The systematic study and documentation of the human past.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/history/ancient-history",
+    "title": "Ancient History",
+    "parent": "humanities/history",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Ancient History",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "History from the beginning of recorded human history to the Early Middle Ages.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/history/medieval-history",
+    "title": "Medieval History",
+    "parent": "humanities/history",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Medieval History",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "History of Europe and the Mediterranean from the fall of the Western Roman Empire to the Renaissance.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/history/modern-history",
+    "title": "Modern History",
+    "parent": "humanities/history",
+    "layer": "spine",
+    "order": 3,
+    "wikipedia": {
+      "title": "Modern History",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "History following the Middle Ages from the Early Modern period to contemporary times.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/history/military-history",
+    "title": "Military History",
+    "parent": "humanities/history",
+    "layer": "spine",
+    "order": 4,
+    "wikipedia": {
+      "title": "Military History",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The history of armed conflicts, military strategy, operations, and warfare technology.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/history/historiography",
+    "title": "Historiography",
+    "parent": "humanities/history",
+    "layer": "spine",
+    "order": 5,
+    "wikipedia": {
+      "title": "Historiography",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The methodology and history of historical writing and historical research.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/languages-and-literature",
+    "title": "Languages and Literature",
+    "parent": "humanities",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Languages and Literature",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The structure of human language, philology, literary analysis, and comparative literature.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/languages-and-literature/linguistics",
+    "title": "Linguistics",
+    "parent": "humanities/languages-and-literature",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Linguistics",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The scientific study of human language, phonetics, syntax, semantics, and morphology.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/languages-and-literature/comparative-literature",
+    "title": "Comparative Literature",
+    "parent": "humanities/languages-and-literature",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Comparative Literature",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The study of literature across cultures, time periods, genres, and languages.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/languages-and-literature/philology",
+    "title": "Philology",
+    "parent": "humanities/languages-and-literature",
+    "layer": "spine",
+    "order": 3,
+    "wikipedia": {
+      "title": "Philology",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The study of language in oral and written historical sources.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/languages-and-literature/literary-theory",
+    "title": "Literary Theory",
+    "parent": "humanities/languages-and-literature",
+    "layer": "spine",
+    "order": 4,
+    "wikipedia": {
+      "title": "Literary Theory",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "Systematic frameworks for interpreting and analyzing literary works.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/performing-arts",
+    "title": "Performing Arts",
+    "parent": "humanities",
+    "layer": "spine",
+    "order": 3,
+    "wikipedia": {
+      "title": "Performing Arts",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [
+      "arts"
+    ],
+    "scope": "Arts forms where artists use their voices, bodies, or inanimate objects to convey artistic expression.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/performing-arts/music",
+    "title": "Music",
+    "parent": "humanities/performing-arts",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Music",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The art form consisting of sound and silence expressed through rhythm, melody, and harmony.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/performing-arts/theatre",
+    "title": "Theatre",
+    "parent": "humanities/performing-arts",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Theatre",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "Collaborative performing art combining speech, gesture, music, and stagecraft.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/performing-arts/dance",
+    "title": "Dance",
+    "parent": "humanities/performing-arts",
+    "layer": "spine",
+    "order": 3,
+    "wikipedia": {
+      "title": "Dance",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "Sequences of human movement, often accompanied by music, possessing aesthetic and symbolic value.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/visual-arts",
+    "title": "Visual Arts",
+    "parent": "humanities",
+    "layer": "spine",
+    "order": 4,
+    "wikipedia": {
+      "title": "Visual Arts",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [
+      "arts"
+    ],
+    "scope": "Art forms that create works primarily visual in nature, such as ceramics, drawing, painting, sculpture, and design.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/visual-arts/drawing-and-painting",
+    "title": "Drawing and Painting",
+    "parent": "humanities/visual-arts",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Drawing and Painting",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "Practices of applying pigment or graphic marks to surfaces to produce visual compositions.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/visual-arts/sculpture",
+    "title": "Sculpture",
+    "parent": "humanities/visual-arts",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Sculpture",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "Three-dimensional visual art created through carving, modeling, welding, or casting.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/visual-arts/design",
+    "title": "Design",
+    "parent": "humanities/visual-arts",
+    "layer": "spine",
+    "order": 3,
+    "wikipedia": {
+      "title": "Design",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The conceptualization, planning, and execution of functional and aesthetic objects and communications.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/visual-arts/photography",
+    "title": "Photography",
+    "parent": "humanities/visual-arts",
+    "layer": "spine",
+    "order": 4,
+    "wikipedia": {
+      "title": "Photography",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The art, application, and practice of creating durable images by recording light.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/philosophy",
+    "title": "Philosophy",
+    "parent": "humanities",
+    "layer": "spine",
+    "order": 5,
+    "wikipedia": {
+      "title": "Philosophy",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The systematic study of fundamental questions concerning existence, reason, knowledge, values, and mind.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/philosophy/epistemology",
+    "title": "Epistemology",
+    "parent": "humanities/philosophy",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Epistemology",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [
+      "theory of knowledge"
+    ],
+    "legacy_domains": [
+      "meta-knowledge"
+    ],
+    "scope": "The philosophical study of the nature, origin, and limits of human knowledge, justification, and belief.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/philosophy/ethics",
+    "title": "Ethics",
+    "parent": "humanities/philosophy",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Ethics",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "Moral philosophy systematizing, defending, and recommending concepts of right and wrong behavior.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/philosophy/logic",
+    "title": "Philosophical Logic",
+    "parent": "humanities/philosophy",
+    "layer": "spine",
+    "order": 3,
+    "wikipedia": {
+      "title": "Philosophical Logic",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The systematic study of valid inference, argumentation, and truth structures.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/philosophy/metaphysics",
+    "title": "Metaphysics",
+    "parent": "humanities/philosophy",
+    "layer": "spine",
+    "order": 4,
+    "wikipedia": {
+      "title": "Metaphysics",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The study of the fundamental nature of reality, existence, ontology, monism, and causality.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/philosophy/metaphysics/ontology",
+    "title": "Ontology",
+    "parent": "humanities/philosophy/metaphysics",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Ontology",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The philosophical branch studying concepts such as existence, being, and reality.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/philosophy/metaphysics/monism",
+    "title": "Monism and Emanationism",
+    "parent": "humanities/philosophy/metaphysics",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Monism and Emanationism",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "Metaphysical theories holding that reality is fundamentally unified and emanates from a single source.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/philosophy/eastern-philosophy",
+    "title": "Eastern Philosophy",
+    "parent": "humanities/philosophy",
+    "layer": "spine",
+    "order": 5,
+    "wikipedia": {
+      "title": "Eastern Philosophy",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "Philosophical and spiritual traditions originating in South, East, and Southeast Asia.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/philosophy/eastern-philosophy/buddhism",
+    "title": "Buddhism",
+    "parent": "humanities/philosophy/eastern-philosophy",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Buddhism",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "Philosophical and doctrinal traditions centered on liberation, karma, nirvana, and mind.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/philosophy/eastern-philosophy/buddhism/early-buddhism-nikayas",
+    "title": "Early Buddhism and Nikaya Studies",
+    "parent": "humanities/philosophy/eastern-philosophy/buddhism",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Early Buddhism and Nikaya Studies",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The earliest stratum of Buddhist texts, teachings on Attan, Anatta, Citta, and the Nikayas.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/philosophy/eastern-philosophy/buddhism/theravada",
+    "title": "Theravada Philosophy",
+    "parent": "humanities/philosophy/eastern-philosophy/buddhism",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Theravada Philosophy",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The doctrine of the elders, Abhidhamma exegesis, commentary traditions, and monastic practice.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/philosophy/eastern-philosophy/buddhism/mahayana",
+    "title": "Mahayana and Madhyamaka",
+    "parent": "humanities/philosophy/eastern-philosophy/buddhism",
+    "layer": "spine",
+    "order": 3,
+    "wikipedia": {
+      "title": "Mahayana and Madhyamaka",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The Great Vehicle, Nagarjuna's emptiness (Sunyata), two truths, and Bodhisattva ideal.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/philosophy/eastern-philosophy/buddhism/yogacara",
+    "title": "Yogacara Mind-Only",
+    "parent": "humanities/philosophy/eastern-philosophy/buddhism",
+    "layer": "spine",
+    "order": 4,
+    "wikipedia": {
+      "title": "Yogacara Mind-Only",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "Consciousness-only doctrine, repository consciousness (alayavijnana), and meditative phenomenology.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/philosophy/eastern-philosophy/hindu-philosophy",
+    "title": "Hindu Philosophy",
+    "parent": "humanities/philosophy/eastern-philosophy",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Hindu Philosophy",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The six orthodox darshanas, Advaita Vedanta, Samkhya, and Upanishadic metaphysics.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/philosophy/eastern-philosophy/daoism",
+    "title": "Daoism",
+    "parent": "humanities/philosophy/eastern-philosophy",
+    "layer": "spine",
+    "order": 3,
+    "wikipedia": {
+      "title": "Daoism",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "Chinese philosophical tradition emphasizing living in harmony with the Dao (the Way).",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/philosophy/western-philosophy",
+    "title": "Western Philosophy",
+    "parent": "humanities/philosophy",
+    "layer": "spine",
+    "order": 6,
+    "wikipedia": {
+      "title": "Western Philosophy",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The philosophical tradition of the Western world from Ancient Greece through Modern and Analytic thought.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/religion",
+    "title": "Religion and Theology",
+    "parent": "humanities",
+    "layer": "spine",
+    "order": 6,
+    "wikipedia": {
+      "title": "Religion and Theology",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The critical study of religious beliefs, behaviors, institutions, and theological doctrines.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/religion/comparative-religion",
+    "title": "Comparative Religion",
+    "parent": "humanities/religion",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Comparative Religion",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The systematic comparison of the doctrines and practices of the world's religions.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "humanities/religion/theology",
+    "title": "Theology",
+    "parent": "humanities/religion",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Theology",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The systematic study of the nature of the divine and religious truth claims.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "social-sciences",
+    "title": "Social Sciences",
+    "parent": null,
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Social Sciences",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [
+      "social-sciences"
+    ],
+    "scope": "Disciplines that study societies, social structures, and human interpersonal relationships.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "social-sciences/anthropology",
+    "title": "Anthropology",
+    "parent": "social-sciences",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Anthropology",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The holistic scientific study of humanity, past and present, across biological, cultural, and linguistic axes.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "social-sciences/archaeology",
+    "title": "Archaeology",
+    "parent": "social-sciences",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Archaeology",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The study of human activity through the recovery and analysis of material culture.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "social-sciences/economics",
+    "title": "Economics",
+    "parent": "social-sciences",
+    "layer": "spine",
+    "order": 3,
+    "wikipedia": {
+      "title": "Economics",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The social science that studies the production, distribution, and consumption of goods and services.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "social-sciences/economics/microeconomics",
+    "title": "Microeconomics",
+    "parent": "social-sciences/economics",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Microeconomics",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The study of how individual consumers and firms make decisions to allocate scarce resources.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "social-sciences/economics/macroeconomics",
+    "title": "Macroeconomics",
+    "parent": "social-sciences/economics",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Macroeconomics",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The study of the economy as a whole, including inflation, national income, growth, and unemployment.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "social-sciences/economics/institutional-economics",
+    "title": "Institutional Economics",
+    "parent": "social-sciences/economics",
+    "layer": "spine",
+    "order": 3,
+    "wikipedia": {
+      "title": "Institutional Economics",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The study of the role of evolutionary institutions, laws, and norms in shaping economic behavior.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "social-sciences/geography",
+    "title": "Human Geography",
+    "parent": "social-sciences",
+    "layer": "spine",
+    "order": 4,
+    "wikipedia": {
+      "title": "Human Geography",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The study of the relationships between human communities, cultures, economies, and their spatial environments.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "social-sciences/political-science",
+    "title": "Political Science",
+    "parent": "social-sciences",
+    "layer": "spine",
+    "order": 5,
+    "wikipedia": {
+      "title": "Political Science",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The scientific study of politics, government systems, political behavior, and public policy.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "social-sciences/political-science/political-theory",
+    "title": "Political Theory",
+    "parent": "social-sciences/political-science",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Political Theory",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The study of foundational concepts of justice, power, legitimacy, and political philosophy.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "social-sciences/political-science/international-relations",
+    "title": "International Relations",
+    "parent": "social-sciences/political-science",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "International Relations",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The study of relations between states, international organizations, and transnational actors.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "social-sciences/political-science/comparative-politics",
+    "title": "Comparative Politics",
+    "parent": "social-sciences/political-science",
+    "layer": "spine",
+    "order": 3,
+    "wikipedia": {
+      "title": "Comparative Politics",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The systematic analysis of different political systems, regimes, and constitutions.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "social-sciences/psychology",
+    "title": "Psychology",
+    "parent": "social-sciences",
+    "layer": "spine",
+    "order": 6,
+    "wikipedia": {
+      "title": "Psychology",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The scientific study of mind and behavior, covering perception, cognition, emotion, and personality.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "social-sciences/psychology/cognitive-psychology",
+    "title": "Cognitive Psychology",
+    "parent": "social-sciences/psychology",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Cognitive Psychology",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The scientific investigation of mental processes including attention, language, memory, and reasoning.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "social-sciences/psychology/behavioral-psychology",
+    "title": "Behavioral Psychology",
+    "parent": "social-sciences/psychology",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Behavioral Psychology",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The study of observable behavior and the environmental stimuli that condition it.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "social-sciences/psychology/neuropsychology",
+    "title": "Neuropsychology",
+    "parent": "social-sciences/psychology",
+    "layer": "spine",
+    "order": 3,
+    "wikipedia": {
+      "title": "Neuropsychology",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The study of the structure and function of the brain as they relate to specific psychological processes.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "social-sciences/sociology",
+    "title": "Sociology",
+    "parent": "social-sciences",
+    "layer": "spine",
+    "order": 7,
+    "wikipedia": {
+      "title": "Sociology",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The scientific study of society, social institutions, social relationships, and social change.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "natural-sciences",
+    "title": "Natural Sciences",
+    "parent": null,
+    "layer": "spine",
+    "order": 3,
+    "wikipedia": {
+      "title": "Natural Sciences",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [
+      "sciences"
+    ],
+    "scope": "Disciplines that study the physical and biological world through empirical observation and scientific method.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "natural-sciences/astronomy",
+    "title": "Astronomy",
+    "parent": "natural-sciences",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Astronomy",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The scientific study of celestial objects, space, and the universe as a physical whole.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "natural-sciences/astronomy/astrophysics",
+    "title": "Astrophysics",
+    "parent": "natural-sciences/astronomy",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Astrophysics",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The branch of space science that applies the laws of physics and chemistry to explain universe phenomena.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "natural-sciences/astronomy/cosmology",
+    "title": "Cosmology",
+    "parent": "natural-sciences/astronomy",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Cosmology",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The study of the origin, evolution, and ultimate fate of the universe.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "natural-sciences/biology",
+    "title": "Biology",
+    "parent": "natural-sciences",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Biology",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The scientific study of life and living organisms, their structure, function, growth, and evolution.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "natural-sciences/biology/molecular-biology",
+    "title": "Molecular Biology",
+    "parent": "natural-sciences/biology",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Molecular Biology",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The study of biological activity at the molecular level, including DNA, RNA, and protein synthesis.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "natural-sciences/biology/biochemistry",
+    "title": "Biochemistry",
+    "parent": "natural-sciences/biology",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Biochemistry",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The chemical processes and substances occurring within or relating to living organisms.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "natural-sciences/biology/genetics",
+    "title": "Genetics",
+    "parent": "natural-sciences/biology",
+    "layer": "spine",
+    "order": 3,
+    "wikipedia": {
+      "title": "Genetics",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The study of genes, genetic variation, and heredity in organisms.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "natural-sciences/biology/ecology",
+    "title": "Ecology",
+    "parent": "natural-sciences/biology",
+    "layer": "spine",
+    "order": 4,
+    "wikipedia": {
+      "title": "Ecology",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The study of interactions among organisms and between organisms and their physical environment.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "natural-sciences/biology/evolutionary-biology",
+    "title": "Evolutionary Biology",
+    "parent": "natural-sciences/biology",
+    "layer": "spine",
+    "order": 5,
+    "wikipedia": {
+      "title": "Evolutionary Biology",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The subfield of biology that studies the evolutionary processes that produced the diversity of life.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "natural-sciences/chemistry",
+    "title": "Chemistry",
+    "parent": "natural-sciences",
+    "layer": "spine",
+    "order": 3,
+    "wikipedia": {
+      "title": "Chemistry",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The scientific study of the properties, composition, structure, and reactions of matter.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "natural-sciences/chemistry/organic-chemistry",
+    "title": "Organic Chemistry",
+    "parent": "natural-sciences/chemistry",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Organic Chemistry",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The study of the structure, properties, composition, reactions, and preparation of carbon compounds.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "natural-sciences/chemistry/inorganic-chemistry",
+    "title": "Inorganic Chemistry",
+    "parent": "natural-sciences/chemistry",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Inorganic Chemistry",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The study of inorganic and organometallic compounds lacking carbon-hydrogen bonds.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "natural-sciences/chemistry/physical-chemistry",
+    "title": "Physical Chemistry",
+    "parent": "natural-sciences/chemistry",
+    "layer": "spine",
+    "order": 3,
+    "wikipedia": {
+      "title": "Physical Chemistry",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The study of macroscopic, atomic, and particulate phenomena in chemical systems using physics.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "natural-sciences/earth-sciences",
+    "title": "Earth Sciences",
+    "parent": "natural-sciences",
+    "layer": "spine",
+    "order": 4,
+    "wikipedia": {
+      "title": "Earth Sciences",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The fields of science dealing with planet Earth, its atmosphere, oceans, and solid crust.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "natural-sciences/earth-sciences/geology",
+    "title": "Geology",
+    "parent": "natural-sciences/earth-sciences",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Geology",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The scientific study of the Earth's solid materials, rocks, structures, and subterranean processes.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "natural-sciences/earth-sciences/meteorology",
+    "title": "Meteorology",
+    "parent": "natural-sciences/earth-sciences",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Meteorology",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The scientific study of the atmosphere with focus on weather forecasting and atmospheric phenomena.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "natural-sciences/earth-sciences/oceanography",
+    "title": "Oceanography",
+    "parent": "natural-sciences/earth-sciences",
+    "layer": "spine",
+    "order": 3,
+    "wikipedia": {
+      "title": "Oceanography",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The scientific study of physical, chemical, and biological properties of the world ocean.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "natural-sciences/physics",
+    "title": "Physics",
+    "parent": "natural-sciences",
+    "layer": "spine",
+    "order": 5,
+    "wikipedia": {
+      "title": "Physics",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The foundational science studying matter, motion, energy, force, space, and time.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "natural-sciences/physics/classical-mechanics",
+    "title": "Classical Mechanics",
+    "parent": "natural-sciences/physics",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Classical Mechanics",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The physical theory describing the motion of macroscopic objects under forces.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "natural-sciences/physics/quantum-mechanics",
+    "title": "Quantum Mechanics",
+    "parent": "natural-sciences/physics",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Quantum Mechanics",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The fundamental theory in physics that provides a description of physical properties at atomic scales.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "natural-sciences/physics/thermodynamics",
+    "title": "Thermodynamics",
+    "parent": "natural-sciences/physics",
+    "layer": "spine",
+    "order": 3,
+    "wikipedia": {
+      "title": "Thermodynamics",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The branch of physics that deals with heat, work, and temperature, and their relation to energy.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "natural-sciences/physics/electromagnetism",
+    "title": "Electromagnetism",
+    "parent": "natural-sciences/physics",
+    "layer": "spine",
+    "order": 4,
+    "wikipedia": {
+      "title": "Electromagnetism",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The branch of physics involving the study of electromagnetic force and electromagnetic fields.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "natural-sciences/physics/relativity",
+    "title": "Relativity",
+    "parent": "natural-sciences/physics",
+    "layer": "spine",
+    "order": 5,
+    "wikipedia": {
+      "title": "Relativity",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "Einstein's theories of special and general relativity governing space-time and gravity.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "formal-sciences",
+    "title": "Formal Sciences",
+    "parent": null,
+    "layer": "spine",
+    "order": 4,
+    "wikipedia": {
+      "title": "Formal Sciences",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "Disciplines concerned with abstract formal systems characterized by axioms, rules, and deductive proof.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "formal-sciences/computer-science",
+    "title": "Computer Science",
+    "parent": "formal-sciences",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Computer Science",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [
+      "computer-science"
+    ],
+    "scope": "The study of computation, information processing, algorithms, software, and computational architecture.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "formal-sciences/computer-science/algorithms-and-complexity",
+    "title": "Algorithms and Complexity",
+    "parent": "formal-sciences/computer-science",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Algorithms and Complexity",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The design, efficiency analysis, and theoretical tractability bounds of computational algorithms.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "formal-sciences/computer-science/artificial-intelligence",
+    "title": "Artificial Intelligence",
+    "parent": "formal-sciences/computer-science",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Artificial Intelligence",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The theory and development of computer systems able to perform tasks requiring intelligent inference.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "formal-sciences/computer-science/operating-systems",
+    "title": "Operating Systems",
+    "parent": "formal-sciences/computer-science",
+    "layer": "spine",
+    "order": 3,
+    "wikipedia": {
+      "title": "Operating Systems",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "System software that manages computer hardware, process execution, memory, and storage resources.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "formal-sciences/computer-science/distributed-systems",
+    "title": "Distributed Systems",
+    "parent": "formal-sciences/computer-science",
+    "layer": "spine",
+    "order": 4,
+    "wikipedia": {
+      "title": "Distributed Systems",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "Systems of independent networked computers communicating and coordinating to solve problems.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "formal-sciences/computer-science/cryptography",
+    "title": "Cryptography and Security",
+    "parent": "formal-sciences/computer-science",
+    "layer": "spine",
+    "order": 5,
+    "wikipedia": {
+      "title": "Cryptography and Security",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The practice and study of secure communication, confidentiality, integrity, and cryptographic protocols.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "formal-sciences/computer-science/programming-languages",
+    "title": "Programming Languages and Compilers",
+    "parent": "formal-sciences/computer-science",
+    "layer": "spine",
+    "order": 6,
+    "wikipedia": {
+      "title": "Programming Languages and Compilers",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The design, semantics, analysis, implementation, and translation of formal programming languages.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "formal-sciences/mathematics",
+    "title": "Mathematics",
+    "parent": "formal-sciences",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Mathematics",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [
+      "mathematics"
+    ],
+    "scope": "The abstract science of numbers, quantity, structure, space, and change.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "formal-sciences/mathematics/algebra",
+    "title": "Algebra",
+    "parent": "formal-sciences/mathematics",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Algebra",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The study of mathematical symbols and the rules for manipulating these symbols in equations and structures.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "formal-sciences/mathematics/analysis",
+    "title": "Mathematical Analysis",
+    "parent": "formal-sciences/mathematics",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Mathematical Analysis",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The branch of mathematics dealing with continuous change, limits, derivatives, integrals, and series.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "formal-sciences/mathematics/geometry-and-topology",
+    "title": "Geometry and Topology",
+    "parent": "formal-sciences/mathematics",
+    "layer": "spine",
+    "order": 3,
+    "wikipedia": {
+      "title": "Geometry and Topology",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The study of properties of space, shapes, curvature, and properties invariant under continuous deformations.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "formal-sciences/mathematics/number-theory",
+    "title": "Number Theory",
+    "parent": "formal-sciences/mathematics",
+    "layer": "spine",
+    "order": 4,
+    "wikipedia": {
+      "title": "Number Theory",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The branch of pure mathematics devoted primarily to the study of integers and arithmetic properties.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "formal-sciences/statistics",
+    "title": "Statistics",
+    "parent": "formal-sciences",
+    "layer": "spine",
+    "order": 3,
+    "wikipedia": {
+      "title": "Statistics",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The discipline that concerns the collection, organization, analysis, interpretation, and presentation of data.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "formal-sciences/systems-science",
+    "title": "Systems Science and Cybernetics",
+    "parent": "formal-sciences",
+    "layer": "spine",
+    "order": 4,
+    "wikipedia": {
+      "title": "Systems Science and Cybernetics",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [
+      "meta-knowledge"
+    ],
+    "scope": "The interdisciplinary field studying the nature of complex systems in nature, society, and science.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "formal-sciences/systems-science/cybernetics",
+    "title": "Cybernetics",
+    "parent": "formal-sciences/systems-science",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Cybernetics",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The science of communications and automatic control systems in machines and living things.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "formal-sciences/systems-science/control-theory",
+    "title": "Control Theory",
+    "parent": "formal-sciences/systems-science",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Control Theory",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "Mathematical subfield dealing with the control of continuously operating dynamical systems.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "applied-sciences",
+    "title": "Applied Sciences",
+    "parent": null,
+    "layer": "spine",
+    "order": 5,
+    "wikipedia": {
+      "title": "Applied Sciences",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [
+      "practical-domains"
+    ],
+    "scope": "Disciplines that apply existing scientific knowledge to practical applications, technology, and professions.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "applied-sciences/agriculture",
+    "title": "Agricultural Sciences",
+    "parent": "applied-sciences",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Agricultural Sciences",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The practice and science of cultivating plants, livestock, and managing biological agricultural systems.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "applied-sciences/architecture-and-design",
+    "title": "Architecture and Built Environment",
+    "parent": "applied-sciences",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Architecture and Built Environment",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The art and science of designing and erecting buildings, infrastructure, and urban environments.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "applied-sciences/business",
+    "title": "Business and Management",
+    "parent": "applied-sciences",
+    "layer": "spine",
+    "order": 3,
+    "wikipedia": {
+      "title": "Business and Management",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The operational, organizational, and strategic management of commercial enterprises and institutions.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "applied-sciences/business/finance",
+    "title": "Finance",
+    "parent": "applied-sciences/business",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Finance",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The management, creation, and study of money, banking, credit, investments, assets, and liabilities.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "applied-sciences/business/management",
+    "title": "Management",
+    "parent": "applied-sciences/business",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Management",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The administration of an organization, coordinating activities and setting strategic direction.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "applied-sciences/business/marketing",
+    "title": "Marketing",
+    "parent": "applied-sciences/business",
+    "layer": "spine",
+    "order": 3,
+    "wikipedia": {
+      "title": "Marketing",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The study and management of exchange relationships, market demand, and consumer behavior.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "applied-sciences/education",
+    "title": "Education and Pedagogy",
+    "parent": "applied-sciences",
+    "layer": "spine",
+    "order": 4,
+    "wikipedia": {
+      "title": "Education and Pedagogy",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The disciplines focused on the methods, theories, and processes of teaching and learning.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "applied-sciences/engineering-and-technology",
+    "title": "Engineering and Technology",
+    "parent": "applied-sciences",
+    "layer": "spine",
+    "order": 5,
+    "wikipedia": {
+      "title": "Engineering and Technology",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [
+      "engineering"
+    ],
+    "scope": "The application of science and mathematics to design, build, and maintain structures, machines, and systems.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "applied-sciences/engineering-and-technology/mechanical-engineering",
+    "title": "Mechanical Engineering",
+    "parent": "applied-sciences/engineering-and-technology",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Mechanical Engineering",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The discipline applying physics and materials science principles to design and manufacture machinery.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "applied-sciences/engineering-and-technology/electrical-engineering",
+    "title": "Electrical Engineering",
+    "parent": "applied-sciences/engineering-and-technology",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Electrical Engineering",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The discipline that studies and applies electricity, electronics, and electromagnetism.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "applied-sciences/engineering-and-technology/civil-engineering",
+    "title": "Civil Engineering",
+    "parent": "applied-sciences/engineering-and-technology",
+    "layer": "spine",
+    "order": 3,
+    "wikipedia": {
+      "title": "Civil Engineering",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The design, construction, and maintenance of the physical and naturally built environment.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "applied-sciences/engineering-and-technology/chemical-engineering",
+    "title": "Chemical Engineering",
+    "parent": "applied-sciences/engineering-and-technology",
+    "layer": "spine",
+    "order": 4,
+    "wikipedia": {
+      "title": "Chemical Engineering",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The branch dealing with the design and operation of plants converting chemicals and materials.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "applied-sciences/engineering-and-technology/aerospace-engineering",
+    "title": "Aerospace Engineering",
+    "parent": "applied-sciences/engineering-and-technology",
+    "layer": "spine",
+    "order": 5,
+    "wikipedia": {
+      "title": "Aerospace Engineering",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The primary field of engineering concerned with the development of aircraft and spacecraft.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "applied-sciences/engineering-and-technology/software-engineering",
+    "title": "Software Engineering",
+    "parent": "applied-sciences/engineering-and-technology",
+    "layer": "spine",
+    "order": 6,
+    "wikipedia": {
+      "title": "Software Engineering",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The systematic engineering approach to the development, operation, and maintenance of software.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "applied-sciences/environmental-studies",
+    "title": "Environmental Studies and Forestry",
+    "parent": "applied-sciences",
+    "layer": "spine",
+    "order": 6,
+    "wikipedia": {
+      "title": "Environmental Studies and Forestry",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "Interdisciplinary field studying human interaction with the natural environment and resources.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "applied-sciences/medicine-and-health",
+    "title": "Medicine and Health Sciences",
+    "parent": "applied-sciences",
+    "layer": "spine",
+    "order": 7,
+    "wikipedia": {
+      "title": "Medicine and Health Sciences",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The science and practice of caring for patients, managing diagnosis, prognosis, prevention, and treatment.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "applied-sciences/medicine-and-health/clinical-medicine",
+    "title": "Clinical Medicine",
+    "parent": "applied-sciences/medicine-and-health",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Clinical Medicine",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The practice of medicine based on direct observation and treatment of patients.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "applied-sciences/medicine-and-health/pharmacology",
+    "title": "Pharmacology and Therapeutics",
+    "parent": "applied-sciences/medicine-and-health",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Pharmacology and Therapeutics",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The scientific study of drug or medication action and biological systems interaction.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "applied-sciences/medicine-and-health/public-health",
+    "title": "Public Health and Epidemiology",
+    "parent": "applied-sciences/medicine-and-health",
+    "layer": "spine",
+    "order": 3,
+    "wikipedia": {
+      "title": "Public Health and Epidemiology",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The science of protecting and improving the health of people and their communities.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "applied-sciences/military-sciences",
+    "title": "Military Sciences",
+    "parent": "applied-sciences",
+    "layer": "spine",
+    "order": 8,
+    "wikipedia": {
+      "title": "Military Sciences",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The study of military processes, institutions, behavior, warfare strategy, and defense logistics.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "applied-sciences/military-sciences/military-strategy",
+    "title": "Military Strategy and Operational Art",
+    "parent": "applied-sciences/military-sciences",
+    "layer": "spine",
+    "order": 1,
+    "wikipedia": {
+      "title": "Military Strategy and Operational Art",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The planning and execution of the operational movement and disposition of forces in war.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "applied-sciences/military-sciences/intelligence",
+    "title": "Military Intelligence and Deception",
+    "parent": "applied-sciences/military-sciences",
+    "layer": "spine",
+    "order": 2,
+    "wikipedia": {
+      "title": "Military Intelligence and Deception",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The collection and analysis of information concerning adversary capabilities and operational deception.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  },
+  {
+    "id": "applied-sciences/public-administration",
+    "title": "Public Administration and Law",
+    "parent": "applied-sciences",
+    "layer": "spine",
+    "order": 9,
+    "wikipedia": {
+      "title": "Public Administration and Law",
+      "pageid": 0,
+      "revid": 0
+    },
+    "wikidata": "",
+    "aliases": [],
+    "legacy_domains": [],
+    "scope": "The implementation of government policy and the academic study of public governance, law, and civil service.",
+    "listed_under": [],
+    "also_in": [],
+    "home_reason": "outline",
+    "status": "active",
+    "moved_from": [],
+    "seed": {
+      "status": "pending"
+    },
+    "codes": {}
+  }
+]
