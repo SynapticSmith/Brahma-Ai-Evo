@@ -11,7 +11,9 @@ import ipaddress
 import json
 import logging
 import os
+import secrets
 import ssl
+import time
 from typing import Any, Dict, List, Optional
 import urllib.error
 from urllib.parse import urlparse
@@ -85,6 +87,35 @@ class RemoteAgentAdapter(AgentAdapter):
         self._endpoint = (record.endpoint or tier3_cfg.get("base_url") or "").rstrip("/")
         self._allow_insecure = bool(tier3_cfg.get("allow_insecure", False))
         self._verify_ssl = bool(tier3_cfg.get("verify_ssl", True))
+        self._pinned_spki = str(tier3_cfg.get("pinned_spki") or tier3_cfg.get("spki_sha256") or "").strip()
+        self._node_identity: Optional[Any] = tier3_cfg.get("node_identity")
+
+        # Auto-detect pairing and sign_requests:
+        # If explicitly specified in tier3_cfg, respect it.
+        # Otherwise, if pinned_spki or node_identity is set, or if endpoint matches a peer in PeerRegistry, enable signing.
+        if "sign_requests" in tier3_cfg:
+            self._sign_requests = bool(tier3_cfg["sign_requests"])
+        else:
+            self._sign_requests = bool(self._pinned_spki or self._node_identity or tier3_cfg.get("paired"))
+
+        if not self._sign_requests and self._endpoint:
+            try:
+                from core.peer.pairing import PeerRegistry
+
+                reg = tier3_cfg.get("peer_registry")
+                if reg is None:
+                    reg_path = tier3_cfg.get("registry_path")
+                    reg = PeerRegistry(reg_path) if reg_path else PeerRegistry()
+                peers_list = reg.list_peers() if hasattr(reg, "list_peers") else list(reg.load_peers().values())
+                for peer in peers_list:
+                    if peer.endpoint and peer.endpoint.rstrip("/") == self._endpoint:
+                        self._sign_requests = True
+                        if not self._pinned_spki and peer.spki_sha256:
+                            self._pinned_spki = peer.spki_sha256
+                        break
+            except Exception as exc:
+                logger.warning("Peer registry endpoint scan failed for endpoint %s: %s", self._endpoint, exc)
+
         self._capabilities: List[Capability] = []
 
     @classmethod
@@ -114,6 +145,20 @@ class RemoteAgentAdapter(AgentAdapter):
 
         if token:
             headers["Authorization"] = f"Bearer {token}"
+
+        origin = None
+        if self._node_identity:
+            origin = getattr(self._node_identity, "node_id", None)
+        else:
+            try:
+                from core.peer.identity import NodeIdentity
+
+                origin = NodeIdentity.load_or_create(enforce_machine_binding=False).node_id
+            except Exception:
+                pass
+        if origin:
+            headers.setdefault("X-Brahma-Node", str(origin))
+
         return headers
 
     def _get_ssl_context(self) -> Optional[ssl.SSLContext]:
@@ -223,11 +268,41 @@ class RemoteAgentAdapter(AgentAdapter):
         url = f"{self._endpoint}{path}"
         payload = json.dumps(data).encode("utf-8") if data is not None else None
         headers = self._get_headers()
-        ssl_ctx = self._get_ssl_context()
+
+        # Sign request with Ed25519 node key if requested
+        if self._sign_requests:
+            try:
+                ident = self._node_identity
+                if ident is None:
+                    from core.peer.identity import NodeIdentity
+                    ident = NodeIdentity.load_or_create(enforce_machine_binding=False)
+                nonce = secrets.token_hex(16)
+                timestamp = int(time.time())
+                sig = ident.sign_request(
+                    method=method,
+                    path=path,
+                    body=payload,
+                    timestamp=timestamp,
+                    nonce=nonce,
+                )
+                headers["X-Brahma-Node"] = ident.node_id
+                headers["X-Brahma-Timestamp"] = str(timestamp)
+                headers["X-Brahma-Nonce"] = nonce
+                headers["X-Brahma-Signature"] = sig
+            except Exception as exc:
+                logger.debug("Could not sign remote request: %s", exc)
 
         req = urllib.request.Request(url, data=payload, headers=headers, method=method)
         try:
-            with urllib.request.urlopen(req, timeout=30.0, context=ssl_ctx) as resp:
+            if self._pinned_spki:
+                from core.peer.crypto import build_pinned_opener
+                opener = build_pinned_opener(self._pinned_spki)
+                resp_ctx = opener.open(req, timeout=30.0)
+            else:
+                ssl_ctx = self._get_ssl_context()
+                resp_ctx = urllib.request.urlopen(req, timeout=30.0, context=ssl_ctx)
+
+            with resp_ctx as resp:
                 raw = resp.read().decode("utf-8")
                 parsed_data = {}
                 try:
@@ -251,7 +326,48 @@ class RemoteAgentAdapter(AgentAdapter):
         """Execute verb on remote agent endpoint. Never raises for callers."""
         try:
             if verb == "run_task":
-                return self._http_request("/tasks", method="POST", data=args)
+                task_data = dict(args)
+                if not task_data.get("task_id"):
+                    import uuid
+                    tid = f"task-{uuid.uuid4().hex[:12]}"
+                    task_data["task_id"] = tid
+                    task_data.setdefault("trace_id", f"tr-{uuid.uuid4().hex[:12]}")
+                    task_data.setdefault("root_task_id", tid)
+
+                if not task_data.get("origin_node"):
+                    origin = "local"
+                    if self._node_identity:
+                        origin = getattr(self._node_identity, "node_id", "local")
+                    else:
+                        try:
+                            from core.peer.identity import NodeIdentity
+                            origin = NodeIdentity.load_or_create(enforce_machine_binding=False).node_id
+                        except Exception:
+                            pass
+                    task_data["origin_node"] = origin
+
+                task_data.setdefault("coordinator_node", task_data["origin_node"])
+                tier3_cfg = getattr(self.record, "tier3", {}) or {}
+                task_data.setdefault("workspace", tier3_cfg.get("workspace") or "default")
+                if "prompt" not in task_data and "message" in task_data:
+                    task_data["prompt"] = task_data["message"]
+
+                res = self._http_request("/tasks", method="POST", data=task_data)
+                if bool(args.get("sync", False)) and res.ok and isinstance(res.data, dict):
+                    task_id = str(res.data.get("task_id") or "").strip()
+                    current_st = str(res.data.get("state") or res.data.get("status") or "")
+                    if task_id and current_st in ("submitted", "queued", "working"):
+                        deadline = min(float(args.get("deadline_s") or 120.0), 300.0)
+                        start = time.time()
+                        while (time.time() - start) < deadline:
+                            time.sleep(0.5)
+                            poll = self._http_request(f"/tasks/{task_id}", method="GET")
+                            if not poll.ok:
+                                break
+                            st = str(poll.data.get("state") or poll.data.get("status") or "") if isinstance(poll.data, dict) else ""
+                            if st in ("completed", "failed", "canceled", "rejected"):
+                                return poll
+                return res
             elif verb == "query_status":
                 task_id = str(args.get("task_id") or "").strip()
                 path = f"/tasks/{task_id}" if task_id else "/status"

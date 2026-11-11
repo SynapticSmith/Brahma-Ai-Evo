@@ -28,7 +28,17 @@ from .config import PROFILES
 #: Endpoint families a token may use. `chat` is the model surface, `models` the
 #: catalogue; the rest exist so a later phase can add routes without silently
 #: granting them to every key.
-SCOPES = ("chat", "models", "diagnostics", "approve", "admin")
+SCOPES = (
+    "chat",
+    "models",
+    "diagnostics",
+    "approve",
+    "admin",
+    "peer:run",
+    "peer:status",
+    "peer:cancel",
+    "peer:artifact",
+)
 DEFAULT_SCOPES: Tuple[str, ...] = ("chat", "models")
 RELOAD_INTERVAL_S = 1.0
 
@@ -73,6 +83,8 @@ class TokenRecord:
     workspace: Optional[str] = None
     provider: Optional[str] = None
     upstream_model: Optional[str] = None
+    node_id: Optional[str] = None
+    spki_sha256: Optional[str] = None
     created_at: str = ""
     last_used_at: Optional[str] = None
     revoked: bool = False
@@ -87,6 +99,8 @@ class TokenRecord:
             "workspace": self.workspace,
             "provider": self.provider,
             "upstream_model": self.upstream_model,
+            "node_id": self.node_id,
+            "spki_sha256": self.spki_sha256,
             "created_at": self.created_at,
             "last_used_at": self.last_used_at,
             "revoked": self.revoked,
@@ -138,6 +152,8 @@ class TokenRecord:
             upstream_model=(str(raw["upstream_model"]).strip() or None)
             if raw.get("upstream_model")
             else None,
+            node_id=(str(raw["node_id"]).strip() or None) if raw.get("node_id") else None,
+            spki_sha256=(str(raw["spki_sha256"]).strip() or None) if raw.get("spki_sha256") else None,
             created_at=str(raw.get("created_at") or ""),
             last_used_at=(str(raw["last_used_at"]) if raw.get("last_used_at") else None),
             revoked=bool(raw.get("revoked", False)),
@@ -278,6 +294,8 @@ class TokenRegistry:
         scopes: Optional[Iterable[str]] = None,
         provider: Optional[str] = None,
         upstream_model: Optional[str] = None,
+        node_id: Optional[str] = None,
+        spki_sha256: Optional[str] = None,
         confirm: Optional[str] = None,
     ) -> Tuple[TokenRecord, str]:
         """Create a key. Returns ``(record, plaintext)``; plaintext is shown once.
@@ -315,6 +333,8 @@ class TokenRegistry:
             workspace=workspace,
             provider=provider,
             upstream_model=upstream_model,
+            node_id=str(node_id).strip() if node_id else None,
+            spki_sha256=str(spki_sha256).strip() if spki_sha256 else None,
             created_at=_now(),
         )
         with _get_path_lock(self.path):

@@ -94,18 +94,19 @@ function Install-Mem0 {
     Write-Host "`n=== Mem0 (Hybrid Vector & Graph Memory) ===" -ForegroundColor Cyan
     Install-Pip 'mem0ai' 'mem0ai (Core SDK)'
     Install-Pip 'qdrant-client' 'qdrant-client (Local Vector Storage)'
+    Install-Pip 'fastembed' 'fastembed (Local ONNX Vector Embeddings)'
 
-    Step "verifying Mem0 import & connector..."
-    $rc = Invoke-Py @('-c', "from memory.connectors.mem0 import Mem0MemoryConnector; c = Mem0MemoryConnector(); print('Mem0 connector ready: backend =', c.backend_name)")
+    Step "verifying Mem0 import & connector status..."
+    $rc = Invoke-Py @('-c', "from memory.connectors.mem0 import Mem0MemoryConnector; c = Mem0MemoryConnector(); stat = c.status(); print('Mem0 connector ready: available =', stat.get('available'), 'mode =', stat.get('mode')); assert stat.get('ok') is True")
     if ($rc -ne 0) {
         Warn "Mem0 installed but connector verification failed."
     } else {
-        Ok "Mem0 connector verified"
+        Ok "Mem0 connector verified (offline vector mode operational)"
     }
 
     Write-Host "Usage:" -ForegroundColor DarkGray
-    Write-Host "  - Local mode : default, stores vector facts locally via Qdrant/SQLite." -ForegroundColor DarkGray
-    Write-Host "  - Cloud mode : set MEM0_API_KEY or save it in Settings -> Connectivity -> Memory." -ForegroundColor DarkGray
+    Write-Host "  - Local mode : default, stores vector facts locally via Qdrant and FastEmbed (zero-cloud)." -ForegroundColor DarkGray
+    Write-Host "  - Cloud mode : set MEM0_API_KEY (m0-...) or save it in Settings -> Connectivity -> Memory." -ForegroundColor DarkGray
 }
 
 function Install-Letta {

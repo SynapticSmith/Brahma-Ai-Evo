@@ -129,6 +129,7 @@ class BrahmaApiConfig:
     port: int = DEFAULT_PORT
     allow_remote_bind: bool = False
     auth_required: bool = True
+    node_name: str = "Brahma Node"
     preselect_profile: str = "reader"
     default_provider: str = "auto"
     workspaces: Dict[str, str] = field(default_factory=dict)
@@ -222,6 +223,7 @@ class BrahmaApiConfig:
             port=port,
             allow_remote_bind=allow_remote,
             auth_required=bool(data.get("auth_required", True)),
+            node_name=str(data.get("node_name") or "Brahma Node").strip(),
             preselect_profile=preselect,
             default_provider=provider,
             workspaces=workspaces,

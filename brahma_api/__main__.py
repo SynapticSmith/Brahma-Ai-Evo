@@ -95,6 +95,8 @@ def _record_row(record: TokenRecord) -> Dict[str, Any]:
         "workspace": record.workspace,
         "provider": record.provider,
         "upstream_model": record.upstream_model,
+        "node_id": record.node_id,
+        "spki_sha256": record.spki_sha256,
         "created_at": record.created_at,
         "last_used_at": record.last_used_at,
         "revoked": record.revoked,
@@ -186,6 +188,11 @@ def cmd_token_mint(args: argparse.Namespace) -> int:
         return 2
 
     try:
+        node_id = str(args.node_id).strip().lower() if getattr(args, "node_id", None) else None
+        spki_sha256 = (
+            str(getattr(args, "spki_sha256", None) or getattr(args, "spki", None) or "").strip().lower()
+            or None
+        )
         record, plaintext = registry.mint(
             preset,
             label=args.label or "",
@@ -194,6 +201,8 @@ def cmd_token_mint(args: argparse.Namespace) -> int:
             provider=provider,
             upstream_model=args.upstream_model or None,
             confirm="operator" if args.confirm_operator else None,
+            node_id=node_id,
+            spki_sha256=spki_sha256,
         )
     except ValueError as exc:
         print(f"brahma_api: {exc}", file=sys.stderr)
@@ -211,6 +220,10 @@ def cmd_token_mint(args: argparse.Namespace) -> int:
         print(f"id: {record.id}")
         print(f"profile: {record.profile}")
         print(f"workspace: {record.workspace or '-'}")
+        if record.node_id:
+            print(f"node_id: {record.node_id}")
+        if record.spki_sha256:
+            print(f"spki_sha256: {record.spki_sha256}")
         print(f"scopes: {', '.join(record.scopes)}")
         if record.label:
             print(f"label: {record.label}")
@@ -299,6 +312,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="required for --preset operator",
     )
+    mint.add_argument("--node-id", default=None, help="bind token to peer origin node_id")
+    mint.add_argument("--spki", "--spki-sha256", dest="spki_sha256", default=None, help="bind token to TLS SPKI SHA-256 fingerprint")
     mint.add_argument("--base-dir", default=None)
     mint.add_argument("--json", action="store_true")
     mint.set_defaults(func=cmd_token_mint)

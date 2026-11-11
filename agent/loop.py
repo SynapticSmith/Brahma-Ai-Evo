@@ -133,9 +133,18 @@ def _effects_conflict(
     and a write conflict when the paths are equal or nested: a write inside a
     directory that `glob_files`/`grep_files` is walking would otherwise race
     the scan.
+
+    Invariant S-03: Peer calls are fenced from local tools. Read-only peer calls
+    to distinct nodes may overlap.
     """
     first_kind, first_path = first
     second_kind, second_path = second
+
+    if first_kind == "peer" or second_kind == "peer":
+        if first_kind == "peer" and second_kind == "peer":
+            return first_path == second_path
+        return True
+
     if first_kind == "read" and second_kind == "read":
         return False
     if first_kind == "write" and second_kind == "write":
@@ -246,6 +255,7 @@ class AgentLoop:
         skill_budget: Optional[int] = None,
         skill: Optional[str] = None,
         include_skills: bool = True,
+        max_tool_calls: Optional[int] = None,
     ):
         self._complete = complete
         self._native_dispatch = native_dispatch
@@ -269,6 +279,7 @@ class AgentLoop:
             ]
         self._session = session
         self.max_turns = max(1, int(max_turns))
+        self.max_tool_calls = int(max_tool_calls) if max_tool_calls is not None else None
         self.repeat_limit = max(1, int(repeat_limit))
         #: 1 disables parallel dispatch. Reads and writes may overlap only when
         #: the scheduler can prove they touch different paths; see
@@ -554,12 +565,21 @@ class AgentLoop:
         if item["attempts"] > self.repeat_limit:
             return None
         spec = get_spec(item["name"])
-        if spec is None or spec.classifier is not None or spec.tool_class not in ("read", "write"):
+        if spec is None or spec.classifier is not None or spec.tool_class not in ("read", "write", "network"):
             return None
         _, decision = self._runtime.decide(
             item["name"], item["args"], batch_readonly=self._batch_readonly
         )
         if not decision.allowed:
+            return None
+        if spec.name.startswith("agent_"):
+            # Invariant S-03: Read-only peer queries overlap; mutating peer calls are fenced.
+            if spec.tool_class in ("network", "read") and not spec.requires_approval:
+                parts = spec.name.split("_")
+                peer_node = parts[1] if len(parts) >= 3 else "default"
+                return ("peer", Path(f"//peer/{peer_node}"))
+            return None
+        if spec.tool_class == "network":
             return None
         if item["name"] in ("glob_files", "grep_files") and ".." in str(
             item["args"].get("pattern") or ""
@@ -1209,6 +1229,11 @@ class AgentLoop:
                 if not calls:
                     final_text = str(message.get("content") or "").strip()
                     stop_reason = STOP_COMPLETED
+                    break
+
+                if self.max_tool_calls is not None and self._tool_calls_made >= self.max_tool_calls:
+                    final_text = str(message.get("content") or "").strip()
+                    stop_reason = "max_tool_calls"
                     break
 
                 skipped = 0

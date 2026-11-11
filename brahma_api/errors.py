@@ -55,8 +55,12 @@ def invalid(
     return ApiError(400, message, "invalid_request_error", param, code)
 
 
-def unauthorized(message: str = "Incorrect API key provided.") -> ApiError:
-    return ApiError(401, message, "invalid_request_error", None, "invalid_api_key")
+def unauthorized(
+    message: str = "Incorrect API key provided.",
+    *,
+    code: str = "invalid_api_key",
+) -> ApiError:
+    return ApiError(401, message, "invalid_request_error", None, code)
 
 
 def forbidden(message: str, *, code: str = "insufficient_scope") -> ApiError:

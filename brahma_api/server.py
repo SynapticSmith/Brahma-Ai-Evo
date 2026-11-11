@@ -206,6 +206,9 @@ def create_app(
     *,
     registry: Optional[TokenRegistry] = None,
     runner: Optional[AgentRunner] = None,
+    peer_store: Optional[Any] = None,
+    peer_identity: Optional[Any] = None,
+    peer_registry: Optional[Any] = None,
 ) -> FastAPI:
     app = FastAPI(
         title="Brahma Evo OpenAI-compatible port",
@@ -223,12 +226,23 @@ def create_app(
     )
     rate_limiter = RateLimiter(requests_per_minute=config.limits.requests_per_minute)
     session_tracker = SessionTracker()
+    resolved_identity = peer_identity
+    if resolved_identity is None:
+        try:
+            from core.peer.identity import NodeIdentity
+            resolved_identity = NodeIdentity.load_or_create(enforce_machine_binding=False)
+        except Exception:
+            resolved_identity = None
+
     app.state.config = config
     app.state.registry = tokens
     app.state.runner = agent_runner
     app.state.limiter = limiter
     app.state.rate_limiter = rate_limiter
     app.state.session_tracker = session_tracker
+    app.state.peer_store = peer_store
+    app.state.peer_identity = resolved_identity
+    app.state.peer_registry = peer_registry
 
     @app.middleware("http")
     async def _body_limit(request: Request, call_next: Callable[..., Any]) -> Any:
@@ -482,6 +496,23 @@ def create_app(
             session_id=session_id,
             tool_calls=outcome.tool_calls,
         )
+
+    # -- Peer routes (BTE-1, ADR-030) --------------------------------------
+    from .peer import build_peer_router
+
+    peer_store = getattr(app.state, "peer_store", None)
+    peer_identity = getattr(app.state, "peer_identity", None)
+    peer_registry = getattr(app.state, "peer_registry", None)
+    app.include_router(
+        build_peer_router(
+            config,
+            tokens,
+            agent_runner,
+            store=peer_store,
+            identity=peer_identity,
+            peer_registry=peer_registry,
+        )
+    )
 
     return app
 

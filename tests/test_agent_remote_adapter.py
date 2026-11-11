@@ -317,3 +317,124 @@ def test_bridge_discover_and_publish_remote_agent(tmp_path: Path, monkeypatch):
         assert get_spec("agent_remote_service_run_task") is None
     finally:
         server.shutdown()
+
+
+def test_remote_adapter_auto_signs_when_paired_or_pinned():
+    """Verify RemoteAgentAdapter automatically signs mutating requests when pinned SPKI or node_identity is present."""
+    from core.peer.identity import NodeIdentity
+
+    ident = NodeIdentity.create_new(hostname="test-sender")
+    received_headers = {}
+
+    class HeaderCaptureHandler(BaseHTTPRequestHandler):
+        def log_message(self, format, *args):
+            pass
+
+        def do_POST(self):
+            nonlocal received_headers
+            received_headers = dict(self.headers)
+            length = int(self.headers.get("Content-Length", 0))
+            self.rfile.read(length)
+            self.send_response(202)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"task_id": "t-signed-1", "state": "submitted"}')
+
+    server = HTTPServer(("127.0.0.1", 0), HeaderCaptureHandler)
+    port = server.server_port
+    th = threading.Thread(target=server.serve_forever, daemon=True)
+    th.start()
+
+    endpoint = f"http://127.0.0.1:{port}"
+    try:
+        record = AgentRecord(
+            id="paired_peer",
+            display_name="Paired Peer",
+            kind="remote_http",
+            tier=3,
+            endpoint=endpoint,
+            tier3={
+                "allow_insecure": True,
+                "pinned_spki": "aa" * 32,
+                "node_identity": ident,
+            },
+        )
+        adapter = RemoteAgentAdapter(record)
+        assert adapter._sign_requests is True
+
+        res = adapter.call("run_task", {"prompt": "Run paired task", "workspace": "test"})
+        assert res.ok is True
+        assert "X-Brahma-Node" in received_headers
+        assert received_headers["X-Brahma-Node"] == ident.node_id
+        assert "X-Brahma-Signature" in received_headers
+        assert "X-Brahma-Timestamp" in received_headers
+        assert "X-Brahma-Nonce" in received_headers
+    finally:
+        server.shutdown()
+
+
+def test_remote_adapter_endpoint_scan_auto_detects_registry_peer(tmp_path: Path, monkeypatch):
+    """Verify endpoint scan against PeerRegistry automatically enables request signing and pinned SPKI."""
+    from core.peer.pairing import PeerRegistry, PinnedPeer
+
+    # Setup peer in custom registry file
+    reg_file = tmp_path / "peer" / "peers.json"
+    registry = PeerRegistry(reg_file)
+    peer = PinnedPeer(
+        node_id="peer-scan-1",
+        name="Auto Detected Peer",
+        endpoint="http://127.0.0.1:9876",
+        spki_sha256="expected-registry-spki-sha256",
+        token="peer-token-abc",
+        profile="worker",
+        paired_at="2026-01-01T00:00:00+00:00",
+        static_pub_raw="raw-pub-bytes",
+    )
+    registry.save_peer(peer)
+    assert len(registry.list_peers()) == 1
+
+    # 1. Verification via explicit tier3["registry_path"]
+    record_custom = AgentRecord(
+        id="auto_peer_custom",
+        display_name="Auto Peer Custom",
+        kind="remote_http",
+        tier=3,
+        endpoint="http://127.0.0.1:9876",
+        tier3={"registry_path": reg_file},
+    )
+    adapter_custom = RemoteAgentAdapter(record_custom)
+    assert adapter_custom._sign_requests is True
+    assert adapter_custom._pinned_spki == "expected-registry-spki-sha256"
+
+    # 2. Verification via default PeerRegistry() location
+    monkeypatch.setattr("core.peer.pairing.get_user_data_dir", lambda: tmp_path)
+    record_default = AgentRecord(
+        id="auto_peer_default",
+        display_name="Auto Peer Default",
+        kind="remote_http",
+        tier=3,
+        endpoint="http://127.0.0.1:9876",
+        tier3={},
+    )
+    adapter_default = RemoteAgentAdapter(record_default)
+    assert adapter_default._sign_requests is True
+    assert adapter_default._pinned_spki == "expected-registry-spki-sha256"
+
+    # 3. registry_path as a STRING — what persisted/hand-written config produces
+    record_str = AgentRecord(
+        id="auto_peer_str",
+        display_name="Auto Peer Str",
+        kind="remote_http",
+        tier=3,
+        endpoint="http://127.0.0.1:9876",
+        tier3={"registry_path": str(reg_file)},
+    )
+    adapter_str = RemoteAgentAdapter(record_str)
+    assert adapter_str._sign_requests is True
+    assert adapter_str._pinned_spki == "expected-registry-spki-sha256"
+
+    # 4. Full JSON round-trip like detectors.py loads records from disk
+    record_rt = AgentRecord.from_dict(json.loads(json.dumps(record_str.to_dict())))
+    adapter_rt = RemoteAgentAdapter(record_rt)
+    assert adapter_rt._sign_requests is True
+    assert adapter_rt._pinned_spki == "expected-registry-spki-sha256"

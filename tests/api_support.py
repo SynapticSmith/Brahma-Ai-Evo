@@ -39,7 +39,8 @@ def mint(
     """Mint against a fresh registry, the same way ``token mint`` does."""
     registry = TokenRegistry(config.tokens_path)
     if preset != "chat":
-        kwargs.setdefault("workspace", "test")
+        default_ws = next(iter(config.workspaces.keys()), "test") if config.workspaces else "test"
+        kwargs.setdefault("workspace", default_ws)
     kwargs.setdefault("provider", "stub")
     return registry.mint(preset, **kwargs)
 
@@ -67,13 +68,23 @@ def principal(
 def build_client(
     config: BrahmaApiConfig,
     factory: Optional[Callable[..., Any]] = None,
+    peer_store: Optional[Any] = None,
+    peer_identity: Optional[Any] = None,
+    peer_registry: Optional[Any] = None,
 ) -> Any:
     """A TestClient over an app whose runner uses ``factory`` (or the stub)."""
     from fastapi.testclient import TestClient
 
     registry = TokenRegistry(config.tokens_path)
     runner = AgentRunner(config, completer_factory=factory)
-    app = create_app(config, registry=registry, runner=runner)
+    app = create_app(
+        config,
+        registry=registry,
+        runner=runner,
+        peer_store=peer_store,
+        peer_identity=peer_identity,
+        peer_registry=peer_registry,
+    )
     return TestClient(app, raise_server_exceptions=False)
 
 

@@ -55,6 +55,32 @@ class AgentRunner:
         self._audit = audit
         self._runs: Dict[str, Dict[str, Any]] = {}
         self._runs_lock = threading.Lock()
+        self._active_tasks: Dict[str, threading.Event] = {}
+        self._active_tasks_lock = threading.Lock()
+
+    def register_active_task(self, task_id: str, cancel_event: threading.Event) -> None:
+        with self._active_tasks_lock:
+            self._active_tasks[task_id] = cancel_event
+
+    def unregister_active_task(self, task_id: str) -> None:
+        with self._active_tasks_lock:
+            self._active_tasks.pop(task_id, None)
+
+    def cancel_active_task(self, task_id: str) -> bool:
+        with self._active_tasks_lock:
+            event = self._active_tasks.get(task_id)
+            if event is not None:
+                event.set()
+                return True
+            return False
+
+    def is_active(self, task_id: str) -> bool:
+        with self._active_tasks_lock:
+            return task_id in self._active_tasks
+
+    def active_task_ids(self) -> List[str]:
+        with self._active_tasks_lock:
+            return list(self._active_tasks.keys())
 
     def get_run(self, run_id: str) -> Optional[Dict[str, Any]]:
         with self._runs_lock:
@@ -120,6 +146,11 @@ class AgentRunner:
         cancel: Optional[threading.Event] = None,
         sink_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
         run_id: Optional[str] = None,
+        task_id: Optional[str] = None,
+        tools: Optional[Any] = None,
+        max_turns: Optional[int] = None,
+        wall_clock_s: Optional[float] = None,
+        max_tool_calls: Optional[int] = None,
         approval_channel: str = "deny",
     ) -> RunOutcome:
         started = time.monotonic()
@@ -169,6 +200,9 @@ class AgentRunner:
             # one; a client disconnect must reach the loop.
             runtime.cancel_event = cancel
 
+        if task_id:
+            self.register_active_task(task_id, runtime.cancel_event)
+
         provider = principal.token.provider or self.config.default_provider
         upstream_model = principal.token.upstream_model
         try:
@@ -196,12 +230,16 @@ class AgentRunner:
             )
         system = compose_system(harness, seed.directives)
 
+        loop_tools = tools if tools is not None else ([] if not resolved.tools else None)
+        loop_max_turns = max_turns if max_turns is not None else resolved.max_turns
+
         loop = AgentLoop(
             completer,
-            tools=[] if not resolved.tools else None,
+            tools=loop_tools,
             runtime=runtime,
             system=system,
-            max_turns=resolved.max_turns,
+            max_turns=loop_max_turns,
+            max_tool_calls=max_tool_calls,
             on_event=sink,
             cancel=runtime.cancel_event,
         )
@@ -209,11 +247,12 @@ class AgentRunner:
             loop.context.append(dict(message))
 
         watchdog: Optional[threading.Timer] = None
-        if self.config.limits.wall_clock_s and self.config.limits.wall_clock_s > 0:
+        effective_wall_clock = wall_clock_s if (wall_clock_s is not None and wall_clock_s > 0) else self.config.limits.wall_clock_s
+        if effective_wall_clock and effective_wall_clock > 0:
             # 0 means "no outer bound": the per-call socket timeouts still keep
             # a wedged provider from hanging forever, but a long reasoning run
             # is allowed to finish.
-            watchdog = threading.Timer(self.config.limits.wall_clock_s, runtime.cancel)
+            watchdog = threading.Timer(effective_wall_clock, runtime.cancel)
             watchdog.daemon = True
             watchdog.start()
         try:
@@ -221,6 +260,8 @@ class AgentRunner:
         finally:
             if watchdog is not None:
                 watchdog.cancel()
+            if task_id:
+                self.unregister_active_task(task_id)
 
         elapsed = round(time.monotonic() - started, 2)
         result.usage["elapsed_s"] = elapsed

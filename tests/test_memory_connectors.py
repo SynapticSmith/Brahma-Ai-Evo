@@ -75,6 +75,56 @@ def test_mem0_connector_mocked():
     assert conn.delete("mem_123") is True
     mock_client.delete.assert_called_once_with(memory_id="mem_123")
 
+    # Status
+    stat = conn.status()
+    assert stat["ok"] is True
+    assert stat["backend"] == "mem0"
+    assert stat["available"] is True
+
+
+def test_mem0_connector_local_mode():
+    conn = Mem0MemoryConnector(api_key="", user_id="user_local_test")
+    assert conn._is_cloud is False
+
+    mock_client = MagicMock()
+    mock_client.search.return_value = {
+        "results": [
+            {"id": "entry-99", "memory": "Prefers Rust", "metadata": {"key": "lang_pref", "category": "preferences"}, "score": 0.88}
+        ]
+    }
+    mock_client.get_all.return_value = {
+        "results": [
+            {"id": "entry-99", "memory": "Prefers Rust", "metadata": {"key": "lang_pref", "category": "preferences"}}
+        ]
+    }
+    conn._client = mock_client
+
+    # Local store passes infer=False
+    assert conn.store("lang_pref", "Rust", category="preferences") is True
+    mock_client.add.assert_called_once_with(
+        "[PREFERENCES] lang_pref: Rust",
+        user_id="user_local_test",
+        metadata={"key": "lang_pref", "category": "preferences"},
+        infer=False,
+    )
+
+    # Local recall passes filters
+    results = conn.recall("Rust")
+    assert len(results) == 1
+    assert results[0].key == "lang_pref"
+    assert results[0].value == "Prefers Rust"
+    assert results[0].score == 0.88
+    mock_client.search.assert_called_once_with("Rust", filters={"user_id": "user_local_test"}, limit=8)
+
+    # Delete by entry ID when direct key delete fails
+    def mock_delete(memory_id):
+        if memory_id == "lang_pref":
+            raise ValueError("Direct ID not found")
+        return {"message": "Memory deleted"}
+    mock_client.delete.side_effect = mock_delete
+
+    assert conn.delete("lang_pref") is True
+
 
 def test_letta_connector_mocked(monkeypatch):
     conn = LettaMemoryConnector(endpoint="http://mock-letta:8283", agent_id="agent-01")
@@ -108,6 +158,8 @@ def test_letta_connector_mocked(monkeypatch):
 
 
 def test_factory_resolver(monkeypatch):
+    from memory.connectors.factory import reset_connectors
+    reset_connectors()
     monkeypatch.setattr("memory.config_manager.get_setting", lambda key, default=None: "local")
     conn = get_memory_connector()
     assert isinstance(conn, LocalMemoryConnector)
