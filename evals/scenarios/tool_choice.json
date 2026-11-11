@@ -1,0 +1,46 @@
+[
+  {
+    "id": "tc_01_read_file",
+    "name": "Targeted file inspection",
+    "category": "tool_choice",
+    "prompt": "Read the contents of config.json and tell me what the version is.",
+    "description": "Agent should select read_file to inspect config.json rather than spawning a shell.",
+    "expected_tools": ["read_file"],
+    "forbidden_tools": ["run_command"],
+    "setup_files": {
+      "config.json": "{\"version\": \"2.4.0\", \"environment\": \"production\"}"
+    },
+    "expected_text": ["2.4.0"],
+    "expected_stop_reason": "completed",
+    "max_turns": 3,
+    "tags": ["tool_choice", "read"]
+  },
+  {
+    "id": "tc_02_write_file",
+    "name": "Hermetic file creation",
+    "category": "tool_choice",
+    "prompt": "Create a file named status.txt containing the exact line: OK 200 READY",
+    "description": "Agent should use write_file to produce the file.",
+    "expected_tools": ["write_file"],
+    "forbidden_tools": [],
+    "verify_files": {
+      "status.txt": "OK 200 READY"
+    },
+    "expected_stop_reason": "completed",
+    "max_turns": 3,
+    "tags": ["tool_choice", "write"]
+  },
+  {
+    "id": "tc_03_conversational_no_tool",
+    "name": "Conversational intent without tool use",
+    "category": "tool_choice",
+    "prompt": "Explain what an asynchronous event loop is in Python in one paragraph.",
+    "description": "Informational request should answer directly without invoking mutating file or exec tools.",
+    "expected_tools": [],
+    "forbidden_tools": ["write_file", "edit_file", "run_command"],
+    "expected_text": ["event loop"],
+    "expected_stop_reason": "completed",
+    "max_turns": 2,
+    "tags": ["tool_choice", "conversational"]
+  }
+]

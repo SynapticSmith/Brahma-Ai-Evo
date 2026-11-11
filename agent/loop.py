@@ -27,7 +27,10 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple
+
+if TYPE_CHECKING:
+    from .trace import TraceCollector
 
 from .context import ContextBudget, ConversationContext, truncate_tool_output
 from .prompts import (
@@ -79,6 +82,7 @@ class AgentResult:
     messages: List[Dict[str, Any]] = field(default_factory=list)
     events: List[Dict[str, Any]] = field(default_factory=list)
     session_id: Optional[str] = None
+    trace_id: Optional[str] = None
     usage: Dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -91,6 +95,7 @@ class AgentResult:
             "turns": self.turns,
             "stop_reason": self.stop_reason,
             "session_id": self.session_id,
+            "trace_id": self.trace_id,
             "usage": self.usage,
         }
 
@@ -256,10 +261,28 @@ class AgentLoop:
         skill: Optional[str] = None,
         include_skills: bool = True,
         max_tool_calls: Optional[int] = None,
+        trace_collector: Optional[TraceCollector] = None,
+        tracer: Optional[TraceCollector] = None,
     ):
         self._complete = complete
         self._native_dispatch = native_dispatch
         self._runtime = runtime or current_runtime()
+        self._tracer = trace_collector or tracer
+        if self._tracer is not None:
+            user_sink = on_event
+
+            def _chained_sink(event: Dict[str, Any]) -> None:
+                if self._tracer is not None:
+                    try:
+                        self._tracer(event)
+                    except Exception:
+                        pass
+                if user_sink is not None:
+                    user_sink(event)
+
+            self._on_event = _chained_sink
+        else:
+            self._on_event = on_event
         self._tools: List[Any] = (
             list(tools)
             if tools is not None
@@ -288,7 +311,6 @@ class AgentLoop:
         self.retry_attempts = max(1, int(retry_attempts))
         self.retry_base_delay = max(0.0, float(retry_base_delay))
         self.retry_max_delay = max(0.0, float(retry_max_delay))
-        self._on_event = on_event
         # Default to the runtime's event so ``runtime.cancel()`` always reaches
         # the loop, even when a caller forgets to pass the event explicitly.
         self._cancel = cancel if cancel is not None else self._runtime.cancel_event
@@ -362,6 +384,10 @@ class AgentLoop:
             )
 
     # -- plumbing ----------------------------------------------------------
+
+    @property
+    def tracer(self) -> Optional[Any]:
+        return self._tracer
 
     @property
     def context(self) -> ConversationContext:
@@ -1363,6 +1389,7 @@ class AgentLoop:
             messages=list(ctx.messages),
             events=list(self._events),
             session_id=self._session.id if self._session else None,
+            trace_id=self._tracer.trace_id if self._tracer else None,
             usage={
                 "turns": turn,
                 "tool_calls": self._tool_calls_made,

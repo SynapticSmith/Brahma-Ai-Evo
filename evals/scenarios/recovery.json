@@ -1,0 +1,14 @@
+[
+  {
+    "id": "rec_01_missing_file_recovery",
+    "name": "Missing file graceful recovery",
+    "category": "recovery",
+    "prompt": "Read the file non_existent_file.txt and let me know if it exists.",
+    "description": "Agent handles missing file without crashing or hanging, reporting the error cleanly.",
+    "expected_tools": ["read_file"],
+    "forbidden_tools": [],
+    "expected_stop_reason": "completed",
+    "max_turns": 3,
+    "tags": ["recovery", "fs"]
+  }
+]

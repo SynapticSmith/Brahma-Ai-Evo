@@ -30,7 +30,7 @@ from .loop import AgentLoop
 from .mcp import MCPConfigError, MCPSession, discover_config, load_config
 from .permissions import PermissionPolicy, write_template
 from .prompts import build_system_prompt
-from .providers import ProviderUnavailable, build_completer, build_summarizer
+from .providers import PROVIDERS, ProviderUnavailable, build_completer, build_summarizer
 from .runtime import AgentRuntime, configure, policy_note
 from .session import AgentSession, SessionNotFound
 from .spec import TOOL_CLASSES
@@ -372,6 +372,14 @@ def _cmd_run(args: argparse.Namespace) -> int:
             )
 
         system = build_system_prompt(workspace, permission_note=policy_note())
+        from .trace import TraceCollector, TraceSink
+
+        trace_collector = TraceCollector(
+            sink=TraceSink(),
+            task_prompt=prompt,
+            session_id=session.id if session else None,
+        )
+
         loop = AgentLoop(
             completer,
             native_dispatch=None,
@@ -387,6 +395,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             summarizer=summarizer,
             cancel=runtime.cancel_event,
             stream=args.stream,
+            tracer=trace_collector,
         )
         runtime.reset_cancel()
         restore = _install_cancel(runtime)
@@ -767,6 +776,70 @@ def _cmd_mcp_server(args: argparse.Namespace) -> int:
         return EXIT_INTERRUPTED
 
 
+def _cmd_eval(args: argparse.Namespace) -> int:
+    from .evals import EvalRunner, load_scenarios_from_dir
+    from .trace import TraceSink
+
+    scenarios_dir = (
+        Path(args.scenarios_dir).resolve()
+        if args.scenarios_dir
+        else (Path.cwd() / "evals" / "scenarios")
+    )
+    scenarios = load_scenarios_from_dir(scenarios_dir, category=args.category)
+    if not scenarios:
+        sys.stderr.write(f"error: no scenarios found in {scenarios_dir}\n")
+        return EXIT_USAGE
+
+    runner = EvalRunner(trace_sink=TraceSink(), default_provider=args.provider)
+    suite_result = runner.run_suite(scenarios, custom_provider=args.provider)
+
+    if args.json:
+        sys.stdout.write(json.dumps(suite_result.to_dict(), indent=2) + "\n")
+    else:
+        sys.stdout.write(suite_result.summary_text() + "\n")
+
+    return EXIT_OK if suite_result.failed == 0 else EXIT_ERROR
+
+
+def _cmd_trace(args: argparse.Namespace) -> int:
+    from .trace import TraceSink
+
+    sink = TraceSink()
+    if args.trace_action == "list":
+        traces = sink.list_traces(limit=args.limit)
+        if args.json:
+            sys.stdout.write(json.dumps([t.to_dict() for t in traces], indent=2) + "\n")
+            return EXIT_OK
+        if not traces:
+            sys.stdout.write("no traces recorded.\n")
+            return EXIT_OK
+        sys.stdout.write(f"{'trace_id':<34} {'status':<10} {'turns':<7} {'prompt':<30}\n")
+        for t in traces:
+            turn_count = len([s for s in t.spans if s.kind == 'turn'])
+            sys.stdout.write(f"{t.trace_id:<34} {t.status:<10} {turn_count:<7} {t.task_prompt[:28]:<30}\n")
+        return EXIT_OK
+
+    if args.trace_action == "show":
+        trace = sink.get_trace(args.trace_id)
+        if not trace:
+            sys.stderr.write(f"error: trace {args.trace_id!r} not found\n")
+            return EXIT_USAGE
+        if args.json:
+            sys.stdout.write(json.dumps(trace.to_dict(), indent=2) + "\n")
+            return EXIT_OK
+        sys.stdout.write(f"Trace: {trace.trace_id}\n")
+        sys.stdout.write(f"Status: {trace.status} ({trace.stop_reason or '-'})\n")
+        if trace.failure_label:
+            sys.stdout.write(f"Failure Label: {trace.failure_label}\n")
+        sys.stdout.write(f"Prompt: {trace.task_prompt}\n")
+        sys.stdout.write(f"Spans ({len(trace.spans)}):\n")
+        for s in trace.spans:
+            dur = f"{s.duration_ms:.1f}ms" if s.duration_ms is not None else "-"
+            sys.stdout.write(f"  [{s.kind}] {s.name:<25} {s.status:<8} {dur}\n")
+        return EXIT_OK
+    return EXIT_USAGE
+
+
 # --------------------------------------------------------------------------- #
 # Parser
 # --------------------------------------------------------------------------- #
@@ -895,6 +968,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     mcp_server.add_argument("--timeout", type=float, default=120.0, help="Per-command tool timeout in seconds")
 
+    eval_parser = sub.add_parser("eval", help="Run scenario evaluation suite and scorecard")
+    eval_parser.add_argument("--scenarios-dir", default=None, help="Directory containing scenario JSON files")
+    eval_parser.add_argument(
+        "--category",
+        choices=("tool_choice", "multi_step", "recovery", "safety", "memory"),
+        default=None,
+        help="Filter scenarios by category",
+    )
+    eval_parser.add_argument("--provider", default="stub", choices=PROVIDERS, help="Provider for evaluation")
+    eval_parser.add_argument("--json", action="store_true", help="Emit JSON scorecard")
+
+    trace_parser = sub.add_parser("trace", help="List or inspect execution traces")
+    trace_sub = trace_parser.add_subparsers(dest="trace_action", required=True)
+    trace_list = trace_sub.add_parser("list", help="List recent execution traces")
+    trace_list.add_argument("--limit", type=int, default=20)
+    trace_list.add_argument("--json", action="store_true")
+    trace_show = trace_sub.add_parser("show", help="Show details of a specific trace")
+    trace_show.add_argument("trace_id", help="Trace ID to inspect")
+    trace_show.add_argument("--json", action="store_true")
+
     return parser
 
 
@@ -905,7 +998,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # `python -m agent "do the thing"` -> treat the first bare word as a run.
     known = {
-        "run", "resume", "sessions", "tools", "skills", "scripts", "cookbook", "subagents", "mcp", "mcp-server", "permissions", "sandbox",
+        "run", "resume", "sessions", "tools", "skills", "scripts", "cookbook", "subagents", "mcp", "mcp-server", "permissions", "sandbox", "eval", "trace",
         "-h", "--help",
     }
     if argv and argv[0] not in known:
@@ -941,6 +1034,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             return _cmd_sandbox(args)
         if args.command == "mcp-server":
             return _cmd_mcp_server(args)
+        if args.command == "eval":
+            return _cmd_eval(args)
+        if args.command == "trace":
+            return _cmd_trace(args)
     except KeyboardInterrupt:
         sys.stderr.write("\n[interrupted]\n")
         return EXIT_INTERRUPTED
