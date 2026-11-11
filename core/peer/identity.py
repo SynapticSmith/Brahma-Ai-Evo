@@ -256,3 +256,17 @@ class NodeIdentity:
         cert_path.write_bytes(cert_pem)
         key_path.write_bytes(key_pem)
         return cert_path, key_path
+
+    def ensure_certificate_files(
+        self,
+        cert_dir: Optional[Path] = None,
+        days_valid: int = 90,
+    ) -> Tuple[Path, Path]:
+        """Ensure PEM certificate and key exist on disk, generating them if needed."""
+        target_dir = cert_dir or (get_user_data_dir() / "identity")
+        target_dir.mkdir(parents=True, exist_ok=True)
+        cert_path = target_dir / "cert.pem"
+        key_path = target_dir / "key.pem"
+        if not (cert_path.is_file() and key_path.is_file()):
+            self.save_certificate_files(cert_path, key_path, days_valid=days_valid)
+        return cert_path, key_path

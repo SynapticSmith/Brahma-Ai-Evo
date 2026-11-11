@@ -8,7 +8,8 @@ import json
 import logging
 import threading
 import time
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Tuple
+import urllib.parse
 import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
@@ -33,6 +34,7 @@ from core.peer.pairing import (
     PairingOffer,
     PeerRegistry,
     PinnedPeer,
+    prune_pending_offers,
 )
 from core.peer.recursion import (
     RecursionDeniedError,
@@ -103,6 +105,19 @@ def build_peer_router(
     if pending_offers_map is None:
         pending_offers_map = {}
 
+    def _announced_endpoint(req: Optional[Request] = None) -> str:
+        active_svc = (getattr(getattr(req, "app", None), "state", None) and getattr(req.app.state, "peer_service", None)) or service
+        if active_svc and getattr(active_svc, "endpoint", None):
+            return active_svc.endpoint
+        return getattr(config, "peer_endpoint", f"http://{config.host}:{config.port}")
+
+    def _announced_host_port(req: Optional[Request] = None) -> Tuple[str, int]:
+        ep = _announced_endpoint(req)
+        parsed = urllib.parse.urlparse(ep)
+        h = parsed.hostname or (config.host if config.host not in ("0.0.0.0", "") else "127.0.0.1")
+        p = parsed.port or getattr(config, "peer_port", config.port)
+        return h, p
+
     def principal_for(authorization: Optional[str] = Header(default=None)) -> Principal:
         if not config.auth_required:
             from .server import _anonymous
@@ -127,16 +142,6 @@ def build_peer_router(
             return principal
         return dependency
 
-    def _prune_offers(offers: Dict[str, Any], max_age_s: float = 120.0) -> None:
-        now = time.time()
-        expired = [
-            nonce
-            for nonce, off in list(offers.items())
-            if (now - getattr(off, "created_at", 0.0)) > max_age_s
-        ]
-        for nonce in expired:
-            offers.pop(nonce, None)
-
     def require_pairing_consent(principal: Principal = Depends(principal_for)) -> Principal:
         """Gating dependency for pairing consent: operator preset or administrative/pair scope."""
         if not config.auth_required:
@@ -147,11 +152,6 @@ def build_peer_router(
             raise forbidden(
                 f"Pairing consent requires operator preset or administrative/pair scope; key profile is {principal.profile!r}.",
                 code="insufficient_scope",
-            )
-        if principal.profile in ("chat", "reader", "worker") and not has_admin_scope:
-            raise forbidden(
-                f"Keys with profile {principal.profile!r} cannot issue pairing offers.",
-                code="insufficient_profile",
             )
         return principal
 
@@ -292,7 +292,7 @@ def build_peer_router(
         }
 
     @router.get("/.well-known/agent-card.json")
-    def a2a_agent_card() -> Dict[str, Any]:
+    def a2a_agent_card(request: Request) -> Dict[str, Any]:
         """A2A v1.0 standard Agent Card specification endpoint."""
         ws_keys = list(config.workspaces.keys())
         skills = [
@@ -310,7 +310,7 @@ def build_peer_router(
             "name": getattr(config, "node_name", "Brahma Node"),
             "spki_sha256": spki_sha256,
             "description": "Brahma Peer Task Node (A2A v1.0 Binding).",
-            "url": f"http://{config.host}:{config.port}",
+            "url": _announced_endpoint(request),
             "preferredTransport": "HTTP+JSON",
             "version": "1.4.0",
             "capabilities": {
@@ -1131,14 +1131,15 @@ def build_peer_router(
 
     @router.post("/pair/offer")
     def create_pairing_offer(
+        request: Request,
         principal: Principal = Depends(require_pairing_consent),
     ) -> Dict[str, Any]:
         """Generate a fresh single-use 120s pairing offer for this node (operator authenticated)."""
         if not resolved_ident or not persistent_coord:
             raise unavailable("Node identity not configured on this host.")
-        _prune_offers(pending_offers_map)
-        host = config.host if config.host not in ("0.0.0.0", "") else "127.0.0.1"
-        offer = persistent_coord.create_offer(host=host, port=config.port)
+        prune_pending_offers(pending_offers_map)
+        host, port = _announced_host_port(request)
+        offer = persistent_coord.create_offer(host=host, port=port)
         pending_offers_map[offer.nonce] = offer
         return {
             "offer_uri": offer.to_uri(),
@@ -1151,12 +1152,12 @@ def build_peer_router(
         }
 
     @router.post("/pair/exchange")
-    def execute_pairing_exchange(payload: Dict[str, Any]) -> Dict[str, Any]:
+    def execute_pairing_exchange(request: Request, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Callee side of the mutual SAS pairing handshake with verified operator consent."""
         if not resolved_ident or not persistent_coord:
             raise unavailable("Node identity not configured on this host.")
 
-        _prune_offers(pending_offers_map)
+        prune_pending_offers(pending_offers_map)
 
         offer_uri = str(payload.get("offer_uri") or "")
         initiator_node_id = str(payload.get("initiator_node_id") or "")
@@ -1227,7 +1228,7 @@ def build_peer_router(
             profile=peer_profile,
             callee_node_id=node_id,
             callee_spki_sha256=spki_sha256,
-            callee_endpoint=f"http://{config.host}:{config.port}",
+            callee_endpoint=_announced_endpoint(request),
         )
 
         # Pin initiator on callee side with NO outbound token (callee does not use minted_token outbound)

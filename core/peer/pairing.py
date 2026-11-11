@@ -124,6 +124,19 @@ class PairingOffer:
         return offer
 
 
+def prune_pending_offers(offers: Dict[str, Any], max_age_s: float = OFFER_TTL_S) -> int:
+    """Prune expired pairing offers from an in-memory dictionary. Returns count of pruned offers."""
+    now = time.time()
+    expired = [
+        nonce
+        for nonce, off in list(offers.items())
+        if (now - getattr(off, "created_at", 0.0)) > max_age_s
+    ]
+    for nonce in expired:
+        offers.pop(nonce, None)
+    return len(expired)
+
+
 @dataclass
 class PinnedPeer:
     """Record of a successfully paired and pinned peer."""

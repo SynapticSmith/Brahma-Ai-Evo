@@ -312,6 +312,11 @@ class PinnedHTTPSConnection(urllib.request.http.client.HTTPSConnection):
 
     def __init__(self, *args: Any, pinned_spki: str = "", **kwargs: Any) -> None:
         self.pinned_spki = pinned_spki.strip()
+        if "context" not in kwargs or kwargs["context"] is None:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            kwargs["context"] = ctx
         super().__init__(*args, **kwargs)
 
     def connect(self) -> None:

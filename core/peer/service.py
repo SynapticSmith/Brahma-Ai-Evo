@@ -8,13 +8,12 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
 from typing import Any, Dict, List, Optional
 
 from core.peer.artifacts import PeerArtifactStore
 from core.peer.discovery import DiscoveredPeer, PeerDiscoveryBeacon, PeerDiscoveryListener
 from core.peer.identity import NodeIdentity
-from core.peer.pairing import PeerRegistry
+from core.peer.pairing import PeerRegistry, prune_pending_offers
 from core.peer.scheduler import ReservationLedger
 from core.peer.store import PeerTaskStore
 
@@ -79,15 +78,7 @@ class PeerService:
     def prune_pending_offers(self, max_age_s: float = 120.0) -> int:
         """Prune expired pending pairing offers to prevent unbounded accumulation."""
         with self._lock:
-            now = time.time()
-            expired = [
-                nonce
-                for nonce, offer in list(self.pending_offers.items())
-                if (now - getattr(offer, "created_at", 0.0)) > max_age_s
-            ]
-            for nonce in expired:
-                self.pending_offers.pop(nonce, None)
-            return len(expired)
+            return prune_pending_offers(self.pending_offers, max_age_s=max_age_s)
 
     @property
     def drain_mode(self) -> bool:

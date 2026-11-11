@@ -74,6 +74,20 @@ def _apply_overrides(config: BrahmaApiConfig, args: argparse.Namespace) -> Optio
         if port < 1024 or port > 65535:
             return f"port {port} is outside 1024..65535"
         config.port = port
+    if getattr(args, "peer_port", None) is not None:
+        peer_port = int(args.peer_port)
+        if peer_port < 1024 or peer_port > 65535:
+            return f"peer-port {peer_port} is outside 1024..65535"
+        config.peer_port = peer_port
+    if hasattr(args, "peer_tls") and args.peer_tls is not None:
+        config.peer_tls = bool(args.peer_tls)
+    if hasattr(args, "insecure_peer") and args.insecure_peer is not None:
+        config.insecure_peer = bool(args.insecure_peer)
+    if config.host.lower() not in LOOPBACK_HOSTS and not config.peer_tls and not config.insecure_peer:
+        return (
+            "non-loopback peer surface requires TLS (ADR-033). "
+            "Pass --insecure-peer only if running behind a trusted reverse proxy terminating TLS."
+        )
     return None
 
 
@@ -149,6 +163,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
         print(f"  peer federation: node_id={resolved_svc.identity.node_id}")
 
     print(f"brahma_api {API_VERSION} listening on http://{config.host}:{config.port}")
+    if config.peer_port != config.port:
+        tls_label = "TLS 1.3 SPKI-pinned" if config.peer_tls else "INSECURE cleartext"
+        print(f"  peer endpoint: {config.peer_endpoint} ({tls_label})")
     print(
         f"  auth: {'required' if config.auth_required else 'DISABLED'} "
         f"({len(_active(registry))} active key(s))"
@@ -308,6 +325,20 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--base-dir", default=None, help="repository root holding config/")
     serve.add_argument("--host", default=None, help="loopback host override")
     serve.add_argument("--port", type=int, default=None, help="port override (1024-65535)")
+    serve.add_argument("--peer-port", type=int, default=None, help="peer federation port override (1024-65535)")
+    serve.add_argument(
+        "--no-peer-tls",
+        dest="peer_tls",
+        action="store_false",
+        default=True,
+        help="disable TLS on the peer surface (loopback only unless --insecure-peer)",
+    )
+    serve.add_argument(
+        "--insecure-peer",
+        action="store_true",
+        default=False,
+        help="allow cleartext HTTP on peer surface even when bound to non-loopback address",
+    )
     serve.add_argument(
         "--enable-peer-discovery",
         action="store_true",

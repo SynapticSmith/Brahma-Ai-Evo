@@ -231,7 +231,7 @@ def test_a2a_agent_card_returns_v1_profile(peer_env):
     card = resp.json()
     assert card["protocolVersion"] == "1.0"
     assert card["name"] == "Workshop PC"
-    assert card["url"].startswith("http://")
+    assert card["url"].startswith(("http://", "https://"))
     assert card["preferredTransport"] == "HTTP+JSON"
     assert isinstance(card["skills"], list)
     assert len(card["skills"]) >= 1

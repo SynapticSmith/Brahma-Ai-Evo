@@ -274,7 +274,7 @@ def create_app(
                 store=resolved_store,
                 registry=resolved_registry,
                 artifact_store=resolved_artifacts,
-                endpoint=f"http://{config.host}:{config.port}",
+                endpoint=config.peer_endpoint,
             )
             set_active_peer_service(resolved_service)
         except Exception as exc:
@@ -913,7 +913,65 @@ async def _stream_completions(
     )
 
 
-def serve(config: BrahmaApiConfig, *, app: Optional[FastAPI] = None) -> uvicorn.Server:
+class CompositeServer:
+    """Runs primary HTTP port (8010) and optional TLS peer port (8443) concurrently."""
+
+    def __init__(self, main_server: uvicorn.Server, peer_server: Optional[uvicorn.Server] = None) -> None:
+        self.main_server = main_server
+        self.peer_server = peer_server
+
+    @property
+    def config(self) -> uvicorn.Config:
+        return self.main_server.config
+
+    @property
+    def started(self) -> bool:
+        if self.peer_server:
+            return self.main_server.started and self.peer_server.started
+        return self.main_server.started
+
+    @property
+    def should_exit(self) -> bool:
+        return self.main_server.should_exit or (self.peer_server.should_exit if self.peer_server else False)
+
+    @should_exit.setter
+    def should_exit(self, value: bool) -> None:
+        self.main_server.should_exit = value
+        if self.peer_server:
+            self.peer_server.should_exit = value
+
+    async def serve(self, sockets: Any = None) -> None:
+        if self.peer_server is None:
+            await self.main_server.serve(sockets=sockets)
+            return
+
+        async def _sync_exit() -> None:
+            while not (self.main_server.should_exit or self.peer_server.should_exit):
+                await asyncio.sleep(0.05)
+            self.main_server.should_exit = True
+            self.peer_server.should_exit = True
+
+        sync_task = asyncio.create_task(_sync_exit())
+        try:
+            await asyncio.gather(
+                self.main_server.serve(sockets=sockets),
+                self.peer_server.serve(),
+            )
+        finally:
+            sync_task.cancel()
+            try:
+                await sync_task
+            except asyncio.CancelledError:
+                pass
+
+    def run(self, sockets: Any = None) -> None:
+        try:
+            asyncio.run(self.serve(sockets=sockets))
+        except KeyboardInterrupt:
+            self.should_exit = True
+
+
+def serve(config: BrahmaApiConfig, *, app: Optional[FastAPI] = None) -> Any:
     """Build the ASGI server. Refuses to start when the config says disabled."""
     if not config.enabled:
         raise SystemExit(
@@ -921,11 +979,56 @@ def serve(config: BrahmaApiConfig, *, app: Optional[FastAPI] = None) -> uvicorn.
             "(loopback and a bearer token are still required)."
         )
     application = app or create_app(config)
-    uv_config = uvicorn.Config(
+    main_uv_config = uvicorn.Config(
         application,
         host=config.host,
         port=config.port,
         log_level="warning",
         access_log=False,
     )
-    return uvicorn.Server(uv_config)
+
+    cert_path: Optional[Path] = None
+    key_path: Optional[Path] = None
+    if config.peer_tls:
+        if config.peer_cert and config.peer_key:
+            cert_path = Path(config.peer_cert)
+            key_path = Path(config.peer_key)
+        else:
+            ident = getattr(getattr(application, "state", None), "peer_identity", None)
+            if ident is None:
+                from core.peer.identity import NodeIdentity
+
+                ident = NodeIdentity.load_or_create(enforce_machine_binding=False)
+            base_dir = getattr(config, "base_dir", None)
+            identity_dir = (base_dir / "peer" / "identity") if base_dir else None
+            cert_path, key_path = ident.ensure_certificate_files(cert_dir=identity_dir)
+
+    if config.peer_port == config.port:
+        if config.peer_tls and cert_path and key_path:
+            main_uv_config.ssl_certfile = str(cert_path)
+            main_uv_config.ssl_keyfile = str(key_path)
+        return uvicorn.Server(main_uv_config)
+
+    main_server = uvicorn.Server(main_uv_config)
+    if config.peer_tls and cert_path and key_path:
+        peer_uv_config = uvicorn.Config(
+            application,
+            host=config.host,
+            port=config.peer_port,
+            log_level="warning",
+            access_log=False,
+            lifespan="off",
+            ssl_certfile=str(cert_path),
+            ssl_keyfile=str(key_path),
+        )
+    else:
+        peer_uv_config = uvicorn.Config(
+            application,
+            host=config.host,
+            port=config.peer_port,
+            log_level="warning",
+            access_log=False,
+            lifespan="off",
+        )
+    peer_server = uvicorn.Server(peer_uv_config)
+    return CompositeServer(main_server, peer_server)

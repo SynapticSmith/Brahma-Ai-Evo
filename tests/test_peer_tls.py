@@ -114,3 +114,63 @@ def test_pinned_https_connection_verification(monkeypatch):
 
     assert "SPKI pin mismatch" in str(exc_info.value)
     assert conn_bad.sock.closed is True
+
+
+def test_real_tls_server_handshake_and_pinning_enforcement(tmp_path):
+    """Verify live uvicorn TLS server with NodeIdentity certificate authenticates via SPKI pinning."""
+    import socket
+    import threading
+    import time
+    from fastapi import FastAPI
+    import uvicorn
+    from core.peer.crypto import build_pinned_opener
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+
+    ident = NodeIdentity.load_or_create(identity_dir=tmp_path, enforce_machine_binding=False)
+    cert_path, key_path = ident.ensure_certificate_files(cert_dir=tmp_path)
+    app = FastAPI()
+
+    @app.get("/ping")
+    def ping():
+        return {"status": "ok", "node_id": ident.node_id}
+
+    uv_config = uvicorn.Config(
+        app,
+        host="127.0.0.1",
+        port=port,
+        log_level="critical",
+        ssl_certfile=str(cert_path),
+        ssl_keyfile=str(key_path),
+    )
+    server = uvicorn.Server(uv_config)
+    th = threading.Thread(target=server.run, daemon=True)
+    th.start()
+    try:
+        start_time = time.time()
+        while not server.started:
+            if time.time() - start_time > 10.0:
+                raise TimeoutError("uvicorn TLS test server failed to start within 10s")
+            time.sleep(0.02)
+
+        # 1. Pinned opener with matching SPKI succeeds (TLS 1.3 self-signed)
+        opener = build_pinned_opener(ident.spki_sha256)
+        with opener.open(f"https://127.0.0.1:{port}/ping") as resp:
+            assert resp.status == 200
+
+        # 2. Pinned opener with mismatching SPKI raises CertificatePinningError
+        bad_opener = build_pinned_opener("mismatched_spki_fingerprint_00000000000000000000000000000000")
+        with pytest.raises(CertificatePinningError):
+            bad_opener.open(f"https://127.0.0.1:{port}/ping")
+
+        # 3. Raw PinnedHTTPSConnection succeeds without explicit SSL context
+        conn = PinnedHTTPSConnection("127.0.0.1", port=port, pinned_spki=ident.spki_sha256)
+        conn.request("GET", "/ping")
+        r = conn.getresponse()
+        assert r.status == 200
+        conn.close()
+    finally:
+        server.should_exit = True
+        th.join(timeout=5)

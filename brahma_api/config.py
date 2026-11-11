@@ -24,6 +24,7 @@ from agent.providers import PROVIDERS
 #: 8000 is the dashboard, 8765 is the gateway. Reusing either would make the
 #: "already running in another instance" check ambiguous.
 DEFAULT_PORT = 8010
+DEFAULT_PEER_PORT = 8443
 LOOPBACK_HOSTS = ("127.0.0.1", "::1", "localhost")
 PROFILES = ("chat", "reader", "worker", "operator")
 STREAM_MODES = ("final", "all")
@@ -127,6 +128,11 @@ class BrahmaApiConfig:
     enabled: bool = False
     host: str = "127.0.0.1"
     port: int = DEFAULT_PORT
+    peer_port: int = DEFAULT_PEER_PORT
+    peer_tls: bool = True
+    insecure_peer: bool = False
+    peer_cert: Optional[str] = None
+    peer_key: Optional[str] = None
     allow_remote_bind: bool = False
     auth_required: bool = True
     node_name: str = "Brahma Node"
@@ -139,6 +145,11 @@ class BrahmaApiConfig:
     audit: bool = True
     audit_log: Optional[str] = None
     problems: List[str] = field(default_factory=list, repr=False)
+
+    @property
+    def peer_endpoint(self) -> str:
+        scheme = "https" if self.peer_tls else "http"
+        return f"{scheme}://{self.host}:{self.peer_port}"
 
     # -- paths -------------------------------------------------------------
 
@@ -190,6 +201,14 @@ class BrahmaApiConfig:
             else DEFAULT_PORT
         )
 
+        peer_port = (
+            _int(data["peer_port"], DEFAULT_PEER_PORT, low=1024, high=65535, problems=problems, name="peer_port")
+            if "peer_port" in data
+            else DEFAULT_PEER_PORT
+        )
+        peer_tls = bool(data.get("peer_tls", True))
+        insecure_peer = bool(data.get("insecure_peer", False))
+
         preselect = str(data.get("preselect_profile") or "reader").strip().lower()
         if preselect not in PROFILES:
             problems.append(f"preselect_profile {preselect!r} is not one of {PROFILES}; using reader")
@@ -221,6 +240,9 @@ class BrahmaApiConfig:
             enabled=enabled,
             host=host,
             port=port,
+            peer_port=peer_port,
+            peer_tls=peer_tls,
+            insecure_peer=insecure_peer,
             allow_remote_bind=allow_remote,
             auth_required=bool(data.get("auth_required", True)),
             node_name=str(data.get("node_name") or "Brahma Node").strip(),
@@ -263,6 +285,9 @@ class BrahmaApiConfig:
             "enabled": self.enabled,
             "host": self.host,
             "port": self.port,
+            "peer_port": self.peer_port,
+            "peer_tls": self.peer_tls,
+            "insecure_peer": self.insecure_peer,
             "allow_remote_bind": self.allow_remote_bind,
             "auth_required": self.auth_required,
             "preselect_profile": self.preselect_profile,
