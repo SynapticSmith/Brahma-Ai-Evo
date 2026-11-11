@@ -71,6 +71,8 @@ def build_client(
     peer_store: Optional[Any] = None,
     peer_identity: Optional[Any] = None,
     peer_registry: Optional[Any] = None,
+    peer_artifact_store: Optional[Any] = None,
+    peer_service: Optional[Any] = None,
 ) -> Any:
     """A TestClient over an app whose runner uses ``factory`` (or the stub)."""
     from fastapi.testclient import TestClient
@@ -84,6 +86,8 @@ def build_client(
         peer_store=peer_store,
         peer_identity=peer_identity,
         peer_registry=peer_registry,
+        peer_artifact_store=peer_artifact_store,
+        peer_service=peer_service,
     )
     return TestClient(app, raise_server_exceptions=False)
 

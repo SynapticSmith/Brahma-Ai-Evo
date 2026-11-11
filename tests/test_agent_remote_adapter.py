@@ -247,11 +247,12 @@ def test_remote_agent_to_tool_specs_and_runtime_execute(tmp_path: Path):
         )
         adapter = RemoteAgentAdapter(record)
         specs = adapter.to_tool_specs()
-        assert len(specs) == 3
+        assert len(specs) == 4
 
         spec_map = {s.name: s for s in specs}
         assert "agent_tier3_remote_run_task" in spec_map
         assert "agent_tier3_remote_query_status" in spec_map
+        assert "agent_tier3_remote_fetch_artifact" in spec_map
 
         run_spec = spec_map["agent_tier3_remote_run_task"]
         query_spec = spec_map["agent_tier3_remote_query_status"]

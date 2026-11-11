@@ -94,8 +94,8 @@ def server_error(message: str = "Internal server error.", *, code: str = "intern
     return ApiError(500, message, "server_error", None, code)
 
 
-def unavailable(message: str) -> ApiError:
-    return ApiError(503, message, "server_error", None, "provider_unavailable")
+def unavailable(message: str, *, code: str = "provider_unavailable") -> ApiError:
+    return ApiError(503, message, "server_error", None, code)
 
 
 def install_handlers(app: Any) -> None:

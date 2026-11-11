@@ -6,6 +6,16 @@ state machine, isolated SQLite registry, recursion guards, and client.
 
 from __future__ import annotations
 
+from core.peer.artifacts import (
+    PeerArtifactMetadata,
+    PeerArtifactStore,
+)
+from core.peer.capabilities import (
+    PeerCapabilityCard,
+    matches_requirements,
+    score_peer,
+    select_best_peer,
+)
 from core.peer.crypto import (
     CertificatePinningError,
     CryptoError,
@@ -42,6 +52,11 @@ from core.peer.pairing import (
     PinnedPeer,
     SasMismatchError,
 )
+from core.peer.scheduler import (
+    ConcurrencyLimitExceededError,
+    ReservationLedger,
+    build_verifier_task,
+)
 from core.peer.state import (
     TERMINAL_STATES,
     WIRE_STATES,
@@ -56,6 +71,7 @@ __all__ = [
     "BrahmaTaskRequest",
     "BrahmaTaskResult",
     "CertificatePinningError",
+    "ConcurrencyLimitExceededError",
     "CryptoError",
     "FingerprintMismatchError",
     "IdentityError",
@@ -65,13 +81,18 @@ __all__ = [
     "PairingError",
     "PairingLockoutError",
     "PairingOffer",
+    "PeerArtifactMetadata",
+    "PeerArtifactStore",
+    "PeerCapabilityCard",
     "PeerRegistry",
     "PinnedPeer",
+    "ReservationLedger",
     "SasMismatchError",
     "SignatureVerificationError",
     "TERMINAL_STATES",
     "WIRE_STATES",
     "WireState",
+    "build_verifier_task",
     "canonical_request_hash",
     "compute_node_id",
     "compute_spki_sha256",
@@ -81,6 +102,9 @@ __all__ = [
     "generate_ed25519_keypair",
     "generate_x25519_keypair",
     "is_terminal",
+    "matches_requirements",
+    "score_peer",
+    "select_best_peer",
     "sign_request",
     "validate_transition",
     "verify_request_signature",

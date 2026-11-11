@@ -209,6 +209,8 @@ def create_app(
     peer_store: Optional[Any] = None,
     peer_identity: Optional[Any] = None,
     peer_registry: Optional[Any] = None,
+    peer_artifact_store: Optional[Any] = None,
+    peer_service: Optional[Any] = None,
 ) -> FastAPI:
     app = FastAPI(
         title="Brahma Evo OpenAI-compatible port",
@@ -243,6 +245,8 @@ def create_app(
     app.state.peer_store = peer_store
     app.state.peer_identity = resolved_identity
     app.state.peer_registry = peer_registry
+    app.state.artifact_store = peer_artifact_store
+    app.state.peer_service = peer_service
 
     @app.middleware("http")
     async def _body_limit(request: Request, call_next: Callable[..., Any]) -> Any:
@@ -503,6 +507,8 @@ def create_app(
     peer_store = getattr(app.state, "peer_store", None)
     peer_identity = getattr(app.state, "peer_identity", None)
     peer_registry = getattr(app.state, "peer_registry", None)
+    peer_artifact_store = getattr(app.state, "artifact_store", None)
+    peer_service = getattr(app.state, "peer_service", None)
     app.include_router(
         build_peer_router(
             config,
@@ -511,6 +517,8 @@ def create_app(
             store=peer_store,
             identity=peer_identity,
             peer_registry=peer_registry,
+            artifact_store=peer_artifact_store,
+            peer_service=peer_service,
         )
     )
 

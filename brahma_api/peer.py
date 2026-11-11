@@ -11,10 +11,11 @@ import time
 from typing import Any, Callable, Dict, Optional
 import uuid
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 
 from agent.spec import all_specs
+from core.peer.artifacts import PeerArtifactStore
 from core.peer.crypto import (
     ed25519_public_from_raw,
     verify_request_signature,
@@ -40,7 +41,7 @@ from core.peer.store import (
 
 from .auth import Principal, TokenRegistry
 from .config import BrahmaApiConfig
-from .errors import conflict, forbidden, invalid, not_found, unauthorized
+from .errors import conflict, forbidden, invalid, not_found, unauthorized, unavailable
 from .models import ResolvedModel, _intersect
 from .runner import AgentRunner
 from .translate import Seed
@@ -69,6 +70,8 @@ def build_peer_router(
     self_node_id: Optional[str] = None,
     identity: Optional[Any] = None,
     peer_registry: Optional[Any] = None,
+    artifact_store: Optional[Any] = None,
+    peer_service: Optional[Any] = None,
 ) -> APIRouter:
     router = APIRouter(tags=["peer"])
     task_store = store or PeerTaskStore()
@@ -76,6 +79,7 @@ def build_peer_router(
     spki_sha256 = identity.spki_sha256 if identity else getattr(config, "spki_sha256", "")
     peers = peer_registry or PeerRegistry()
     nonce_tracker = NonceTracker()
+    default_artifact_store = artifact_store or PeerArtifactStore()
 
     def principal_for(authorization: Optional[str] = Header(default=None)) -> Principal:
         if not config.auth_required:
@@ -437,6 +441,11 @@ def build_peer_router(
     ) -> Any:
         """Create or adopt a BTE-1 task request."""
         active_store = getattr(request.app.state, "peer_store", None) or task_store
+
+        # Invariant S-04 / ADR-037: Refuse new admissions if node is in drain/maintenance mode
+        active_service = getattr(request.app.state, "peer_service", None) or peer_service
+        if active_service and getattr(active_service, "drain_mode", False):
+            raise unavailable("Node is in drain/maintenance mode.", code="peer_draining")
 
         raw_x_node = x_brahma_node if isinstance(x_brahma_node, str) else request.headers.get("x-brahma-node")
         raw_sig = x_brahma_signature if isinstance(x_brahma_signature, str) else request.headers.get("x-brahma-signature")
@@ -823,6 +832,227 @@ def build_peer_router(
                 "parts": [{"text": res_text}],
             },
             "finishedAt": bte_data.get("finished_at"),
+        }
+
+    # -- Artifact Endpoints (ADR-038 & Invariant S-09) -----------------------
+
+    @router.get("/tasks/{task_id}/artifacts")
+    def list_task_artifacts(
+        task_id: str,
+        request: Request,
+        x_brahma_node: Optional[str] = Header(default=None),
+        origin_node: Optional[str] = None,
+        x_brahma_signature: Optional[str] = Header(default=None),
+        x_brahma_timestamp: Optional[str] = Header(default=None),
+        x_brahma_nonce: Optional[str] = Header(default=None),
+        principal: Principal = Depends(require_any("peer:run", "peer:status", "chat")),
+    ) -> Dict[str, Any]:
+        """List artifacts produced by or associated with a peer task."""
+        active_store = getattr(request.app.state, "peer_store", None) or task_store
+        active_artifacts = getattr(request.app.state, "artifact_store", None) or default_artifact_store
+
+        raw_x_node = x_brahma_node if isinstance(x_brahma_node, str) else (request.headers.get("x-brahma-node") or origin_node)
+        raw_sig = x_brahma_signature if isinstance(x_brahma_signature, str) else request.headers.get("x-brahma-signature")
+        raw_ts = x_brahma_timestamp if isinstance(x_brahma_timestamp, str) else request.headers.get("x-brahma-timestamp")
+        raw_nonce = x_brahma_nonce if isinstance(x_brahma_nonce, str) else request.headers.get("x-brahma-nonce")
+
+        bound_node = (principal.token.node_id or "").strip().lower() if getattr(principal, "token", None) else ""
+        x_node = (raw_x_node or "").strip().lower()
+        caller_tok_id = getattr(principal.token, "id", None) if getattr(principal, "token", None) else None
+
+        if bound_node:
+            if x_node and x_node != bound_node:
+                raise forbidden("Caller token is bound to a different node_id.", code="origin_mismatch")
+            row = active_store.get_task(bound_node, task_id)
+        elif x_node:
+            row = active_store.get_task(x_node, task_id)
+        else:
+            row = active_store.get_task_by_id(task_id, caller_token_id=caller_tok_id)
+
+        if row is None:
+            caller_desc = x_node or bound_node or "caller"
+            raise not_found(f"Task {task_id!r} not found for origin {caller_desc!r}.", code="task_not_found")
+
+        _check_task_authorization(
+            principal,
+            row,
+            bound_node,
+            raw_sig,
+            request,
+            raw_ts,
+            raw_nonce,
+            body_bytes=b"",
+            action_name="list_artifacts",
+        )
+
+        arts = active_artifacts.list_artifacts(task_id)
+        return {
+            "task_id": task_id,
+            "artifacts": [a.to_dict() for a in arts],
+        }
+
+    @router.post("/tasks/{task_id}/artifacts")
+    async def upload_task_artifact(
+        task_id: str,
+        request: Request,
+        x_brahma_node: Optional[str] = Header(default=None),
+        origin_node: Optional[str] = None,
+        x_brahma_signature: Optional[str] = Header(default=None),
+        x_brahma_timestamp: Optional[str] = Header(default=None),
+        x_brahma_nonce: Optional[str] = Header(default=None),
+        principal: Principal = Depends(require_any("peer:run", "chat")),
+    ) -> Any:
+        """Upload a raw content-addressed artifact for a task."""
+        active_store = getattr(request.app.state, "peer_store", None) or task_store
+        active_artifacts = getattr(request.app.state, "artifact_store", None) or default_artifact_store
+
+        raw_x_node = x_brahma_node if isinstance(x_brahma_node, str) else (request.headers.get("x-brahma-node") or origin_node)
+        raw_sig = x_brahma_signature if isinstance(x_brahma_signature, str) else request.headers.get("x-brahma-signature")
+        raw_ts = x_brahma_timestamp if isinstance(x_brahma_timestamp, str) else request.headers.get("x-brahma-timestamp")
+        raw_nonce = x_brahma_nonce if isinstance(x_brahma_nonce, str) else request.headers.get("x-brahma-nonce")
+
+        bound_node = (principal.token.node_id or "").strip().lower() if getattr(principal, "token", None) else ""
+        x_node = (raw_x_node or "").strip().lower()
+        caller_tok_id = getattr(principal.token, "id", None) if getattr(principal, "token", None) else None
+
+        if bound_node:
+            if x_node and x_node != bound_node:
+                raise forbidden("Caller token is bound to a different node_id.", code="origin_mismatch")
+            row = active_store.get_task(bound_node, task_id)
+        elif x_node:
+            row = active_store.get_task(x_node, task_id)
+        else:
+            row = active_store.get_task_by_id(task_id, caller_token_id=caller_tok_id)
+
+        if row is None:
+            caller_desc = x_node or bound_node or "caller"
+            raise not_found(f"Task {task_id!r} not found for origin {caller_desc!r}.", code="task_not_found")
+
+        raw_body = await request.body()
+        _check_task_authorization(
+            principal,
+            row,
+            bound_node,
+            raw_sig,
+            request,
+            raw_ts,
+            raw_nonce,
+            body_bytes=raw_body,
+            action_name="upload_artifact",
+        )
+
+        art_name = request.headers.get("x-brahma-artifact-name") or "artifact.bin"
+        content_type = request.headers.get("content-type") or "application/octet-stream"
+
+        try:
+            meta = active_artifacts.store_artifact(
+                task_id=task_id,
+                content=raw_body,
+                origin_node=row["origin_node"],
+                producer_node=node_id,
+                name=art_name,
+                media_type=content_type,
+            )
+        except ValueError as exc:
+            raise invalid(str(exc), code="artifact_too_large") from exc
+
+        return JSONResponse(status_code=201, content=meta.to_dict())
+
+    @router.get("/tasks/{task_id}/artifacts/{artifact_id}")
+    def get_task_artifact(
+        task_id: str,
+        artifact_id: str,
+        request: Request,
+        x_brahma_node: Optional[str] = Header(default=None),
+        origin_node: Optional[str] = None,
+        x_brahma_signature: Optional[str] = Header(default=None),
+        x_brahma_timestamp: Optional[str] = Header(default=None),
+        x_brahma_nonce: Optional[str] = Header(default=None),
+        principal: Principal = Depends(require_any("peer:run", "peer:status", "chat")),
+    ) -> Response:
+        """Fetch raw content-addressed artifact bytes."""
+        active_store = getattr(request.app.state, "peer_store", None) or task_store
+        active_artifacts = getattr(request.app.state, "artifact_store", None) or default_artifact_store
+
+        raw_x_node = x_brahma_node if isinstance(x_brahma_node, str) else (request.headers.get("x-brahma-node") or origin_node)
+        raw_sig = x_brahma_signature if isinstance(x_brahma_signature, str) else request.headers.get("x-brahma-signature")
+        raw_ts = x_brahma_timestamp if isinstance(x_brahma_timestamp, str) else request.headers.get("x-brahma-timestamp")
+        raw_nonce = x_brahma_nonce if isinstance(x_brahma_nonce, str) else request.headers.get("x-brahma-nonce")
+
+        bound_node = (principal.token.node_id or "").strip().lower() if getattr(principal, "token", None) else ""
+        x_node = (raw_x_node or "").strip().lower()
+        caller_tok_id = getattr(principal.token, "id", None) if getattr(principal, "token", None) else None
+
+        if bound_node:
+            if x_node and x_node != bound_node:
+                raise forbidden("Caller token is bound to a different node_id.", code="origin_mismatch")
+            row = active_store.get_task(bound_node, task_id)
+        elif x_node:
+            row = active_store.get_task(x_node, task_id)
+        else:
+            row = active_store.get_task_by_id(task_id, caller_token_id=caller_tok_id)
+
+        if row is None:
+            caller_desc = x_node or bound_node or "caller"
+            raise not_found(f"Task {task_id!r} not found for origin {caller_desc!r}.", code="task_not_found")
+
+        _check_task_authorization(
+            principal,
+            row,
+            bound_node,
+            raw_sig,
+            request,
+            raw_ts,
+            raw_nonce,
+            body_bytes=b"",
+            action_name="get_artifact",
+        )
+
+        res = active_artifacts.get_artifact(task_id, artifact_id)
+        if res is None:
+            raise not_found(f"Artifact {artifact_id!r} not found for task {task_id!r}.", code="artifact_not_found")
+
+        meta, raw_bytes = res
+        return Response(
+            content=raw_bytes,
+            media_type=meta.media_type or "application/octet-stream",
+            headers={
+                "X-Brahma-Artifact-SHA256": meta.sha256,
+                "Content-Disposition": f'attachment; filename="{meta.name}"',
+            },
+        )
+
+    # -- Service Status Endpoint (ADR-037 & Deep Dive §8.4) -----------------
+
+    @router.get("/status")
+    def get_federation_status(
+        request: Request,
+        principal: Principal = Depends(require_any("peer:status", "peer:run", "chat")),
+    ) -> Dict[str, Any]:
+        """Node federation status summary for UI and diagnostics."""
+        active_service = getattr(request.app.state, "peer_service", None) or peer_service
+        if active_service is not None:
+            return active_service.get_status_summary()
+
+        pinned = peers.list_peers() if hasattr(peers, "list_peers") else []
+        return {
+            "node_id": node_id,
+            "spki_sha256": spki_sha256,
+            "drain_mode": False,
+            "active_tasks": len(agent_runner.active_task_ids()),
+            "pinned_peers_count": len(pinned),
+            "pinned_peers": [
+                {
+                    "node_id": p.node_id,
+                    "name": p.name,
+                    "endpoint": p.endpoint,
+                    "spki_sha256": p.spki_sha256,
+                    "profile": p.profile,
+                    "paired_at": p.paired_at,
+                }
+                for p in pinned
+            ],
+            "discovered_peers": [],
         }
 
     return router
