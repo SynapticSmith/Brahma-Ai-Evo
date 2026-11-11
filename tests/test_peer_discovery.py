@@ -51,13 +51,11 @@ def test_discovery_beacon_and_listener_loopback():
             target_address="127.0.0.1",
         )
 
-        # Broadcast beacon
-        beacon.broadcast_once()
-
         # Allow listener loop to receive packet
         deadline = time.time() + 3.0
         found = False
         while time.time() < deadline:
+            beacon.broadcast_once()
             discovered = listener.list_discovered()
             if any(p.node_id == "node-beacon-1" for p in discovered):
                 found = True
@@ -87,5 +85,49 @@ def test_discovery_listener_ignores_invalid_packet():
 
         time.sleep(0.1)
         assert len(listener.list_discovered()) == 0
+    finally:
+        listener.stop()
+
+
+def test_discovery_listener_filters_out_self_node_id():
+    """Verify listener filters out its own beacon broadcasts to prevent loopback duplicates."""
+    port = _find_free_udp_port()
+    listener = PeerDiscoveryListener(port=port, self_node_id="node-self-123")
+    listener.start()
+
+    try:
+        # Broadcast self beacon
+        self_beacon = PeerDiscoveryBeacon(
+            node_id="node-self-123",
+            name="Self Node",
+            endpoint="https://127.0.0.1:8443",
+            spki_sha256="cc" * 32,
+            port=port,
+            target_address="127.0.0.1",
+        )
+        other_beacon = PeerDiscoveryBeacon(
+            node_id="node-other-456",
+            name="Other Node",
+            endpoint="https://127.0.0.1:8445",
+            spki_sha256="dd" * 32,
+            port=port,
+            target_address="127.0.0.1",
+        )
+        deadline = time.time() + 3.0
+        found_other = False
+        while time.time() < deadline:
+            self_beacon.broadcast_once()
+            other_beacon.broadcast_once()
+            discovered = listener.list_discovered()
+            if any(p.node_id == "node-other-456" for p in discovered):
+                found_other = True
+                break
+            time.sleep(0.05)
+
+        assert found_other is True
+        discovered = listener.list_discovered()
+        node_ids = {p.node_id for p in discovered}
+        assert "node-other-456" in node_ids
+        assert "node-self-123" not in node_ids
     finally:
         listener.stop()

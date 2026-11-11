@@ -40,6 +40,9 @@ def test_peer_management_widget_init_and_refresh(tmp_path: Path, qapp):
         task_store=task_store,
         endpoint="https://127.0.0.1:8443",
     )
+    from core.peer.service import set_active_peer_service
+
+    set_active_peer_service(service)
 
     # Add a pinned peer
     reg.save_peer(
@@ -89,6 +92,39 @@ def test_peer_management_widget_init_and_refresh(tmp_path: Path, qapp):
     )
     card = widget._create_discovered_peer_card(discovered_peer.to_dict())
     assert card is not None
+
+    # 5. In-flight tasks container population and cancellation
+    from core.peer.model import BrahmaTaskRequest
+    req = BrahmaTaskRequest(
+        task_id="task-ui-active-1",
+        trace_id="tr-ui-1",
+        root_task_id="task-ui-active-1",
+        origin_node="node-remote",
+        coordinator_node="node-remote",
+        workspace="test",
+        prompt="UI active task test",
+        profile="reader",
+    )
+    task_store.record_task(req, peer_node=ident.node_id)
+    task_store.update_state("node-remote", "task-ui-active-1", "working")
+    widget.refresh_data()
+    assert widget.tasks_container.count() == 1
+
+    # Cancel task via UI action
+    widget._cancel_task("node-remote", "task-ui-active-1")
+    t_after = task_store.get_task("node-remote", "task-ui-active-1")
+    assert t_after is not None
+    assert t_after["cancel_requested_at"] is not None
+
+    # 6. Embedding entrypoint picks up active service
+    from core.ui_peer import build_peer_management_card
+    from core.peer.service import get_active_peer_service
+
+    assert get_active_peer_service() is service
+    embedded = build_peer_management_card()
+    assert embedded is not None
+    assert embedded.service is service
+    embedded.close()
 
     widget.close()
     service.close()

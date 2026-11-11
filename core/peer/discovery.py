@@ -115,8 +115,9 @@ class PeerDiscoveryBeacon:
 class PeerDiscoveryListener:
     """Listens for UDP beacons from nearby Brahma nodes."""
 
-    def __init__(self, port: int = DISCOVERY_PORT) -> None:
+    def __init__(self, port: int = DISCOVERY_PORT, self_node_id: Optional[str] = None) -> None:
         self.port = port
+        self.self_node_id = self_node_id
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
@@ -147,6 +148,8 @@ class PeerDiscoveryListener:
                             continue
                         nid = str(parsed.get("node_id") or "")
                         if not nid:
+                            continue
+                        if self.self_node_id and nid == self.self_node_id:
                             continue
                         peer = DiscoveredPeer(
                             node_id=nid,

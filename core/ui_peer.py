@@ -6,13 +6,18 @@ drain/maintenance mode, and monitoring in-flight federated tasks.
 
 from __future__ import annotations
 
+import base64
+import json
 import logging
+import ssl
 from typing import Any, Dict, Optional
+import urllib.request
 
 from PyQt6.QtCore import QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMessageBox,
     QPushButton,
@@ -22,8 +27,10 @@ from PyQt6.QtWidgets import (
 )
 
 from core.peer.identity import NodeIdentity
-from core.peer.pairing import PeerRegistry
+from core.peer.model import now_iso
+from core.peer.pairing import PairingCoordinator, PeerRegistry, PinnedPeer
 from core.peer.service import PeerService
+from core.peer.store import PeerTaskStore
 
 logger = logging.getLogger("UIPeerManagement")
 
@@ -40,6 +47,13 @@ class PeerManagementWidget(QFrame):
     ) -> None:
         super().__init__(parent)
         self.setObjectName("PeerManagementWidget")
+        if peer_service is None:
+            try:
+                from core.peer.service import get_active_peer_service
+
+                peer_service = get_active_peer_service()
+            except Exception:
+                peer_service = None
         self.service = peer_service
 
         self._setup_style()
@@ -124,6 +138,10 @@ class PeerManagementWidget(QFrame):
         self.drain_btn = QPushButton("Drain Mode: OFF")
         self.drain_btn.clicked.connect(self._toggle_drain_mode)
         header_layout.addWidget(self.drain_btn)
+
+        self.offer_btn = QPushButton("Create Offer")
+        self.offer_btn.clicked.connect(self._create_pairing_offer_dialog)
+        header_layout.addWidget(self.offer_btn)
 
         self.refresh_btn = QPushButton("Refresh")
         self.refresh_btn.clicked.connect(self.refresh_data)
@@ -262,7 +280,50 @@ class PeerManagementWidget(QFrame):
                 card = self._create_discovered_peer_card(d)
                 self.discovered_container.addWidget(card)
 
+        # Update In-Flight Tasks
+        self._clear_layout(self.tasks_container)
+        store = self.service.store if self.service else PeerTaskStore()
+        active_tasks = store.list_active_tasks(limit=20)
+        if not active_tasks:
+            lbl_none_tasks = QLabel("No active or in-flight federated tasks.")
+            lbl_none_tasks.setObjectName("SubtleLabel")
+            self.tasks_container.addWidget(lbl_none_tasks)
+        else:
+            for t in active_tasks:
+                card = self._create_task_card(t)
+                self.tasks_container.addWidget(card)
+
         self.status_changed.emit(summary)
+
+    def _create_task_card(self, task: Dict[str, Any]) -> QFrame:
+        card = QFrame()
+        card.setProperty("class", "PeerCard")
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(8, 6, 8, 6)
+
+        info_col = QVBoxLayout()
+        info_col.setSpacing(2)
+        lbl_id = QLabel(f"Task: {task.get('task_id', '')} | Origin: {task.get('origin_node', '')}")
+        lbl_meta = QLabel(f"State: {str(task.get('state', '')).upper()} | Accepted: {task.get('accepted_at', '')}")
+        lbl_meta.setObjectName("SubtleLabel")
+        info_col.addWidget(lbl_id)
+        info_col.addWidget(lbl_meta)
+        layout.addLayout(info_col)
+
+        layout.addStretch()
+
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.setObjectName("DangerButton")
+        btn_cancel.clicked.connect(lambda: self._cancel_task(task.get("origin_node", ""), task.get("task_id", "")))
+        layout.addWidget(btn_cancel)
+        return card
+
+    def _cancel_task(self, origin_node: str, task_id: str) -> None:
+        if not task_id:
+            return
+        store = self.service.store if self.service else PeerTaskStore()
+        store.request_cancel(origin_node, task_id)
+        self.refresh_data()
 
     def _create_pinned_peer_card(self, peer_info: Dict[str, Any]) -> QFrame:
         card = QFrame()
@@ -334,13 +395,165 @@ class PeerManagementWidget(QFrame):
                 save_secret_json(reg.file_path, payload, encrypt=True)
             self.refresh_data()
 
+    def _create_pairing_offer_dialog(self) -> None:
+        """Generate a fresh single-use 120s pairing offer and show dialog."""
+        ident = self.service.identity if self.service else NodeIdentity.load_or_create(enforce_machine_binding=False)
+        reg = self.service.registry if self.service else PeerRegistry()
+        coord = getattr(self.service, "coordinator", None) or PairingCoordinator(ident, reg)
+        host = "127.0.0.1"
+        port = 8010
+        if self.service and self.service.endpoint:
+            ep = self.service.endpoint.split("//")[-1]
+            if ":" in ep:
+                try:
+                    host = ep.split(":")[0]
+                    port = int(ep.split(":")[1].split("/")[0])
+                except Exception:
+                    pass
+        offer = coord.create_offer(host, port)
+        if self.service:
+            self.service.pending_offers[offer.nonce] = offer
+        uri = offer.to_uri()
+        dlg = QMessageBox(self)
+        dlg.setWindowTitle("Pairing Offer Created")
+        dlg.setText(f"Single-use 120s Pairing Offer URI:\n\n{uri}\n\nShare this URI with the remote node to pair.")
+        dlg.exec()
+
     def _initiate_pairing(self, peer_info: Dict[str, Any]) -> None:
-        QMessageBox.information(
+        """Initiate mutual SAS cryptographic pairing with a discovered peer."""
+        ident = self.service.identity if self.service else NodeIdentity.load_or_create(enforce_machine_binding=False)
+        reg = self.service.registry if self.service else PeerRegistry()
+        coord = getattr(self.service, "coordinator", None) or PairingCoordinator(ident, reg)
+
+        endpoint = (peer_info.get("endpoint") or "").rstrip("/")
+        if not endpoint:
+            endpoint = f"http://{peer_info.get('address', '127.0.0.1')}:8010"
+
+        # Ask operator for the 120s pairing offer URI generated by target peer
+        offer_uri_input, ok = QInputDialog.getText(
             self,
-            "Pairing Request",
-            f"Initiating SAS 6-digit cryptographic handshake with {peer_info.get('name')} ({peer_info.get('endpoint')}).\n"
-            "Please confirm the SAS code displayed on both node screens.",
+            "Peer SAS Pairing",
+            f"Enter the 120s Pairing Offer URI generated on {peer_info.get('name', 'Peer')}:\n"
+            "(Format: brahma://pair?v=1&node=...)",
         )
+        if not ok or not offer_uri_input.strip():
+            return
+
+        try:
+            from core.peer.pairing import PairingOffer
+
+            offer = PairingOffer.from_uri(offer_uri_input.strip())
+        except Exception as exc:
+            QMessageBox.critical(self, "Invalid Offer URI", f"Failed to parse pairing offer URI: {exc}")
+            return
+
+        try:
+            eph_priv, eph_pub, static_pub = coord.begin_exchange(offer, is_initiator=True)
+        except Exception as exc:
+            QMessageBox.warning(self, "Pairing Error", f"Failed to begin pairing exchange: {exc}")
+            return
+
+        exchange_url = f"{endpoint}/pair/exchange"
+        payload = {
+            "offer_uri": offer.to_uri(),
+            "initiator_node_id": ident.node_id,
+            "initiator_spki_sha256": ident.spki_sha256,
+            "initiator_name": ident.hostname,
+            "initiator_endpoint": self.service.endpoint if self.service else f"http://{ident.hostname}:8010",
+            "initiator_eph_pub": base64.b64encode(eph_pub).decode("ascii"),
+            "initiator_static_pub": base64.b64encode(static_pub).decode("ascii"),
+            "profile": "worker",
+            "workspaces": [],
+            "labels": {"node_id": ident.node_id},
+        }
+
+        exchanged_data = None
+        ctx = None
+        if endpoint.startswith("https://"):
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+
+        try:
+            req = urllib.request.Request(
+                exchange_url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=5.0, context=ctx) as resp:
+                if resp.status == 200:
+                    exchanged_data = json.loads(resp.read().decode("utf-8"))
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                "Pairing Network Error",
+                f"Could not connect to {exchange_url}: {exc}\n"
+                "Verify the peer's Brahma port is reachable and the offer is active.",
+            )
+            return
+
+        if not exchanged_data:
+            QMessageBox.warning(self, "Pairing Failed", "Target node returned an empty response.")
+            return
+
+        try:
+            peer_eph_bytes = base64.b64decode(exchanged_data["callee_eph_pub"])
+            peer_static_bytes = base64.b64decode(exchanged_data["callee_static_pub"])
+            sas_code, session_key = coord.complete_key_exchange(
+                eph_priv=eph_priv,
+                peer_node_id=exchanged_data["callee_node_id"],
+                peer_eph_pub_bytes=peer_eph_bytes,
+                peer_static_pub_bytes=peer_static_bytes,
+                peer_spki_sha256=exchanged_data["callee_spki_sha256"],
+                nonce=offer.nonce,
+                is_initiator=True,
+            )
+            if sas_code != exchanged_data.get("sas_code"):
+                QMessageBox.critical(
+                    self,
+                    "SAS Mismatch Warning",
+                    "Security tripwire: SAS code does not match peer response! Potential interception.",
+                )
+                return
+
+            sas_confirm_msg = (
+                f"Cryptographic SAS Code: {sas_code}\n\n"
+                f"Target Node: {peer_info.get('name', 'Peer')} ({exchanged_data['callee_node_id']})\n\n"
+                "Confirm that this 6-digit SAS code matches the code on the remote machine."
+            )
+            reply = QMessageBox.question(
+                self,
+                "Confirm Peer SAS Handshake",
+                sas_confirm_msg,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                unwrapped = coord.unwrap_token_payload(
+                    session_key,
+                    base64.b64decode(exchanged_data["encrypted_token"]),
+                )
+                peer_record = PinnedPeer(
+                    node_id=exchanged_data["callee_node_id"],
+                    name=peer_info.get("name", "Remote Peer"),
+                    endpoint=endpoint,
+                    spki_sha256=exchanged_data["callee_spki_sha256"],
+                    token=unwrapped["token"],
+                    profile=unwrapped.get("profile", "worker"),
+                    paired_at=now_iso(),
+                    static_pub_raw=exchanged_data["callee_static_pub"],
+                    workspaces=list(exchanged_data.get("workspaces") or []),
+                    labels=dict(exchanged_data.get("labels") or {}),
+                )
+                reg.save_peer(peer_record, allow_re_pair=True)
+                QMessageBox.information(
+                    self,
+                    "Pairing Complete",
+                    f"Successfully verified and pinned {peer_record.name} ({peer_record.node_id})!",
+                )
+                self.refresh_data()
+        except Exception as exc:
+            QMessageBox.warning(self, "Pairing Error", f"Failed to complete SAS handshake: {exc}")
 
     def _clear_layout(self, layout: QVBoxLayout) -> None:
         while layout.count():
@@ -348,3 +561,18 @@ class PeerManagementWidget(QFrame):
             widget = item.widget()
             if widget:
                 widget.deleteLater()
+
+
+def build_peer_management_card(
+    parent: Optional[QWidget] = None,
+    service: Optional[PeerService] = None,
+) -> QWidget:
+    """Entry point for embedding in SystemConnectivityPage."""
+    if service is None:
+        try:
+            from core.peer.service import get_active_peer_service
+
+            service = get_active_peer_service()
+        except Exception:
+            service = None
+    return PeerManagementWidget(peer_service=service, parent=parent)

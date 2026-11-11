@@ -27,7 +27,13 @@ from core.peer.model import (
     BrahmaTaskResult,
     now_iso,
 )
-from core.peer.pairing import NonceTracker, PeerRegistry
+from core.peer.pairing import (
+    NonceTracker,
+    PairingCoordinator,
+    PairingOffer,
+    PeerRegistry,
+    PinnedPeer,
+)
 from core.peer.recursion import (
     RecursionDeniedError,
     check_recursion,
@@ -75,11 +81,27 @@ def build_peer_router(
 ) -> APIRouter:
     router = APIRouter(tags=["peer"])
     task_store = store or PeerTaskStore()
-    node_id = (identity.node_id if identity else (self_node_id or config.host)).strip().lower()
-    spki_sha256 = identity.spki_sha256 if identity else getattr(config, "spki_sha256", "")
+    resolved_ident = identity or (peer_service.identity if peer_service else None)
+    if resolved_ident is None:
+        try:
+            from core.peer.identity import NodeIdentity
+
+            resolved_ident = NodeIdentity.load_or_create(enforce_machine_binding=False)
+        except Exception:
+            resolved_ident = None
+    node_id = (resolved_ident.node_id if resolved_ident else (self_node_id or config.host)).strip().lower()
+    spki_sha256 = resolved_ident.spki_sha256 if resolved_ident else getattr(config, "spki_sha256", "")
     peers = peer_registry or PeerRegistry()
     nonce_tracker = NonceTracker()
     default_artifact_store = artifact_store or PeerArtifactStore()
+    service = peer_service
+
+    persistent_coord = getattr(service, "coordinator", None)
+    if persistent_coord is None and resolved_ident:
+        persistent_coord = PairingCoordinator(resolved_ident, peers)
+    pending_offers_map = getattr(service, "pending_offers", None)
+    if pending_offers_map is None:
+        pending_offers_map = {}
 
     def principal_for(authorization: Optional[str] = Header(default=None)) -> Principal:
         if not config.auth_required:
@@ -190,7 +212,7 @@ def build_peer_router(
 
         peer = peers.get_peer(row["origin_node"])
         is_paired_peer = bool(peer is not None and peer.static_pub_raw)
-        is_mutating = action_name == "cancel"  # Task creation is verified at line 465
+        is_mutating = action_name in ("cancel", "upload_artifact")  # Task creation is verified at line 465
         enforce_signature = is_paired_peer and is_mutating
 
         if enforce_signature or raw_sig:
@@ -428,6 +450,9 @@ def build_peer_router(
             )
         finally:
             stop_heartbeat.set()
+            active_ledger = getattr(service, "ledger", None) if service else None
+            if active_ledger is not None:
+                active_ledger.release(task_req.task_id)
 
     @router.post("/tasks")
     async def create_task(
@@ -543,6 +568,21 @@ def build_peer_router(
                     "error": json.loads(row["error_json"]) if row.get("error_json") else None,
                 },
             )
+
+        # S5 Concurrency Bounding: acquire slot on ReservationLedger for new task
+        active_ledger = getattr(active_service, "ledger", None) if active_service else None
+        if active_ledger is not None:
+            from core.peer.scheduler import ConcurrencyLimitExceededError
+            try:
+                active_ledger.acquire(task_req.origin_node, task_req.task_id)
+            except ConcurrencyLimitExceededError as exc:
+                with active_store._lock, active_store._connection() as conn:
+                    conn.execute(
+                        "DELETE FROM peer_tasks WHERE origin_node = ? AND task_id = ?",
+                        (task_req.origin_node, task_req.task_id),
+                    )
+                    conn.commit()
+                raise unavailable(str(exc), code="concurrency_limit_exceeded") from exc
 
         # Execution mode: sync or async
         reply_cfg = task_req.reply or {}
@@ -714,6 +754,9 @@ def build_peer_router(
 
         caller_origin = row["origin_node"]
         agent_runner.cancel_active_task(task_id)
+        active_service = getattr(request.app.state, "peer_service", None) or service
+        if active_service and getattr(active_service, "ledger", None):
+            active_service.ledger.release(task_id)
         updated = active_store.request_cancel(caller_origin, task_id)
         if updated is None:
             raise not_found(f"Task {task_id!r} not found.", code="task_not_found")
@@ -1053,6 +1096,132 @@ def build_peer_router(
                 for p in pinned
             ],
             "discovered_peers": [],
+        }
+
+    # -- Cryptographic SAS Pairing Handshake (ADR-031, ADR-033, Invariant S-07) -
+
+    @router.post("/pair/offer")
+    def create_pairing_offer(
+        principal: Principal = Depends(require_any("admin", "approve", "operator", "chat")),
+    ) -> Dict[str, Any]:
+        """Generate a fresh single-use 120s pairing offer for this node (operator authenticated)."""
+        if not resolved_ident or not persistent_coord:
+            raise unavailable("Node identity not configured on this host.")
+        host = config.host if config.host not in ("0.0.0.0", "") else "127.0.0.1"
+        offer = persistent_coord.create_offer(host=host, port=config.port)
+        pending_offers_map[offer.nonce] = offer
+        return {
+            "offer_uri": offer.to_uri(),
+            "node_id": offer.node_id,
+            "spki_sha256": offer.spki_sha256,
+            "host": offer.host,
+            "port": offer.port,
+            "nonce": offer.nonce,
+            "created_at": offer.created_at,
+        }
+
+    @router.post("/pair/exchange")
+    def execute_pairing_exchange(payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Callee side of the mutual SAS pairing handshake with verified operator consent."""
+        if not resolved_ident or not persistent_coord:
+            raise unavailable("Node identity not configured on this host.")
+
+        offer_uri = str(payload.get("offer_uri") or "")
+        initiator_node_id = str(payload.get("initiator_node_id") or "")
+        initiator_spki_sha256 = str(payload.get("initiator_spki_sha256") or "")
+        initiator_name = str(payload.get("initiator_name") or "Remote Peer")
+        initiator_endpoint = str(payload.get("initiator_endpoint") or "")
+        initiator_eph_pub_b64 = str(payload.get("initiator_eph_pub") or "")
+        initiator_static_pub_b64 = str(payload.get("initiator_static_pub") or "")
+        req_profile = str(payload.get("profile") or "worker").strip().lower()
+
+        if req_profile == "operator":
+            raise forbidden("Peers cannot be granted the operator profile.", code="forbidden_peer_profile")
+        peer_profile = "worker" if req_profile == "worker" else "reader"
+
+        if not offer_uri or not initiator_node_id or not initiator_spki_sha256:
+            raise invalid("Missing required pairing parameters: offer_uri, initiator_node_id, initiator_spki_sha256")
+
+        try:
+            offer = PairingOffer.from_uri(offer_uri)
+        except Exception as exc:
+            raise invalid(f"Invalid pairing offer: {exc}")
+
+        if offer.node_id != node_id:
+            raise forbidden(f"Pairing offer target node '{offer.node_id}' does not match this node '{node_id}'")
+
+        if offer.nonce not in pending_offers_map:
+            raise forbidden(
+                "Pairing offer was not issued by an authenticated operator on this node, or has already been consumed.",
+                code="unauthorized_pairing_offer",
+            )
+        pending_offers_map.pop(offer.nonce, None)
+
+        try:
+            initiator_eph_pub = base64.b64decode(initiator_eph_pub_b64)
+            initiator_static_pub = base64.b64decode(initiator_static_pub_b64)
+        except Exception as exc:
+            raise invalid(f"Invalid base64 in ephemeral or static public keys: {exc}")
+
+        try:
+            callee_eph_priv, callee_eph_pub, callee_static_pub = persistent_coord.begin_exchange(offer, is_initiator=False)
+            sas_code, session_key = persistent_coord.complete_key_exchange(
+                eph_priv=callee_eph_priv,
+                peer_node_id=initiator_node_id,
+                peer_eph_pub_bytes=initiator_eph_pub,
+                peer_static_pub_bytes=initiator_static_pub,
+                peer_spki_sha256=initiator_spki_sha256,
+                nonce=offer.nonce,
+                is_initiator=False,
+            )
+        except Exception as exc:
+            raise unauthorized(f"Pairing key exchange failed: {exc}")
+
+        # Mint token bound strictly to initiator for the peer lane only
+        default_ws = next(iter(config.workspaces.keys()), "default") if config.workspaces else None
+        _rec, minted_token = tokens.mint(
+            preset=peer_profile,
+            label=f"peer:{initiator_node_id}",
+            workspace=default_ws,
+            scopes=["peer:run", "peer:status", "peer:cancel", "peer:artifact"],
+            node_id=initiator_node_id,
+            spki_sha256=initiator_spki_sha256,
+            confirm=peer_profile if peer_profile == "operator" else None,
+        )
+
+        enc_token = persistent_coord.wrap_token_payload(
+            session_key=session_key,
+            token=minted_token,
+            profile=peer_profile,
+            callee_node_id=node_id,
+            callee_spki_sha256=spki_sha256,
+            callee_endpoint=f"http://{config.host}:{config.port}",
+        )
+
+        # Pin initiator on callee side with NO outbound token (callee does not use minted_token outbound)
+        pinned_peer = PinnedPeer(
+            node_id=initiator_node_id,
+            name=initiator_name,
+            endpoint=initiator_endpoint,
+            spki_sha256=initiator_spki_sha256,
+            token="",
+            profile=peer_profile,
+            paired_at=now_iso(),
+            static_pub_raw=base64.b64encode(initiator_static_pub).decode("ascii"),
+            workspaces=list(payload.get("workspaces") or []),
+            labels=dict(payload.get("labels") or {}),
+        )
+        peers.save_peer(pinned_peer, allow_re_pair=True)
+
+        return {
+            "callee_node_id": node_id,
+            "callee_spki_sha256": spki_sha256,
+            "callee_eph_pub": base64.b64encode(callee_eph_pub).decode("ascii"),
+            "callee_static_pub": base64.b64encode(callee_static_pub).decode("ascii"),
+            "sas_code": sas_code,
+            "encrypted_token": base64.b64encode(enc_token).decode("ascii"),
+            "workspaces": list(config.workspaces.keys()),
+            "labels": {"node_id": node_id, "host": config.host},
         }
 
     return router

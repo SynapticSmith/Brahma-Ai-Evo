@@ -19,6 +19,22 @@ from core.peer.store import PeerTaskStore
 
 logger = logging.getLogger("brahma.peer.service")
 
+_active_peer_service_lock = threading.Lock()
+_active_peer_service: Optional["PeerService"] = None
+
+
+def get_active_peer_service() -> Optional["PeerService"]:
+    """Retrieve the globally active PeerService instance for the process."""
+    with _active_peer_service_lock:
+        return _active_peer_service
+
+
+def set_active_peer_service(service: Optional["PeerService"]) -> None:
+    """Register or clear the globally active PeerService instance."""
+    global _active_peer_service
+    with _active_peer_service_lock:
+        _active_peer_service = service
+
 
 class PeerService:
     """Manages the node's peer federation subsystems and operational lifecycle."""
@@ -32,7 +48,7 @@ class PeerService:
         registry: Optional[PeerRegistry] = None,
         artifact_store: Optional[PeerArtifactStore] = None,
         ledger: Optional[ReservationLedger] = None,
-        endpoint: str = "https://127.0.0.1:8443",
+        endpoint: str = "http://127.0.0.1:8010",
         enable_discovery: bool = False,
     ) -> None:
         self.identity = identity or NodeIdentity.load_or_create(enforce_machine_binding=False)
@@ -47,8 +63,17 @@ class PeerService:
         self.beacon: Optional[PeerDiscoveryBeacon] = None
         self.listener: Optional[PeerDiscoveryListener] = None
 
+        from core.peer.pairing import PairingCoordinator
+
+        self.coordinator = PairingCoordinator(self.identity, self.registry)
+        self.pending_offers: Dict[str, Any] = {}
+
         if enable_discovery:
             self.start_discovery()
+
+        global _active_peer_service
+        if _active_peer_service is None:
+            _active_peer_service = self
 
     @property
     def drain_mode(self) -> bool:
@@ -75,7 +100,7 @@ class PeerService:
                 self.beacon.start()
 
             if self.listener is None:
-                self.listener = PeerDiscoveryListener()
+                self.listener = PeerDiscoveryListener(self_node_id=self.identity.node_id)
                 self.listener.start()
 
     def stop_discovery(self) -> None:
@@ -88,9 +113,75 @@ class PeerService:
                 self.listener.stop()
                 self.listener = None
 
+    def select_candidate_peer(
+        self,
+        *,
+        required_profile: Optional[str] = None,
+        required_workspace: Optional[str] = None,
+        required_labels: Optional[Any] = None,
+        required_verbs: Optional[Any] = None,
+        preferred_node: Optional[str] = None,
+        preferred_labels: Optional[Any] = None,
+    ) -> Optional[Any]:
+        """Select the best pinned peer matching execution criteria using S5 capability scoring."""
+        from core.peer.capabilities import PeerCapabilityCard, select_best_peer
+
+        with self._lock:
+            pinned = self.registry.list_peers()
+            if not pinned:
+                return None
+            cards = []
+            peer_by_id = {}
+            for p in pinned:
+                peer_by_id[p.node_id] = p
+                cards.append(
+                    PeerCapabilityCard(
+                        node_id=p.node_id,
+                        name=p.name,
+                        endpoint=p.endpoint,
+                        spki_sha256=p.spki_sha256,
+                        profiles=[p.profile] if p.profile else ["reader", "worker"],
+                        workspaces=list(getattr(p, "workspaces", [])),
+                        labels=dict(getattr(p, "labels", {})),
+                        active_tasks=self.ledger.active_tasks_for_node(p.node_id),
+                    )
+                )
+            best_card = select_best_peer(
+                cards,
+                required_profile=required_profile,
+                required_workspace=required_workspace,
+                required_labels=required_labels,
+                required_verbs=required_verbs,
+                preferred_node=preferred_node,
+                preferred_labels=preferred_labels,
+            )
+            return peer_by_id.get(best_card.node_id) if best_card else None
+
+    def build_verification_request(
+        self,
+        original_task: Any,
+        original_result: Any,
+        verifier_node: str,
+        *,
+        coordinator_node: Optional[str] = None,
+    ) -> Any:
+        """Create an isolated, read-only verifier peer task request (Idea I-08)."""
+        from core.peer.scheduler import build_verifier_task
+
+        return build_verifier_task(
+            original_task,
+            original_result,
+            verifier_node=verifier_node,
+            coordinator_node=coordinator_node,
+        )
+
     def close(self) -> None:
         """Shutdown all background discovery routines."""
         self.stop_discovery()
+        global _active_peer_service
+        with _active_peer_service_lock:
+            if _active_peer_service is self:
+                _active_peer_service = None
 
     def get_status_summary(self) -> Dict[str, Any]:
         """Generate structured status snapshot for HUD and diagnostics."""

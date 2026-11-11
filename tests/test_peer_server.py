@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import time
 import pytest
@@ -9,6 +10,7 @@ import pytest
 from api_support import CaptureCompleter, auth, build_client, make_config, mint
 from core.peer.model import BTE_VERSION, BrahmaTaskRequest
 from core.peer.state import WireState
+from core.peer.store import PeerTaskStore
 
 
 @pytest.fixture
@@ -656,5 +658,246 @@ def test_colliding_task_id_creator_resolution(tmp_path: Path):
     assert poll_b.status_code == 200
     assert poll_b.json()["task_id"] == "shared-id"
     assert poll_b.json()["origin_node"] == "node-b"
+
+
+def test_peer_server_cryptographic_sas_pairing_exchange(tmp_path: Path):
+    """Verify mutual cryptographic SAS pairing handshake and static key pinning."""
+    import base64
+    from core.peer.identity import NodeIdentity
+    from core.peer.pairing import PairingCoordinator, PeerRegistry, PinnedPeer
+
+    node_b = NodeIdentity.create_new(hostname="callee-host")
+    reg_b = PeerRegistry(tmp_path / "peers_b.json")
+    store_b = PeerTaskStore(tmp_path / "tasks_b.db")
+
+    b_cfg = make_config(
+        tmp_path / "b_cfg",
+        node_name="Callee Node",
+        workspaces={"test": str(tmp_path / "ws")},
+    )
+    completer = CaptureCompleter("Results from callee")
+    client = build_client(
+        b_cfg,
+        factory=lambda *_args, **_kwargs: completer,
+        peer_store=store_b,
+        peer_identity=node_b,
+        peer_registry=reg_b,
+    )
+
+    # 1. Initiator (Node A) creates identity and coordinator
+    node_a = NodeIdentity.create_new(hostname="initiator-host")
+    reg_a = PeerRegistry(tmp_path / "peers_a.json")
+    coord_a = PairingCoordinator(node_a, reg_a)
+
+    # Callee operator token for authorized offer generation
+    _rec_op, b_op_tok = mint(b_cfg, "operator", confirm="operator")
+
+    # 2. Unauthenticated /pair/offer is rejected with 401
+    r_unauth_offer = client.post("/pair/offer")
+    assert r_unauth_offer.status_code == 401
+
+    # Authenticated operator /pair/offer succeeds
+    r_offer = client.post("/pair/offer", headers=auth(b_op_tok))
+    assert r_offer.status_code == 200
+    offer_data = r_offer.json()
+    assert offer_data["node_id"] == node_b.node_id
+
+    from core.peer.pairing import PairingOffer
+    offer = PairingOffer.from_uri(offer_data["offer_uri"])
+
+    # 3. Initiator begins exchange
+    a_eph_priv, a_eph_pub, a_static_pub = coord_a.begin_exchange(offer, is_initiator=True)
+
+    # 4. Exchange with unissued offer nonce rejected with 403
+    fake_payload = {
+        "offer_uri": f"brahma://pair?v=1&node={node_b.node_id}&fp={node_b.spki_sha256}&host=127.0.0.1&port=8010&nonce=fake_unissued_nonce&ts={int(time.time())}",
+        "initiator_node_id": node_a.node_id,
+        "initiator_spki_sha256": node_a.spki_sha256,
+        "initiator_name": "Initiator Node",
+        "initiator_endpoint": "http://127.0.0.1:8010",
+        "initiator_eph_pub": base64.b64encode(a_eph_pub).decode("ascii"),
+        "initiator_static_pub": base64.b64encode(a_static_pub).decode("ascii"),
+        "profile": "worker",
+    }
+    r_fake = client.post("/pair/exchange", json=fake_payload)
+    assert r_fake.status_code == 403
+    assert r_fake.json()["error"]["code"] == "unauthorized_pairing_offer"
+
+    # Attempting to elevate to operator profile is rejected with 403
+    op_payload = {
+        "offer_uri": offer.to_uri(),
+        "initiator_node_id": node_a.node_id,
+        "initiator_spki_sha256": node_a.spki_sha256,
+        "initiator_name": "Initiator Node",
+        "initiator_endpoint": "http://127.0.0.1:8010",
+        "initiator_eph_pub": base64.b64encode(a_eph_pub).decode("ascii"),
+        "initiator_static_pub": base64.b64encode(a_static_pub).decode("ascii"),
+        "profile": "operator",
+    }
+    r_op_reject = client.post("/pair/exchange", json=op_payload)
+    assert r_op_reject.status_code == 403
+    assert r_op_reject.json()["error"]["code"] == "forbidden_peer_profile"
+
+    # Valid pairing exchange against Callee endpoint
+    payload = {
+        "offer_uri": offer.to_uri(),
+        "initiator_node_id": node_a.node_id,
+        "initiator_spki_sha256": node_a.spki_sha256,
+        "initiator_name": "Initiator Node",
+        "initiator_endpoint": "http://127.0.0.1:8010",
+        "initiator_eph_pub": base64.b64encode(a_eph_pub).decode("ascii"),
+        "initiator_static_pub": base64.b64encode(a_static_pub).decode("ascii"),
+        "profile": "worker",
+        "workspaces": ["test_ws_a"],
+        "labels": {"gpu": "true"},
+    }
+    r_ex = client.post("/pair/exchange", json=payload)
+    assert r_ex.status_code == 200
+    ex_resp = r_ex.json()
+
+    # Replaying same offer nonce is rejected (single-use)
+    r_replay = client.post("/pair/exchange", json=payload)
+    assert r_replay.status_code in (401, 403, 409)
+
+    # 5. Initiator verifies SAS matching
+    b_eph_bytes = base64.b64decode(ex_resp["callee_eph_pub"])
+    b_static_bytes = base64.b64decode(ex_resp["callee_static_pub"])
+    a_sas, session_key = coord_a.complete_key_exchange(
+        eph_priv=a_eph_priv,
+        peer_node_id=node_b.node_id,
+        peer_eph_pub_bytes=b_eph_bytes,
+        peer_static_pub_bytes=b_static_bytes,
+        peer_spki_sha256=node_b.spki_sha256,
+        nonce=offer.nonce,
+        is_initiator=True,
+    )
+    assert a_sas == ex_resp["sas_code"]
+
+    # 6. Initiator unwraps encrypted token delivered by callee
+    token_data = coord_a.unwrap_token_payload(
+        session_key,
+        base64.b64decode(ex_resp["encrypted_token"]),
+    )
+    assert "token" in token_data
+    token_a_for_b = token_data["token"]
+
+    # Peer token cannot access /v1/chat/completions (model surface auth bypass closed)
+    r_chat_bypass = client.post(
+        "/v1/chat/completions",
+        headers=auth(token_a_for_b),
+        json={"model": "gpt-4o", "messages": [{"role": "user", "content": "hello"}]},
+    )
+    assert r_chat_bypass.status_code == 403
+    assert r_chat_bypass.json()["error"]["code"] == "insufficient_scope"
+
+    # 7. Check Callee pinned Node A with static_pub_raw and token="" (not stored as outbound credential)
+    callee_pin = reg_b.get_peer(node_a.node_id)
+    assert callee_pin is not None
+    assert callee_pin.static_pub_raw == base64.b64encode(a_static_pub).decode("ascii")
+    assert callee_pin.token == ""
+    assert "test_ws_a" in callee_pin.workspaces
+    assert callee_pin.labels.get("gpu") == "true"
+
+    # 8. Initiator pins Callee with static_pub_raw
+    reg_a.save_peer(
+        PinnedPeer(
+            node_id=node_b.node_id,
+            name="Callee Node",
+            endpoint=f"http://{b_cfg.host}:{b_cfg.port}",
+            spki_sha256=node_b.spki_sha256,
+            token=token_a_for_b,
+            profile="worker",
+            paired_at="2026-11-10T00:00:00Z",
+            static_pub_raw=ex_resp["callee_static_pub"],
+            workspaces=ex_resp.get("workspaces", []),
+            labels=ex_resp.get("labels", {}),
+        )
+    )
+
+    # 9. Verify mutating action symmetry: unsigned cancel rejected with 401
+    task_payload = {
+        "task_id": "pair-task-1",
+        "trace_id": "tr-pair-1",
+        "root_task_id": "pair-task-1",
+        "origin_node": node_a.node_id,
+        "coordinator_node": node_a.node_id,
+        "workspace": "test",
+        "prompt": "Test signed execution",
+    }
+    body_bytes = json.dumps(task_payload).encode("utf-8")
+    now_ts = int(time.time())
+    sig_hdr = node_a.sign_request("POST", "/tasks", body_bytes, now_ts, "nonce-pair-1")
+    r_task = client.post(
+        "/tasks",
+        content=body_bytes,
+        headers={
+            **auth(token_a_for_b),
+            "Content-Type": "application/json",
+            "X-Brahma-Node": node_a.node_id,
+            "X-Brahma-Timestamp": str(now_ts),
+            "X-Brahma-Nonce": "nonce-pair-1",
+            "X-Brahma-Signature": sig_hdr,
+        },
+    )
+    assert r_task.status_code == 202
+
+    # Unsigned cancel from pinned peer must fail with 401 signature_required
+    r_un_cancel = client.post(
+        "/tasks/pair-task-1/cancel",
+        headers={
+            **auth(token_a_for_b),
+            "X-Brahma-Node": node_a.node_id,
+        },
+    )
+    assert r_un_cancel.status_code == 401
+    assert r_un_cancel.json()["error"]["code"] == "signature_required"
+
+
+def test_custom_base_dir_auto_resolves_peer_service_and_ledger(tmp_path: Path):
+    """Verify create_app with custom base_dir auto-resolves PeerService and enforces ledger."""
+    custom_dir = tmp_path / "custom_app_dir"
+    cfg = make_config(
+        custom_dir,
+        node_name="Hermetic Node",
+        workspaces={"test": str(custom_dir / "ws")},
+    )
+    _rec, tok = mint(cfg, "worker", confirm="worker")
+
+    completer = CaptureCompleter("Hermetic run")
+    client = build_client(
+        cfg,
+        factory=lambda *_args, **_kwargs: completer,
+    )
+    app = client.app
+    assert app.state.peer_service is not None
+    assert app.state.peer_service.ledger is not None
+
+    # Assert ledger bounds in custom base_dir mode: cap per-node max to 1
+    app.state.peer_service.ledger.per_node_max = 1
+
+    req1 = {
+        "task_id": "hermetic-task-1",
+        "trace_id": "tr-h-1",
+        "root_task_id": "hermetic-task-1",
+        "origin_node": "origin-node-z",
+        "coordinator_node": "origin-node-z",
+        "workspace": "test",
+        "prompt": "Task 1",
+    }
+    r1 = client.post("/tasks", headers={**auth(tok), "X-Brahma-Node": "origin-node-z"}, json=req1)
+    assert r1.status_code == 202
+
+    req2 = {
+        "task_id": "hermetic-task-2",
+        "trace_id": "tr-h-2",
+        "root_task_id": "hermetic-task-2",
+        "origin_node": "origin-node-z",
+        "coordinator_node": "origin-node-z",
+        "workspace": "test",
+        "prompt": "Task 2",
+    }
+    r2 = client.post("/tasks", headers={**auth(tok), "X-Brahma-Node": "origin-node-z"}, json=req2)
+    assert r2.status_code == 503
+    assert r2.json()["error"]["code"] == "concurrency_limit_exceeded"
 
 

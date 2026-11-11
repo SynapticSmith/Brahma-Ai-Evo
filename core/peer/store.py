@@ -370,6 +370,20 @@ class PeerTaskStore:
             )
             return dict(cur.fetchone())
 
+    def list_active_tasks(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """List tasks that are currently submitted or working."""
+        with self._lock, self._connection() as conn:
+            cur = conn.execute(
+                """
+                SELECT * FROM peer_tasks
+                WHERE state IN ('submitted', 'working')
+                ORDER BY accepted_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            return [dict(r) for r in cur.fetchall()]
+
     def list_expired_leases(self, grace_s: float = 0.0) -> List[Dict[str, Any]]:
         """Find working tasks whose lease has expired."""
         cutoff = (datetime.now(timezone.utc) - timedelta(seconds=grace_s)).isoformat()

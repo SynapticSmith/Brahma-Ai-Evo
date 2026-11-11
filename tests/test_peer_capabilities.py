@@ -2,20 +2,27 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+import time
 import pytest
 
+from api_support import auth, build_client, make_config, mint
 from core.peer.capabilities import (
     PeerCapabilityCard,
     matches_requirements,
     score_peer,
     select_best_peer,
 )
+from core.peer.identity import NodeIdentity
 from core.peer.model import BrahmaTaskRequest, BrahmaTaskResult
+from core.peer.pairing import PeerRegistry, PinnedPeer
 from core.peer.scheduler import (
     ConcurrencyLimitExceededError,
     ReservationLedger,
     build_verifier_task,
 )
+from core.peer.service import PeerService
+from core.peer.store import PeerTaskStore
 
 
 def test_peer_capability_card_and_matching():
@@ -176,3 +183,153 @@ def test_build_verifier_task_matrix():
     assert "Found memory leak in pool.py line 45" in verifier_req.prompt
     assert "--- END UNTRUSTED PEER RESULT ---" in verifier_req.prompt
     assert "Cite exact file paths and line numbers as evidence" in verifier_req.prompt
+
+
+def test_peer_task_admission_respects_reservation_ledger_and_service_routing(tmp_path: Path):
+    """Verify that HTTP task admission consults ReservationLedger and PeerService routes."""
+    ident = NodeIdentity.create_new(machine_guid="guid-cap-1", hostname="host-cap-1")
+    reg = PeerRegistry(tmp_path / "peers.json")
+    ledger = ReservationLedger(global_max=2, per_node_max=1)
+    task_store = PeerTaskStore(tmp_path / "tasks.db")
+
+    service = PeerService(
+        identity=ident,
+        registry=reg,
+        ledger=ledger,
+        task_store=task_store,
+    )
+
+    # 1. Test PeerService capability routing helper
+    p1 = PinnedPeer(
+        node_id="node-fast",
+        name="Fast Node",
+        endpoint="https://10.0.0.1:8443",
+        spki_sha256="11" * 32,
+        token="tok-1",
+        profile="worker",
+        paired_at="2026-01-01T00:00:00Z",
+    )
+    p2 = PinnedPeer(
+        node_id="node-slow",
+        name="Slow Node",
+        endpoint="https://10.0.0.2:8443",
+        spki_sha256="22" * 32,
+        token="tok-2",
+        profile="reader",
+        paired_at="2026-01-01T00:00:00Z",
+    )
+    reg.save_peer(p1)
+    reg.save_peer(p2)
+
+    # Selecting worker profile returns node-fast
+    chosen = service.select_candidate_peer(required_profile="worker")
+    assert chosen is not None
+    assert chosen.node_id == "node-fast"
+
+    # Selecting preferred node overrides
+    chosen_pref = service.select_candidate_peer(preferred_node="node-slow")
+    assert chosen_pref is not None
+    assert chosen_pref.node_id == "node-slow"
+
+    # 2. Test HTTP task admission concurrency bounding
+    config = make_config(tmp_path, workspaces={"test": str(tmp_path / "ws")})
+    _r, tok = mint(config, "reader")
+    time.sleep(1.05)
+
+    client = build_client(
+        config,
+        peer_store=task_store,
+        peer_identity=ident,
+        peer_registry=reg,
+        peer_service=service,
+    )
+
+    req1 = BrahmaTaskRequest(
+        task_id="task-cap-1",
+        trace_id="tr-cap-1",
+        root_task_id="task-cap-1",
+        origin_node="node-alpha",
+        coordinator_node="node-alpha",
+        workspace="test",
+        prompt="Initial task on node alpha",
+        profile="reader",
+    )
+    r1 = client.post(
+        "/tasks",
+        headers={**auth(tok), "X-Brahma-Node": "node-alpha"},
+        json=req1.to_dict(),
+    )
+    assert r1.status_code == 202
+    assert ledger.active_tasks_for_node("node-alpha") == 1
+
+    # Second task from node-alpha exceeds per-node limit (1) -> 503 concurrency_limit_exceeded
+    req2 = BrahmaTaskRequest(
+        task_id="task-cap-2",
+        trace_id="tr-cap-2",
+        root_task_id="task-cap-2",
+        origin_node="node-alpha",
+        coordinator_node="node-alpha",
+        workspace="test",
+        prompt="Second task on node alpha",
+        profile="reader",
+    )
+    r2 = client.post(
+        "/tasks",
+        headers={**auth(tok), "X-Brahma-Node": "node-alpha"},
+        json=req2.to_dict(),
+    )
+    assert r2.status_code == 503
+    assert r2.json()["error"]["code"] == "concurrency_limit_exceeded"
+
+    # Canceling task 1 releases the ledger slot
+    r_cancel = client.post(
+        "/tasks/task-cap-1/cancel",
+        headers={**auth(tok), "X-Brahma-Node": "node-alpha"},
+    )
+    assert r_cancel.status_code == 200
+    assert ledger.active_tasks_for_node("node-alpha") == 0
+
+    # Now task 2 can be admitted
+    r2_retry = client.post(
+        "/tasks",
+        headers={**auth(tok), "X-Brahma-Node": "node-alpha"},
+        json=req2.to_dict(),
+    )
+    assert r2_retry.status_code == 202
+    assert ledger.active_tasks_for_node("node-alpha") == 1
+
+
+def test_peer_service_build_verification_request():
+    """Verify PeerService.build_verification_request creates read-only verifier task."""
+    service = PeerService(endpoint="https://127.0.0.1:8443")
+    try:
+        orig_task = BrahmaTaskRequest(
+            task_id="task-work-1",
+            trace_id="tr-1",
+            root_task_id="task-work-1",
+            origin_node="node-worker",
+            coordinator_node="node-coord",
+            workspace="repo",
+            prompt="Analyze telemetry logs",
+            profile="worker",
+        )
+        orig_res = BrahmaTaskResult(
+            task_id="task-work-1",
+            state="completed",
+            result={"text": "Everything is normal in log.txt"},
+        )
+        v_task = service.build_verification_request(
+            original_task=orig_task,
+            original_result=orig_res,
+            verifier_node="node-verifier",
+            coordinator_node="node-coord",
+        )
+        assert v_task.task_id.startswith("verify-")
+        assert v_task.profile == "reader"
+        assert v_task.effect == "none"
+        assert "BEGIN UNTRUSTED PEER RESULT (Node: node-worker)" in v_task.prompt
+        assert "Everything is normal in log.txt" in v_task.prompt
+        assert v_task.labels["purpose"] == "verification"
+        assert v_task.coordinator_node == "node-coord"
+    finally:
+        service.close()

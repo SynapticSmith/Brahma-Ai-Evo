@@ -3011,6 +3011,14 @@ class SystemConnectivityPage(QWidget):
         except Exception:
             pass
 
+        # Peer Swarm & Federation (ADR-030..038, Phase S4)
+        try:
+            from core.ui_peer import build_peer_management_card
+
+            lay.addWidget(build_peer_management_card(self))
+        except Exception:
+            pass
+
         # Tool & Skill Index (must come after the MCP card: it reports on them)
         lay.addWidget(self._build_tool_index_card())
 

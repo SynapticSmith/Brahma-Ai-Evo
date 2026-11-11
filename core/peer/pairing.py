@@ -11,7 +11,7 @@ Implements ADR-032 and ADR-033:
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import datetime
 import json
 import logging
@@ -137,6 +137,8 @@ class PinnedPeer:
     paired_at: str
     static_pub_raw: Optional[str] = None
     status: str = "paired"
+    labels: Dict[str, Any] = field(default_factory=dict)
+    workspaces: List[str] = field(default_factory=list)
 
 
 class NonceTracker:

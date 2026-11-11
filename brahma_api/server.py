@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import secrets
 import threading
 import time
@@ -57,6 +58,8 @@ from .streaming import (
     tool_calls_delta_chunk,
     usage_chunk,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _audit_logger(config: BrahmaApiConfig) -> Optional[Any]:
@@ -228,13 +231,61 @@ def create_app(
     )
     rate_limiter = RateLimiter(requests_per_minute=config.limits.requests_per_minute)
     session_tracker = SessionTracker()
+    is_custom_base = config.base_dir and Path(config.base_dir).resolve() != Path.cwd().resolve()
+    base_peer_dir = (Path(config.base_dir) / "peer") if is_custom_base else None
+
     resolved_identity = peer_identity
     if resolved_identity is None:
         try:
             from core.peer.identity import NodeIdentity
-            resolved_identity = NodeIdentity.load_or_create(enforce_machine_binding=False)
-        except Exception:
+
+            identity_dir = (base_peer_dir / "identity") if base_peer_dir else None
+            resolved_identity = NodeIdentity.load_or_create(
+                identity_dir=identity_dir,
+                enforce_machine_binding=False,
+            )
+        except Exception as exc:
+            logger.warning("Could not initialize NodeIdentity: %s", exc)
             resolved_identity = None
+
+    resolved_service = peer_service
+    resolved_store = peer_store
+    resolved_registry = peer_registry
+    resolved_artifacts = peer_artifact_store
+    if resolved_service is None and resolved_identity is not None:
+        try:
+            from core.peer.artifacts import PeerArtifactStore
+            from core.peer.pairing import PeerRegistry
+            from core.peer.service import PeerService, set_active_peer_service
+            from core.peer.store import PeerTaskStore
+
+            if base_peer_dir:
+                resolved_store = resolved_store or PeerTaskStore(db_path=base_peer_dir / "tasks.db")
+                resolved_registry = resolved_registry or PeerRegistry(registry_file=base_peer_dir / "peers.json")
+                resolved_artifacts = resolved_artifacts or PeerArtifactStore(base_dir=base_peer_dir / "artifacts")
+            else:
+                resolved_store = resolved_store or PeerTaskStore()
+                resolved_registry = resolved_registry or PeerRegistry()
+                resolved_artifacts = resolved_artifacts or PeerArtifactStore()
+
+            resolved_service = PeerService(
+                identity=resolved_identity,
+                store=resolved_store,
+                registry=resolved_registry,
+                artifact_store=resolved_artifacts,
+                endpoint=f"http://{config.host}:{config.port}",
+            )
+            set_active_peer_service(resolved_service)
+        except Exception as exc:
+            logger.warning("Failed to initialize PeerService: %s", exc, exc_info=True)
+            resolved_service = None
+    elif resolved_service is not None:
+        try:
+            from core.peer.service import set_active_peer_service
+
+            set_active_peer_service(resolved_service)
+        except Exception:
+            pass
 
     app.state.config = config
     app.state.registry = tokens
@@ -242,11 +293,11 @@ def create_app(
     app.state.limiter = limiter
     app.state.rate_limiter = rate_limiter
     app.state.session_tracker = session_tracker
-    app.state.peer_store = peer_store
+    app.state.peer_store = resolved_store
     app.state.peer_identity = resolved_identity
-    app.state.peer_registry = peer_registry
-    app.state.artifact_store = peer_artifact_store
-    app.state.peer_service = peer_service
+    app.state.peer_registry = resolved_registry
+    app.state.artifact_store = resolved_artifacts
+    app.state.peer_service = resolved_service
 
     @app.middleware("http")
     async def _body_limit(request: Request, call_next: Callable[..., Any]) -> Any:

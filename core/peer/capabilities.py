@@ -29,6 +29,7 @@ class PeerCapabilityCard:
     node_id: str
     name: str = "Brahma Node"
     spki_sha256: str = ""
+    endpoint: str = ""
     profiles: List[str] = field(default_factory=lambda: ["reader", "worker"])
     workspaces: List[str] = field(default_factory=list)
     labels: Set[str] = field(default_factory=set)

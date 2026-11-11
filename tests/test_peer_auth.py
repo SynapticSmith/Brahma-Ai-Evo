@@ -403,3 +403,44 @@ def test_signature_rejection_branches_return_401(tmp_path: Path):
     assert r10.status_code == 200
     assert r10.json()["task_id"] == "t-sig-1"
     assert r10.json()["cancel_requested_at"] is not None
+
+    # 11. Artifact upload unsigned from pinned peer -> 401 signature_required (mutating action symmetry)
+    artifact_bytes = b"sample artifact content"
+    r11 = client.post(
+        "/tasks/t-sig-1/artifacts",
+        content=artifact_bytes,
+        headers={
+            **auth(tok),
+            "Content-Type": "text/plain",
+            "X-Brahma-Node": ident.node_id,
+        },
+    )
+    assert r11.status_code == 401
+    assert r11.json()["error"]["code"] == "signature_required"
+
+    # 12. Artifact upload signed from pinned peer -> 201 Created
+    now_art_ts = str(int(time.time()))
+    art_sig = ident.sign_request("POST", "/tasks/t-sig-1/artifacts", artifact_bytes, now_art_ts, "nonce-art-1")
+    r12 = client.post(
+        "/tasks/t-sig-1/artifacts",
+        content=artifact_bytes,
+        headers={
+            **auth(tok),
+            "Content-Type": "text/plain",
+            "X-Brahma-Node": ident.node_id,
+            "X-Brahma-Signature": art_sig,
+            "X-Brahma-Timestamp": now_art_ts,
+            "X-Brahma-Nonce": "nonce-art-1",
+            "X-Brahma-Artifact-Name": "report.txt",
+        },
+    )
+    assert r12.status_code == 201
+    assert r12.json()["name"] == "report.txt"
+
+    # 13. Read status unsigned for pinned peer remains allowed (read symmetry)
+    r13 = client.get(
+        "/tasks/t-sig-1",
+        headers={**auth(tok), "X-Brahma-Node": ident.node_id},
+    )
+    assert r13.status_code == 200
+    assert r13.json()["task_id"] == "t-sig-1"

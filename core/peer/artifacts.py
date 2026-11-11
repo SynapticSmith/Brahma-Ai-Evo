@@ -102,8 +102,13 @@ class PeerArtifactMetadata:
 class PeerArtifactStore:
     """Thread-safe content-addressed storage for peer artifacts."""
 
-    def __init__(self, base_dir: Optional[Path] = None) -> None:
-        self.base_dir = Path(base_dir) if base_dir else default_peer_artifacts_dir()
+    def __init__(
+        self,
+        base_dir: Optional[Path | str] = None,
+        root_dir: Optional[Path | str] = None,
+    ) -> None:
+        chosen = base_dir or root_dir
+        self.base_dir = Path(chosen) if chosen else default_peer_artifacts_dir()
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
 

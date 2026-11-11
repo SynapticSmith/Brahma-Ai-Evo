@@ -84,11 +84,35 @@ class RemoteAgentAdapter(AgentAdapter):
     def __init__(self, record: AgentRecord):
         super().__init__(record)
         tier3_cfg = record.tier3 or {}
+        self._tier3_cfg = tier3_cfg
         self._endpoint = (record.endpoint or tier3_cfg.get("base_url") or "").rstrip("/")
         self._allow_insecure = bool(tier3_cfg.get("allow_insecure", False))
         self._verify_ssl = bool(tier3_cfg.get("verify_ssl", True))
         self._pinned_spki = str(tier3_cfg.get("pinned_spki") or tier3_cfg.get("spki_sha256") or "").strip()
         self._node_identity: Optional[Any] = tier3_cfg.get("node_identity")
+
+        # Dynamic peer selection via S5 capability routing if endpoint is unset
+        if not self._endpoint:
+            try:
+                from core.peer.service import get_active_peer_service
+
+                svc = get_active_peer_service()
+                if svc:
+                    peer = svc.select_candidate_peer(
+                        required_profile=tier3_cfg.get("profile"),
+                        required_workspace=tier3_cfg.get("workspace"),
+                        required_labels=tier3_cfg.get("labels"),
+                        required_verbs=tier3_cfg.get("verbs"),
+                        preferred_node=tier3_cfg.get("preferred_node"),
+                        preferred_labels=tier3_cfg.get("preferred_labels"),
+                    )
+                    if peer:
+                        self._endpoint = peer.endpoint.rstrip("/")
+                        if not self._pinned_spki and peer.spki_sha256:
+                            self._pinned_spki = peer.spki_sha256
+                        self._sign_requests = True
+            except Exception as exc:
+                logger.debug("Auto-selection of candidate peer failed: %s", exc)
 
         # Auto-detect pairing and sign_requests:
         # If explicitly specified in tier3_cfg, respect it.
@@ -142,6 +166,26 @@ class RemoteAgentAdapter(AgentAdapter):
         if not token:
             env_var = f"BRAHMA_AGENT_TOKEN_{self.record.id.upper().replace('-', '_')}"
             token = os.environ.get(env_var)
+
+        if not token and self._endpoint:
+            try:
+                from core.peer.pairing import PeerRegistry
+                from core.peer.service import get_active_peer_service
+
+                svc = get_active_peer_service()
+                reg = self._tier3_cfg.get("peer_registry") if hasattr(self, "_tier3_cfg") else None
+                if reg is None and svc is not None:
+                    reg = svc.registry
+                if reg is None:
+                    reg = PeerRegistry()
+                peers_list = reg.list_peers() if hasattr(reg, "list_peers") else list(reg.load_peers().values())
+                for peer in peers_list:
+                    if peer.endpoint and peer.endpoint.rstrip("/") == self._endpoint:
+                        if peer.token:
+                            token = peer.token
+                            break
+            except Exception:
+                pass
 
         if token:
             headers["Authorization"] = f"Bearer {token}"

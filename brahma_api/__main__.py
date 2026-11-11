@@ -133,6 +133,21 @@ def cmd_serve(args: argparse.Namespace) -> int:
     from .server import serve
 
     server = serve(config)
+    peer_app_state = getattr(getattr(server.config, "app", None), "state", None)
+    resolved_svc = getattr(peer_app_state, "peer_service", None) if peer_app_state else None
+    if getattr(args, "enable_peer_discovery", False):
+        if not resolved_svc:
+            print(
+                "brahma_api: error: --enable-peer-discovery requires peer service, "
+                "but PeerService failed to initialize.",
+                file=sys.stderr,
+            )
+            return 2
+        resolved_svc.start_discovery()
+        print("  peer discovery: ENABLED (UDP beacon port 8444)")
+    elif resolved_svc:
+        print(f"  peer federation: node_id={resolved_svc.identity.node_id}")
+
     print(f"brahma_api {API_VERSION} listening on http://{config.host}:{config.port}")
     print(
         f"  auth: {'required' if config.auth_required else 'DISABLED'} "
@@ -144,6 +159,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
         server.run()
     except KeyboardInterrupt:
         print("brahma_api: stopped", file=sys.stderr)
+    finally:
+        if resolved_svc:
+            resolved_svc.close()
     return 0
 
 
@@ -290,6 +308,11 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--base-dir", default=None, help="repository root holding config/")
     serve.add_argument("--host", default=None, help="loopback host override")
     serve.add_argument("--port", type=int, default=None, help="port override (1024-65535)")
+    serve.add_argument(
+        "--enable-peer-discovery",
+        action="store_true",
+        help="enable LAN peer UDP discovery beacon and listener on port 8444",
+    )
     serve.set_defaults(func=cmd_serve)
 
     token = sub.add_parser("token", help="mint, list, or revoke keys")

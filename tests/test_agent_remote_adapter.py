@@ -439,3 +439,45 @@ def test_remote_adapter_endpoint_scan_auto_detects_registry_peer(tmp_path: Path,
     adapter_rt = RemoteAgentAdapter(record_rt)
     assert adapter_rt._sign_requests is True
     assert adapter_rt._pinned_spki == "expected-registry-spki-sha256"
+
+
+def test_remote_agent_adapter_auto_selects_candidate_peer_from_active_service(tmp_path: Path):
+    """Verify RemoteAgentAdapter queries PeerService when endpoint is not configured."""
+    from core.peer.pairing import PeerRegistry, PinnedPeer
+    from core.peer.service import PeerService, set_active_peer_service
+
+    reg = PeerRegistry(tmp_path / "peers_select.json")
+    pinned = PinnedPeer(
+        node_id="peer-selected-1",
+        name="Dynamic Peer Worker",
+        endpoint="https://192.168.1.99:8443",
+        spki_sha256="select-sha-256",
+        token="tok-select-99",
+        profile="worker",
+        paired_at="2026-11-10T00:00:00Z",
+        static_pub_raw="c3RhdGlj",
+        workspaces=["repo-cuda"],
+        labels={"gpu": "h100"},
+    )
+    reg.save_peer(pinned)
+
+    service = PeerService(registry=reg, endpoint="https://127.0.0.1:8443")
+    set_active_peer_service(service)
+
+    try:
+        record = AgentRecord(
+            id="dynamic_remote_agent",
+            display_name="Dynamic Remote Agent",
+            kind="remote_http",
+            tier=3,
+            endpoint="",
+            tier3={"profile": "worker", "workspace": "repo-cuda", "labels": {"gpu": "h100"}},
+        )
+        adapter = RemoteAgentAdapter(record)
+        assert adapter._endpoint == "https://192.168.1.99:8443"
+        assert adapter._pinned_spki == "select-sha-256"
+        assert adapter._sign_requests is True
+        headers = adapter._get_headers()
+        assert headers["Authorization"] == "Bearer tok-select-99"
+    finally:
+        set_active_peer_service(None)
