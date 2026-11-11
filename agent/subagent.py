@@ -40,6 +40,10 @@ DISPATCH_TOOLS: Tuple[str, ...] = (SUBAGENT_TOOL, SUBAGENT_BATCH_TOOL)
 #: of specialists would only tempt it to try.
 DELEGATION_TOOLS: Tuple[str, ...] = DISPATCH_TOOLS + (LIBRARY_TOOL,)
 
+#: Plan and verification management tools belong to the parent session and must
+#: never appear on a child's surface.
+PLAN_TOOLS: Tuple[str, ...] = ("get_plan", "update_plan", "verify_work")
+
 DEFAULT_SUBAGENT_TURNS = 8
 #: A child is a bounded run, not a second agent that can spend the night. The
 #: parent's ``max_turns`` is deliberately not inherited.
@@ -159,7 +163,7 @@ def select_tools(
     seen: set = set()
     for item in parent_tools:
         name = _item_name(item)
-        if not name or name in DELEGATION_TOOLS or name in seen:
+        if not name or name in DELEGATION_TOOLS or name in PLAN_TOOLS or name in seen:
             continue
         spec = item if isinstance(item, ToolSpec) else get_spec(name)
         if wanted:
@@ -199,7 +203,7 @@ def select_batch_tools(
     seen: set = set()
     for item in parent_tools:
         name = _item_name(item)
-        if not name or name in DELEGATION_TOOLS or name in seen:
+        if not name or name in DELEGATION_TOOLS or name in PLAN_TOOLS or name in seen:
             continue
         spec = item if isinstance(item, ToolSpec) else get_spec(name)
         if (

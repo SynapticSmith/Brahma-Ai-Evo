@@ -119,6 +119,12 @@ DEFAULT_POLICY: Dict[str, Any] = {
         "exec": DENY,
         "outside_workspace": DENY,
     },
+    "verify": {
+        "enabled": False,
+        "command": "",
+        "timeout_seconds": 30.0,
+        "require_proof_of_work": False,
+    },
 }
 
 
@@ -206,7 +212,7 @@ class PermissionPolicy:
         merged = default_policy_dict()
         if data:
             for key, value in data.items():
-                if key in ("classes", "paths", "exec", "headless") and isinstance(value, dict):
+                if key in ("classes", "paths", "exec", "headless", "verify") and isinstance(value, dict):
                     merged[key].update(value)
                     if key == "exec":
                         # The sandbox section is nested one level deeper than
@@ -327,6 +333,10 @@ class PermissionPolicy:
     def trusted_root_diagnostics(self) -> List[str]:
         _, diagnostics = self.resolve_trusted_roots()
         return diagnostics
+
+    @property
+    def verify(self) -> Dict[str, Any]:
+        return dict(self.data.get("verify") or {})
 
     @staticmethod
     def _rel_under_trusted_roots(

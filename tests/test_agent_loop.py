@@ -279,3 +279,29 @@ def test_registered_tools_convert_through_their_spec(tmp_path: Path):
     tool = script.calls[0][1][0]
     assert tool["function"]["name"] == "read_file"
     assert tool["function"]["parameters"]["type"] == "object"
+
+
+def test_loop_resumes_from_session_with_history_and_summary(tmp_path: Path):
+    db_path = tmp_path / "sessions.sqlite3"
+    session = AgentSession.create(tmp_path, title="resume test", db_path=db_path)
+    session.set_summary("Previously explored architecture docs.")
+    session.append_message({"role": "user", "content": "hello first turn"})
+    session.append_message({"role": "assistant", "content": "greetings"})
+
+    script = Script([{"role": "assistant", "content": "resumed ok"}])
+    loop = AgentLoop(
+        script,
+        runtime=_runtime(tmp_path),
+        session=session,
+    )
+    res = loop.run("continue turn")
+    assert res.text == "resumed ok"
+
+    # Context should contain the re-injected compaction summary, prior history, and new prompt
+    messages = script.calls[0][0]
+    # Check that summary marker is present
+    user_msgs = [m for m in messages if m.get("role") == "user"]
+    assert any("[Earlier context — compacted]" in m.get("content", "") for m in user_msgs)
+    assert any("hello first turn" in m.get("content", "") for m in user_msgs)
+    assert any("continue turn" in m.get("content", "") for m in user_msgs)
+

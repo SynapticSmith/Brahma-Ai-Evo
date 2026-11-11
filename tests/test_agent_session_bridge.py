@@ -200,3 +200,29 @@ def test_picker_and_summary_labels_stay_one_line(tmp_path: Path):
     assert "4 turns" in label and "completed" in label
     assert session.id in summary
     assert record.id[:8] in label
+
+
+def test_seed_context_reinjects_compaction_summary():
+    context = bridge.seed_context(
+        [{"role": "user", "content": "latest task"}],
+        summary="User previously edited foo.py and ran tests.",
+    )
+    assert context.summary == "User previously edited foo.py and ran tests."
+    assert len(context.messages) == 2
+    assert context.messages[0]["role"] == "user"
+    assert "[Earlier context — compacted]" in context.messages[0]["content"]
+    assert "User previously edited foo.py and ran tests." in context.messages[0]["content"]
+    assert context.messages[1]["content"] == "latest task"
+
+
+def test_seed_context_extracts_existing_summary_without_duplication():
+    # If the messages list already has the compaction marker, do not prepend a duplicate.
+    messages = [
+        {"role": "user", "content": "[Earlier context — compacted]\nExisting summary of work."},
+        {"role": "user", "content": "next task"},
+    ]
+    context = bridge.seed_context(messages)
+    assert context.summary == "Existing summary of work."
+    assert len(context.messages) == 2
+    assert context.messages[0]["content"].startswith("[Earlier context — compacted]")
+

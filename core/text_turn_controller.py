@@ -1547,10 +1547,15 @@ class TextTurnController:
 
             _complete.stream = _stream
 
-        seeded = list(messages or [])
-        context = bridge.seed_context(seeded)
-
         session = getattr(host, "_agent_session", None)
+        seeded = list(messages or [])
+        session_summary = (
+            session.get_summary()
+            if session is not None and hasattr(session, "get_summary")
+            else None
+        )
+        context = bridge.seed_context(seeded, summary=session_summary)
+
         if session is not None:
             try:
                 pending = bridge.messages_after(

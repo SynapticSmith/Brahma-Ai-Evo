@@ -53,5 +53,11 @@
   "headless": {
     "exec": "deny",
     "outside_workspace": "deny"
+  },
+  "verify": {
+    "enabled": false,
+    "command": "pytest -q",
+    "timeout_seconds": 30.0,
+    "require_proof_of_work": false
   }
 }

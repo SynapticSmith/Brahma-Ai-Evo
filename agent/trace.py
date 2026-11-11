@@ -90,7 +90,7 @@ def classify_failure(
         return FailureTaxonomy.ENVIRONMENT_ERROR
 
     # 7. Unverified stop
-    if stop_reason == "unverified" or "unverified" in combined_text:
+    if stop_reason in ("unverified", "unverified_stop", "plan_incomplete") or "unverified" in combined_text:
         return FailureTaxonomy.UNVERIFIED_STOP
 
     return FailureTaxonomy.UNKNOWN_ERROR if (status in ("error", "failed") or error_message) else None

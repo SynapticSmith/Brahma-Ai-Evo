@@ -78,17 +78,37 @@ def seed_context(
     *,
     system: Optional[str] = None,
     budget: Optional[ContextBudget] = None,
+    summary: Optional[str] = None,
 ) -> ConversationContext:
     """Build a context from an assembled message list.
 
     ``system`` wins over a stored leading system message: the caller has just
     built the prompt for *this* workspace and endpoint.
+    If ``summary`` is provided, it is re-injected as a compacted context
+    marker if not already present in ``messages`` (D7).
     """
+    from .context import SUMMARY_MARKER
+
     stored_system, rest = split_system(messages)
     context = ConversationContext(
         system=system if system is not None else stored_system,
         budget=budget or ContextBudget(),
     )
+    clean_summary = str(summary or "").strip()
+    has_summary_marker = any(
+        m.get("role") == "user" and str(m.get("content") or "").startswith(SUMMARY_MARKER)
+        for m in rest
+    )
+    if clean_summary and not has_summary_marker:
+        context.append({"role": "user", "content": f"{SUMMARY_MARKER}\n{clean_summary}"})
+        context.summary = clean_summary
+    elif has_summary_marker and not clean_summary:
+        for m in rest:
+            c = str(m.get("content") or "")
+            if m.get("role") == "user" and c.startswith(SUMMARY_MARKER):
+                context.summary = c[len(SUMMARY_MARKER):].strip()
+                break
+
     for message in rest:
         context.append(dict(message))
     return context

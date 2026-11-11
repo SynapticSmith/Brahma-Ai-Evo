@@ -27,9 +27,11 @@ from typing import Any, Callable, Dict, Mapping, Optional
 
 from . import brain_tools  # noqa: F401  (import registers brain_search/brain_read/...)
 from . import code_tools  # noqa: F401  (import registers the six tools)
+from . import plan  # noqa: F401  (import registers update_plan/get_plan)
 from . import scripts_tool  # noqa: F401  (import registers search_scripts)
 from . import skills as _skills  # noqa: F401  (import registers load_project_skill)
 from . import subagent  # noqa: F401  (import registers run_subagent)
+from . import verify  # noqa: F401  (import registers verify_work)
 from . import web as _web  # noqa: F401  (import registers web_search/web_fetch)
 from .approval_detail import describe_call, path_scoped_approval_key
 from .permissions import ALLOW, DENY, PermissionPolicy, PolicyResult
@@ -458,8 +460,11 @@ class AgentRuntime:
             "tool_start",
             {"name": name, "call_id": call_id, "args": args, "silent": silent},
         )
+        ctx = self.context(extra)
         if spec is not None:
-            output = execute_spec(spec, args, self.context(extra))
+            output = execute_spec(spec, args, ctx)
+            if extra is not None and isinstance(extra, dict) and isinstance(ctx.extra, dict):
+                extra.update(ctx.extra)
         elif native_dispatch is not None:
             try:
                 output = native_dispatch(name, args)

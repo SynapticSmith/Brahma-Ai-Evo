@@ -84,9 +84,11 @@ def test_status_and_summary_are_persisted(db: Path, tmp_path: Path):
     session.set_status("completed", turns=7)
     session.set_summary("did the thing")
 
+    assert session.get_summary() == "did the thing"
     record = AgentSession.recent(db_path=db)[0]
     assert record.status == "completed"
     assert record.turn_count == 7
+    assert record.summary == "did the thing"
 
 
 def test_events_are_ordered(db: Path, tmp_path: Path):

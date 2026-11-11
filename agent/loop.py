@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, 
 if TYPE_CHECKING:
     from .trace import TraceCollector
 
-from .context import ContextBudget, ConversationContext, truncate_tool_output
+from .context import ContextBudget, ConversationContext, SUMMARY_MARKER, truncate_tool_output
 from .prompts import (
     MAX_SUBDIR_INSTRUCTION_CHARS,
     PATH_ARG_KEYS,
@@ -67,6 +67,8 @@ STOP_REPEAT = "repeat_loop"
 STOP_CANCELLED = "cancelled"
 STOP_ERROR = "error"
 STOP_PERMISSION = "permission_denied"
+STOP_UNVERIFIED = "unverified_stop"
+STOP_PLAN_INCOMPLETE = "plan_incomplete"
 
 #: Written as the tool result for calls that were never dispatched because the
 #: user cancelled. Every `tool_call` must get exactly one `tool` message or the
@@ -83,6 +85,7 @@ class AgentResult:
     events: List[Dict[str, Any]] = field(default_factory=list)
     session_id: Optional[str] = None
     trace_id: Optional[str] = None
+    verified: bool = False
     usage: Dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -96,6 +99,7 @@ class AgentResult:
             "stop_reason": self.stop_reason,
             "session_id": self.session_id,
             "trace_id": self.trace_id,
+            "verified": self.verified,
             "usage": self.usage,
         }
 
@@ -263,6 +267,8 @@ class AgentLoop:
         max_tool_calls: Optional[int] = None,
         trace_collector: Optional[TraceCollector] = None,
         tracer: Optional[TraceCollector] = None,
+        verify_policy: Optional[Any] = None,
+        plan: Optional[Any] = None,
     ):
         self._complete = complete
         self._native_dispatch = native_dispatch
@@ -382,6 +388,55 @@ class AgentLoop:
                 system=system,
                 budget=budget or ContextBudget(),
             )
+            if self._session is not None:
+                try:
+                    stored = self._session.messages()
+                    stored_summary = self._session.get_summary()
+                    clean_summary = str(stored_summary or "").strip()
+                    has_marker = any(
+                        m.get("role") == "user"
+                        and str(m.get("content") or "").startswith(SUMMARY_MARKER)
+                        for m in stored
+                    )
+                    if clean_summary and not has_marker:
+                        self._context.append(
+                            {"role": "user", "content": f"{SUMMARY_MARKER}\n{clean_summary}"}
+                        )
+                        self._context.summary = clean_summary
+                    for m in stored:
+                        if m.get("role") == "system":
+                            continue
+                        self._context.append(dict(m))
+                        if not self._context.summary and m.get("role") == "user":
+                            c = str(m.get("content") or "")
+                            if c.startswith(SUMMARY_MARKER):
+                                self._context.summary = c[len(SUMMARY_MARKER):].strip()
+                except Exception:
+                    pass
+
+        self._verify_policy = verify_policy
+        if (
+            self._verify_policy is None
+            and hasattr(self._runtime, "policy")
+            and hasattr(self._runtime.policy, "verify")
+        ):
+            from .verify import VerifyPolicy
+
+            self._verify_policy = VerifyPolicy.from_dict(self._runtime.policy.verify)
+
+        self._plan = plan
+        if self._plan is None and self._session is not None and hasattr(self._session, "load_plan_steps"):
+            try:
+                steps = self._session.load_plan_steps()
+                if steps:
+                    from .plan import Plan
+
+                    self._plan = Plan(session_id=self._session.id, steps=steps)
+            except Exception:
+                pass
+
+        self._mutations_occurred = False
+        self._last_verdict: Optional[Any] = None
 
     # -- plumbing ----------------------------------------------------------
 
@@ -641,14 +696,29 @@ class AgentLoop:
             extra["subagent_batch_runner"] = self._run_subagent_batch
         if self._batch_readonly:
             extra["batch_readonly"] = True
+        if self._plan is not None:
+            extra["plan"] = self._plan
+        if self._session is not None:
+            extra["session"] = self._session
         try:
-            return self._runtime.execute(
+            res = self._runtime.execute(
                 item["name"],
                 item["args"],
                 native_dispatch=self._native_dispatch,
                 call_id=item["call"]["id"],
                 extra=extra or None,
             )
+            if "plan" in extra and self._plan is None:
+                self._plan = extra["plan"]
+            if "last_verdict" in extra:
+                self._last_verdict = extra["last_verdict"]
+
+            spec = get_spec(item["name"])
+            tool_cls = getattr(spec, "tool_class", "") if spec else ""
+            if tool_cls in ("write", "exec") and not res.startswith("Permission denied") and not res.startswith("Tool '"):
+                self._mutations_occurred = True
+
+            return res
         except Exception as exc:  # noqa: BLE001 - a worker must not kill the turn
             return f"Tool '{item['name']}' failed: {type(exc).__name__}: {exc}"
 
@@ -1253,6 +1323,67 @@ class AgentLoop:
                 # next turn. Only a turn with no calls is a candidate for
                 # completion.
                 if not calls:
+                    # 1. Plan Gate (C3): If an active plan has unresolved steps, reject early completion
+                    if self._plan is not None and len(self._plan.steps) > 0 and not self._plan.is_completed():
+                        unresolved = [s.id for s in self._plan.unresolved_steps()]
+                        if turn < self.max_turns and not self._cancelled():
+                            self._emit("plan_gate_rejected", turn=turn, unresolved=unresolved)
+                            gate_msg = (
+                                f"[Plan Gate] Cannot complete task: plan step(s) {', '.join(unresolved)} "
+                                "are not yet marked completed. Complete the remaining steps or update the plan using update_plan."
+                            )
+                            user_msg = ctx.append({"role": "user", "content": gate_msg})
+                            self._persist(user_msg)
+                            continue
+                        else:
+                            final_text = str(message.get("content") or "").strip()
+                            stop_reason = STOP_PLAN_INCOMPLETE
+                            break
+
+                    # 2. Verification Gate (B1 / B6): If mutating actions occurred, require proof-of-work/verification
+                    if self._verify_policy and (
+                        self._verify_policy.require_proof_of_work
+                        or (self._verify_policy.enabled and self._mutations_occurred)
+                    ):
+                        if self._mutations_occurred:
+                            verdict = self._last_verdict
+                            if (verdict is None or not verdict.verified) and self._verify_policy.command:
+                                from .verify import run_verification
+
+                                verdict = run_verification(self._verify_policy, self._runtime)
+                                self._last_verdict = verdict
+                                self._emit(
+                                    "verification",
+                                    verified=verdict.verified,
+                                    kind=verdict.kind,
+                                    command=verdict.command,
+                                    exit_code=verdict.exit_code,
+                                )
+
+                            if verdict is None or not verdict.verified:
+                                if turn < self.max_turns and not self._cancelled():
+                                    self._emit(
+                                        "verification_gate_rejected",
+                                        turn=turn,
+                                        reason=verdict.reason if verdict else "No verification performed",
+                                    )
+                                    detail = (
+                                        verdict.output
+                                        if (verdict and verdict.output)
+                                        else (verdict.reason if verdict else "Mutating changes occurred without verification.")
+                                    )
+                                    gate_msg = (
+                                        f"[Verification Gate] Cannot complete: mutating changes were made but not verified.\n{detail}\n"
+                                        "Please run a verification command (e.g. verify_work) or record proof of work before finishing."
+                                    )
+                                    user_msg = ctx.append({"role": "user", "content": gate_msg})
+                                    self._persist(user_msg)
+                                    continue
+                                else:
+                                    final_text = str(message.get("content") or "").strip()
+                                    stop_reason = STOP_UNVERIFIED
+                                    break
+
                     final_text = str(message.get("content") or "").strip()
                     stop_reason = STOP_COMPLETED
                     break
@@ -1380,7 +1511,18 @@ class AgentLoop:
                 self._session.set_status(stop_reason, turns=turn)
             except Exception:
                 pass
-        self._emit("stop", reason=stop_reason, turns=turn, tool_calls=self._tool_calls_made)
+        is_verified = (
+            self._last_verdict.verified
+            if self._last_verdict is not None
+            else not self._mutations_occurred
+        )
+        self._emit(
+            "stop",
+            reason=stop_reason,
+            turns=turn,
+            tool_calls=self._tool_calls_made,
+            verified=is_verified,
+        )
 
         return AgentResult(
             text=final_text,
@@ -1390,6 +1532,7 @@ class AgentLoop:
             events=list(self._events),
             session_id=self._session.id if self._session else None,
             trace_id=self._tracer.trace_id if self._tracer else None,
+            verified=is_verified,
             usage={
                 "turns": turn,
                 "tool_calls": self._tool_calls_made,

@@ -22,7 +22,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Optional
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence
 
 
 class SessionNotFound(LookupError):
@@ -78,6 +78,22 @@ CREATE TABLE IF NOT EXISTS agent_events (
 
 CREATE INDEX IF NOT EXISTS idx_agent_events_session
     ON agent_events(session_id, seq);
+
+CREATE TABLE IF NOT EXISTS agent_plan_steps (
+    id          TEXT PRIMARY KEY,
+    session_id  TEXT NOT NULL,
+    step_id     TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    status      TEXT NOT NULL DEFAULT 'pending',
+    dependencies_json TEXT NOT NULL DEFAULT '[]',
+    evidence    TEXT NOT NULL DEFAULT '',
+    seq         INTEGER NOT NULL DEFAULT 0,
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_plan_steps_session
+    ON agent_plan_steps(session_id, seq);
 """
 
 
@@ -91,6 +107,7 @@ class SessionRecord:
     turn_count: int
     created_at: int
     updated_at: int
+    summary: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -100,6 +117,7 @@ class SessionRecord:
             "model": self.model,
             "status": self.status,
             "turn_count": self.turn_count,
+            "summary": self.summary,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -279,6 +297,7 @@ class AgentSession:
                 turn_count=int(row["turn_count"]),
                 created_at=int(row["created_at"]),
                 updated_at=int(row["updated_at"]),
+                summary=str(row["summary"] or "") if "summary" in row.keys() else "",
             )
             for row in rows
         ]
@@ -411,3 +430,79 @@ class AgentSession:
                 "UPDATE agent_sessions SET summary = ?, updated_at = ? WHERE id = ?",
                 (summary or "", _now_ms(), self.id),
             )
+
+    def get_summary(self) -> str:
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT summary FROM agent_sessions WHERE id = ?", (self.id,)
+            ).fetchone()
+            if row and row["summary"]:
+                return str(row["summary"])
+        return ""
+
+    # -- plan steps --------------------------------------------------------
+
+    def save_plan_steps(self, steps: Sequence[Any]) -> None:
+        """Persist plan steps for this session, replacing previous steps."""
+        stamp = _now_ms()
+        with self._connection() as conn:
+            conn.execute("DELETE FROM agent_plan_steps WHERE session_id = ?", (self.id,))
+            for seq, step in enumerate(steps, start=1):
+                step_id = getattr(step, "id", None) or (step.get("id") if isinstance(step, dict) else str(seq))
+                desc = getattr(step, "description", None) or (step.get("description") if isinstance(step, dict) else "")
+                status = getattr(step, "status", None) or (step.get("status") if isinstance(step, dict) else "pending")
+                deps = getattr(step, "dependencies", None) or (step.get("dependencies") if isinstance(step, dict) else [])
+                evidence = getattr(step, "evidence", None) or (step.get("evidence") if isinstance(step, dict) else "")
+                conn.execute(
+                    """
+                    INSERT INTO agent_plan_steps(id, session_id, step_id, description,
+                                                status, dependencies_json, evidence,
+                                                seq, created_at, updated_at)
+                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        str(uuid.uuid4()),
+                        self.id,
+                        str(step_id),
+                        str(desc),
+                        str(status),
+                        json.dumps(list(deps), ensure_ascii=False),
+                        str(evidence),
+                        seq,
+                        stamp,
+                        stamp,
+                    ),
+                )
+            conn.execute(
+                "UPDATE agent_sessions SET updated_at = ? WHERE id = ?",
+                (stamp, self.id),
+            )
+
+    def load_plan_steps(self) -> List[Any]:
+        """Load stored plan steps for this session as PlanStep objects."""
+        from .plan import PlanStep
+
+        with self._connection() as conn:
+            rows = conn.execute(
+                "SELECT step_id, description, status, dependencies_json, evidence, created_at, updated_at "
+                "FROM agent_plan_steps WHERE session_id = ? ORDER BY seq ASC",
+                (self.id,),
+            ).fetchall()
+        out: List[PlanStep] = []
+        for row in rows:
+            try:
+                deps = json.loads(row["dependencies_json"])
+            except ValueError:
+                deps = []
+            out.append(
+                PlanStep(
+                    id=row["step_id"],
+                    description=row["description"],
+                    status=row["status"],
+                    dependencies=deps,
+                    evidence=row["evidence"],
+                    created_at=int(row["created_at"]),
+                    updated_at=int(row["updated_at"]),
+                )
+            )
+        return out
