@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.0",
+  "name": "Brahma Quantum Dark",
+  "slug": "brahma-quantum-dark",
+  "author": "Brahma Design Team",
+  "description": "Canonical deep obsidian canvas with signature Brahma Quantum Cyan and Core Violet accents",
+  "variant": "dark",
+  "tokens": {
+    "canvas": {
+      "base": "#060709",
+      "surface_1": "#08090C",
+      "surface_2": "#0E1117",
+      "glass": "rgba(14, 17, 23, 0.82)",
+      "scrim_left": "rgba(8, 9, 12, 0.95)",
+      "scrim_right": "rgba(8, 9, 12, 0.20)"
+    },
+    "border": {
+      "subtle": "rgba(255, 255, 255, 0.08)",
+      "hover": "rgba(255, 255, 255, 0.18)",
+      "active": "rgba(0, 229, 255, 0.35)",
+      "radius_sm": 4,
+      "radius_md": 10,
+      "radius_lg": 16,
+      "radius_pill": 26
+    },
+    "palette": {
+      "accent_primary": "#00E5FF",
+      "accent_secondary": "#8B5CF6",
+      "accent_voice": "#10B981",
+      "signal_success": "#10B981",
+      "signal_warning": "#F59E0B",
+      "signal_danger": "#EF4444",
+      "signal_info": "#3B82F6"
+    },
+    "text": {
+      "primary": "#F8FAFD",
+      "secondary": "#C5D0E0",
+      "muted": "#8C9BB4",
+      "inverse": "#08090C"
+    },
+    "avatar": {
+      "default_mode": "three_reactive",
+      "dashboard_translucency": 0.78,
+      "ambient_glow": "rgba(0, 229, 255, 0.15)"
+    }
+  }
+}

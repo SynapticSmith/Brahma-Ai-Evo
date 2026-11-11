@@ -284,6 +284,7 @@ These must be decided and recorded in `ADR-029` before code changes.
 | **G10** | Keep `BRAHMA_DPAPI` binary prefix? | **Keep forever** | It is a stored-secret format marker; changing it makes old secrets unreadable |
 | **G11** | What counts as "historical docs" | §2.5 list | Avoids rewriting the audit trail |
 | **G12** | Upstream PR Boundary vs. Sovereign Repo Fork | **Two-Track Strategy: Duplicate to new private repo (`Abhasa-Evo`)** | Upstream (`titechprabhasolutions/Brahma-Ai-Evo`) will reject rebrand PRs. Rebranding in-place blocks surgical upstream PRs. Dual-track allows unconstrained Abhasa development while keeping Brahma branch for upstream contributions. |
+| **G13** | Visual Theme Modifiability & Agent Redesign Invariant | **Declarative JSON Templates (`config/themes/*.json`)** | Governed by `docs/THEME-SCHEMA-AND-AGENT-REDESIGN-CONTRACT.md`. Future agents MUST NEVER modify Python files (`.py`) for visual redesign requests; they output validated JSON templates. |
 
 ---
 
@@ -852,6 +853,12 @@ Authoritative Design Specifications:
   - Background render throttling (60fps active -> 15fps unfocused -> 0fps minimized).
 - [ ] **P9-12 Full 89-Surface Preservation Audit**:
   - Verify every surface in `docs/CURRENT-VISUAL-INVENTORY.md` (Circuit HUD, Pushup Counter, 3D Globe, Radar, Setup Overlay, Smart Home, Security Console) renders flawlessly under the new Citra theme.
+- [ ] **P9-13 Declarative Template Engine & Agent Redesign Contract (`core/theme/engine.py`, `docs/THEME-SCHEMA-AND-AGENT-REDESIGN-CONTRACT.md`)**:
+  - Implement `ThemeManager` in `core/theme/engine.py` capable of parsing and validating JSON theme templates from `templates/themes/` (bundled) and `config/themes/` (user custom).
+  - Ship 4 bundled reference templates (`canonical-citra.json`, `amber-crt.json`, `nordic-frost.json`, `paper-solar-light.json`).
+  - Add User GUI Controls: Theme selector dropdown in top bar/settings, real-time dashboard translucency slider (0% to 100%), and "Save as New Template" exporter.
+  - Implement dynamic hot-reload (< 16ms without app restart).
+  - Enforce the Agent Invariant: Future coding agents follow the execution contract in `docs/THEME-SCHEMA-AND-AGENT-REDESIGN-CONTRACT.md`, generating validated JSON templates without touching Python code.
 
 ---
 
@@ -1033,7 +1040,8 @@ Each PR should be independently green.
    routes, headers, response keys, compatibility tests.
 10. **PR-10 — gateway + dashboard**: mDNS, config paths, certs, tokens.
 11. **PR-11 — Android**: package/classes/resources (respect G8).
-12. **PR-12 — assets, Citra visual redesign & docs**: new marks, `core/theme/tokens.py`,
+12. **PR-12 — assets, Citra visual redesign, theme templates & docs**: new marks, `core/theme/tokens.py`,
+    `core/theme/engine.py`, `templates/themes/*.json`, `docs/THEME-SCHEMA-AND-AGENT-REDESIGN-CONTRACT.md`,
     `core/icons.py`, `core/ui_citra_dock.py`, bento stage restructuring, 89-surface verification,
     README, AGENTS, live docs, historical banners.
 13. **PR-13 — cleanup** (after one release): remove aliases, old assets, old

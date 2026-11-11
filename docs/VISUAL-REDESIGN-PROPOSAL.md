@@ -537,6 +537,7 @@ py -3.11 -m pytest tests/test_ui_theme_tokens.py tests/test_ui_citra_dock.py -q
 | **Phase 2** | Citra Dock Implementation | Create `core/ui_citra_dock.py`, bind into `ui.py` | Legacy `CommandBar` available behind config flag |
 | **Phase 3** | Telemetry Drawer Integration | Create `core/ui_telemetry_drawer.py`, retire floating wings | Existing telemetry signals route to drawer tabs |
 | **Phase 4** | Stage Restructure & Monkeypatch Removal | Restructure `_build_center_panel_modern`, delete lines 86–100 of `ui.py` | Verify offscreen test suite passes cleanly |
+| **Phase 5** | Declarative Template Engine & Agent Contract | Create `core/theme/engine.py`, author `docs/THEME-SCHEMA-AND-AGENT-REDESIGN-CONTRACT.md`, ship `templates/themes/*.json` | Falls back to hardcoded `CitraTokens` if JSON corrupt |
 
 ---
 

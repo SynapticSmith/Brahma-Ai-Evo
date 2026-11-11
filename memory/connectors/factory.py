@@ -96,5 +96,6 @@ def get_memory_connector(backend_name: Optional[str] = None) -> BaseMemoryConnec
 
 def reset_connectors() -> None:
     """Clear cached connector instances so configuration changes take effect immediately."""
-    global _INSTANCES
+    global _INSTANCES, _active_backend
     _INSTANCES.clear()
+    _active_backend = None

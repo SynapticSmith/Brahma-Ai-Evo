@@ -174,6 +174,20 @@ def update_memory(memory_update: dict) -> dict:
     if _recursive_update(memory, memory_update):
         save_memory(memory)
         print(f"[Memory] 💾 Saved: {list(memory_update.keys())}")
+        try:
+            from memory.connectors import get_active_backend_name, get_memory_connector
+            active = get_active_backend_name()
+            if active != "local":
+                conn = get_memory_connector(active)
+                if conn.is_available():
+                    for cat, items in memory_update.items():
+                        if isinstance(items, dict):
+                            for k, v in items.items():
+                                val_str = v.get("value") if isinstance(v, dict) else str(v)
+                                if val_str:
+                                    conn.store(str(k), str(val_str), category=str(cat))
+        except Exception:
+            pass
     return memory
 
 
@@ -516,15 +530,6 @@ def remember(key: str, value: str, category: str = "notes") -> str:
     if category not in valid:
         category = "notes"
     update_memory({category: {key: {"value": value}}})
-    try:
-        from memory.connectors import get_active_backend_name, get_memory_connector
-        active = get_active_backend_name()
-        if active != "local":
-            conn = get_memory_connector(active)
-            if conn.is_available():
-                conn.store(key, value, category=category)
-    except Exception:
-        pass
     return f"Remembered: {category}/{key} = {value}"
 
 

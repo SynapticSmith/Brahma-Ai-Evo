@@ -95,7 +95,9 @@ What is real:
 - HTTP control routes now require a paired device (`_require_device`,
   `server.py:363-388`); only `/health` is public.
 - Advertise-only mDNS via Zeroconf, service type `_BRAHMA._tcp.local.`
-  (`discovery.py`); **no `ServiceBrowser`**, so it cannot find anyone.
+  (`discovery.py`); **no `ServiceBrowser`**, so it cannot find anyone. Note:
+  `zeroconf` is lazily imported and not currently declared in `requirements.txt`;
+  it fails gracefully (`return False`) if not installed.
 - Defaults are safe: `host="127.0.0.1"`, `port=8765`, `enabled=False`,
   `advertise=False` (`server.py:35-43`). Note: `docs/SECURITY-ARCHITECTURE-ROADMAP.md`
   WS-8 still describes `host="0.0.0.0", enabled=True` — that is stale; code wins.
@@ -172,9 +174,9 @@ Files: `core/agent_bridge/{bridge,models,registry,detectors,artifacts,adapter}.p
 
 What is real:
 
-- `AgentRecord.kind` already reserves `"remote_http" | "remote_agent" | "peer"`
-  (`models.py:61`), and `AgentBridge._create_adapter` routes all three to
-  `RemoteAgentAdapter` (`bridge.py:55-57`).
+- `AgentRecord.kind` reserves `"peer"` (`models.py:61`), and
+  `AgentBridge._create_adapter` routes `"remote_http" | "remote_agent" | "peer"`
+  to `RemoteAgentAdapter` (`bridge.py:55-57`).
 - `RemoteAgentAdapter` is a genuine A2A **client**:
   - probe: `GET /.well-known/agent.json`, `/agent-card`, `/health`
   - `run_task` → `POST /tasks` with `{prompt, context}`
@@ -467,7 +469,7 @@ Request:
 
 ```json
 {
-  "task_id": "client-generated-uuid",      // idempotency key
+  "task_id": "client-generated-uuid",      // part of idempotency key (origin_node, task_id)
   "trace_id": "origin-node:uuid",          // propagated across hops
   "origin_node": "node-a",
   "hop": 0,
@@ -553,10 +555,12 @@ Consequences worth stating explicitly:
 - **Approvals are enforced on both ends.** The coordinator may ask its human before
   calling a peer (policy class `native` or a new `peer` class); the peer may deny
   the task's tools locally. Neither side can override the other.
-- **A peer call is a fence, not a parallel read.** A remote task has unknown side
-  effects, so it must not be dispatched in parallel with other tools the way
-  independent reads are (`AGENTS.md`, "Parallel tool calls"). Treat `peer` execution
-  tools as `exec`-class fences in `_effects_conflict`.
+- **A peer call is a fence against local tools.** A remote task has unknown side
+  effects, so it must not be dispatched in parallel with local reads or writes
+  (`AGENTS.md`, "Parallel tool calls"). In `agent/loop.py`, `tool_class="network"`
+  already causes `_call_effect` to return `None`, making it a fence. (To allow
+  multi-peer read fan-out, the deep dive refines this to allow disjoint-node read
+  calls to run concurrently).
 - **Artifacts are the boundary.** Do not stream a whole workspace back. Return
   bounded text plus artifact references, exactly as `artifacts.py` already does.
 
@@ -622,9 +626,11 @@ not implementation details.
    approval" in the HUD).
 4. **Explicit edges.** No auto-trust from mDNS, subnet, or "same install". Every
    peer is paired with a fingerprint and a token.
-5. **Recursion is denied by default.** Carry `origin_node`, `trace_id`, and `hop`.
-   Refuse `hop > max_hops` (default 1), refuse if `origin_node == self`, and refuse
-   if the destination node id appears in the trace.
+5. **Recursion is denied by default; workers are leaves.** Carry `origin_node`,
+   `trace_id`, and `hop`. Refuse `hop > max_hops` (default 1), refuse if
+   `origin_node == self`, and refuse if the destination node id appears in the trace.
+   (The deep dive refines this into a structural invariant: workers are leaf loops
+   with peer tools filtered out of their surface).
 6. **Fan-out is bounded.** A coordinator task must carry a total budget
    (`max_peers`, `max_parallel_peer_tasks`, `max_total_turns`). Exceeding it is a
    hard failure, not a warning. Keep the default small: 2 peers, 2 parallel.
@@ -664,7 +670,9 @@ Each phase has a gate. Do not start the next phase before the gate passes.
 ### Phase S1 — Manual peers over the existing API (demo, not product)
 
 - Add `kind: "peer"` handling that calls `POST /v1/chat/completions` with a
-  `worker` token and returns text.
+  `reader` or `worker` token and returns text. Note: in `brahma_api/models.py`,
+  the `worker` preset allows read/write but sets `exec: DENY`; running shell
+  commands or test runners requires explicit command permission or `operator`.
 - Add `~/.brahma/peers.json` loading on top of `detect_remote_agents`.
 - Add a `peer` audit record and a trace id.
 - **Gate:** three machines, one coordinator, two workers, run a read-only task

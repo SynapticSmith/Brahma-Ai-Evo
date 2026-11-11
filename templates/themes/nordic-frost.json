@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.0",
+  "name": "Nordic Frost",
+  "slug": "nordic-frost",
+  "author": "Abhasa Design Panel",
+  "description": "Cool subarctic deep slate with glacial cyan accents",
+  "variant": "dark",
+  "tokens": {
+    "bhitti": {
+      "base": "#0A0E17",
+      "surface_1": "#0F1624",
+      "surface_2": "#151F32",
+      "glass": "rgba(15, 22, 36, 0.82)",
+      "scrim_left": "rgba(10, 14, 23, 0.95)",
+      "scrim_right": "rgba(10, 14, 23, 0.25)"
+    },
+    "citra": {
+      "border_subtle": "rgba(136, 192, 208, 0.10)",
+      "border_hover": "rgba(136, 192, 208, 0.25)",
+      "border_active": "rgba(136, 192, 208, 0.50)",
+      "radius_sm": 6,
+      "radius_md": 12,
+      "radius_lg": 18,
+      "radius_pill": 28
+    },
+    "ranga": {
+      "accent_primary": "#88C0D0",
+      "accent_reason": "#B48EAD",
+      "accent_voice": "#A3BE8C",
+      "signal_success": "#A3BE8C",
+      "signal_warning": "#EBCB8B",
+      "signal_danger": "#BF616A",
+      "signal_info": "#81A1C1"
+    },
+    "text": {
+      "primary": "#ECEFF4",
+      "secondary": "#D8DEE9",
+      "muted": "#7B88A1",
+      "inverse": "#0A0E17"
+    },
+    "avatar": {
+      "default_mode": "three_reactive",
+      "dashboard_translucency": 0.75,
+      "ambient_glow": "rgba(136, 192, 208, 0.15)"
+    }
+  }
+}

@@ -66,3 +66,10 @@ class BaseMemoryConnector(ABC):
     @abstractmethod
     def status(self) -> Dict[str, Any]:
         """Check liveness and diagnostic health of the memory backend."""
+
+    def is_available(self) -> bool:
+        """Whether this connector is currently ready and reachable."""
+        try:
+            return bool(self.status().get("available", False))
+        except Exception:
+            return False

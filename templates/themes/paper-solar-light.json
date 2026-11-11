@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.0",
+  "name": "Paper Solar Light",
+  "slug": "paper-solar-light",
+  "author": "Abhasa Design Panel",
+  "description": "High-contrast clean paper aesthetic optimized for outdoor daylight legibility",
+  "variant": "light",
+  "tokens": {
+    "bhitti": {
+      "base": "#E5E9F0",
+      "surface_1": "#ECEFF4",
+      "surface_2": "#FFFFFF",
+      "glass": "rgba(255, 255, 255, 0.92)",
+      "scrim_left": "rgba(236, 239, 244, 0.98)",
+      "scrim_right": "rgba(236, 239, 244, 0.40)"
+    },
+    "citra": {
+      "border_subtle": "rgba(46, 52, 64, 0.12)",
+      "border_hover": "rgba(46, 52, 64, 0.28)",
+      "border_active": "rgba(0, 102, 204, 0.60)",
+      "radius_sm": 4,
+      "radius_md": 8,
+      "radius_lg": 14,
+      "radius_pill": 24
+    },
+    "ranga": {
+      "accent_primary": "#0066CC",
+      "accent_reason": "#6B46C1",
+      "accent_voice": "#0D9488",
+      "signal_success": "#15803D",
+      "signal_warning": "#B45309",
+      "signal_danger": "#B91C1C",
+      "signal_info": "#0284C7"
+    },
+    "text": {
+      "primary": "#1A202C",
+      "secondary": "#2D3748",
+      "muted": "#718096",
+      "inverse": "#FFFFFF"
+    },
+    "avatar": {
+      "default_mode": "none",
+      "dashboard_translucency": 0.96,
+      "ambient_glow": "rgba(0, 102, 204, 0.08)"
+    }
+  }
+}

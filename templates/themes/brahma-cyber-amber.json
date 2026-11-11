@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.0",
+  "name": "Brahma Cyber Amber",
+  "slug": "brahma-cyber-amber",
+  "author": "Brahma Design Team",
+  "description": "High-contrast vintage monochrome amber terminal aesthetic",
+  "variant": "monochrome",
+  "tokens": {
+    "canvas": {
+      "base": "#0B0904",
+      "surface_1": "#120E06",
+      "surface_2": "#1A1408",
+      "glass": "rgba(18, 14, 6, 0.88)",
+      "scrim_left": "rgba(11, 9, 4, 0.96)",
+      "scrim_right": "rgba(11, 9, 4, 0.30)"
+    },
+    "border": {
+      "subtle": "rgba(255, 176, 0, 0.12)",
+      "hover": "rgba(255, 176, 0, 0.28)",
+      "active": "rgba(255, 176, 0, 0.60)",
+      "radius_sm": 2,
+      "radius_md": 6,
+      "radius_lg": 8,
+      "radius_pill": 18
+    },
+    "palette": {
+      "accent_primary": "#FFB000",
+      "accent_secondary": "#FF8C00",
+      "accent_voice": "#FFD040",
+      "signal_success": "#FFB000",
+      "signal_warning": "#FF5500",
+      "signal_danger": "#FF2200",
+      "signal_info": "#FFB000"
+    },
+    "text": {
+      "primary": "#FFE8B3",
+      "secondary": "#CCA352",
+      "muted": "#806633",
+      "inverse": "#0B0904"
+    },
+    "avatar": {
+      "default_mode": "none",
+      "dashboard_translucency": 0.92,
+      "ambient_glow": "rgba(255, 176, 0, 0.12)"
+    }
+  }
+}

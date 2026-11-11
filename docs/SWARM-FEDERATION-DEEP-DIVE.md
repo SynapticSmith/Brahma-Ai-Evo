@@ -153,7 +153,7 @@ and never forwarded to another peer without a human-visible decision.
 | --- | --- | --- | --- |
 | **S-01** | A peer task on node B runs through B's `AgentRuntime`; the peer server never calls a handler directly. | `brahma_api/peer.py` -> `AgentRunner` -> `AgentLoop` | `tests/test_peer_server.py::test_peer_task_uses_runtime` |
 | **S-02** | A worker's tool surface excludes every peer-call tool and every subagent fan-out tool. | peer server builds `AgentLoop(tools=[...])` with a filter | `tests/test_peer_server.py::test_peer_task_is_a_leaf` |
-| **S-03** | A peer call is never dispatched in parallel with another tool. | `agent/loop.py:_call_effect` returns `None` when `spec.peer_id` is set | `tests/test_agent_peer_fence.py` |
+| **S-03** | A peer call never runs in parallel with local workspace tools or mutating calls; read-only calls to distinct peers may overlap up to `max_parallel`. | `agent/loop.py:_call_effect` and `_effects_conflict` | `tests/test_agent_peer_fence.py` |
 | **S-04** | Duplicate `(origin_node, task_id)` never starts a second run. | task registry unique index; `attempt` check | `tests/test_peer_idempotency.py` |
 | **S-05** | A retry of a `mutating` task is refused unless the worker proves it never started. | retry matrix in section 6.3 | `tests/test_peer_retry_matrix.py` |
 | **S-06** | A terminal task is immutable; late events are ignored, not appended. | state machine guard | `tests/test_peer_state_machine.py` |
@@ -758,8 +758,10 @@ A task "review the failing tests in `brahma`, read-only" has:
 
 A task "run the Playwright suite and attach a screenshot" has:
 
-- `profile: worker`, `workspace: brahma`, `effect: idempotent` (the suite is repeatable),
-  `deadline_s: 600`.
+- `profile: worker` (with node-c's local `PermissionPolicy` configuring an explicit
+  `exec.allow_patterns` for playwright commands, or running under a dedicated `tester`/`operator`
+  profile, because `brahma_api/models.py` defaults `worker` profile to `exec: DENY`),
+  `workspace: brahma`, `effect: idempotent` (the suite is repeatable), `deadline_s: 600`.
 - Hard filters remove `node-a` (no `tool:playwright`) and `node-b` (no Playwright).
 - `node-c` wins. If `node-c` is down, the coordinator returns `no_capable_peer`, not a
   silent fallback to a node that will fail.
@@ -1088,12 +1090,17 @@ What changes:
 1. **`ToolSpec` gets a `peer_id` field.** `None` for every existing tool; the node id
    for a peer tool. `to_tool_specs()` sets it from `record.id` when
    `record.kind == "peer"`. Update `ToolSpec.to_dict()` and the canonical schema tests.
-2. **`_call_effect` treats `peer_id` as a fence.** Today a peer tool is
+2. **`_call_effect` treats `peer_id` as a fence against local tools.** Today a peer tool is
    `tool_class="network"`, which is already a fence because only `read`/`write` are
-   schedulable [code: `agent/loop.py:532-560`]. Relying on the class is fragile: a future
-   read-only peer verb could be published as `read` and get parallelised. The explicit
-   rule is: if `spec.peer_id` is set, return `None` from `_call_effect`. This is one
-   branch and one test, not a scheduler rewrite.
+   schedulable [code: `agent/loop.py:532-560`]. Relying on the class alone is fragile.
+   The refined scheduling rule:
+   - For mutating tasks or calls sharing a target peer node, `_call_effect` returns `None`
+     (strict sequential fence, never overlapping with other tools or same-node calls).
+   - In S5 (fan-out batches), `_call_effect` returns `("peer", spec.peer_id)` for
+     read-only calls (`effect="none"`). In `_effects_conflict(first, second)`,
+     `("peer", node_b)` and `("peer", node_c)` do not conflict when `node_b != node_c`,
+     allowing up to `max_parallel_peer_tasks` independent remote reads to overlap in the
+     coordinator's thread pool while remaining fenced from local file edits.
 3. **`AgentRuntime.decide` consults a `peer` policy section.** The canonical policy
    document gains:
 
@@ -1131,10 +1138,19 @@ The minimal advertisement is:
 
 | Tool | Class | Approval | Purpose |
 | --- | --- | --- | --- |
-| `agent_<node>_run_task` | `network` + `peer_id` | `peer` policy | Create a task. |
-| `agent_<node>_query_status` | `network` + `peer_id` | allow (scoped) | Poll state/result. |
+| `agent_<node>_run_task` | `network` + `peer_id` | `peer` policy | Dispatch and await task completion (blocks synchronously up to `deadline_s`). |
+| `agent_<node>_query_status` | `network` + `peer_id` | allow (scoped) | Poll state/result for detached, long-running, or recovered tasks. |
 | `agent_<node>_cancel_task` | `network` + `peer_id` | allow (scoped) | Request cancel. |
 | `read_agent_artifact` | `read` (local) | normal | Read a local artifact, including a peer artifact after fetch. |
+
+**Synchronous dispatch vs. status polling:**
+`agent_<node>_run_task` executes synchronously from the model's perspective: it submits
+the task via BTE/A2A, then the adapter's client layer polls the worker under the hood
+(`poll_interval_s=2`, backoff to 5 s) up to `deadline_s`. When the worker finishes,
+`run_task` returns the completed text and artifact references directly in the tool result.
+This prevents burning coordinator model turns on repetitive status checks.
+`agent_<node>_query_status` is advertised primarily for recovering `unknown` or detached
+tasks, not as the required path for every dispatch.
 
 Do not advertise `list_tasks`, `subscribe`, or `push_notification_config` as model tools
 in v1. They are protocol operations, not agent decisions. The coordinator's scheduler
@@ -2026,17 +2042,17 @@ Transport-neutral, stdlib-only where possible, `cryptography` allowed because it
 | `agent/prompts.py` | Add `UNTRUSTED_PEER_OUTPUT_OPEN/CLOSE` and a `wrap_untrusted_peer_output()` helper; add the resident-prompt peer rule when peers are enabled. |
 | `core/agent_bridge/adapter.py` | Set `peer_id` on peer specs; stop using blanket `requires_approval=True` for `run_task`/`cancel_task` once the `peer` policy exists. |
 | `core/agent_bridge/adapters/remote.py` | Add pinned-SPKI SSL mode; add request signing; add A2A v1.0 paths (`/.well-known/agent-card.json`, `message:send`, `tasks/{id}`, `tasks/{id}:cancel`); add artifact fetch; disable redirects; resolve-and-pin IP. |
-| `core/agent_bridge/bridge.py` | `peer` already routes to `RemoteAgentAdapter`; keep. Ensure `publish_tools` does not publish a peer tool for a disabled/unpaired record. |
+| `core/agent_bridge/bridge.py` | `peer` already routes to `RemoteAgentAdapter`; keep. Ensure `publish_tools` does not publish a peer tool for a disabled/unpaired record; check peer liveness at turn boundaries to refresh advertised tools dynamically. |
 | `core/secret_store.py` | No change; use `save_secret_json`/`load_secret_json` for the node key and peer tokens. |
 | `core/identity.py` | Inspect before adding a second identity store. This is a user/assistant profile store, not a node identity; keep them separate. |
 | `core/audit.py` | No schema change; add the peer fields to the `details` dict at the call sites. |
 | `brahma_api/peer.py` (new) | FastAPI router + server. It may import FastAPI, `AgentRunner`, and `core/peer/*`; it must call `AgentRunner`, not construct `AgentLoop` directly. |
-| `brahma_api/runner.py` | Add optional `tools` and `session` parameters to `run()` so the peer server can supply a leaf tool surface and an optional worker-local session without a second construction path. Do not add a second `AgentRuntime` constructor. |
+| `brahma_api/runner.py` | Add optional `tools`, `session`, `deadline_s`, and `max_turns` parameters to `run()`; maintain an `active_tasks[task_id] -> cancel_event` registry so `POST /tasks/{id}:cancel` can trigger cancellation out-of-band. Do not add a second `AgentRuntime` constructor. |
 | `brahma_api/server.py` | Mount the peer router; enforce body cap, auth, `X-Brahma-Node`, signature, and `A2A-Version`; keep `X-Brahma-Approval: gui` loopback-only. |
 | `brahma_api/auth.py` | Extend `TokenRecord` with `node_id`, `spki_sha256`, and `peer:*` scopes; keep `sha256(token)` at rest. |
 | `brahma_api/config.py` | Add a `peer` section (enabled, host, port, node name, max hops, limits); keep `allow_remote_bind` rules. |
 | `main.py` | Start/stop the peer server behind a `core/ui_*` or `core/peer_service.py` seam; do not add lines to the god object. The line ceiling applies. |
-| `brahma_connect/gateway/discovery.py` | Optional: add `ServiceBrowser` for `_brahma-peer._tcp.local.`; opt-in, never auto-trust. |
+| `brahma_connect/gateway/discovery.py` | Optional: add `ServiceBrowser` for `_brahma-peer._tcp.local.`; opt-in, never auto-trust. Declare `zeroconf` in `requirements.txt` if mDNS is enabled. |
 | `docs/ARCHITECTURE-SPEC.md` | Add this document to the doc authority table; update the "Peer/LAN agents" status with a pointer. |
 | `docs/SWARM-FEDERATION-INVESTIGATION.md` | Add a header pointer to this deep dive; do not rewrite the investigation. |
 
@@ -2424,7 +2440,7 @@ well-known path is `/.well-known/agent-card.json` [spec: A2A v1.0 sections 8.6 a
 | Q-11 | Artifact retention? | **7 days**, configurable; audit keeps the hash. | S2 |
 | Q-12 | Task size caps? | **1 MiB prompt, 256 KiB context, 64 KiB inline result, 32 MiB artifact.** | S2 |
 | Q-13 | Is peer output taint approval on by default? | **Yes**, `require_taint_approval: true`. | S3/S5 |
-| Q-14 | mDNS discovery? | **Opt-in only, S4.** Never auto-trust. | S4 |
+| Q-14 | mDNS discovery? | **Opt-in only, S4.** Never auto-trust; add `zeroconf` to dependencies. | S4 |
 | Q-15 | Push notifications / SSE? | **Poll first; SSE in v1.5; push notifications later.** | S2.5 |
 | Q-16 | gRPC binding? | **Defer.** HTTP+JSON is enough for three nodes. | S2.5 |
 | Q-17 | Opaque tokens or macaroons? | **Opaque scoped tokens in v1.** Biscuit only if delegated/multi-hop tokens become a requirement. | S3/S6 |

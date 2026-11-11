@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.0",
+  "name": "Amber Phosphor CRT",
+  "slug": "amber-crt",
+  "author": "Abhasa Design Panel",
+  "description": "High-contrast vintage monochrome amber terminal aesthetic",
+  "variant": "monochrome",
+  "tokens": {
+    "bhitti": {
+      "base": "#0B0904",
+      "surface_1": "#120E06",
+      "surface_2": "#1A1408",
+      "glass": "rgba(18, 14, 6, 0.88)",
+      "scrim_left": "rgba(11, 9, 4, 0.96)",
+      "scrim_right": "rgba(11, 9, 4, 0.30)"
+    },
+    "citra": {
+      "border_subtle": "rgba(255, 176, 0, 0.12)",
+      "border_hover": "rgba(255, 176, 0, 0.28)",
+      "border_active": "rgba(255, 176, 0, 0.60)",
+      "radius_sm": 2,
+      "radius_md": 6,
+      "radius_lg": 8,
+      "radius_pill": 18
+    },
+    "ranga": {
+      "accent_primary": "#FFB000",
+      "accent_reason": "#FF8C00",
+      "accent_voice": "#FFD040",
+      "signal_success": "#FFB000",
+      "signal_warning": "#FF5500",
+      "signal_danger": "#FF2200",
+      "signal_info": "#FFB000"
+    },
+    "text": {
+      "primary": "#FFE8B3",
+      "secondary": "#CCA352",
+      "muted": "#806633",
+      "inverse": "#0B0904"
+    },
+    "avatar": {
+      "default_mode": "none",
+      "dashboard_translucency": 0.92,
+      "ambient_glow": "rgba(255, 176, 0, 0.12)"
+    }
+  }
+}
