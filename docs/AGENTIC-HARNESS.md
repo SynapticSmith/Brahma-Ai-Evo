@@ -701,6 +701,17 @@ way to get real confinement.
 Finally, `requires_approval=True` on a spec escalates `allow` → `ask` (and
 `deny` when headless).
 
+### Mixed-verb tools declare their class per call
+
+A tool whose arguments decide what it does carries a `classifier` and
+`spec.class_for(args)` returns the effective class. `verify_work` is the case
+that matters: with a `command` it runs a shell command through
+`run_captured`, so it is classified `exec` and steps 2 and 4 above apply
+(`classes.exec`, `headless.exec`, `exec.deny_patterns`,
+`exec.sandbox.require_confined`, untrusted workspace). With only `evidence` it
+touches nothing and stays `native`. Never add a command-running tool without a
+classifier: the class is what makes the permission boundary apply.
+
 ### `ask` vs `deny`
 
 * `ask` goes to the approver. The model receives *"a human must approve this
@@ -829,6 +840,7 @@ Common flags (all of `run` and `resume`):
 | `--mcp-config` | discovery | MCP server config; overrides `BRAHMA_MCP_CONFIG`/`.brahma/mcp.json`/`.mcp.json`. |
 | `--no-mcp` | off | Do not start configured MCP servers for this run. |
 | `--no-session` | off | Do not persist. |
+| `--trace` / `--no-trace` | on | Write the execution trace to the local trace log. `BRAHMA_TRACE=0` sets the same default as `--no-trace`. |
 | `--summarize` | off | Use the model for compaction summaries. |
 | `--title` | prompt[:60] | Session title. |
 
@@ -976,6 +988,25 @@ Every event is a dict with `type` plus fields. The same objects go to
 
 Treat this as a public contract: the CLI's machine mode, a future TUI, and a
 subagent coordinator all read it.
+
+### Traces on disk
+
+`TraceCollector` writes one JSONL row per run to
+`%LOCALAPPDATA%\BrahmaAI\traces\traces_<UTC date>.jsonl` (`python -m agent
+trace list|show`). The row contains the prompt and tool arguments, so:
+
+* every line is scrubbed before write (`agent.trace.redact_text`): JSON keys
+  named `token`, `api_key`, `password`, `authorization`, … become
+  `<redacted>`, as do `sk-…`, `ghp_…`, `AKIA…`, `Bearer …` and private-key
+  blocks. Redaction runs on the serialized line, so the JSONL stays parseable;
+* a daily file rotates to `traces_<date>.<n>.jsonl` at 10 MB; rotated files
+  still list and read;
+* a failed run emits `error` then `stop`; only the first finishes and saves the
+  record, so one `trace_id` is one row;
+* `--no-trace` (or `BRAHMA_TRACE=0`) keeps the run out of the log entirely.
+
+Redaction is a safety net, not a guarantee: it recognises common credential
+shapes, not every secret a prompt might contain.
 
 ---
 

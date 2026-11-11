@@ -136,6 +136,74 @@ def test_trace_sink_persistence_and_listing(tmp_path):
     assert sink.get_trace("non_existent") is None
 
 
+def test_trace_sink_redacts_credentials_before_write(tmp_path):
+    sink = TraceSink(base_dir=tmp_path)
+    trace = TraceRecord(
+        trace_id="trace_secret",
+        task_prompt="deploy with password=hunter2 and key sk-abcdefghijklmnopqrstuvwx",
+    )
+    trace.attributes["api_key"] = "topsecretvalue"
+    span = Span(
+        span_id="sp_secret",
+        trace_id="trace_secret",
+        name="tool:run_command",
+        kind="tool_call",
+        attributes={
+            "arguments": {
+                "command": "curl -H 'Authorization: Bearer abcdefghijklmnop'",
+                "token": "plaintext-token-value",
+            }
+        },
+    )
+    trace.spans.append(span)
+    trace.finish(status="completed")
+
+    target = sink.save_trace(trace)
+    raw = target.read_text(encoding="utf-8")
+    for secret in (
+        "hunter2",
+        "sk-abcdefghijklmnopqrstuvwx",
+        "topsecretvalue",
+        "plaintext-token-value",
+        "abcdefghijklmnop",
+    ):
+        assert secret not in raw, f"{secret!r} survived redaction:\n{raw}"
+    assert "<redacted>" in raw
+
+    # Redaction must not break the JSONL contract.
+    loaded = sink.get_trace("trace_secret")
+    assert loaded is not None
+    assert loaded.trace_id == "trace_secret"
+
+
+def test_trace_sink_rotation_keeps_traces_readable(tmp_path):
+    sink = TraceSink(base_dir=tmp_path, max_bytes=200)
+    for index in range(5):
+        trace = TraceRecord(trace_id=f"trace_rot_{index}", task_prompt="x" * 40)
+        trace.finish(status="completed")
+        sink.save_trace(trace)
+
+    files = sorted(p.name for p in tmp_path.glob("traces_*.jsonl"))
+    assert len(files) >= 2, files
+    ids = {t.trace_id for t in sink.list_traces(limit=10)}
+    assert ids == {f"trace_rot_{i}" for i in range(5)}
+    assert sink.get_trace("trace_rot_0") is not None
+
+
+def test_trace_collector_persists_once_when_error_then_stop(tmp_path):
+    sink = TraceSink(base_dir=tmp_path)
+    collector = TraceCollector(sink=sink, task_prompt="boom")
+    collector({"type": "turn_start", "turn": 1})
+    collector({"type": "error", "error": "kaboom"})
+    collector({"type": "stop", "reason": "error"})
+
+    files = list(tmp_path.glob("traces_*.jsonl"))
+    assert len(files) == 1
+    lines = [ln for ln in files[0].read_text(encoding="utf-8").splitlines() if ln.strip()]
+    assert len(lines) == 1
+    assert "kaboom" in lines[0]
+
+
 def test_trace_collector_agent_loop_integration(tmp_path):
     sink = TraceSink(base_dir=tmp_path)
     collector = TraceCollector(

@@ -12,6 +12,7 @@ import datetime
 import json
 import os
 from pathlib import Path
+import re
 import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
@@ -190,10 +191,77 @@ class TraceRecord:
 
 # -- Persistent Trace Sink --------------------------------------------------
 
+#: A trace stores the prompt and every tool argument verbatim. Those fields
+#: routinely contain a key a user pasted into the task text or a token a tool
+#: was called with, so the line is scrubbed before it reaches disk. The
+#: patterns are deliberately JSON-shaped where possible so the record stays
+#: valid JSONL after redaction.
+_SECRET_KEY_NAMES = (
+    r"api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|token|secret|"
+    r"client[_-]?secret|password|passwd|authorization|auth|private[_-]?key|"
+    r"session[_-]?key"
+)
+
+#: ``authorization``/``auth`` are excluded here: their value is usually
+#: ``Bearer <token>``, and stopping at the first space would keep the token.
+_FREETEXT_SECRET_NAMES = (
+    r"api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|token|secret|"
+    r"client[_-]?secret|password|passwd|private[_-]?key|session[_-]?key"
+)
+
+_REDACTIONS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(
+            r'("(?:' + _SECRET_KEY_NAMES + r')"\s*:\s*)"(?:[^"\\]|\\.)*"',
+            re.IGNORECASE,
+        ),
+        r'\1"<redacted>"',
+    ),
+    # Free text pasted into a prompt: ``password=hunter2``, ``token: abc123``.
+    (
+        re.compile(
+            r"(?i)\b(" + _FREETEXT_SECRET_NAMES + r")\b(\s*[=:]\s*)"
+            r"([^\s\"'&,;]{6,})"
+        ),
+        r"\1\2<redacted>",
+    ),
+    (re.compile(r"(?i)\b(bearer\s+)[A-Za-z0-9._\-+/=]{8,}"), r"\1<redacted>"),
+    (re.compile(r"\bsk-[A-Za-z0-9_\-]{8,}"), "sk-<redacted>"),
+    (re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{16,}"), "gh_<redacted>"),
+    (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "AKIA<redacted>"),
+    (re.compile(r"\bxox[baprs]-[A-Za-z0-9\-]{8,}"), "xox-<redacted>"),
+    (
+        re.compile(
+            r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
+            re.DOTALL,
+        ),
+        "<redacted-private-key>",
+    ),
+)
+
+#: Rotate a daily file once it would exceed this size.
+DEFAULT_MAX_TRACE_BYTES = 10 * 1024 * 1024
+
+
+def redact_text(text: str) -> str:
+    """Scrub credential-shaped substrings from a serialized trace line."""
+    if not text:
+        return text
+    for pattern, replacement in _REDACTIONS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
 class TraceSink:
     """Thread-safe, append-only JSONL storage for execution traces."""
 
-    def __init__(self, base_dir: Optional[Path] = None) -> None:
+    def __init__(
+        self,
+        base_dir: Optional[Path] = None,
+        *,
+        max_bytes: int = DEFAULT_MAX_TRACE_BYTES,
+        redact: bool = True,
+    ) -> None:
         if base_dir:
             self._dir = Path(base_dir).resolve()
         else:
@@ -205,6 +273,8 @@ class TraceSink:
                 self._dir = Path(".brahma") / "traces"
         self._dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+        self.max_bytes = max(1, int(max_bytes))
+        self.redact = bool(redact)
 
     @property
     def base_dir(self) -> Path:
@@ -214,12 +284,42 @@ class TraceSink:
         day = date_str or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
         return self._dir / f"traces_{day}.jsonl"
 
+    def _rotate_if_needed(self, target_file: Path, incoming_bytes: int) -> None:
+        """Move today's file aside when the next line would cross the cap.
+
+        Rotated files keep the ``traces_<date>.<n>.jsonl`` shape so
+        ``list_traces`` still finds them, and sort *before* the live file so
+        reverse-chronological listing stays correct. Failure to rotate is not
+        fatal: writing one oversized day is better than losing the trace.
+        """
+        try:
+            size = target_file.stat().st_size
+        except OSError:
+            return
+        if size + incoming_bytes <= self.max_bytes:
+            return
+        stem = target_file.name[: -len(".jsonl")]
+        index = 1
+        while True:
+            # Zero-pad so lexicographic listing stays chronological past .9.
+            rotated = self._dir / f"{stem}.{index:03d}.jsonl"
+            if not rotated.exists():
+                break
+            index += 1
+        try:
+            target_file.replace(rotated)
+        except OSError:
+            pass
+
     def save_trace(self, trace: TraceRecord) -> Path:
         """Append a completed trace to the daily JSONL trace log."""
         data = trace.to_dict()
         line = json.dumps(data, ensure_ascii=False) + "\n"
+        if self.redact:
+            line = redact_text(line)
         target_file = self._trace_file()
         with self._lock:
+            self._rotate_if_needed(target_file, len(line.encode("utf-8")))
             with open(target_file, "a", encoding="utf-8") as f:
                 f.write(line)
         return target_file
@@ -293,6 +393,15 @@ class TraceCollector:
         self._current_turn_span: Optional[Span] = None
         self._active_tool_spans: Dict[str, Span] = {}
         self._lock = threading.Lock()
+        # A failed run emits ``error`` and then ``stop``; both finish the
+        # record, but only the first may write it or every failure is logged
+        # twice.
+        self._saved = False
+
+    def _persist(self) -> None:
+        if self.sink is not None and not self._saved:
+            self.sink.save_trace(self.record)
+            self._saved = True
 
     def __call__(self, event: Dict[str, Any]) -> None:
         self.handle_event(event)
@@ -362,8 +471,7 @@ class TraceCollector:
                 if self._current_turn_span:
                     self._current_turn_span.finish(status="error", error=err_msg)
                 self.record.finish(status="error", error_message=err_msg)
-                if self.sink:
-                    self.sink.save_trace(self.record)
+                self._persist()
 
             elif etype == "stop":
                 reason = str(event.get("reason") or "completed")
@@ -371,5 +479,4 @@ class TraceCollector:
                     self._current_turn_span.finish(status="ok")
                 status = "completed" if reason == "completed" else ("cancelled" if reason == "cancelled" else "error")
                 self.record.finish(status=status, stop_reason=reason)
-                if self.sink:
-                    self.sink.save_trace(self.record)
+                self._persist()

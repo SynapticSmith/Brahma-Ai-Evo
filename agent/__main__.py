@@ -375,7 +375,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         from .trace import TraceCollector, TraceSink
 
         trace_collector = TraceCollector(
-            sink=TraceSink(),
+            sink=TraceSink() if getattr(args, "trace", True) else None,
             task_prompt=prompt,
             session_id=session.id if session else None,
         )
@@ -790,7 +790,10 @@ def _cmd_eval(args: argparse.Namespace) -> int:
         sys.stderr.write(f"error: no scenarios found in {scenarios_dir}\n")
         return EXIT_USAGE
 
-    runner = EvalRunner(trace_sink=TraceSink(), default_provider=args.provider)
+    runner = EvalRunner(
+        trace_sink=TraceSink() if getattr(args, "trace", True) else None,
+        default_provider=args.provider,
+    )
     suite_result = runner.run_suite(scenarios, custom_provider=args.provider)
 
     if args.json:
@@ -844,6 +847,16 @@ def _cmd_trace(args: argparse.Namespace) -> int:
 # Parser
 # --------------------------------------------------------------------------- #
 
+def _trace_default() -> bool:
+    """Traces are on by default; ``BRAHMA_TRACE=0`` or ``--no-trace`` opts out."""
+    return os.environ.get("BRAHMA_TRACE", "").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+
+
 def _add_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--cwd", help="Workspace root (default: current directory)")
     parser.add_argument("--provider", default="auto", help="auto | local | custom | openrouter | stub")
@@ -876,6 +889,12 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--no-mcp", action="store_true", help="Do not start configured MCP servers")
     parser.add_argument("--no-session", action="store_true", help="Do not persist this run")
+    parser.add_argument(
+        "--trace",
+        action=argparse.BooleanOptionalAction,
+        default=_trace_default(),
+        help="Record an execution trace to the local trace log (default: on; --no-trace opts out)",
+    )
     parser.add_argument("--summarize", action="store_true", help="Use the model for compaction summaries")
     parser.add_argument("--title", help="Session title")
 
@@ -978,6 +997,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     eval_parser.add_argument("--provider", default="stub", choices=PROVIDERS, help="Provider for evaluation")
     eval_parser.add_argument("--json", action="store_true", help="Emit JSON scorecard")
+    eval_parser.add_argument(
+        "--trace",
+        action=argparse.BooleanOptionalAction,
+        default=_trace_default(),
+        help="Record evaluation traces to the local trace log (default: on; --no-trace opts out)",
+    )
 
     trace_parser = sub.add_parser("trace", help="List or inspect execution traces")
     trace_sub = trace_parser.add_subparsers(dest="trace_action", required=True)
