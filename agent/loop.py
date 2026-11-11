@@ -714,7 +714,11 @@ class AgentLoop:
                 self._last_verdict = extra["last_verdict"]
 
             spec = get_spec(item["name"])
-            tool_cls = getattr(spec, "tool_class", "") if spec else ""
+            tool_cls = (
+                spec.class_for(item.get("args") or {})
+                if spec is not None
+                else ""
+            )
             if tool_cls in ("write", "exec") and not res.startswith("Permission denied") and not res.startswith("Tool '"):
                 self._mutations_occurred = True
 

@@ -219,6 +219,21 @@ def verify_work(args: Dict[str, Any], context: ToolContext) -> str:
         return "verify_work requires either a 'command' to run or 'evidence' proof of work."
 
 
+def _verify_class(args: Mapping[str, Any]) -> str:
+    """Classify a ``verify_work`` call by what it will actually do.
+
+    A call carrying ``command`` runs a shell command through
+    ``run_captured``, so it must be judged as ``exec``: that is what makes
+    ``classes.exec``/``headless.exec``, ``exec.deny_patterns``,
+    ``exec.sandbox.require_confined`` and the untrusted-workspace rule apply.
+    Without this the tool is a model-callable shell that policy believes is
+    ``native``. The evidence-only path touches nothing and stays ``native``.
+    """
+    if str(args.get("command") or "").strip():
+        return "exec"
+    return "native"
+
+
 VERIFY_WORK_SPEC = ToolSpec(
     name="verify_work",
     description=(
@@ -227,6 +242,7 @@ VERIFY_WORK_SPEC = ToolSpec(
     ),
     parameters=VERIFY_WORK_SCHEMA,
     tool_class="native",
+    classifier=_verify_class,
     handler=verify_work,
     tags=("verify", "test", "gate"),
     max_output_chars=12_000,

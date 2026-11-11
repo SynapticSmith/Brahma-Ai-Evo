@@ -202,6 +202,111 @@ def test_agent_loop_verification_gate_rejects_unverified_mutating_turn(tmp_path:
     assert len(rejections) == 1
 
 
+def test_verify_work_command_path_is_governed_by_exec_policy(tmp_path: Path):
+    """A ``command`` call is a shell call: ``classes.exec`` must decide it."""
+    from agent.permissions import PermissionPolicy
+    from agent.verify import VERIFY_WORK_SPEC
+
+    assert VERIFY_WORK_SPEC.class_for({"command": "pytest -q"}) == "exec"
+    assert VERIFY_WORK_SPEC.class_for({"evidence": "read it back"}) == "native"
+
+    marker = tmp_path / "pwned.txt"
+    command = f'python -c "open(r\'{marker}\', \'w\').write(\'x\')"'
+    denied = AgentRuntime(
+        workspace=tmp_path,
+        policy=PermissionPolicy.from_dict(
+            {"classes": {"exec": "deny", "native": "allow"}}
+        ),
+    )
+    out = denied.execute("verify_work", {"command": command})
+    assert not marker.exists(), f"exec was denied but the command ran: {out!r}"
+
+    allowed = AgentRuntime(
+        workspace=tmp_path,
+        policy=PermissionPolicy.from_dict(
+            {"classes": {"exec": "allow", "native": "allow"}}
+        ),
+    )
+    allowed.execute("verify_work", {"command": command})
+    assert marker.exists()
+
+
+def test_verify_work_command_honours_exec_deny_patterns(tmp_path: Path):
+    from agent.permissions import PermissionPolicy
+
+    marker = tmp_path / "blocked.txt"
+    runtime = AgentRuntime(
+        workspace=tmp_path,
+        policy=PermissionPolicy.from_dict(
+            {
+                "classes": {"exec": "allow", "native": "allow"},
+                "exec": {"deny_patterns": [r"blocked\.txt"]},
+            }
+        ),
+    )
+    command = f'python -c "open(r\'{marker}\', \'w\').write(\'x\')"'
+    out = runtime.execute("verify_work", {"command": command})
+    assert not marker.exists(), out
+
+
+def test_verify_work_evidence_only_stays_native_under_exec_deny(tmp_path: Path):
+    """Recording proof of work touches nothing, so it is not an exec call."""
+    from agent.permissions import PermissionPolicy
+
+    runtime = AgentRuntime(
+        workspace=tmp_path,
+        policy=PermissionPolicy.from_dict(
+            {"classes": {"exec": "deny", "native": "allow"}}
+        ),
+    )
+    out = runtime.execute("verify_work", {"evidence": "Read back the file."})
+    assert "Recorded verification proof of work" in out
+
+
+def test_verify_work_failing_command_keeps_run_unverified(tmp_path: Path):
+    """A verify command is an exec-class mutation: a failure must block 'done'."""
+    policy = VerifyPolicy(enabled=True, command="", require_proof_of_work=False)
+    responses = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "v1",
+                    "type": "function",
+                    "function": {
+                        "name": "verify_work",
+                        "arguments": json.dumps(
+                            {"command": 'python -c "raise SystemExit(1)"'}
+                        ),
+                    },
+                }
+            ],
+        },
+        {"role": "assistant", "content": "Done."},
+        {"role": "assistant", "content": "Done."},
+    ]
+    events: List[Dict[str, Any]] = []
+    from agent.permissions import PermissionPolicy
+
+    loop = AgentLoop(
+        Script(responses),
+        runtime=AgentRuntime(
+            workspace=tmp_path,
+            policy=PermissionPolicy.from_dict(
+                {"classes": {"exec": "allow", "native": "allow"}}
+            ),
+        ),
+        verify_policy=policy,
+        on_event=events.append,
+        max_turns=3,
+    )
+    result = loop.run("run the check")
+    assert result.stop_reason == STOP_UNVERIFIED
+    assert not result.verified
+    assert any(e.get("type") == "verification_gate_rejected" for e in events)
+
+
 def test_agent_loop_verification_gate_stops_with_unverified_on_max_turns(tmp_path: Path):
     policy = VerifyPolicy(require_proof_of_work=True)
     test_file = tmp_path / "foo.txt"
