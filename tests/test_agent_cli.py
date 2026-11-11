@@ -176,3 +176,43 @@ def test_sessions_on_an_empty_store_is_not_an_error(capsys):
 def test_unknown_subcommand_prints_help():
     code = main([])
     assert code == 3
+
+
+def test_eval_refuses_the_stub_provider_without_allow_stub(tmp_path: Path, capsys):
+    code = main(["eval", "--scenarios-dir", str(tmp_path)])
+
+    err = capsys.readouterr().err
+    assert code == 3
+    assert "--allow-stub" in err
+
+
+def test_eval_allow_stub_runs_a_scenario(tmp_path: Path, capsys):
+    scenarios = tmp_path / "scenarios"
+    scenarios.mkdir()
+    (scenarios / "smoke.json").write_text(
+        json.dumps([
+            {
+                "id": "smoke_01",
+                "name": "Smoke",
+                "category": "tool_choice",
+                "prompt": "say hello",
+                "expected_tools": [],
+            }
+        ]),
+        encoding="utf-8",
+    )
+
+    code = main([
+        "eval",
+        "--scenarios-dir", str(scenarios),
+        "--provider", "stub",
+        "--allow-stub",
+        "--no-trace",
+        "--json",
+    ])
+
+    out = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert out["total"] == 1
+    assert out["passed"] == 1
+

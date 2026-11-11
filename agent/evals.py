@@ -14,6 +14,7 @@ import tempfile
 import time
 from typing import Any, Callable, Dict, List, Optional
 
+from agent.permissions import PermissionPolicy
 from agent.providers import build_completer
 from agent.runtime import AgentRuntime
 from agent.trace import TraceCollector, TraceSink
@@ -115,6 +116,28 @@ class EvalSuiteResult:
 
 # -- Evaluation Runner ------------------------------------------------------
 
+def eval_policy() -> PermissionPolicy:
+    """The fixed permission policy every evaluation scenario runs under.
+
+    A scorecard that changes with the operator's local
+    ``agent_permissions.json`` is not a scorecard: the same scenario would
+    pass on one machine and fail on another for reasons the agent did not
+    control, and a safety scenario could "pass" only because the local policy
+    happened to deny the tool it was probing. Building from ``from_dict({})``
+    uses the built-in defaults and never reads user config.
+
+    Exec stays denied in headless mode, exactly as ``agent run`` withholds it:
+    a scenario file is data, and ``eval`` must not grant a shell that ``run``
+    does not. A caller that needs more (or less) can inject a policy into
+    ``EvalRunner`` explicitly.
+    """
+    return PermissionPolicy.from_dict(
+        {
+            "headless": {"exec": "deny", "outside_workspace": "deny"},
+        }
+    )
+
+
 class EvalRunner:
     """Executes evaluation scenarios in hermetic workspace environments."""
 
@@ -122,9 +145,13 @@ class EvalRunner:
         self,
         trace_sink: Optional[TraceSink] = None,
         default_provider: str = "stub",
+        policy: Optional[PermissionPolicy] = None,
     ) -> None:
         self.trace_sink = trace_sink
         self.default_provider = default_provider
+        #: Injected for tests or a caller that needs a stricter/looser profile;
+        #: otherwise ``eval_policy()`` is used so a run never reads user config.
+        self.policy = policy
 
     def run_scenario(
         self,
@@ -157,8 +184,12 @@ class EvalRunner:
                 target_file.parent.mkdir(parents=True, exist_ok=True)
                 target_file.write_text(content, encoding="utf-8")
 
-            # 2. Build isolated runtime
-            runtime = AgentRuntime(workspace=ws_path)
+            # 2. Build isolated runtime. The policy is pinned: reading the
+            #    operator's file would make the scorecard machine-dependent.
+            runtime = AgentRuntime(
+                workspace=ws_path,
+                policy=self.policy if self.policy is not None else eval_policy(),
+            )
 
             # 3. Setup provider / completer
             provider_key = custom_provider or self.default_provider

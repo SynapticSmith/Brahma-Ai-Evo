@@ -167,3 +167,100 @@ def test_eval_suite_scorecard_aggregation(tmp_path):
     summary = suite.summary_text()
     assert "1/2 passed" in summary
     assert "[sc_fail]" in summary
+
+
+def test_eval_policy_is_deterministic_and_does_not_read_user_config(monkeypatch):
+    """A scorecard must not change with the operator's agent_permissions.json."""
+    from agent.evals import eval_policy
+    from agent.permissions import PermissionPolicy
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("eval must not read the operator's permission policy")
+
+    monkeypatch.setattr(PermissionPolicy, "load", classmethod(_boom))
+
+    policy = eval_policy()
+    # Headless defaults: exec and outside-workspace are denied, not asked.
+    assert policy.evaluate("run_command", {"command": "echo hi"}, tool_class="exec", headless=True).decision == "deny"
+    assert policy.evaluate("write_file", {"path": "../escape.txt"}, tool_class="write",
+                           context_workspace=Path.cwd(), headless=True).decision == "deny"
+    # Catastrophic-command rules survive the pin.
+    denied = policy.evaluate("run_command", {"command": "rm -rf /"}, tool_class="exec", headless=True)
+    assert denied.decision == "deny"
+    assert denied.rule.startswith("exec.deny_patterns")
+
+
+def test_eval_runner_uses_pinned_policy_not_the_user_file(tmp_path, monkeypatch):
+    from agent.permissions import PermissionPolicy
+
+    monkeypatch.setattr(
+        PermissionPolicy,
+        "load",
+        classmethod(lambda *a, **k: (_ for _ in ()).throw(AssertionError("user policy read"))),
+    )
+
+    sc = Scenario(
+        id="pin_01",
+        name="Pinned policy",
+        category="tool_choice",
+        prompt="Write hello.txt",
+        expected_tools=["write_file"],
+        verify_files={"hello.txt": "Hello"},
+    )
+
+    def completer(messages, tools):
+        if not any(m.get("role") == "tool" for m in messages):
+            return {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [{
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "write_file", "arguments": json.dumps({"path": "hello.txt", "content": "Hello"})},
+                }],
+            }
+        return {"role": "assistant", "content": "done"}
+
+    runner = EvalRunner(trace_sink=TraceSink(base_dir=tmp_path / "traces"))
+    result = runner.run_scenario(sc, completer=completer)
+
+    assert result.passed is True
+    assert result.tools_called == ["write_file"]
+
+
+def test_eval_runner_honours_an_injected_policy(tmp_path):
+    """The escape hatch is real: an injected policy replaces the pinned one."""
+    from agent.permissions import PermissionPolicy
+
+    sc = Scenario(
+        id="inject_01",
+        name="Injected denial",
+        category="tool_choice",
+        prompt="Read hello.txt",
+        expected_stop_reason="permission_denied",
+    )
+
+    def completer(messages, tools):
+        tool_msgs = [m for m in messages if m.get("role") == "tool"]
+        if not tool_msgs:
+            return {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [{
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": json.dumps({"path": "hello.txt"})},
+                }],
+            }
+        return {"role": "assistant", "content": str(tool_msgs[-1].get("content") or "")}
+
+    strict = PermissionPolicy.from_dict({"tools": {"read_file": {"decision": "deny", "reason": "test"}}})
+    runner = EvalRunner(trace_sink=TraceSink(base_dir=tmp_path / "traces"), policy=strict)
+    result = runner.run_scenario(sc, completer=completer)
+
+    # The pinned policy allows read_file, so a permission_denied stop can only
+    # come from the injected policy. That is the escape hatch under test.
+    assert result.passed is True
+    assert result.stop_reason == "permission_denied"
+
+

@@ -798,6 +798,22 @@ thread (the `asyncio.to_thread` branch in `core/tool_exec.py`, or the text
 path's worker). It returns `"deny"` if no UI is bound, on timeout, and on
 cancel; `ask_blocking` remains as a bool wrapper.
 
+### Evaluations pin their own policy
+
+`agent/evals.py::eval_policy()` builds the policy every scenario runs under
+from the built-in defaults (`PermissionPolicy.from_dict({})`), never from the
+operator's `agent_permissions.json`. A scorecard that changes with the local
+file is not a scorecard: the same scenario would pass on one machine and fail
+on another, and a safety scenario could "pass" only because the local policy
+happened to deny the tool it was probing. Exec stays denied in headless mode,
+exactly as `agent run --json` withholds it, because a scenario file is data and
+`eval` must not grant a shell that `run` does not. `EvalRunner(policy=...)`
+is the explicit escape hatch.
+
+`python -m agent eval` also refuses `--provider stub` unless `--allow-stub` is
+passed: the stub replays a canned script, so its scorecard measures the harness
+rather than a model.
+
 ---
 
 ## 7. CLI

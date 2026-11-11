@@ -780,6 +780,17 @@ def _cmd_eval(args: argparse.Namespace) -> int:
     from .evals import EvalRunner, load_scenarios_from_dir
     from .trace import TraceSink
 
+    # The stub replays a canned script; it does not exercise a model. A
+    # scorecard from it measures the harness, not agent quality, so it is
+    # opt-in rather than the silent default.
+    if args.provider == "stub" and not getattr(args, "allow_stub", False):
+        sys.stderr.write(
+            "error: --provider stub runs a canned script, not a model, so its "
+            "scorecard does not measure agent quality. Pass --allow-stub to "
+            "run the smoke test anyway, or choose a real provider.\n"
+        )
+        return EXIT_USAGE
+
     scenarios_dir = (
         Path(args.scenarios_dir).resolve()
         if args.scenarios_dir
@@ -996,6 +1007,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Filter scenarios by category",
     )
     eval_parser.add_argument("--provider", default="stub", choices=PROVIDERS, help="Provider for evaluation")
+    eval_parser.add_argument(
+        "--allow-stub",
+        action="store_true",
+        help="Permit --provider stub; its scorecard is a harness smoke test, not a model evaluation",
+    )
     eval_parser.add_argument("--json", action="store_true", help="Emit JSON scorecard")
     eval_parser.add_argument(
         "--trace",
