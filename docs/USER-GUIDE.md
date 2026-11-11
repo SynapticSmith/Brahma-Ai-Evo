@@ -531,6 +531,7 @@ Key defaults from the example:
 | `host` / `port` | `127.0.0.1` / `8010` |
 | `enabled` | `false` |
 | `allow_remote_bind` | `false` |
+| `announced_host` | (empty) — host advertised when `host` is `0.0.0.0`/`::`; empty means "detect the LAN address" |
 | `auth_required` | `true` |
 | `requests_per_minute` | 30 |
 | `concurrent_runs` | 2 |

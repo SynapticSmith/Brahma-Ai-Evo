@@ -56,7 +56,11 @@ class PeerService:
         self.registry = registry or PeerRegistry()
         self.artifact_store = artifact_store or PeerArtifactStore()
         self.ledger = ledger or ReservationLedger()
-        self.endpoint = endpoint
+        from core.peer.endpoint import normalize_endpoint
+
+        # A wildcard bind is reachable but not dialable; the beacon and the
+        # card both read ``self.endpoint``, so normalise it once here.
+        self.endpoint = normalize_endpoint(endpoint)
         self._drain_mode = False
         self._lock = threading.Lock()
 

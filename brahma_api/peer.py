@@ -106,16 +106,41 @@ def build_peer_router(
         pending_offers_map = {}
 
     def _announced_endpoint(req: Optional[Request] = None) -> str:
+        """The endpoint a peer can dial, never a wildcard bind address.
+
+        ``config.peer_endpoint`` already resolves a wildcard bind, but a
+        ``PeerService`` can also be constructed directly with one; normalising
+        here keeps the A2A card, the pairing offer, the beacon and the UI on
+        the same answer (ADR-034, S-07).
+        """
+        from core.peer.endpoint import announced_host as _resolve_host
+        from core.peer.endpoint import format_host, is_wildcard_host
+
         active_svc = (getattr(getattr(req, "app", None), "state", None) and getattr(req.app.state, "peer_service", None)) or service
-        if active_svc and getattr(active_svc, "endpoint", None):
-            return active_svc.endpoint
-        return getattr(config, "peer_endpoint", f"http://{config.host}:{config.port}")
+        raw = (
+            active_svc.endpoint
+            if active_svc and getattr(active_svc, "endpoint", None)
+            else getattr(config, "peer_endpoint", f"http://{config.host}:{config.port}")
+        )
+        parsed = urllib.parse.urlparse(str(raw))
+        if parsed.hostname and not is_wildcard_host(parsed.hostname):
+            return str(raw)
+        host = getattr(config, "advertised_host", None) or _resolve_host(
+            getattr(config, "host", ""), getattr(config, "announced_host", None)
+        )
+        port = parsed.port or getattr(config, "peer_port", getattr(config, "port", 8010))
+        scheme = parsed.scheme or ("https" if getattr(config, "peer_tls", True) else "http")
+        return f"{scheme}://{format_host(host)}:{port}"
 
     def _announced_host_port(req: Optional[Request] = None) -> Tuple[str, int]:
+        from core.peer.endpoint import announced_host as _resolve_host
+
         ep = _announced_endpoint(req)
         parsed = urllib.parse.urlparse(ep)
-        h = parsed.hostname or (config.host if config.host not in ("0.0.0.0", "") else "127.0.0.1")
-        p = parsed.port or getattr(config, "peer_port", config.port)
+        h = parsed.hostname or _resolve_host(
+            getattr(config, "host", ""), getattr(config, "announced_host", None)
+        )
+        p = parsed.port or getattr(config, "peer_port", getattr(config, "port", 8010))
         return h, p
 
     def principal_for(authorization: Optional[str] = Header(default=None)) -> Principal:

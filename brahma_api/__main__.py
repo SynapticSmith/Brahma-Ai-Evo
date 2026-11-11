@@ -83,6 +83,13 @@ def _apply_overrides(config: BrahmaApiConfig, args: argparse.Namespace) -> Optio
         config.peer_tls = bool(args.peer_tls)
     if hasattr(args, "insecure_peer") and args.insecure_peer is not None:
         config.insecure_peer = bool(args.insecure_peer)
+    if getattr(args, "announced_host", None):
+        announced = str(args.announced_host).strip()
+        from core.peer.endpoint import is_wildcard_host
+
+        if is_wildcard_host(announced):
+            return f"announced-host {announced!r} is a wildcard; peers cannot dial it"
+        config.announced_host = announced
     if config.host.lower() not in LOOPBACK_HOSTS and not config.peer_tls and not config.insecure_peer:
         return (
             "non-loopback peer surface requires TLS (ADR-033). "
@@ -326,6 +333,11 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default=None, help="loopback host override")
     serve.add_argument("--port", type=int, default=None, help="port override (1024-65535)")
     serve.add_argument("--peer-port", type=int, default=None, help="peer federation port override (1024-65535)")
+    serve.add_argument(
+        "--announced-host",
+        default=None,
+        help="host peers should dial when bound to a wildcard address (default: detected LAN address)",
+    )
     serve.add_argument(
         "--no-peer-tls",
         dest="peer_tls",

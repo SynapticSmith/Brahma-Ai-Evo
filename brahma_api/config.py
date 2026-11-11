@@ -136,6 +136,9 @@ class BrahmaApiConfig:
     allow_remote_bind: bool = False
     auth_required: bool = True
     node_name: str = "Brahma Node"
+    #: Host to advertise when ``host`` is a wildcard bind (``0.0.0.0``/``::``).
+    #: Empty means "detect this machine's primary LAN address".
+    announced_host: Optional[str] = None
     preselect_profile: str = "reader"
     default_provider: str = "auto"
     workspaces: Dict[str, str] = field(default_factory=dict)
@@ -147,9 +150,18 @@ class BrahmaApiConfig:
     problems: List[str] = field(default_factory=list, repr=False)
 
     @property
+    def advertised_host(self) -> str:
+        """The host peers should dial; never a wildcard (ADR-034, S-07)."""
+        from core.peer.endpoint import announced_host as _resolve
+
+        return _resolve(self.host, self.announced_host)
+
+    @property
     def peer_endpoint(self) -> str:
+        from core.peer.endpoint import format_host
+
         scheme = "https" if self.peer_tls else "http"
-        return f"{scheme}://{self.host}:{self.peer_port}"
+        return f"{scheme}://{format_host(self.advertised_host)}:{self.peer_port}"
 
     # -- paths -------------------------------------------------------------
 
@@ -209,6 +221,17 @@ class BrahmaApiConfig:
         peer_tls = bool(data.get("peer_tls", True))
         insecure_peer = bool(data.get("insecure_peer", False))
 
+        announced = str(data.get("announced_host") or "").strip()
+        if announced:
+            from core.peer.endpoint import is_wildcard_host
+
+            if is_wildcard_host(announced):
+                problems.append(
+                    f"announced_host {announced!r} is a wildcard; peers cannot dial it; "
+                    "using the detected LAN address instead"
+                )
+                announced = ""
+
         preselect = str(data.get("preselect_profile") or "reader").strip().lower()
         if preselect not in PROFILES:
             problems.append(f"preselect_profile {preselect!r} is not one of {PROFILES}; using reader")
@@ -246,6 +269,7 @@ class BrahmaApiConfig:
             allow_remote_bind=allow_remote,
             auth_required=bool(data.get("auth_required", True)),
             node_name=str(data.get("node_name") or "Brahma Node").strip(),
+            announced_host=announced or None,
             preselect_profile=preselect,
             default_provider=provider,
             workspaces=workspaces,
@@ -290,6 +314,8 @@ class BrahmaApiConfig:
             "insecure_peer": self.insecure_peer,
             "allow_remote_bind": self.allow_remote_bind,
             "auth_required": self.auth_required,
+            "node_name": self.node_name,
+            "announced_host": self.announced_host,
             "preselect_profile": self.preselect_profile,
             "default_provider": self.default_provider,
             "workspaces": dict(self.workspaces),

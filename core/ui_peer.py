@@ -410,6 +410,11 @@ class PeerManagementWidget(QFrame):
                     port = int(ep.split(":")[1].split("/")[0])
                 except Exception:
                     pass
+        from core.peer.endpoint import announced_host as _resolve_host
+        from core.peer.endpoint import is_wildcard_host
+
+        if is_wildcard_host(host):
+            host = _resolve_host(host)
         offer = coord.create_offer(host, port)
         if self.service:
             self.service.pending_offers[offer.nonce] = offer
