@@ -16,6 +16,7 @@ Phase 1 serves:
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 import json
 import logging
 import secrets
@@ -573,6 +574,19 @@ def create_app(
         )
     )
 
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        yield
+        if resolved_service is not None:
+            resolved_service.close()
+        try:
+            from core.peer.service import get_active_peer_service, set_active_peer_service
+            if get_active_peer_service() is resolved_service:
+                set_active_peer_service(None)
+        except Exception:
+            pass
+
+    app.router.lifespan_context = lifespan
     return app
 
 

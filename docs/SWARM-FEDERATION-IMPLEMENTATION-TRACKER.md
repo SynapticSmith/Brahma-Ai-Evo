@@ -2,7 +2,7 @@
 
 **Document Authority:** `docs/SWARM-FEDERATION-DEEP-DIVE.md` & `docs/SWARM-FEDERATION-INVESTIGATION.md`  
 **Target:** 3-node L2 peer task federation with capability scheduling, pinned mutual identity, at-most-once mutations, and zero shared SQLite databases.  
-**Last Updated:** 2026-11-11 (Ninth-Pass Remediation: Hermetic Service Auto-Resolution & Ledger Enforcement, Operator-Authenticated Pairing Offer & Unforgeable Exchange, Restricted Peer Token Scopes, HTTP Listener Alignment, Dynamic Capability Routing Active)  
+**Last Updated:** 2026-11-11 (Tenth-Pass Hardening: Pairing Consent Operator/Pair Scope Gated, A2A Agent Card Plain-HTTP URL Aligned, Pending Offers TTL Pruned, Clean Process-Global PeerService Test Isolation, Dead Confirmation Removed, Capability Card Labels Typed Set[str])  
 
 ---
 
@@ -37,14 +37,14 @@
   - `GET /tasks/{task_id}/artifacts`: Returns list of artifact metadata records for task.
 
 ### Capability Scheduling, Concurrency & Verifier Matrix (`core/peer/capabilities.py` & `core/peer/scheduler.py`)
-- [x] **`core/peer/capabilities.py`** — `PeerCapabilityCard` dataclass, hard requirement filtering (`matches_requirements`: profile hierarchy, workspace alias, required labels, required verbs, capacity bounds), advisory placement scoring (`score_peer`: load balancing, preferred labels, affinity), operator pin override (`select_best_peer`).
+- [x] **`core/peer/capabilities.py`** — `PeerCapabilityCard` dataclass, hard requirement filtering (`matches_requirements`: profile hierarchy, workspace alias, required labels, required verbs, capacity bounds), advisory placement scoring (`score_peer`: load balancing, preferred labels, affinity), operator pin override (`select_best_peer`), and normalization of labels to genuine `Set[str]` in `__post_init__`.
 - [x] **`core/peer/scheduler.py`** — `ReservationLedger` tracking global and per-node concurrency limits; `build_verifier_task` implementing Idea I-08 (dual-node independent verification, read-only profile, untrusted output delimiters).
 - [x] **Admission Wiring (`brahma_api/peer.py`)** — `POST /tasks` checks `ReservationLedger.acquire(origin, task_id)` on admission; returns HTTP 503 `concurrency_limit_exceeded` when concurrency limit is reached; releases reservation in worker `finally:` or on task cancellation.
 
 ### Discovery, Service Lifecycle & UI Seam (`core/peer/discovery.py`, `core/peer/service.py`, `core/ui_peer.py`)
 - [x] **`core/peer/discovery.py`** — UDP broadcast beacon & listener on port 8444 for `_brahma-peer._tcp.local`; advisory opt-in discovery without auto-trust (Anti-Pattern A-06); self-filtering via `self_node_id` prevents loopback clutter.
-- [x] **`core/peer/service.py`** — `PeerService` lifecycle coordinator, discovery manager, persistent `coordinator` with `NonceTracker` and `LockoutTracker`, `pending_offers` map, thread-locked active service accessors (`get_active_peer_service`, `set_active_peer_service`), drain mode toggle (`drain_mode`), structured status summary (`get_status_summary`), `select_candidate_peer` with workspace and label routing, and `build_verification_request`.
-- [x] **`brahma_api/server.py` & `brahma_api/__main__.py`** — Hermetic resolution of `PeerService` in `create_app` against `config.base_dir / "peer"` with `base_dir=base_peer_dir / "artifacts"`; auto-registration with `set_active_peer_service`; default endpoint scheme aligned to `http://`; `--enable-peer-discovery` flag in `cmd_serve` with loud failure (exit 2) if service fails to start.
+- [x] **`core/peer/service.py`** — `PeerService` lifecycle coordinator, discovery manager, persistent `coordinator` with `NonceTracker` and `LockoutTracker`, `pending_offers` map with TTL-based pruning (`prune_pending_offers`), thread-locked active service accessors (`get_active_peer_service`, `set_active_peer_service`), drain mode toggle (`drain_mode`), structured status summary (`get_status_summary`), `select_candidate_peer` with workspace and label routing, and `build_verification_request`.
+- [x] **`brahma_api/server.py` & `brahma_api/__main__.py`** — Hermetic resolution of `PeerService` in `create_app` against `config.base_dir / "peer"` with `base_dir=base_peer_dir / "artifacts"`; modern FastAPI `lifespan` handler that unregisters process singleton on shutdown; default endpoint scheme aligned to `http://`; `--enable-peer-discovery` flag in `cmd_serve` with loud failure (exit 2) if service fails to start.
 - [x] **`core/ui_peer.py` & `core/ui_connectivity.py`** — PyQt6 `PeerManagementWidget` embedded into System Connectivity page in Settings Hub via `build_peer_management_card`:
   - Local node identity & SPKI SHA-256 fingerprint card.
   - Automatic injection of active running `PeerService`.
@@ -62,7 +62,8 @@
 - [x] **`core/peer/recursion.py`** — Origin node check, hop counter, trace cycle detection, and leaf verification.
 - [x] **`brahma_api/errors.py`** — Standard `ApiError` mapping; `unavailable(message, *, code="provider_unavailable")` supports custom codes including `peer_draining` and `concurrency_limit_exceeded`.
 - [x] **`brahma_api/peer.py`** — FastAPI router with:
-  - **Pairing protocol:** `POST /pair/offer` strictly requiring authenticated principal (`require_any("admin", "approve", "operator", "chat")`) and tracking issued offers in `pending_offers_map`; `POST /pair/exchange` validating issued nonce, consuming once, enforcing persistent nonce/lockout trackers, rejecting `profile="operator"` (HTTP 403 `forbidden_peer_profile`), restricting minted peer tokens strictly to `peer:*` scopes (preventing model surface auth bypass on `/v1/chat/completions`), storing callee `token=""`, and pinning static public key (`static_pub_raw`).
+  - **Pairing protocol:** `POST /pair/offer` strictly requiring operator preset or administrative/pair scope (`require_pairing_consent`) with automatic offer pruning; `POST /pair/exchange` validating issued nonce, consuming once, enforcing persistent nonce/lockout trackers, rejecting `profile="operator"` (HTTP 403 `forbidden_peer_profile`), restricting minted peer tokens strictly to `peer:*` scopes (preventing model surface auth bypass on `/v1/chat/completions`), storing callee `token=""`, and pinning static public key (`static_pub_raw`).
+  - **A2A protocol URL alignment:** `/.well-known/agent-card.json` advertises plain HTTP `http://` URL matching listener.
   - **Airtight origin isolation:** Creator token ID stored; unbound tokens cannot access or cancel tasks by spoofing `X-Brahma-Node` (HTTP 403 `origin_mismatch`).
   - **Workspace binding enforcement:** Reject cross-workspace task execution on bound tokens (HTTP 403 `insufficient_scope`).
   - **Active heartbeat:** Background daemon thread renews working lease every 5s (30s TTL).
@@ -104,7 +105,7 @@
 ## 4. Test Suite Summary
 
 - `tests/test_agent_peer_model.py`: 6 passed
-- `tests/test_peer_server.py`: 20 passed (including legacy DB migration, colliding ID origin resolution, cross-token spoofing prevention, mutual cryptographic SAS pairing handshake with static key pinning, and hermetic custom `base_dir` auto-resolution with `ReservationLedger` limits)
+- `tests/test_peer_server.py`: 20 passed (including legacy DB migration, colliding ID origin resolution, cross-token spoofing prevention, mutual cryptographic SAS pairing handshake with static key pinning, hermetic custom `base_dir` auto-resolution with `ReservationLedger` limits, operator-authenticated pairing consent gate, and plain-HTTP A2A card URL check)
 - `tests/test_peer_auth.py`: 6 passed (including all 8 Ed25519 signature rejection branches returning HTTP 401, paired peer cancel signature enforcement, and paired peer artifact upload signature enforcement)
 - `tests/test_peer_tls.py`: 3 passed (real `connect()` verification)
 - `tests/test_agent_peer_fence.py`: 3 passed (including real `RemoteAgentAdapter` specs)
@@ -113,11 +114,11 @@
 - `tests/test_peer_artifacts.py`: 3 passed (content-addressed storage, 32 MiB size cap, route scope isolation)
 - `tests/test_peer_capabilities.py`: 6 passed (capability matching, advisory ranking, concurrency bounds, verifier matrix, HTTP admission ledger check, and `build_verification_request`)
 - `tests/test_peer_discovery.py`: 4 passed (loopback beacon broadcast, listener discovery, invalid packet filtering, and loopback self-filtering)
-- `tests/test_peer_service.py`: 2 passed (service lifecycle, drain mode HTTP 503 enforcement)
+- `tests/test_peer_service.py`: 3 passed (service lifecycle, drain mode HTTP 503 enforcement, and pending offers TTL pruning)
 - `tests/test_peer_ui.py`: 1 passed (PyQt6 `PeerManagementWidget` layout, active task cancellation, data refresh, drain toggle, and active service singleton auto-binding)
 - `tests/test_agent_remote_adapter.py`: 11 passed (including auto-signing for paired/pinned peers, on-disk registry endpoint scan, dynamic candidate peer selection from active `PeerService` with workspaces and labels, registry token fallback, and artifact fetching)
-- **Total Peer Suite (`pytest -k peer`):** 61 passed
-- **Total Combined Peer & Remote Adapter Tests:** 70 passed
+- **Total Peer Suite (`pytest -k peer`):** 62 passed
+- **Total Combined Peer & Remote Adapter Tests:** 71 passed
 - **Harness Full Suite (`pytest -k agent`):** 628 passed, 3 skipped, clean
 
 ---

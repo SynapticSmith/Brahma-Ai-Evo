@@ -164,3 +164,38 @@ def test_peer_service_drain_mode_http_enforcement(tmp_path: Path):
         headers={**auth(tok), "X-Brahma-Node": "node-client"},
     )
     assert r_cancel.status_code == 200
+
+
+def test_peer_service_pending_offers_pruning(tmp_path: Path):
+    """Verify that expired pairing offers are pruned automatically."""
+    from core.peer.pairing import PairingOffer
+    ident = NodeIdentity.create_new(hostname="host-prune")
+    service = PeerService(identity=ident)
+    try:
+        fresh_offer = PairingOffer(
+            v=1,
+            node_id=ident.node_id,
+            spki_sha256=ident.spki_sha256,
+            host="127.0.0.1",
+            port=8010,
+            nonce="fresh_1",
+            created_at=time.time(),
+        )
+        expired_offer = PairingOffer(
+            v=1,
+            node_id=ident.node_id,
+            spki_sha256=ident.spki_sha256,
+            host="127.0.0.1",
+            port=8010,
+            nonce="expired_1",
+            created_at=time.time() - 300.0,
+        )
+        service.pending_offers["fresh_1"] = fresh_offer
+        service.pending_offers["expired_1"] = expired_offer
+
+        pruned = service.prune_pending_offers(max_age_s=120.0)
+        assert pruned == 1
+        assert "fresh_1" in service.pending_offers
+        assert "expired_1" not in service.pending_offers
+    finally:
+        service.close()

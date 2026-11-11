@@ -110,6 +110,7 @@ def build_peer_router(
         scheme, _, value = (authorization or "").partition(" ")
         if scheme.lower() != "bearer" or not value.strip():
             raise unauthorized("Missing bearer token. Send Authorization: Bearer <token>.")
+        tokens.reload_if_changed()
         record = tokens.verify(value.strip())
         if record is None:
             raise unauthorized()
@@ -125,6 +126,34 @@ def build_peer_router(
                 )
             return principal
         return dependency
+
+    def _prune_offers(offers: Dict[str, Any], max_age_s: float = 120.0) -> None:
+        now = time.time()
+        expired = [
+            nonce
+            for nonce, off in list(offers.items())
+            if (now - getattr(off, "created_at", 0.0)) > max_age_s
+        ]
+        for nonce in expired:
+            offers.pop(nonce, None)
+
+    def require_pairing_consent(principal: Principal = Depends(principal_for)) -> Principal:
+        """Gating dependency for pairing consent: operator preset or administrative/pair scope."""
+        if not config.auth_required:
+            return principal
+        has_admin_scope = principal.has_scope("admin") or principal.has_scope("pair")
+        is_operator = principal.profile in ("operator", "admin")
+        if not (has_admin_scope or is_operator):
+            raise forbidden(
+                f"Pairing consent requires operator preset or administrative/pair scope; key profile is {principal.profile!r}.",
+                code="insufficient_scope",
+            )
+        if principal.profile in ("chat", "reader", "worker") and not has_admin_scope:
+            raise forbidden(
+                f"Keys with profile {principal.profile!r} cannot issue pairing offers.",
+                code="insufficient_profile",
+            )
+        return principal
 
     def _verify_signature_if_present(
         method: str,
@@ -281,7 +310,7 @@ def build_peer_router(
             "name": getattr(config, "node_name", "Brahma Node"),
             "spki_sha256": spki_sha256,
             "description": "Brahma Peer Task Node (A2A v1.0 Binding).",
-            "url": f"https://{config.host}:{config.port}",
+            "url": f"http://{config.host}:{config.port}",
             "preferredTransport": "HTTP+JSON",
             "version": "1.4.0",
             "capabilities": {
@@ -1102,11 +1131,12 @@ def build_peer_router(
 
     @router.post("/pair/offer")
     def create_pairing_offer(
-        principal: Principal = Depends(require_any("admin", "approve", "operator", "chat")),
+        principal: Principal = Depends(require_pairing_consent),
     ) -> Dict[str, Any]:
         """Generate a fresh single-use 120s pairing offer for this node (operator authenticated)."""
         if not resolved_ident or not persistent_coord:
             raise unavailable("Node identity not configured on this host.")
+        _prune_offers(pending_offers_map)
         host = config.host if config.host not in ("0.0.0.0", "") else "127.0.0.1"
         offer = persistent_coord.create_offer(host=host, port=config.port)
         pending_offers_map[offer.nonce] = offer
@@ -1125,6 +1155,8 @@ def build_peer_router(
         """Callee side of the mutual SAS pairing handshake with verified operator consent."""
         if not resolved_ident or not persistent_coord:
             raise unavailable("Node identity not configured on this host.")
+
+        _prune_offers(pending_offers_map)
 
         offer_uri = str(payload.get("offer_uri") or "")
         initiator_node_id = str(payload.get("initiator_node_id") or "")
@@ -1186,7 +1218,7 @@ def build_peer_router(
             scopes=["peer:run", "peer:status", "peer:cancel", "peer:artifact"],
             node_id=initiator_node_id,
             spki_sha256=initiator_spki_sha256,
-            confirm=peer_profile if peer_profile == "operator" else None,
+            confirm=None,
         )
 
         enc_token = persistent_coord.wrap_token_payload(

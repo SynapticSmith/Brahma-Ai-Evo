@@ -34,6 +34,7 @@ SCOPES = (
     "diagnostics",
     "approve",
     "admin",
+    "pair",
     "peer:run",
     "peer:status",
     "peer:cancel",

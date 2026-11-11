@@ -12,3 +12,16 @@ if str(ROOT_DIR) not in sys.path:
 from core.qt_bootstrap import bootstrap
 
 bootstrap()
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _reset_active_peer_service():
+    yield
+    try:
+        from core.peer.service import set_active_peer_service
+        set_active_peer_service(None)
+    except Exception:
+        pass
+

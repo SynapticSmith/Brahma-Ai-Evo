@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from typing import Any, Dict, List, Optional
 
 from core.peer.artifacts import PeerArtifactStore
@@ -74,6 +75,19 @@ class PeerService:
         global _active_peer_service
         if _active_peer_service is None:
             _active_peer_service = self
+
+    def prune_pending_offers(self, max_age_s: float = 120.0) -> int:
+        """Prune expired pending pairing offers to prevent unbounded accumulation."""
+        with self._lock:
+            now = time.time()
+            expired = [
+                nonce
+                for nonce, offer in list(self.pending_offers.items())
+                if (now - getattr(offer, "created_at", 0.0)) > max_age_s
+            ]
+            for nonce in expired:
+                self.pending_offers.pop(nonce, None)
+            return len(expired)
 
     @property
     def drain_mode(self) -> bool:
@@ -142,7 +156,11 @@ class PeerService:
                         spki_sha256=p.spki_sha256,
                         profiles=[p.profile] if p.profile else ["reader", "worker"],
                         workspaces=list(getattr(p, "workspaces", [])),
-                        labels=dict(getattr(p, "labels", {})),
+                        labels=(
+                            set(p.labels.keys())
+                            if isinstance(getattr(p, "labels", None), dict)
+                            else set(getattr(p, "labels", []))
+                        ),
                         active_tasks=self.ledger.active_tasks_for_node(p.node_id),
                     )
                 )

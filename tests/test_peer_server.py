@@ -231,6 +231,7 @@ def test_a2a_agent_card_returns_v1_profile(peer_env):
     card = resp.json()
     assert card["protocolVersion"] == "1.0"
     assert card["name"] == "Workshop PC"
+    assert card["url"].startswith("http://")
     assert card["preferredTransport"] == "HTTP+JSON"
     assert isinstance(card["skills"], list)
     assert len(card["skills"]) >= 1
@@ -695,6 +696,15 @@ def test_peer_server_cryptographic_sas_pairing_exchange(tmp_path: Path):
     # 2. Unauthenticated /pair/offer is rejected with 401
     r_unauth_offer = client.post("/pair/offer")
     assert r_unauth_offer.status_code == 401
+
+    # Reader and Worker keys without admin/pair scope cannot create pairing offers (P1 hardened)
+    _rec_reader, b_reader_tok = mint(b_cfg, "reader")
+    r_reader_offer = client.post("/pair/offer", headers=auth(b_reader_tok))
+    assert r_reader_offer.status_code == 403
+
+    _rec_worker, b_worker_tok = mint(b_cfg, "worker")
+    r_worker_offer = client.post("/pair/offer", headers=auth(b_worker_tok))
+    assert r_worker_offer.status_code == 403
 
     # Authenticated operator /pair/offer succeeds
     r_offer = client.post("/pair/offer", headers=auth(b_op_tok))

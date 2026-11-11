@@ -73,13 +73,13 @@ class SasMismatchError(PairingError):
 class PairingOffer:
     """Pairing offer details (rendered in UI or QR code)."""
 
-    v: int
-    node_id: str
-    spki_sha256: str
-    host: str
-    port: int
-    nonce: str
-    created_at: float
+    v: int = 1
+    node_id: str = ""
+    spki_sha256: str = ""
+    host: str = ""
+    port: int = 8010
+    nonce: str = ""
+    created_at: float = 0.0
 
     @property
     def is_expired(self) -> bool:

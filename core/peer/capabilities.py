@@ -47,6 +47,12 @@ class PeerCapabilityCard:
     max_concurrent_tasks: int = 2
     updated_at: str = field(default_factory=now_iso)
 
+    def __post_init__(self) -> None:
+        if isinstance(self.labels, dict):
+            self.labels = set(self.labels.keys())
+        elif not isinstance(self.labels, set):
+            self.labels = set(self.labels)
+
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
         d["labels"] = sorted(self.labels)
