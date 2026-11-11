@@ -1,6 +1,8 @@
 # Security Architecture Roadmap
 
-**Status:** Proposed — design only, no code changes yet  
+**Status:** Phase 0 and Batch R-1..R-4 landed; findings 7 (Crucible sandbox) and 8
+(privilege separation) remain open. The WS-1..WS-10 detail below is the original design
+record.  
 **Created:** 2026-10-28  
 **Applies to:** SynapticSmith/Brahma-Ai-Evo (`main` @ `5b6e512`)  
 **Upstream reference:** `titechprabhasolutions/Brahma-Ai-Evo` `main` @ `bfb2868` (2026-10-27)  

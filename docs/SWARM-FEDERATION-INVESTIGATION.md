@@ -1,7 +1,10 @@
 # Brahma Swarm / Federation — Investigation & Findings
 
-**Status:** Investigation record. No implementation. Every claim below was checked
-against the tree at `main` @ `b7a7cc9` (working tree clean apart from this document).
+**Status:** Investigation record (2026-11-09 snapshot). The stack it proposed is
+implemented: ADR-023..028 were ratified on 2026-11-11 and the S0-S5 federation stack
+is landed (`docs/SWARM-FEDERATION-IMPLEMENTATION-TRACKER.md`). Every claim below was
+checked against the tree at `main` @ `b7a7cc9` (working tree clean apart from this
+document); read it as the pre-implementation evidence base.
 **Date:** 2026-11-09
 **Question:** if Brahma is installed on three machines, can they talk to each other
 and form a swarm — and what would it take to make that true?
@@ -748,18 +751,20 @@ rule that restricts 8010 to the overlay subnet, and **do not** use the default
 
 ---
 
-## 15. Open decisions (proposed ADRs)
+## 15. Decisions (ADRs, ratified 2026-11-11)
 
 | ADR | Decision | Status |
 | --- | --- | --- |
-| **ADR-023** | Swarm is a federation of `AgentRuntime`s; no second runtime, no shared DB | Proposed |
-| **ADR-024** | Peer transport is A2A-over-HTTPS with pinned node keys; `allow_insecure` is loopback/test only | Proposed |
-| **ADR-025** | Peer identity is per-node Ed25519 + mutual SAS pairing; tokens are issued by the callee | Proposed |
-| **ADR-026** | Recursion is denied by default (`max_hops=1`, origin check, trace check) | Proposed |
-| **ADR-027** | Remote callers never approve; worker runs `deny`-on-ask unless a local approval queue is enabled | Proposed |
-| **ADR-028** | Sessions stay per node; cross-node exchange is task-scoped prompt + artifacts | Proposed |
+| **ADR-023** | Swarm is a federation of `AgentRuntime`s; no second runtime, no shared DB | Ratified 2026-11-11 |
+| **ADR-024** | Peer transport is A2A-over-HTTPS with pinned node keys; `allow_insecure` is loopback/test only | Ratified 2026-11-11 |
+| **ADR-025** | Peer identity is per-node Ed25519 + mutual SAS pairing; tokens are issued by the callee | Ratified 2026-11-11 |
+| **ADR-026** | Recursion is denied by default (`max_hops=1`, origin check, trace check) | Ratified 2026-11-11 |
+| **ADR-027** | Remote callers never approve; worker runs `deny`-on-ask unless a local approval queue is enabled | Ratified 2026-11-11 |
+| **ADR-028** | Sessions stay per node; cross-node exchange is task-scoped prompt + artifacts | Ratified 2026-11-11 |
 
-Open questions that need a human decision before S2:
+Questions this investigation raised before S2. Each was settled during the S0-S5
+build; the binding decision is in ADR-023..038 (`docs/SWARM-FEDERATION-DEEP-DIVE.md`
+section 10). The recommendations are kept as written, for the record.
 
 1. Should a peer task be allowed to write, or is v1 read-only (`reader` only)?
    *Recommendation: read-only v1. A write API across three consumer Windows boxes

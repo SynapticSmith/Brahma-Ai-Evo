@@ -1,6 +1,10 @@
 # Brahma Swarm / Federation - Deep Dive
 
-**Status:** Design and ideation record. No swarm implementation exists.
+**Status:** Design record, implemented. ADR-030..038 were ratified by the owner on
+2026-11-11 and the S0-S5 stack plus the Artifact Lane are landed and verified
+(`docs/SWARM-FEDERATION-IMPLEMENTATION-TRACKER.md`). The inventory below is the
+2026-11-09 snapshot it was written against; where this document and the code
+disagree, the code wins.
 **Date:** 2026-11-09
 **Baseline:** `main` @ `951e4b7` (`Create SWARM-FEDERATION-INVESTIGATION.md`); the only
 untracked files at the time of writing are `docs/CAPABILITY-MAXIMIZATION-ANALYSIS.md`
@@ -1785,7 +1789,7 @@ without rewriting the model.
 The documentation must say "BTE-1 over HTTP+JSON" until the A2A binding passes
 conformance tests.
 
-**Status.** Proposed.
+**Status.** Ratified 2026-11-11.
 
 ### ADR-031 - Coordinator-only origination; peer tasks are leaves
 
@@ -1803,7 +1807,7 @@ a worker. Multi-hop is a later, explicit `allow_relay` feature with its own ADR.
 worker's `run_subagent` remains available only if the operator wants local delegation;
 it cannot reach a peer.
 
-**Status.** Proposed.
+**Status.** Ratified 2026-11-11.
 
 ### ADR-032 - Lease-based push dispatch; at-most-once mutations
 
@@ -1823,7 +1827,7 @@ crashes after doing the work but before answering.
 pass. The UI must show `unknown`, not hide it. Retrying a mutation is a human decision
 after inspection, not an automatic behaviour.
 
-**Status.** Proposed.
+**Status.** Ratified 2026-11-11.
 
 ### ADR-033 - Node identity, SAS pairing, pinned TLS, and token binding
 
@@ -1845,7 +1849,16 @@ identity") are required. `cryptography` is already a dependency, but only `core/
 import it; `agent/` stays stdlib-only. The node key is per Windows user, not per
 machine; document that two users on one box are two nodes.
 
-**Status.** Proposed.
+**Certificate validity is not checked; the pin is.** The client dials with
+`check_hostname=False` and `verify_mode=CERT_NONE` (`core/peer/crypto.py`) and then
+compares the presented SPKI hash against the pinned one. Chain, hostname and
+not-before/not-after are therefore never evaluated: an expired certificate carrying the
+right key still connects. That is the intended design - the pin is the trust anchor, not
+a CA - so the 90-day validity above is a rotation convenience, not an enforced
+obligation. Do not "fix" `CERT_NONE`: that would swap the pin for the system trust
+store and silently widen trust to anyone a public CA vouches for.
+
+**Status.** Ratified 2026-11-11.
 
 ### ADR-034 - Peer output is untrusted data; taint before cross-peer forwarding
 
@@ -1863,7 +1876,7 @@ is not a sandbox, but it plus taint plus policy is a defensible layered control.
 must default to `true` for safety. The wrapper is also applied when reading a
 peer-produced artifact, not only when reading a task result.
 
-**Status.** Proposed.
+**Status.** Ratified 2026-11-11.
 
 ### ADR-035 - Budgets are reservations; reject, do not clamp
 
@@ -1879,7 +1892,7 @@ Rejection lets the coordinator choose a smaller task or a different peer.
 limit is advertised in the capability card. A task that needs more turns must be split
 or sent to a peer with a larger limit.
 
-**Status.** Proposed.
+**Status.** Ratified 2026-11-11.
 
 ### ADR-036 - Peer sessions are worker-local; no caller session id, no replication
 
@@ -1897,7 +1910,7 @@ conflicts. Task-scoped context is enough for a worker to do the job.
 needed context. This is a feature, not a limitation: it keeps the trust boundary
 explicit. The coordinator still persists the result into its own session if it wants to.
 
-**Status.** Proposed.
+**Status.** Ratified 2026-11-11.
 
 ### ADR-037 - Cross-node observability is trace context plus per-node audit
 
@@ -1915,7 +1928,7 @@ each node's audit chain verifiable on its own.
 make that easy (a trace viewer that can open a peer's exported JSONL). Do not put
 prompt/result text in traces by default.
 
-**Status.** Proposed.
+**Status.** Ratified 2026-11-11.
 
 ### ADR-038 - Capabilities are advisory; policy is authoritative
 
@@ -1931,7 +1944,7 @@ receive work it should not. Placement is an optimisation; policy is a control.
 reports `policy_denied` and does not retry the same call. Capability drift is a routing
 signal, not an identity signal.
 
-**Status.** Proposed.
+**Status.** Ratified 2026-11-11.
 
 ### 10.1 ADR interaction with the existing register
 
