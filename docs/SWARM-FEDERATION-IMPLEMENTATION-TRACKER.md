@@ -2,7 +2,7 @@
 
 **Document Authority:** `docs/SWARM-FEDERATION-DEEP-DIVE.md` & `docs/SWARM-FEDERATION-INVESTIGATION.md`  
 **Target:** 3-node L2 peer task federation with capability scheduling, pinned mutual identity, at-most-once mutations, and zero shared SQLite databases.  
-**Last Updated:** 2026-11-11 (Tenth-Pass Hardening: Pairing Consent Operator/Pair Scope Gated, A2A Agent Card Plain-HTTP URL Aligned, Pending Offers TTL Pruned, Clean Process-Global PeerService Test Isolation, Dead Confirmation Removed, Capability Card Labels Typed Set[str])  
+**Last Updated:** 2026-11-11 (SPKI-Pinned TLS on Port 8443 Wired, CompositeServer Dual Listener, Raw Pinned Connection Verified, Test Suite 63 Passed)  
 
 ---
 
@@ -12,7 +12,7 @@
 | :--- | :--- | :---: | :--- |
 | **S0** | **Contracts & Architecture** | ✅ DONE | BTE-1 wire schema, ADR-030..038, threat model, state machine. Implemented & ratified in `ARCHITECTURE-SPEC.md`. |
 | **S0.5** | **Cryptographic Primitives** | ✅ DONE | Ed25519 node key, X25519 + SAS derivation, SPKI pinning, request signing (`core/peer/crypto.py`). |
-| **S1** | **API Transport & Adapter** | ✅ DONE | `RemoteAgentAdapter` constructs BTE-1 requests, sends `X-Brahma-Node`, polls `state` or `status`, pinned SPKI via `build_pinned_opener`, auto-signs when paired/pinned, dynamic capability routing via `select_candidate_peer`, registry token fallback, artifact fetching verb. |
+| **S1** | **API Transport & Adapter** | ✅ DONE | `RemoteAgentAdapter` constructs BTE-1 requests, sends `X-Brahma-Node`, polls `state` or `status`, pinned SPKI via `build_pinned_opener`, auto-signs when paired/pinned, dynamic capability routing via `select_candidate_peer`, registry token fallback, artifact fetching verb. SPKI-pinned TLS on port 8443 wired via `ensure_certificate_files` and dual-listener `CompositeServer` (port 8010 serves OpenAI-compatible loopback HTTP; port 8443 serves TLS 1.3 self-signed peer traffic). Non-loopback fail-closed check in place. |
 | **S2** | **Core Peer Engine & Task Server** | ✅ DONE | `core/peer/store.py` with `token_id` storage, DB schema auto-migration, `brahma_api/peer.py`, airtight origin isolation, workspace binding enforcement, active 5s heartbeat thread, sync 500 error contract, budget clamping, cancel race resolution. |
 | **S2.5** | **A2A v1.0 Binding** | ✅ DONE | `/.well-known/agent-card.json`, `POST /message:send`, `POST /tasks/{id}:cancel`, chat-profile token fallback verified. |
 | **Artifacts** | **Content-Addressed Artifact Lane (ADR-038)** | ✅ DONE | Content-addressed storage, 32 MiB size cap (`MAX_ARTIFACT_BYTES`), SHA-256 verification, filename sanitization, task-scoped `manifest.jsonl`, origin-isolated HTTP routes (`core/peer/artifacts.py`, `brahma_api/peer.py`), and mutating upload signature symmetry enforced. |
@@ -25,9 +25,9 @@
 ## 2. Completed & Remediated Components
 
 ### Core Cryptography, Identity & Pairing (`core/peer/`)
-- [x] **`core/peer/crypto.py`** — Ed25519 keypair generation, sign/verify; X25519 ephemeral ECDH; HKDF-SHA256 6-digit SAS & AES-256-GCM derivation; SPKI SHA-256 hashing; real `PinnedHTTPSConnection.connect()` and `build_pinned_opener`.
-- [x] **`core/peer/identity.py`** — DPAPI user-scoped node key storage (`%LOCALAPPDATA%\BrahmaAI\identity\node.json`) with machine entropy; `node_id` base32 calculation; machine-binding tripwire (`MachineGuid` + hostname); 90-day self-signed X.509 certificate generator with SPIFFE and DNS SANs.
-- [x] **`core/peer/pairing.py`** — Out-of-band 6-digit SAS pairing protocol; `PairingOffer` with URI timestamp encoding and 120s TTL check; nonce replay check in callee exchange; 3-failed-attempts lockout (5 min); `PeerRegistry` enforcing NO TOFU, `list_peers()` helper; AES-256-GCM token payload encryption. Accepts `Path | str` without raising `AttributeError`. `PinnedPeer` carries `workspaces` and `labels` for capability matching.
+- [x] **`core/peer/crypto.py`** — Ed25519 keypair generation, sign/verify; X25519 ephemeral ECDH; HKDF-SHA256 6-digit SAS & AES-256-GCM derivation; SPKI SHA-256 hashing; real `PinnedHTTPSConnection.connect()` defaulting to unverified context so raw connections authenticate self-signed certificates using the SPKI SHA-256 fingerprint; and `build_pinned_opener`.
+- [x] **`core/peer/identity.py`** — DPAPI user-scoped node key storage (`%LOCALAPPDATA%\BrahmaAI\identity\node.json`) with machine entropy; `node_id` base32 calculation; machine-binding tripwire (`MachineGuid` + hostname); 90-day self-signed X.509 certificate generator with SPIFFE and DNS SANs; `ensure_certificate_files` helper for generating/saving PEM cert/key on disk.
+- [x] **`core/peer/pairing.py`** — Out-of-band 6-digit SAS pairing protocol; `PairingOffer` with URI timestamp encoding and 120s TTL check; nonce replay check in callee exchange; 3-failed-attempts lockout (5 min); `PeerRegistry` enforcing NO TOFU, `list_peers()` helper; AES-256-GCM token payload encryption. Accepts `Path | str` without raising `AttributeError`. `PinnedPeer` carries `workspaces` and `labels` for capability matching. Pure `prune_pending_offers` helper function.
 
 ### Content-Addressed Artifact Lane (`core/peer/artifacts.py` & `brahma_api/peer.py`)
 - [x] **`core/peer/artifacts.py`** — Content-addressed store (`%LOCALAPPDATA%\BrahmaAI\peer\artifacts\<task_id>\<digest>.bin`), task-scoped `manifest.jsonl`, SHA-256 integrity verification on read, 32 MiB size cap (`MAX_ARTIFACT_BYTES`), filename sanitization preventing directory traversal. Constructor accepts both `base_dir` and `root_dir` aliases.
@@ -44,7 +44,7 @@
 ### Discovery, Service Lifecycle & UI Seam (`core/peer/discovery.py`, `core/peer/service.py`, `core/ui_peer.py`)
 - [x] **`core/peer/discovery.py`** — UDP broadcast beacon & listener on port 8444 for `_brahma-peer._tcp.local`; advisory opt-in discovery without auto-trust (Anti-Pattern A-06); self-filtering via `self_node_id` prevents loopback clutter.
 - [x] **`core/peer/service.py`** — `PeerService` lifecycle coordinator, discovery manager, persistent `coordinator` with `NonceTracker` and `LockoutTracker`, `pending_offers` map with TTL-based pruning (`prune_pending_offers`), thread-locked active service accessors (`get_active_peer_service`, `set_active_peer_service`), drain mode toggle (`drain_mode`), structured status summary (`get_status_summary`), `select_candidate_peer` with workspace and label routing, and `build_verification_request`.
-- [x] **`brahma_api/server.py` & `brahma_api/__main__.py`** — Hermetic resolution of `PeerService` in `create_app` against `config.base_dir / "peer"` with `base_dir=base_peer_dir / "artifacts"`; modern FastAPI `lifespan` handler that unregisters process singleton on shutdown; default endpoint scheme aligned to `http://`; `--enable-peer-discovery` flag in `cmd_serve` with loud failure (exit 2) if service fails to start.
+- [x] **`brahma_api/server.py` & `brahma_api/__main__.py`** — Hermetic resolution of `PeerService` in `create_app` against `config.base_dir / "peer"` with `base_dir=base_peer_dir / "artifacts"`; modern FastAPI `lifespan` handler that unregisters process singleton on shutdown; single source of truth for announced endpoint (`endpoint=config.peer_endpoint`); `DEFAULT_PEER_PORT = 8443`; dual-listener `CompositeServer` serving plain HTTP on 8010 and SPKI-pinned TLS 1.3 on 8443; fail-closed enforcement when bound to non-loopback host without TLS unless `--insecure-peer`; `--peer-port`, `--no-peer-tls`, `--insecure-peer`, and `--enable-peer-discovery` CLI flags.
 - [x] **`core/ui_peer.py` & `core/ui_connectivity.py`** — PyQt6 `PeerManagementWidget` embedded into System Connectivity page in Settings Hub via `build_peer_management_card`:
   - Local node identity & SPKI SHA-256 fingerprint card.
   - Automatic injection of active running `PeerService`.
@@ -63,7 +63,7 @@
 - [x] **`brahma_api/errors.py`** — Standard `ApiError` mapping; `unavailable(message, *, code="provider_unavailable")` supports custom codes including `peer_draining` and `concurrency_limit_exceeded`.
 - [x] **`brahma_api/peer.py`** — FastAPI router with:
   - **Pairing protocol:** `POST /pair/offer` strictly requiring operator preset or administrative/pair scope (`require_pairing_consent`) with automatic offer pruning; `POST /pair/exchange` validating issued nonce, consuming once, enforcing persistent nonce/lockout trackers, rejecting `profile="operator"` (HTTP 403 `forbidden_peer_profile`), restricting minted peer tokens strictly to `peer:*` scopes (preventing model surface auth bypass on `/v1/chat/completions`), storing callee `token=""`, and pinning static public key (`static_pub_raw`).
-  - **A2A protocol URL alignment:** `/.well-known/agent-card.json` advertises plain HTTP `http://` URL matching listener.
+  - **A2A protocol URL alignment:** `/.well-known/agent-card.json` advertises announced endpoint URL matching service listener scheme and port.
   - **Airtight origin isolation:** Creator token ID stored; unbound tokens cannot access or cancel tasks by spoofing `X-Brahma-Node` (HTTP 403 `origin_mismatch`).
   - **Workspace binding enforcement:** Reject cross-workspace task execution on bound tokens (HTTP 403 `insufficient_scope`).
   - **Active heartbeat:** Background daemon thread renews working lease every 5s (30s TTL).
@@ -105,9 +105,9 @@
 ## 4. Test Suite Summary
 
 - `tests/test_agent_peer_model.py`: 6 passed
-- `tests/test_peer_server.py`: 20 passed (including legacy DB migration, colliding ID origin resolution, cross-token spoofing prevention, mutual cryptographic SAS pairing handshake with static key pinning, hermetic custom `base_dir` auto-resolution with `ReservationLedger` limits, operator-authenticated pairing consent gate, and plain-HTTP A2A card URL check)
+- `tests/test_peer_server.py`: 20 passed (including legacy DB migration, colliding ID origin resolution, cross-token spoofing prevention, mutual cryptographic SAS pairing handshake with static key pinning, hermetic custom `base_dir` auto-resolution with `ReservationLedger` limits, operator-authenticated pairing consent gate, and announced endpoint check)
 - `tests/test_peer_auth.py`: 6 passed (including all 8 Ed25519 signature rejection branches returning HTTP 401, paired peer cancel signature enforcement, and paired peer artifact upload signature enforcement)
-- `tests/test_peer_tls.py`: 3 passed (real `connect()` verification)
+- `tests/test_peer_tls.py`: 4 passed (real `connect()` verification and live uvicorn TLS handshake with SPKI pin verification)
 - `tests/test_agent_peer_fence.py`: 3 passed (including real `RemoteAgentAdapter` specs)
 - `tests/test_peer_three_nodes.py`: 1 passed (full 3-node simulation)
 - `tests/test_peer_lease.py`: 4 passed (S-05/S-07 lease expiry and mutation retry gates)
@@ -117,8 +117,8 @@
 - `tests/test_peer_service.py`: 3 passed (service lifecycle, drain mode HTTP 503 enforcement, and pending offers TTL pruning)
 - `tests/test_peer_ui.py`: 1 passed (PyQt6 `PeerManagementWidget` layout, active task cancellation, data refresh, drain toggle, and active service singleton auto-binding)
 - `tests/test_agent_remote_adapter.py`: 11 passed (including auto-signing for paired/pinned peers, on-disk registry endpoint scan, dynamic candidate peer selection from active `PeerService` with workspaces and labels, registry token fallback, and artifact fetching)
-- **Total Peer Suite (`pytest -k peer`):** 62 passed
-- **Total Combined Peer & Remote Adapter Tests:** 71 passed
+- **Total Peer Suite (`pytest -k peer`):** 63 passed
+- **Total Combined Peer & Remote Adapter Tests:** 74 passed
 - **Harness Full Suite (`pytest -k agent`):** 628 passed, 3 skipped, clean
 
 ---

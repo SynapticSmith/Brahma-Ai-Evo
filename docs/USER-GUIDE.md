@@ -76,7 +76,7 @@ These are the ones most likely to mislead a reader:
 | Document | What it actually is | How to read it |
 |---|---|---|
 | `docs/SWARM-FEDERATION-INVESTIGATION.md` | Current-state investigation of a three-machine Brahma swarm. Its own verdict: **there is no swarm today and no code path that lets one Brahma call another as a peer.** | Inventory of `brahma_connect`, `brahma_api`, and the remote-agent client. Not a feature list. |
-| `docs/SWARM-FEDERATION-DEEP-DIVE.md` | Peer-task-federation architecture (task envelope, leases, SAS pairing, token binding, ADR-030…038). | **Core federation implemented (S0–S4).** BTE-1 routes, store, SAS pairing, identity, and remote bridge are built; capability scheduling matrix (S5) remains design. |
+| `docs/SWARM-FEDERATION-DEEP-DIVE.md` | Peer-task-federation architecture (task envelope, leases, SAS pairing, token binding, ADR-030…038). | **Federation implemented & verified (S0–S5 & Artifact Lane).** BTE-1 routes, store, SAS pairing, identity, SPKI-pinned TLS on port 8443, content-addressed artifacts, LAN discovery, dynamic capability routing, and remote bridge are built and verified. |
 | `docs/CAPABILITY-MAXIMIZATION-ANALYSIS.md` | Ideation and ranked roadmap for whole-system capability. Explicitly says "analysis and proposal, no implementation" and "believe the code." | Planning input, not a capability claim. |
 | `docs/REBRAND-EXECUTION-PLAN.md` (+ ADR-029, `REBRAND-PROPOSITION.md`) | Plan to rename the assistant to "Abhasa". | **Planned.** Nothing has been renamed. |
 | `docs/agent-orchestrator-bridge.md`, `docs/AGENT-BRIDGE-BUILD-TODO.md`, `docs/AGENT-BRIDGE-ADR.md` | Pre-harness "god orchestrator" design. | **Aspirational / superseded.** The bridge that actually shipped is `core/agent_bridge/` (ADR-018). |
@@ -1605,7 +1605,7 @@ These are deliberate, not surprises. Read them before promising a capability.
 | Outbound MCP server (tools/prompts/resources) | **Implemented** (v1.1.1). |
 | Agent & Orchestrator Bridge (ADR-018) | **Implemented**; Tier 3 is a client only. |
 | Device gateway / Mobile Connect | **Implemented** (loopback, paired-device auth). |
-| Peer/LAN Brahma swarm | **Core implemented (S0–S4).** BTE-1 server (`brahma_api/peer.py`), DPAPI/Ed25519 identity, SAS pairing, leases with UNKNOWN reconciliation, token binding, and remote adapter integration. Capability routing (S5) is design. |
+| Peer/LAN Brahma swarm | **Implemented & Verified (S0–S5 & Artifact Lane).** BTE-1 server (`brahma_api/peer.py`), DPAPI/Ed25519 identity, SAS pairing, leases with UNKNOWN reconciliation, token binding, dual-listener SPKI-pinned TLS on 8443, content-addressed artifacts, LAN discovery, and dynamic capability routing (`core/peer/capabilities.py`, `RemoteAgentAdapter`). |
 | Capability-maximization roadmap | **Analysis/proposal only.** |
 | Rebrand to "Abhasa" (ADR-029) | **Planned.** Not executed. |
 | AppContainer sandbox | **Rejected for now** (fails silently on a normal Python install). |
