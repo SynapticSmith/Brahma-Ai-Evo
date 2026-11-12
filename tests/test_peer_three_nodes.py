@@ -1,14 +1,16 @@
-"""End-to-end simulation of 3-node Brahma Swarm / Federation.
+"""In-process 3-node Brahma Swarm / Federation simulation.
 
-Simulates:
-- Node A (Coordinator / Laptop)
-- Node B (Worker 1 / Workshop PC)
-- Node C (Worker 2 / Server)
-Verifying:
-1. Mutual SAS pairing and SPKI pinning between A and B, A and C.
-2. Concurrent parallel read dispatch across distinct peer nodes (Invariant S-03).
-3. At-most-once mutation with idempotency deduplication (Invariant S-04).
-4. Mutual recursion rejection (Invariant S-08).
+Simulates Node A (coordinator), Node B (worker) and Node C (worker), and
+verifies:
+1. A<->B SAS pairing, static-key pinning and token unwrap.
+2. Dispatch to B (paired) and to C (a locally minted token) as separate
+   endpoints.
+3. Recursion rejection on B (Invariant S-08).
+
+Concurrency (S-03) and signed idempotent retry (S-04) are covered in
+tests/test_peer_server.py. A real-socket three-node run is the Stage 3
+gate and needs three machines; the single-machine stand-in runs three
+uvicorn servers on loopback.
 """
 
 from __future__ import annotations
