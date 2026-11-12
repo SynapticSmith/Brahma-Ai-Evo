@@ -36,6 +36,24 @@ def is_wildcard_host(host: Optional[str]) -> bool:
         return False
 
 
+def is_loopback_host(host: Optional[str]) -> bool:
+    """True when ``host`` only names this machine.
+
+    A peer bound to a loopback address is healthy locally and unreachable from
+    the LAN, so the UI and the offer both need to say so instead of handing the
+    operator a URI another machine can never dial.
+    """
+    text = str(host or "").strip().strip("[]").lower()
+    if not text:
+        return False
+    if text == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(text).is_loopback
+    except ValueError:
+        return False
+
+
 def primary_lan_ip() -> Optional[str]:
     """Best-effort IPv4 address of the interface that reaches the LAN.
 

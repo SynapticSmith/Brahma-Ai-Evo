@@ -1000,7 +1000,11 @@ def serve(config: BrahmaApiConfig, *, app: Optional[FastAPI] = None) -> Any:
 
                 ident = NodeIdentity.load_or_create(enforce_machine_binding=False)
             base_dir = getattr(config, "base_dir", None)
-            identity_dir = (base_dir / "peer" / "identity") if base_dir else None
+            # Mirror create_app: only a custom base directory owns a local
+            # ``peer/`` tree. The default install keeps its private key in the
+            # user data directory, never in the repository working tree.
+            is_custom_base = bool(base_dir) and Path(base_dir).resolve() != Path.cwd().resolve()
+            identity_dir = (Path(base_dir) / "peer" / "identity") if is_custom_base else None
             cert_path, key_path = ident.ensure_certificate_files(cert_dir=identity_dir)
 
     if config.peer_port == config.port:
@@ -1013,7 +1017,7 @@ def serve(config: BrahmaApiConfig, *, app: Optional[FastAPI] = None) -> Any:
     if config.peer_tls and cert_path and key_path:
         peer_uv_config = uvicorn.Config(
             application,
-            host=config.host,
+            host=config.peer_bind_host,
             port=config.peer_port,
             log_level="warning",
             access_log=False,
@@ -1024,7 +1028,7 @@ def serve(config: BrahmaApiConfig, *, app: Optional[FastAPI] = None) -> Any:
     else:
         peer_uv_config = uvicorn.Config(
             application,
-            host=config.host,
+            host=config.peer_bind_host,
             port=config.peer_port,
             log_level="warning",
             access_log=False,

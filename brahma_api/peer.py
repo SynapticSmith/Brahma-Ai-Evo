@@ -1293,7 +1293,7 @@ def build_peer_router(
             "sas_code": sas_code,
             "encrypted_token": base64.b64encode(enc_token).decode("ascii"),
             "workspaces": list(config.workspaces.keys()),
-            "labels": {"node_id": node_id, "host": config.host},
+            "labels": {"node_id": node_id, "host": getattr(config, "advertised_host", config.host)},
         }
 
     return router

@@ -11,6 +11,7 @@ import json
 import logging
 import ssl
 from typing import Any, Dict, Optional
+import urllib.parse
 import urllib.request
 
 from PyQt6.QtCore import QTimer, pyqtSignal
@@ -26,11 +27,16 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from core.peer.endpoint import (
+    announced_host,
+    format_host,
+    is_loopback_host,
+    is_wildcard_host,
+)
 from core.peer.identity import NodeIdentity
 from core.peer.model import now_iso
-from core.peer.pairing import PairingCoordinator, PeerRegistry, PinnedPeer
+from core.peer.pairing import PairingCoordinator, PairingOffer, PeerRegistry, PinnedPeer
 from core.peer.service import PeerService
-from core.peer.store import PeerTaskStore
 
 logger = logging.getLogger("UIPeerManagement")
 
@@ -47,14 +53,8 @@ class PeerManagementWidget(QFrame):
     ) -> None:
         super().__init__(parent)
         self.setObjectName("PeerManagementWidget")
-        if peer_service is None:
-            try:
-                from core.peer.service import get_active_peer_service
-
-                peer_service = get_active_peer_service()
-            except Exception:
-                peer_service = None
         self.service = peer_service
+        self._resolve_service()
 
         self._setup_style()
         self._build_ui()
@@ -65,6 +65,32 @@ class PeerManagementWidget(QFrame):
         self._refresh_timer.start(3000)
 
         self.refresh_data()
+
+    def _resolve_service(self) -> Optional[PeerService]:
+        """Adopt the API-thread service when it appears after this card is built.
+
+        ``create_app`` registers the ``PeerService`` when the brahma_api thread
+        starts, which is after the Settings page is constructed. Caching the
+        ``None`` seen at construction left every button a silent no-op for the
+        life of the process, so re-resolve lazily on each interaction instead.
+        """
+        if self.service is None:
+            try:
+                from core.peer.service import get_active_peer_service
+
+                self.service = get_active_peer_service()
+            except Exception:
+                self.service = None
+        return self.service
+
+    def _warn_service_unavailable(self) -> None:
+        QMessageBox.information(
+            self,
+            "Peer service not running",
+            "brahma_api is not running in this process, so the peer federation "
+            "has no service to control.\n\n"
+            "Set \"enabled\": true in config/brahma_api.json and restart Brahma.",
+        )
 
     def _setup_style(self) -> None:
         self.setStyleSheet("""
@@ -143,6 +169,13 @@ class PeerManagementWidget(QFrame):
         self.drain_btn.clicked.connect(self._toggle_drain_mode)
         header_layout.addWidget(self.drain_btn)
 
+        self.pair_btn = QPushButton("Pair with Node")
+        self.pair_btn.setToolTip(
+            "Paste a pairing offer from another node. Works without UDP discovery."
+        )
+        self.pair_btn.clicked.connect(self._pair_by_offer)
+        header_layout.addWidget(self.pair_btn)
+
         self.offer_btn = QPushButton("Create Offer")
         self.offer_btn.clicked.connect(self._create_pairing_offer_dialog)
         header_layout.addWidget(self.offer_btn)
@@ -163,11 +196,14 @@ class PeerManagementWidget(QFrame):
         self.lbl_node_id = QLabel("Node ID: Loading...")
         self.lbl_fingerprint = QLabel("SPKI SHA-256: Loading...")
         self.lbl_fingerprint.setObjectName("SubtleLabel")
+        self.lbl_endpoint = QLabel("Endpoint: Loading...")
+        self.lbl_endpoint.setObjectName("SubtleLabel")
         self.lbl_status = QLabel("Status: Active")
         self.lbl_status.setObjectName("SubtleLabel")
 
         node_layout.addWidget(self.lbl_node_id)
         node_layout.addWidget(self.lbl_fingerprint)
+        node_layout.addWidget(self.lbl_endpoint)
         node_layout.addWidget(self.lbl_status)
         main_layout.addWidget(self.node_card)
 
@@ -213,19 +249,22 @@ class PeerManagementWidget(QFrame):
         """Start or stop the UDP beacon the pairing flow depends on.
 
         Pairing is manual either way: one node creates an offer, the other
-        pastes it into a discovered card. But the initiator can only click
-        'Pair with Node' on a *discovered* peer, and the GUI starts brahma_api
-        without the CLI's ``--enable-peer-discovery`` flag. Without this toggle
-        the shipped card could never pair, so it lives here rather than in the
-        serve path: broadcasting presence on the LAN stays an explicit click.
+        pastes it into a discovered card or the header's Pair with Node
+        button. But the initiator can only click 'Pair with Node' on a
+        *discovered* peer, and the GUI starts brahma_api without the CLI's
+        ``--enable-peer-discovery`` flag. Without this toggle the shipped card
+        could never pair, so it lives here rather than in the serve path:
+        broadcasting presence on the LAN stays an explicit click.
         """
-        if not self.service:
+        service = self._resolve_service()
+        if service is None:
+            self._warn_service_unavailable()
             return
         try:
-            if getattr(self.service, "listener", None) is None:
-                self.service.start_discovery()
+            if getattr(service, "listener", None) is None:
+                service.start_discovery()
             else:
-                self.service.stop_discovery()
+                service.stop_discovery()
         except Exception as exc:
             logger.warning("Could not toggle LAN discovery: %s", exc)
             QMessageBox.warning(
@@ -244,11 +283,23 @@ class PeerManagementWidget(QFrame):
             "border-color: #4fc3f7; color: #b3e5fc;" if on else ""
         )
 
+    @staticmethod
+    def _endpoint_text(endpoint: str) -> str:
+        """Name the peer endpoint and say when it is only reachable locally."""
+        if not endpoint:
+            return "Endpoint: (peer service not running)"
+        host = urllib.parse.urlsplit(endpoint).hostname
+        if is_loopback_host(host):
+            return f"Endpoint: {endpoint}  — loopback only; other devices cannot connect"
+        return f"Endpoint: {endpoint}"
+
     def _toggle_drain_mode(self) -> None:
-        if not self.service:
+        service = self._resolve_service()
+        if service is None:
+            self._warn_service_unavailable()
             return
-        new_state = not self.service.drain_mode
-        self.service.drain_mode = new_state
+        new_state = not service.drain_mode
+        service.drain_mode = new_state
         self.drain_btn.setText(f"Drain Mode: {'ON' if new_state else 'OFF'}")
         if new_state:
             self.drain_btn.setStyleSheet("border-color: #ffb74d; color: #ffe0b2;")
@@ -258,16 +309,20 @@ class PeerManagementWidget(QFrame):
 
     def refresh_data(self) -> None:
         """Fetch updated federation state and update UI cards."""
-        if self.service:
-            summary = self.service.get_status_summary()
+        service = self._resolve_service()
+        if service:
+            summary = service.get_status_summary()
         else:
-            # Fallback when running standalone or without attached service
+            # Fallback when running standalone or without attached service.
+            # Never construct a default PeerTaskStore here: that would create
+            # the operator's real task database from a read-only refresh.
             try:
                 ident = NodeIdentity.load_or_create(enforce_machine_binding=False)
                 reg = PeerRegistry()
                 summary = {
                     "node_id": ident.node_id,
                     "spki_sha256": ident.spki_sha256,
+                    "endpoint": "",
                     "drain_mode": False,
                     "active_tasks": 0,
                     "pinned_peers": [
@@ -289,9 +344,13 @@ class PeerManagementWidget(QFrame):
         # Update node card
         self.lbl_node_id.setText(f"Node ID: {summary.get('node_id', 'Unknown')}")
         self.lbl_fingerprint.setText(f"SPKI SHA-256: {summary.get('spki_sha256', 'None')}")
+        self.lbl_endpoint.setText(self._endpoint_text(str(summary.get("endpoint") or "")))
         drain = summary.get("drain_mode", False)
         active = summary.get("active_tasks", 0)
-        status_txt = f"Status: {'DRAINING (Rejecting new tasks)' if drain else 'ACTIVE'} | In-flight tasks: {active}"
+        if service:
+            status_txt = f"Status: {'DRAINING (Rejecting new tasks)' if drain else 'ACTIVE'} | In-flight tasks: {active}"
+        else:
+            status_txt = "Status: PEER SERVICE OFFLINE (brahma_api is not running in this process)"
         self.lbl_status.setText(status_txt)
         self.drain_btn.setText(f"Drain Mode: {'ON' if drain else 'OFF'}")
         self._sync_discovery_button()
@@ -322,8 +381,8 @@ class PeerManagementWidget(QFrame):
 
         # Update In-Flight Tasks
         self._clear_layout(self.tasks_container)
-        store = self.service.store if self.service else PeerTaskStore()
-        active_tasks = store.list_active_tasks(limit=20)
+        store = service.store if service else None
+        active_tasks = store.list_active_tasks(limit=20) if store else []
         if not active_tasks:
             lbl_none_tasks = QLabel("No active or in-flight federated tasks.")
             lbl_none_tasks.setObjectName("SubtleLabel")
@@ -359,10 +418,10 @@ class PeerManagementWidget(QFrame):
         return card
 
     def _cancel_task(self, origin_node: str, task_id: str) -> None:
-        if not task_id:
+        service = self._resolve_service()
+        if not task_id or service is None:
             return
-        store = self.service.store if self.service else PeerTaskStore()
-        store.request_cancel(origin_node, task_id)
+        service.store.request_cancel(origin_node, task_id)
         self.refresh_data()
 
     def _create_pinned_peer_card(self, peer_info: Dict[str, Any]) -> QFrame:
@@ -411,6 +470,10 @@ class PeerManagementWidget(QFrame):
         return card
 
     def _unpin_peer(self, node_id: str) -> None:
+        service = self._resolve_service()
+        if service is None:
+            self._warn_service_unavailable()
+            return
         if not node_id:
             return
         reply = QMessageBox.question(
@@ -420,7 +483,7 @@ class PeerManagementWidget(QFrame):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
-            reg = self.service.registry if self.service else PeerRegistry()
+            reg = service.registry
             peers = reg.load_peers()
             if node_id in peers:
                 del peers[node_id]
@@ -435,62 +498,146 @@ class PeerManagementWidget(QFrame):
                 save_secret_json(reg.file_path, payload, encrypt=True)
             self.refresh_data()
 
+    @staticmethod
+    def _local_offer_authority(service: PeerService) -> tuple[str, int]:
+        """The host/port a remote node must dial to reach this peer port."""
+        endpoint = str(getattr(service, "endpoint", "") or "")
+        parsed = urllib.parse.urlsplit(endpoint)
+        host = parsed.hostname or ""
+        port = parsed.port or 8443
+        if not host or is_wildcard_host(host):
+            host = announced_host(host or "0.0.0.0")
+        return host, port
+
+    @staticmethod
+    def _pairing_endpoint(
+        offer: PairingOffer,
+        peer_info: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Where to POST /pair/exchange for ``offer``.
+
+        The offer is authoritative about the callee's host and port. A
+        discovered card is preferred only when it names a non-loopback
+        address, because that is the address this machine can actually reach.
+        """
+        fallback = str((peer_info or {}).get("endpoint") or "").rstrip("/")
+        scheme = "https"
+        if fallback:
+            parsed_fallback = urllib.parse.urlsplit(fallback)
+            if parsed_fallback.scheme:
+                scheme = parsed_fallback.scheme
+            if (
+                parsed_fallback.hostname
+                and not is_wildcard_host(parsed_fallback.hostname)
+                and not is_loopback_host(parsed_fallback.hostname)
+            ):
+                return fallback
+        host = offer.host
+        if not host or is_wildcard_host(host):
+            host = announced_host("0.0.0.0")
+        return f"{scheme}://{format_host(host)}:{offer.port}"
+
     def _create_pairing_offer_dialog(self) -> None:
         """Generate a fresh single-use 120s pairing offer and show dialog."""
-        ident = self.service.identity if self.service else NodeIdentity.load_or_create(enforce_machine_binding=False)
-        reg = self.service.registry if self.service else PeerRegistry()
-        coord = getattr(self.service, "coordinator", None) or PairingCoordinator(ident, reg)
-        host = "127.0.0.1"
-        port = 8443
-        if self.service and self.service.endpoint:
-            ep = self.service.endpoint.split("//")[-1]
-            if ":" in ep:
-                try:
-                    host = ep.split(":")[0]
-                    port = int(ep.split(":")[1].split("/")[0])
-                except Exception:
-                    pass
-        from core.peer.endpoint import announced_host as _resolve_host
-        from core.peer.endpoint import is_wildcard_host
-
-        if is_wildcard_host(host):
-            host = _resolve_host(host)
+        service = self._resolve_service()
+        if service is None:
+            self._warn_service_unavailable()
+            return
+        ident = service.identity
+        coord = getattr(service, "coordinator", None) or PairingCoordinator(ident, service.registry)
+        host, port = self._local_offer_authority(service)
         offer = coord.create_offer(host, port)
-        if self.service:
-            self.service.pending_offers[offer.nonce] = offer
+        service.pending_offers[offer.nonce] = offer
         uri = offer.to_uri()
+        warning = ""
+        if is_loopback_host(host):
+            warning = (
+                "\n\nWarning: this node's peer port is bound to loopback, so another "
+                "device cannot reach it. Set \"peer_host\": \"0.0.0.0\" and "
+                "\"allow_remote_bind\": true in config/brahma_api.json, then restart Brahma."
+            )
         dlg = QMessageBox(self)
         dlg.setWindowTitle("Pairing Offer Created")
-        dlg.setText(f"Single-use 120s Pairing Offer URI:\n\n{uri}\n\nShare this URI with the remote node to pair.")
+        dlg.setText(
+            f"Single-use 120s Pairing Offer URI:\n\n{uri}\n\n"
+            "On the other machine, open Brahma's peer card, click Pair with Node, "
+            f"and paste this URI within 120 seconds.{warning}"
+        )
         dlg.exec()
+
+    def _pair_by_offer(self) -> None:
+        """Pair by pasting an offer, with no UDP discovery required."""
+        if self._resolve_service() is None:
+            self._warn_service_unavailable()
+            return
+        offer_uri, ok = QInputDialog.getText(
+            self,
+            "Pair with Node",
+            "Paste the single-use Pairing Offer URI from the other Brahma node:\n"
+            "(Format: brahma://pair?v=1&node=...)",
+        )
+        if not ok or not offer_uri.strip():
+            return
+        self._pair_with_offer(offer_uri.strip())
 
     def _initiate_pairing(self, peer_info: Dict[str, Any]) -> None:
         """Initiate mutual SAS cryptographic pairing with a discovered peer."""
-        ident = self.service.identity if self.service else NodeIdentity.load_or_create(enforce_machine_binding=False)
-        reg = self.service.registry if self.service else PeerRegistry()
-        coord = getattr(self.service, "coordinator", None) or PairingCoordinator(ident, reg)
-
-        endpoint = (peer_info.get("endpoint") or "").rstrip("/")
-        if not endpoint:
-            endpoint = f"https://{peer_info.get('address', '127.0.0.1')}:8443"
-
-        # Ask operator for the 120s pairing offer URI generated by target peer
-        offer_uri_input, ok = QInputDialog.getText(
+        if self._resolve_service() is None:
+            self._warn_service_unavailable()
+            return
+        offer_uri, ok = QInputDialog.getText(
             self,
             "Peer SAS Pairing",
             f"Enter the 120s Pairing Offer URI generated on {peer_info.get('name', 'Peer')}:\n"
             "(Format: brahma://pair?v=1&node=...)",
         )
-        if not ok or not offer_uri_input.strip():
+        if not ok or not offer_uri.strip():
             return
+        self._pair_with_offer(offer_uri.strip(), peer_info)
+
+    def _pair_with_offer(
+        self,
+        offer_uri: str,
+        peer_info: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        service = self._resolve_service()
+        if service is None:
+            self._warn_service_unavailable()
+            return
+        ident = service.identity
+        coord = getattr(service, "coordinator", None) or PairingCoordinator(ident, service.registry)
 
         try:
-            from core.peer.pairing import PairingOffer
-
-            offer = PairingOffer.from_uri(offer_uri_input.strip())
+            offer = PairingOffer.from_uri(offer_uri)
         except Exception as exc:
             QMessageBox.critical(self, "Invalid Offer URI", f"Failed to parse pairing offer URI: {exc}")
             return
+
+        if offer.node_id == ident.node_id:
+            QMessageBox.warning(
+                self,
+                "Offer Belongs to This Node",
+                "That offer was created on this node. Paste the offer generated on the "
+                "other machine instead.",
+            )
+            return
+
+        endpoint = self._pairing_endpoint(offer, peer_info)
+        endpoint_host = urllib.parse.urlsplit(endpoint).hostname or ""
+        if is_loopback_host(endpoint_host):
+            QMessageBox.warning(
+                self,
+                "Offer Is Loopback-Only",
+                "This offer advertises a loopback address, which only works on the machine "
+                "that created it.\n\nOn that machine set \"peer_host\": \"0.0.0.0\" and "
+                "\"allow_remote_bind\": true in config/brahma_api.json, restart Brahma, "
+                "and create a new offer.",
+            )
+            return
+
+        peer_name = (peer_info or {}).get("name") or offer.node_id
+        initiator_endpoint = str(getattr(service, "endpoint", "") or "")
+        initiator_host = urllib.parse.urlsplit(initiator_endpoint).hostname or ""
 
         try:
             eph_priv, eph_pub, static_pub = coord.begin_exchange(offer, is_initiator=True)
@@ -504,7 +651,7 @@ class PeerManagementWidget(QFrame):
             "initiator_node_id": ident.node_id,
             "initiator_spki_sha256": ident.spki_sha256,
             "initiator_name": ident.hostname,
-            "initiator_endpoint": self.service.endpoint if self.service else f"https://{ident.hostname}:8443",
+            "initiator_endpoint": initiator_endpoint,
             "initiator_eph_pub": base64.b64encode(eph_pub).decode("ascii"),
             "initiator_static_pub": base64.b64encode(static_pub).decode("ascii"),
             "profile": "worker",
@@ -563,9 +710,10 @@ class PeerManagementWidget(QFrame):
                 return
 
             sas_confirm_msg = (
-                f"Cryptographic SAS Code: {sas_code}\n\n"
-                f"Target Node: {peer_info.get('name', 'Peer')} ({exchanged_data['callee_node_id']})\n\n"
-                "Confirm that this 6-digit SAS code matches the code on the remote machine."
+                f"Cryptographic SAS code: {sas_code}\n\n"
+                f"Target node: {peer_name} ({exchanged_data['callee_node_id']})\n\n"
+                "Both sides derived the same code, so the exchange was not altered in "
+                "transit. Pin this node and grant it peer access?"
             )
             reply = QMessageBox.question(
                 self,
@@ -580,7 +728,7 @@ class PeerManagementWidget(QFrame):
                 )
                 peer_record = PinnedPeer(
                     node_id=exchanged_data["callee_node_id"],
-                    name=peer_info.get("name", "Remote Peer"),
+                    name=peer_name,
                     endpoint=endpoint,
                     spki_sha256=exchanged_data["callee_spki_sha256"],
                     token=unwrapped["token"],
@@ -590,11 +738,20 @@ class PeerManagementWidget(QFrame):
                     workspaces=list(exchanged_data.get("workspaces") or []),
                     labels=dict(exchanged_data.get("labels") or {}),
                 )
-                reg.save_peer(peer_record, allow_re_pair=True)
+                service.registry.save_peer(peer_record, allow_re_pair=True)
+                back_link = ""
+                if is_loopback_host(initiator_host):
+                    back_link = (
+                        "\n\nThis node advertises a loopback endpoint, so the peer cannot "
+                        "dispatch back to it. Set peer_host/allow_remote_bind and restart."
+                    )
                 QMessageBox.information(
                     self,
                     "Pairing Complete",
-                    f"Successfully verified and pinned {peer_record.name} ({peer_record.node_id})!",
+                    f"Successfully verified and pinned {peer_record.name} "
+                    f"({peer_record.node_id})!\n\n"
+                    "Pairing is directional: to let that node dispatch to this one, "
+                    f"run the same flow in the other direction.{back_link}",
                 )
                 self.refresh_data()
         except Exception as exc:

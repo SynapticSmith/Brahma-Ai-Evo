@@ -127,6 +127,10 @@ class BrahmaApiConfig:
     base_dir: Path = field(default_factory=lambda: Path.cwd())
     enabled: bool = False
     host: str = "127.0.0.1"
+    #: Address the peer TLS port binds. Empty means "same as ``host``".
+    #: The two listeners are split so the OpenAI port can stay loopback while
+    #: the federation port is reachable on the LAN.
+    peer_host: Optional[str] = None
     port: int = DEFAULT_PORT
     peer_port: int = DEFAULT_PEER_PORT
     peer_tls: bool = True
@@ -150,11 +154,16 @@ class BrahmaApiConfig:
     problems: List[str] = field(default_factory=list, repr=False)
 
     @property
+    def peer_bind_host(self) -> str:
+        """The address the peer port binds; ``peer_host`` defaults to ``host``."""
+        return str(self.peer_host or self.host)
+
+    @property
     def advertised_host(self) -> str:
         """The host peers should dial; never a wildcard (ADR-034, S-07)."""
         from core.peer.endpoint import announced_host as _resolve
 
-        return _resolve(self.host, self.announced_host)
+        return _resolve(self.peer_bind_host, self.announced_host)
 
     @property
     def peer_endpoint(self) -> str:
@@ -213,6 +222,21 @@ class BrahmaApiConfig:
             else DEFAULT_PORT
         )
 
+        # The peer port is the one that must be reachable from another machine.
+        # Keeping it separate from ``host`` lets the OpenAI port stay on
+        # loopback while the federation listener binds the LAN. It is still
+        # gated by allow_remote_bind so a typo cannot silently widen exposure.
+        peer_host: Optional[str] = None
+        peer_host_raw = str(data.get("peer_host") or "").strip()
+        if peer_host_raw:
+            if peer_host_raw.lower() not in LOOPBACK_HOSTS and not allow_remote:
+                problems.append(
+                    f"peer_host {peer_host_raw!r} is not loopback and allow_remote_bind "
+                    "is false; binding the peer port on host instead"
+                )
+            else:
+                peer_host = peer_host_raw
+
         peer_port = (
             _int(data["peer_port"], DEFAULT_PEER_PORT, low=1024, high=65535, problems=problems, name="peer_port")
             if "peer_port" in data
@@ -220,6 +244,12 @@ class BrahmaApiConfig:
         )
         peer_tls = bool(data.get("peer_tls", True))
         insecure_peer = bool(data.get("insecure_peer", False))
+
+        if peer_port == port and peer_host and peer_host != host:
+            problems.append(
+                "peer_port equals port, so one listener serves both; peer_host is ignored"
+            )
+            peer_host = None
 
         announced = str(data.get("announced_host") or "").strip()
         if announced:
@@ -262,6 +292,7 @@ class BrahmaApiConfig:
             base_dir=base,
             enabled=enabled,
             host=host,
+            peer_host=peer_host,
             port=port,
             peer_port=peer_port,
             peer_tls=peer_tls,
@@ -308,6 +339,7 @@ class BrahmaApiConfig:
         return {
             "enabled": self.enabled,
             "host": self.host,
+            "peer_host": self.peer_host,
             "port": self.port,
             "peer_port": self.peer_port,
             "peer_tls": self.peer_tls,

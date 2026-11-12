@@ -140,3 +140,8 @@ config/models/hand_landmarker.task
 # copies it in at build time via the syncSharedThree Gradle task, so the source
 # tree copy is not committed (P4-21b).
 brahma-connect-android/app/src/main/assets/web_background/three.min.js
+
+# A custom --base-dir owns its peer identity and TLS key under peer/identity.
+# The default install keeps them in %LOCALAPPDATA%, but a local tree must never
+# be committed even if one appears (private key material).
+/peer/

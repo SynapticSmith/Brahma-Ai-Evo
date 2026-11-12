@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
+
 import pytest
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QInputDialog, QMessageBox
 
 from core.peer.artifacts import PeerArtifactStore
 from core.peer.discovery import DiscoveredPeer
 from core.peer.identity import NodeIdentity
-from core.peer.pairing import PeerRegistry, PinnedPeer
+from core.peer.pairing import PairingOffer, PeerRegistry, PinnedPeer
 from core.peer.scheduler import ReservationLedger
 from core.peer.service import PeerService
 from core.peer.store import PeerTaskStore
@@ -182,6 +184,173 @@ def test_lan_discovery_toggle_starts_and_stops_the_listener(tmp_path: Path, qapp
         service.listener = _FakeListener()
         widget.refresh_data()
         assert widget.discovery_btn.text() == "LAN Discovery: ON"
+    finally:
+        widget.close()
+        service.close()
+
+
+def _make_service(
+    tmp_path: Path,
+    name: str,
+    endpoint: str = "https://192.168.1.50:8443",
+) -> PeerService:
+    ident = NodeIdentity.create_new(machine_guid=f"guid-{name}", hostname=f"host-{name}")
+    return PeerService(
+        identity=ident,
+        registry=PeerRegistry(tmp_path / f"peers_{name}.json"),
+        ledger=ReservationLedger(global_max=2, per_node_max=1),
+        artifact_store=PeerArtifactStore(tmp_path / f"artifacts_{name}"),
+        task_store=PeerTaskStore(tmp_path / f"tasks_{name}.db"),
+        endpoint=endpoint,
+    )
+
+
+def test_peer_card_adopts_a_service_that_starts_after_construction(
+    tmp_path: Path, qapp, monkeypatch
+):
+    """The API thread registers its service after the Settings page is built.
+
+    Caching the ``None`` seen at construction made every button a silent no-op
+    for the life of the process; refresh_data must re-resolve.
+    """
+    from core.peer.service import set_active_peer_service
+
+    set_active_peer_service(None)
+    fallback_ident = NodeIdentity.create_new(
+        machine_guid="guid-ui-late", hostname="host-ui-late"
+    )
+    monkeypatch.setattr(NodeIdentity, "load_or_create", staticmethod(lambda **_: fallback_ident))
+    monkeypatch.setattr(
+        "core.ui_peer.PeerRegistry",
+        lambda: PeerRegistry(tmp_path / "fallback_peers.json"),
+    )
+
+    widget = PeerManagementWidget(peer_service=None)
+    service = None
+    try:
+        assert widget.service is None
+        assert "OFFLINE" in widget.lbl_status.text()
+
+        service = _make_service(tmp_path, "late")
+        set_active_peer_service(service)
+        widget.refresh_data()
+
+        assert widget.service is service
+        assert service.identity.node_id in widget.lbl_node_id.text()
+        assert "192.168.1.50" in widget.lbl_endpoint.text()
+
+        widget.drain_btn.click()
+        assert service.drain_mode is True
+        assert widget.drain_btn.text() == "Drain Mode: ON"
+    finally:
+        widget.close()
+        if service is not None:
+            service.close()
+
+
+def test_endpoint_text_flags_a_loopback_only_peer_port(qapp):
+    assert "loopback only" in PeerManagementWidget._endpoint_text("https://127.0.0.1:8443")
+    assert "loopback only" not in PeerManagementWidget._endpoint_text("https://192.168.1.50:8443")
+    assert "not running" in PeerManagementWidget._endpoint_text("")
+
+
+def test_pairing_endpoint_prefers_the_offer_over_a_loopback_card(qapp):
+    offer = PairingOffer(
+        node_id="node-b",
+        spki_sha256="ab" * 32,
+        host="192.168.1.20",
+        port=8443,
+        nonce="n-pair",
+        created_at=time.time(),
+    )
+    assert PeerManagementWidget._pairing_endpoint(offer) == "https://192.168.1.20:8443"
+    assert (
+        PeerManagementWidget._pairing_endpoint(offer, {"endpoint": "https://10.0.0.9:8443"})
+        == "https://10.0.0.9:8443"
+    )
+    # A discovered card that advertises loopback is not dialable; the offer wins.
+    assert (
+        PeerManagementWidget._pairing_endpoint(offer, {"endpoint": "https://127.0.0.1:8443"})
+        == "https://192.168.1.20:8443"
+    )
+
+
+def test_pairing_endpoint_never_dials_a_wildcard(qapp, monkeypatch):
+    monkeypatch.setattr("core.peer.endpoint.primary_lan_ip", lambda: "192.168.5.5")
+    offer = PairingOffer(
+        node_id="node-b",
+        spki_sha256="ab" * 32,
+        host="0.0.0.0",
+        port=8443,
+        nonce="n-wild",
+        created_at=time.time(),
+    )
+    assert PeerManagementWidget._pairing_endpoint(offer) == "https://192.168.5.5:8443"
+
+
+def test_local_offer_authority_uses_the_service_endpoint(tmp_path: Path, qapp):
+    service = _make_service(tmp_path, "offer")
+    try:
+        assert PeerManagementWidget._local_offer_authority(service) == ("192.168.1.50", 8443)
+    finally:
+        service.close()
+
+
+def test_pair_by_offer_refuses_a_loopback_offer_before_dialing(
+    tmp_path: Path, qapp, monkeypatch
+):
+    from core.peer.service import set_active_peer_service
+
+    service = _make_service(tmp_path, "loop")
+    set_active_peer_service(service)
+    widget = PeerManagementWidget(peer_service=service)
+    offer = PairingOffer(
+        node_id="node-remote",
+        spki_sha256="ab" * 32,
+        host="127.0.0.1",
+        port=8443,
+        nonce="n-loop",
+        created_at=time.time(),
+    )
+    monkeypatch.setattr(
+        QInputDialog, "getText", staticmethod(lambda *a, **k: (offer.to_uri(), True))
+    )
+    seen = []
+    monkeypatch.setattr(
+        QMessageBox, "warning", staticmethod(lambda *a, **k: seen.append(a))
+    )
+    try:
+        widget._pair_by_offer()
+        assert seen and seen[0][1] == "Offer Is Loopback-Only"
+    finally:
+        widget.close()
+        service.close()
+
+
+def test_pair_by_offer_refuses_an_offer_created_here(tmp_path: Path, qapp, monkeypatch):
+    from core.peer.service import set_active_peer_service
+
+    service = _make_service(tmp_path, "own")
+    set_active_peer_service(service)
+    widget = PeerManagementWidget(peer_service=service)
+    offer = PairingOffer(
+        node_id=service.identity.node_id,
+        spki_sha256="ab" * 32,
+        host="192.168.1.50",
+        port=8443,
+        nonce="n-own",
+        created_at=time.time(),
+    )
+    monkeypatch.setattr(
+        QInputDialog, "getText", staticmethod(lambda *a, **k: (offer.to_uri(), True))
+    )
+    seen = []
+    monkeypatch.setattr(
+        QMessageBox, "warning", staticmethod(lambda *a, **k: seen.append(a))
+    )
+    try:
+        widget._pair_by_offer()
+        assert seen and seen[0][1] == "Offer Belongs to This Node"
     finally:
         widget.close()
         service.close()
