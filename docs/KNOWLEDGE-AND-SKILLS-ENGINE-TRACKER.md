@@ -2,7 +2,7 @@
 
 > **Repository Tracker Document:** [`docs/KNOWLEDGE-AND-SKILLS-ENGINE-TRACKER.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/KNOWLEDGE-AND-SKILLS-ENGINE-TRACKER.md)  
 > **Master Architecture Specification:** [`docs/ACADEMIC-TAXONOMY-AND-SKILLS-ENGINE-SPEC.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/ACADEMIC-TAXONOMY-AND-SKILLS-ENGINE-SPEC.md) (Rev 3.1)  
-> **Current Date:** 2026-11-10  
+> **Current Date:** 2026-11-11  
 
 ---
 
@@ -17,14 +17,14 @@
 | **Phase 4** | **Multimodal Conversion & OCR Pipeline** | 🟢 **COMPLETED** | `tools/ingest_multimodal.py`, `markitdown` + asset extractor | [x] Passed |
 | **Phase 5** | **Knowledge Extraction & Placement** | 🟢 **COMPLETED** | `tools/extract_knowledge.py`, segmentation, atomization, `_inbox/` routing | [x] Passed |
 | **Phase 6** | **JIT Skills & Scripts Engine** | 🟢 **COMPLETED** | `TurnPlan` compiler, JIT SOP injection, `config/scripts.json`, `turn_context.py` | [x] Passed |
-| **Phase 7** | **Teacher Escalation & Worktree Harness** | 🟢 **COMPLETED** | `tools/worktree.py`, `agent/teacher_policy.py`, AST & sandbox safety gates | [x] Passed |
+| **Phase 7** | **Teacher Escalation & Worktree Harness** | 🟡 **PARTIAL** | `tools/worktree.py`, `agent/teacher_policy.py`, AST & sandbox safety gates (policy module + tests only; no production escalation caller) | [ ] Not wired |
 | **Hardening** | **Gemini Live 1007 Disconnection Fix** | 🟢 **COMPLETED** | Stream pause during tool execution, resume handle invalidation on 1007/1008 | [x] Passed |
 | **Track 8** | **Scripts Indexer & Safety Scanner** | 🟢 **COMPLETED** | `tools/scripts_index.py` (`--build`, `--check`, `--json`), AST audit | [x] Passed |
 | **Track 9** | **Taxonomized Skills Index & Cookbooks** | 🟢 **COMPLETED** | `tools/skills_index.py`, OpenMonoAgent cookbooks for small models (`lfm3:1.7b`) | [x] Passed |
 | **Track 10** | **Cognitive Thinking Skills Portfolio Ingestion** | 🟢 **COMPLETED** | Port 9 mental model skills from `cc-thinking-skills` into `skills/` + cookbooks | [x] Passed |
 | **Harness Tool** | **`search_scripts` & HUD / CLI Integration** | 🟢 **COMPLETED** | `search_scripts` ToolSpec (§9.9, §16), CLI `scripts`/`cookbook`, HUD slash commands | [x] Passed |
 | **Live Ingestion** | **Companion Books Batch Extraction & Placement** | 🟢 **COMPLETED** | 6 companion books scanned, 153 units extracted (102 placed, 51 inboxed), 854 chunks indexed | [x] Passed |
-| **Track 11** | **Inbox Note Promotion Engine & Placement** | 🟢 **COMPLETED** | `tools/promote_inbox.py` (`--list`, `--promote`, `--auto-source`), 89 notes promoted | [x] Passed |
+| **Track 11** | **Inbox Note Promotion Engine & Placement** | 🟢 **COMPLETED** | `tools/promote_inbox.py` (`--list`, `--promote`, `--auto-source`), 89 notes promoted in the initial batch (folder now holds 265) | [x] Passed |
 | **Track 12** | **Portfolio Skills Absorption (Batch 1: 15 Skills)** | 🟢 **COMPLETED** | 15 skills from `superpowers`, `spec-kit`, `procedure-ops`, `cc-thinking-skills`, `SkillOpt` (39 total) | [x] Passed |
 | **Track 13** | **Portfolio Skills Absorption (Batch 2: 16 Skills)** | 🟢 **COMPLETED** | 16 skills from `answer-me-with-html`, `anatomy`, `ffmpeg-skill`, `OfficeCLI`, `code-graph-rag` (55 total) | [x] Passed |
 | **Track 14** | **OpenMonoAgent Playbooks Absorption (7 Skills)** | 🟢 **COMPLETED** | 7 production playbooks: `incident-response`, `db-migrate`, `release`, `pr-ready`, `secret-scan`, `commit`, `blast-radius` (62 total) | [x] Passed |
@@ -32,7 +32,19 @@
 | **Track 16** | **Portfolio Skills Absorption (Batch 5: 10 Skills)** | 🟢 **COMPLETED** | 10 skills: `text-to-cad`, `book-to-skill`, `vega-viz`, `canvas-designer`, `media-crawler`, `sqlite-fts`, `openapi-contract`, `circuit-breaker`, `canary-deploy`, `epistemic-arbitrage` (80 total) | [x] Passed |
 | **Track 17** | **Portfolio Skills Absorption (Batch 6: 10 Skills) & UX Integration** | 🟢 **COMPLETED** | 10 skills: `smart-scraper`, `graph-rag`, `structured-grammar`, `answer-engine`, `doc-converter`, `flakiness-hunter`, `sunk-cost`, `loss-aversion`, `survivorship-bias`, `confirmation-bias` (90 total) + `/domains`, `/brain` HUD commands & CLI `--domain` filter | [x] Passed |
 | **Track 18** | **External Software Installation & Bootstrap Automation** | 🟢 **COMPLETED** | Installed `rg`, `ffmpeg`, `yt-dlp`, `pandoc`, `sqlite3`, `openscad`; enhanced `setup.py`, `scripts/setup_dev.ps1`, `scripts/install_system_tools.ps1` | [x] Passed |
-| **Verification Gate** | **Full Portable Test Suite & Ratchets** | 🟢 **COMPLETED** | 1,594+ tests passed, 0 ruff errors, architecture ratchets clean | [x] Passed |
+| **Verification Gate** | **Full Portable Test Suite & Ratchets** | 🟢 **COMPLETED** | 1,716 tests passed (7 skipped), 0 ruff errors, architecture ratchets clean | [x] Passed |
+
+> **Audit note (2026-11-11):** A read-only pass over this tracker found the
+> knowledge index and the skills/scripts engine live and working: the vault
+> resolves, the FTS index covers the 3,646 searchable pages, `skills_index.py`
+> validates 90 skills, `scripts_index.py` validates 21 scripts, and both
+> `--check`s pass. One real defect was found — `compile_turn_context` let the
+> rendered skill block exceed `skill_budget` — and is fixed in commit
+> `f33beac`. Phase 7 is **partial**: `agent/teacher_policy.py` and
+> `tools/worktree.py` exist with tests, but nothing in production calls the
+> escalation policy, so no failure gap is detected and no teacher is invoked.
+> The counts in this document were refreshed to match the tree; the buddhism
+> folder holds 265 notes now, not the 89 promoted in the initial batch.
 
 ---
 
@@ -52,7 +64,7 @@ flowchart TD
 
     subgraph HARNESS_INTELLIGENCE["Offloaded Harness Intelligence"]
         P5 --> P6["Phase 6: JIT Skills & Scripts Engine<br/>(TurnPlan, SOP shortlisting & budget clamping, scripts catalogue)"]
-        P6 --> P7["Phase 7: Teacher Escalation & Git Worktree Harness<br/>(Isolated worktrees, AST safety gates, teacher escalation)"]
+        P6 --> P7["Phase 7: Teacher Escalation & Git Worktree Harness<br/>(Isolated worktrees, AST safety gates; teacher policy scaffold, not wired)"]
         P7 --> P8["Live WebSocket Hardening<br/>(Stream pause on tool exec, non-None ID guarantee, resume handle safety)"]
         P8 --> T8["Track 8: Scripts Indexer & Safety Scanner<br/>(AST signature scan, safety classification gate, --build/--check)"]
         T8 --> T9["Track 9: Taxonomized Skills Index & Cookbooks<br/>(OpenMonoAgent recipes, domain classification, lfm3:1.7b execution)"]
@@ -66,14 +78,14 @@ flowchart TD
 
 ### Track 8: Scripts Indexer & Safety Scanner (`tools/scripts_index.py`)
 - [x] Implement `tools/scripts_index.py` compliant with Appendix C specification:
-  - `--build`: Scan `tools/` and user scripts directory, extract AST docstrings and argument signatures, determine safety classification, and write `config/scripts.json` (20 verified tools).
+  - `--build`: Scan `tools/` and user scripts directory, extract AST docstrings and argument signatures, determine safety classification, and write `config/scripts.json` (21 verified tools).
   - `--check`: Validate that every tool script in `tools/` is registered in `config/scripts.json`, has an assigned safety class (`workspace_write`, `read_only`, `network`, `sandbox`), and is not stale.
   - `--json`: Output machine-readable scripts catalogue.
 - [x] Unit tests in `tests/test_scripts_index.py` (3 tests passing).
 
 ### Track 9: Taxonomized Skills Index & Cookbooks (`tools/skills_index.py` & `skills/**/cookbook.md`)
 - [x] Implement `tools/skills_index.py`:
-  - `--build`: Scan all `skills/**/SKILL.md`, categorize into domain taxonomy (Cognitive, Architecture, DevOps, Security, Research, Coding), compile `config/skills_index.json` (24 skills indexed).
+  - `--build`: Scan all `skills/**/SKILL.md`, categorize into domain taxonomy (Cognitive, Architecture, DevOps, Security, Research, Coding), compile `config/skills_index.json` (90 skills indexed).
   - `--check`: Verify all skills have valid YAML frontmatter, progressive disclosure sections, and associated executable cookbooks.
   - `--cookbook <skill>`: Output the executable step-by-step recipe tailored for `lfm3:1.7b` (preconditions, exact tool/CLI invocations, verification checkpoints, error remediation).
 - [x] Author actionable `cookbook.md` files for all skills following the OpenMonoAgent pattern.
@@ -100,7 +112,7 @@ flowchart TD
   - `--auto-source <slug|all> --domain <target>`: Batch promotion of all notes originating from a source book.
   - `--dry-run`: Preview promotion actions and path targets without disk modifications.
 - [x] Unit tests in `tests/test_promote_inbox.py` covering listing, dry-run, invalid domain rejection, and real promotion lifecycle.
-- [x] Execute promotion of all 89 quarantined companion book notes to `humanities/philosophy/eastern-philosophy/buddhism/` and sync second-brain search index.
+- [x] Execute promotion of the initial 89 quarantined companion book notes to `humanities/philosophy/eastern-philosophy/buddhism/` and sync second-brain search index (the folder now holds 265 notes after later phases).
 - [x] Commit clean taxonomy state in Obsidian vault branch `taxonomy/spine-v1`.
 
 ### Track 12: Portfolio Skills Absorption (`ai_systems_repository_catalog.md`)
@@ -228,6 +240,6 @@ flowchart TD
 
 ### Verification Gate (AGENTS.md)
 - [x] `python -m ruff check .` -> All checks passed (0 errors).
-- [x] `$env:QT_QPA_PLATFORM="offscreen"; python -m pytest tests -q` -> 1,594 passed, 8 skipped, 0 failed.
+- [x] `$env:QT_QPA_PLATFORM="offscreen"; python -m pytest tests -q` -> 1,716 passed, 7 skipped, 0 failed.
 - [x] Stub provider verification: `python -m agent run "say hello" --provider stub --json --no-session` -> clean execution.
 - [x] Architecture ratchets clean (`core/tool_exec.py` 0 `elif` branches, line ceilings respected).

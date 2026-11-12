@@ -1383,7 +1383,7 @@ def brain_map(*, automatic: bool = True) -> str:
         f"Root: {root}\n"
         "Shelves: wiki/ (synthesised knowledge and entity pages), raw/ (immutable sources), "
         "Personal notes/, book-library/, Calyx/ (grounding engine docs), operations/ (tooling). "
-        "About 6,600 notes; subagent-orchestration/agents/, ai-chats/, exports/ and _archive/ "
+        "About 3,600 notes; subagent-orchestration/agents/, ai-chats/, exports/ and _archive/ "
         "are excluded from search.\n"
         f"{state} Prefer these notes over general knowledge, and cite the note path you used. "
         "If the block does not answer the question, call brain_search; use brain_read for a "
