@@ -84,12 +84,24 @@ class PeerManagementWidget(QFrame):
         return self.service
 
     def _warn_service_unavailable(self) -> None:
+        """Explain the two ways brahma_api can be absent, not just one.
+
+        ``config/brahma_api.json`` is user data and is gitignored, so a fresh
+        clone or ``git pull`` on a second machine has no config at all: the
+        loader's disabled default applies and the port never starts. Telling
+        the operator to "set enabled: true" in a file that does not exist is a
+        dead end, so name the copy step too.
+        """
         QMessageBox.information(
             self,
             "Peer service not running",
             "brahma_api is not running in this process, so the peer federation "
             "has no service to control.\n\n"
-            "Set \"enabled\": true in config/brahma_api.json and restart Brahma.",
+            "Create config/brahma_api.json (copy config/brahma_api.example.json) "
+            "with \"enabled\": true, then restart Brahma.\n\n"
+            "A machine that should accept peers from the LAN also needs "
+            "\"peer_host\": \"0.0.0.0\" and \"allow_remote_bind\": true, while "
+            "\"host\" stays \"127.0.0.1\" so the OpenAI port is not exposed.",
         )
 
     def _setup_style(self) -> None:

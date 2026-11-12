@@ -254,6 +254,27 @@ def test_endpoint_text_flags_a_loopback_only_peer_port(qapp):
     assert "not running" in PeerManagementWidget._endpoint_text("")
 
 
+def test_service_unavailable_message_names_the_missing_config_copy(qapp, monkeypatch):
+    """A second machine has no config at all: it is gitignored user data.
+
+    The old text told the operator to edit a file that does not exist, which is
+    the state every fresh clone and every `git pull` on another device is in.
+    """
+    from PyQt6.QtWidgets import QMessageBox
+
+    seen: list[tuple] = []
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: seen.append(a)))
+    widget = PeerManagementWidget(peer_service=None)
+    try:
+        widget._warn_service_unavailable()
+    finally:
+        widget.close()
+    text = seen[0][2]
+    assert "brahma_api.example.json" in text
+    assert "peer_host" in text
+    assert "allow_remote_bind" in text
+
+
 def test_pairing_endpoint_prefers_the_offer_over_a_loopback_card(qapp):
     offer = PairingOffer(
         node_id="node-b",
