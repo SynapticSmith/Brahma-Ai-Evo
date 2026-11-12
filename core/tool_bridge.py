@@ -112,6 +112,25 @@ INTENT_HINTS: Tuple[Dict[str, Tuple[str, ...]], ...] = (
         "prefixes": (),
         "contains": ("subagent",),
     },
+    {
+        # Questions about the peer federation ("what machines are in the
+        # swarm?", "can you use the other PC?") must surface the lookup on the
+        # first call. Voice advertises list_peers/peer_status only; text also
+        # exposes dispatch_peer_task.
+        "keywords": (
+            "peer",
+            "peers",
+            "swarm",
+            "federation",
+            "other machine",
+            "other pc",
+            "worker node",
+            "remote node",
+            "another computer",
+        ),
+        "prefixes": (),
+        "contains": ("peer",),
+    },
 )
 
 #: How many recently learned tool names to remember for a Live connection.

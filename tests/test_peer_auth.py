@@ -84,13 +84,15 @@ def test_node_identity_dpapi_persistence_and_machine_binding():
             NodeIdentity.load_or_create(identity_dir=ident_dir, enforce_machine_binding=True)
 
 
-def test_sas_pairing_protocol_and_token_exchange():
+def test_sas_pairing_protocol_and_token_exchange(tmp_path: Path):
     """Verify mutual SAS derivation agreement and AES-256-GCM token wrapping."""
     node_a = NodeIdentity.create_new(machine_guid="guid-a", hostname="host-a")
     node_b = NodeIdentity.create_new(machine_guid="guid-b", hostname="host-b")
 
-    coord_a = PairingCoordinator(node_a)
-    coord_b = PairingCoordinator(node_b)
+    # Explicit temp registries: the default would create the operator's real
+    # ``%LOCALAPPDATA%\BrahmaAI\peer`` directory just by being constructed.
+    coord_a = PairingCoordinator(node_a, registry=PeerRegistry(tmp_path / "peers_a.json"))
+    coord_b = PairingCoordinator(node_b, registry=PeerRegistry(tmp_path / "peers_b.json"))
 
     # 1. A creates offer
     offer = coord_a.create_offer(host="192.168.1.10", port=8000)
@@ -146,10 +148,10 @@ def test_sas_pairing_protocol_and_token_exchange():
     assert unwrapped["callee_node_id"] == node_b.node_id
 
 
-def test_pairing_lockout_after_three_failures():
+def test_pairing_lockout_after_three_failures(tmp_path: Path):
     """Verify 3 failed attempts triggers a 5-minute lockout."""
     node = NodeIdentity.create_new()
-    coord = PairingCoordinator(node)
+    coord = PairingCoordinator(node, registry=PeerRegistry(tmp_path / "peers_lockout.json"))
 
     offer = coord.create_offer("localhost", 8000)
     eph_priv, _, _ = coord.begin_exchange(offer, is_initiator=True)
@@ -222,6 +224,7 @@ def test_signature_rejection_branches_return_401(tmp_path: Path):
     import json
     import time
     from api_support import auth, build_client, make_config, mint
+    from core.peer.artifacts import PeerArtifactStore
     from core.peer.crypto import ed25519_public_to_raw
     from core.peer.identity import NodeIdentity
     from core.peer.pairing import PeerRegistry, PinnedPeer
@@ -247,7 +250,12 @@ def test_signature_rejection_branches_return_401(tmp_path: Path):
         )
     )
 
-    client = build_client(config, peer_store=store, peer_registry=registry)
+    client = build_client(
+        config,
+        peer_store=store,
+        peer_registry=registry,
+        peer_artifact_store=PeerArtifactStore(tmp_path / "artifacts"),
+    )
 
     base_payload = {
         "task_id": "t-sig-1",

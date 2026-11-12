@@ -1462,6 +1462,18 @@ class TextTurnController:
         if subagent_index:
             system_prompt = f"{system_prompt}\n\n{subagent_index}"
 
+        # The peer federation, only when this machine actually has one. The
+        # block names the peer tools and the untrusted-output rule; without it
+        # the model cannot know the swarm exists even though brahma_api is up.
+        try:
+            from agent.prompts import federation_prompt_block
+
+            federation_ctx = federation_prompt_block()
+        except Exception:
+            federation_ctx = ""
+        if federation_ctx:
+            system_prompt = f"{system_prompt}\n\n{federation_ctx}"
+
         try:
             from core import instruction_injector
 

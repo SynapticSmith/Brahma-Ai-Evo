@@ -2147,10 +2147,13 @@ def _harness_mcp_manager():
 # registration. The voice socket has no text completer for a child loop, so the
 # dispatch tools (`run_subagent`, `run_subagent_batch`) are deliberately left
 # off the live surface while `list_subagents` stays: a voice session should be
-# able to look the library up and say what exists.
+# able to look the library up and say what exists. The peer split is the same
+# shape: `list_peers`/`peer_status` stay, `dispatch_peer_task` does not, because
+# a voice turn has no approval banner for work on another machine.
 try:
     from agent import brain_tools as _agent_brain_tools  # noqa: F401
     from agent import code_tools as _agent_code_tools  # noqa: F401
+    from agent import peer_tools as _agent_peer_tools  # noqa: F401
     from agent import subagent as _agent_subagent  # noqa: F401
     from agent.spec import all_specs as _agent_specs
     from agent.spec import gemini_declarations as _agent_gemini_declarations
@@ -2163,6 +2166,7 @@ try:
                 if (
                     desktop_tools.DESKTOP_TAG not in spec.tags
                     and spec.name not in _agent_subagent.DISPATCH_TOOLS
+                    and spec.name != _agent_peer_tools.DISPATCH_TOOL
                 )
             ]
         )

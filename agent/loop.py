@@ -778,6 +778,7 @@ class AgentLoop:
                 extra=extra,
                 include_subagents=False,
                 include_brain=False,
+                include_federation=False,
             ),
             session=None,
             max_turns=turns,

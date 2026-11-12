@@ -135,6 +135,10 @@ class PeerManagementWidget(QFrame):
         header_layout.addWidget(title_label)
         header_layout.addStretch()
 
+        self.discovery_btn = QPushButton("LAN Discovery: OFF")
+        self.discovery_btn.clicked.connect(self._toggle_discovery)
+        header_layout.addWidget(self.discovery_btn)
+
         self.drain_btn = QPushButton("Drain Mode: OFF")
         self.drain_btn.clicked.connect(self._toggle_drain_mode)
         header_layout.addWidget(self.drain_btn)
@@ -205,6 +209,41 @@ class PeerManagementWidget(QFrame):
         scroll.setWidget(scroll_content)
         main_layout.addWidget(scroll)
 
+    def _toggle_discovery(self) -> None:
+        """Start or stop the UDP beacon the pairing flow depends on.
+
+        Pairing is manual either way: one node creates an offer, the other
+        pastes it into a discovered card. But the initiator can only click
+        'Pair with Node' on a *discovered* peer, and the GUI starts brahma_api
+        without the CLI's ``--enable-peer-discovery`` flag. Without this toggle
+        the shipped card could never pair, so it lives here rather than in the
+        serve path: broadcasting presence on the LAN stays an explicit click.
+        """
+        if not self.service:
+            return
+        try:
+            if getattr(self.service, "listener", None) is None:
+                self.service.start_discovery()
+            else:
+                self.service.stop_discovery()
+        except Exception as exc:
+            logger.warning("Could not toggle LAN discovery: %s", exc)
+            QMessageBox.warning(
+                self,
+                "LAN Discovery",
+                f"Could not start LAN discovery: {exc}\n"
+                "Another process may already hold UDP 8444.",
+            )
+        self.refresh_data()
+
+    def _sync_discovery_button(self) -> None:
+        """Reflect the listener's actual state, not the last click."""
+        on = bool(self.service and getattr(self.service, "listener", None) is not None)
+        self.discovery_btn.setText(f"LAN Discovery: {'ON' if on else 'OFF'}")
+        self.discovery_btn.setStyleSheet(
+            "border-color: #4fc3f7; color: #b3e5fc;" if on else ""
+        )
+
     def _toggle_drain_mode(self) -> None:
         if not self.service:
             return
@@ -255,6 +294,7 @@ class PeerManagementWidget(QFrame):
         status_txt = f"Status: {'DRAINING (Rejecting new tasks)' if drain else 'ACTIVE'} | In-flight tasks: {active}"
         self.lbl_status.setText(status_txt)
         self.drain_btn.setText(f"Drain Mode: {'ON' if drain else 'OFF'}")
+        self._sync_discovery_button()
 
         # Update Pinned Peers
         self._clear_layout(self.pinned_container)

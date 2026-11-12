@@ -428,6 +428,20 @@ def test_subagent_questions_pin_the_library_lookup(bridge):
     assert len(names) <= tool_bridge.budget()
 
 
+def test_peer_questions_pin_the_federation_lookup(bridge):
+    """A question about the swarm must surface the lookup on the first call."""
+    idx, _ = bridge
+    for name in ("list_peers", "peer_status", "dispatch_peer_task", "unrelated_0"):
+        idx.upsert(ToolEntry(name=name, description="Peer federation.", source="native"))
+
+    pins = tool_bridge.intent_pins("what machines are in the swarm?", idx)
+    assert "list_peers" in pins
+    assert "peer_status" in pins
+    assert "dispatch_peer_task" in pins
+    assert "unrelated_0" not in pins
+    assert tool_bridge.intent_pins("what is the weather", idx) == []
+
+
 def test_learned_tools_are_readvertised_on_reconnect(bridge):
     """A tool found via search_tools survives a 1008 reconnect, no turn replay."""
     idx, _ = bridge

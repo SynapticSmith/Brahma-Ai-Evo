@@ -128,3 +128,60 @@ def test_peer_management_widget_init_and_refresh(tmp_path: Path, qapp):
 
     widget.close()
     service.close()
+
+
+def test_lan_discovery_toggle_starts_and_stops_the_listener(tmp_path: Path, qapp):
+    """The GUI starts brahma_api without discovery; this button is the only way in.
+
+    Stubbed at the service boundary so the test never binds UDP 8444.
+    """
+    ident = NodeIdentity.create_new(machine_guid="guid-ui-disc", hostname="host-ui-disc")
+    service = PeerService(
+        identity=ident,
+        registry=PeerRegistry(tmp_path / "peers_disc.json"),
+        ledger=ReservationLedger(global_max=2, per_node_max=1),
+        artifact_store=PeerArtifactStore(tmp_path / "artifacts_disc"),
+        task_store=PeerTaskStore(tmp_path / "tasks_disc.db"),
+        endpoint="https://127.0.0.1:8443",
+    )
+    from core.peer.service import set_active_peer_service
+
+    set_active_peer_service(service)
+
+    class _FakeListener:
+        def list_discovered(self):
+            return []
+
+        def stop(self):
+            pass
+
+    def fake_start():
+        service.listener = _FakeListener()
+
+    def fake_stop():
+        service.listener = None
+
+    service.start_discovery = fake_start  # type: ignore[method-assign]
+    service.stop_discovery = fake_stop  # type: ignore[method-assign]
+
+    widget = PeerManagementWidget(peer_service=service)
+    try:
+        assert widget.discovery_btn.text() == "LAN Discovery: OFF"
+        assert service.listener is None
+
+        widget.discovery_btn.click()
+        assert service.listener is not None
+        assert widget.discovery_btn.text() == "LAN Discovery: ON"
+
+        widget.discovery_btn.click()
+        assert service.listener is None
+        assert widget.discovery_btn.text() == "LAN Discovery: OFF"
+
+        # The button reflects the listener, not the last click: a listener
+        # stopped elsewhere must not leave a stale "ON".
+        service.listener = _FakeListener()
+        widget.refresh_data()
+        assert widget.discovery_btn.text() == "LAN Discovery: ON"
+    finally:
+        widget.close()
+        service.close()

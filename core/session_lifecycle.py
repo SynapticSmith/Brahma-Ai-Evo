@@ -527,6 +527,24 @@ class SessionLifecycle:
             )
             parts.append(subagent_ctx)
 
+        # Peer federation. The Live surface advertises list_peers/peer_status but
+        # not dispatch_peer_task, so the block is built with
+        # dispatch_available=False: a voice session can say what the swarm
+        # contains, and must not promise to start work on a peer.
+        federation_ctx = ""
+        try:
+            from agent.prompts import federation_prompt_block
+
+            federation_ctx = federation_prompt_block(dispatch_available=False)
+        except Exception:
+            federation_ctx = ""
+        if federation_ctx:
+            print(
+                f"[BRAHMA EVO] \U0001f310 live prompt += {len(federation_ctx)} "
+                "chars of peer federation"
+            )
+            parts.append(federation_ctx)
+
         # Optional instruction blocks for the LIVE layer. This is the only place
         # Gemini Live's system instruction is assembled, so anything a voice
         # session is meant to follow has to be composed here.
