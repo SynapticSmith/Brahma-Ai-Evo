@@ -168,6 +168,13 @@ they govern; `agent/prompts.py` owns discovery and its budgets.
   completer to build a child loop. Its prompt carries the same library index
   with `dispatch_available=False`, so it can answer what exists without
   promising a run. Text and CLI advertise all three.
+- Where that split is enforced matters: `main.TOOL_DECLARATIONS` is both the
+  Live declaration list *and* the pool `core/tool_bridge` indexes for a GUI
+  text turn, so it must stay complete. The Live connect config drops
+  `agent.spec.NO_BANNER_TOOLS` (`run_subagent`, `run_subagent_batch`,
+  `dispatch_peer_task`) in `core.session_lifecycle.voice_tool_declarations`;
+  excluding them upstream instead hid them from text too, and the model then
+  answered "that tool is not available" while its prompt promised it.
 
 ## Swarm / federation
 

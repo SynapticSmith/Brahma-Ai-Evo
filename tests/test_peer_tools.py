@@ -143,6 +143,21 @@ def test_dispatch_refuses_a_peer_with_no_outbound_token(tmp_path: Path):
     assert "directional" in out
 
 
+def test_the_banner_tool_list_matches_the_dispatch_owners():
+    """``NO_BANNER_TOOLS`` is what the Live surface drops; it must not drift.
+
+    The names are owned by ``agent.subagent`` and ``agent.peer_tools``; a new
+    dispatch tool that forgets to join this list would be advertised on a
+    surface that has no approval banner.
+    """
+    from agent import peer_tools, subagent
+    from agent.spec import NO_BANNER_TOOLS
+
+    assert set(NO_BANNER_TOOLS) == set(subagent.DISPATCH_TOOLS) | {
+        peer_tools.DISPATCH_TOOL
+    }
+
+
 def test_federation_prompt_block_is_conditional(monkeypatch):
     from agent import prompts
 

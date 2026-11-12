@@ -30,6 +30,19 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 #: pre-existing action tools that predate this classification.
 TOOL_CLASSES: Tuple[str, ...] = ("read", "write", "exec", "network", "device", "mcp", "native")
 
+#: Tools that run work on another machine and therefore ask the operator for
+#: approval. The Gemini Live socket has no approval banner, so its surface
+#: drops these even though the shared index carries them; the text, CLI and
+#: subagent loops advertise them. The owners are ``agent.subagent.DISPATCH_TOOLS``
+#: and ``agent.peer_tools.DISPATCH_TOOL``; ``tests/test_agent_registry.py``
+#: keeps this list in step with both so a new dispatch tool cannot reach a
+#: surface that cannot ask.
+NO_BANNER_TOOLS: Tuple[str, ...] = (
+    "run_subagent",
+    "run_subagent_batch",
+    "dispatch_peer_task",
+)
+
 #: Arguments that carry a filesystem path. The policy resolves these against
 #: the workspace before deciding, so a tool cannot launder an escape through a
 #: parameter name the policy does not look at.

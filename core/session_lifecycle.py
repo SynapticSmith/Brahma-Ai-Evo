@@ -42,6 +42,30 @@ from memory.memory_manager import load_memory, format_memory_for_prompt
 _SPEECH_ENERGY_THRESHOLD = 300.0
 
 
+def voice_tool_declarations(declarations) -> list:
+    """The Live surface: everything except tools that need an approval banner.
+
+    ``main.TOOL_DECLARATIONS`` is also the pool the text path indexes, so it
+    carries ``run_subagent`` / ``dispatch_peer_task``. Gemini Live has no
+    approval banner, so advertising them there would let a voice turn start
+    work the operator never confirmed. The filter lives here, at the surface
+    that cannot ask, rather than in the shared list: excluding them upstream
+    also hid them from every GUI text turn, which then answered "that tool is
+    not available" while its prompt promised the tool existed.
+    """
+    try:
+        from agent.spec import NO_BANNER_TOOLS
+
+        omitted = set(NO_BANNER_TOOLS)
+    except Exception:
+        omitted = set()
+    return [
+        declaration
+        for declaration in declarations or []
+        if declaration.get("name") not in omitted
+    ]
+
+
 class SessionLifecycle:
     """Session state machine / lifecycle seam of :class:`main.BrahmaLive`."""
 
@@ -508,9 +532,10 @@ class SessionLifecycle:
             )
             parts.append(brain_ctx)
 
-        # Specialist-template index. main.py advertises ``list_subagents`` on the
-        # Live surface but never the dispatch tools, so this block must be part
-        # of the voice instruction or the model cannot know the library exists.
+        # Specialist-template index. The Live surface advertises
+        # ``list_subagents`` but never the dispatch tools, so this block must be
+        # part of the voice instruction or the model cannot know the library
+        # exists.
         # ``dispatch_available=False`` keeps the wording honest: a lookup is
         # possible here, a child loop is not.
         subagent_ctx = ""
@@ -579,7 +604,7 @@ class SessionLifecycle:
                 "indexed": False,
             }
 
-        tool_declarations = payload["declarations"]
+        tool_declarations = voice_tool_declarations(payload["declarations"])
         if payload.get("skill_context"):
             # Just-in-time context: usage rules for the tool groups actually
             # advertised this session, and nothing else.

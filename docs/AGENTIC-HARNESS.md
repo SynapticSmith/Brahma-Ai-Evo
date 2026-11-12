@@ -276,6 +276,11 @@ into the parent transcript. The voice socket does not advertise the dispatch
 tools (`run_subagent`, `run_subagent_batch`): its Gemini session owns the only
 transport and cannot build a text child loop. It does advertise
 `list_subagents`, so a voice session can say what the library contains.
+The exclusion is applied at the Live connect config
+(`core.session_lifecycle.voice_tool_declarations`, which drops
+`agent.spec.NO_BANNER_TOOLS`), not in `main.TOOL_DECLARATIONS`: that list is
+also the pool the text path retrieves from, so removing a dispatch tool there
+also removed it from every GUI text turn.
 
 #### Specialist templates
 

@@ -77,3 +77,51 @@ def test_the_live_prompt_advertises_the_subagent_library_lookup(tmp_path, monkey
     assert "`list_subagents`" in instruction
     assert "cannot dispatch" in instruction
     assert "exists only in the text/CLI harness" in instruction
+
+
+def test_the_live_connect_config_drops_the_banner_tools(tmp_path, monkeypatch):
+    """The shared payload carries dispatch tools; the Live socket must not.
+
+    ``main.TOOL_DECLARATIONS`` is also the text path's retrieval pool, so the
+    connect config is the only place a voice session can be kept away from a
+    tool whose call needs an approval banner.
+    """
+    from core import tool_bridge
+
+    def _declaration(name: str) -> dict:
+        return {
+            "name": name,
+            "description": "",
+            "parameters": {"type": "OBJECT", "properties": {}},
+        }
+
+    monkeypatch.setattr(
+        tool_bridge,
+        "build_session_payload",
+        lambda intent="": {
+            "declarations": [
+                _declaration("list_peers"),
+                _declaration("dispatch_peer_task"),
+                _declaration("run_subagent"),
+            ],
+            "skill_context": "",
+            "deferred": 0,
+            "indexed": True,
+        },
+    )
+    monkeypatch.setattr(
+        "agent.runtime.current", lambda: types.SimpleNamespace(workspace=tmp_path)
+    )
+
+    config = SessionLifecycle(types.SimpleNamespace(), deps={})._build_config()
+
+    tools = config.tools[0]
+    declarations = (
+        tools["function_declarations"]
+        if isinstance(tools, dict)
+        else tools.function_declarations
+    )
+    names = [d["name"] if isinstance(d, dict) else d.name for d in declarations]
+    assert "list_peers" in names
+    assert "dispatch_peer_task" not in names
+    assert "run_subagent" not in names
