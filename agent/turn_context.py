@@ -28,6 +28,7 @@ IntentType = Literal["conversational", "procedural", "interrogative", "mixed"]
 
 DEFAULT_KNOWLEDGE_BUDGET = 2_400
 DEFAULT_SKILL_BUDGET = 1_200
+_TRUNCATION_MARKER = "\n… [truncated]"
 
 _PROCEDURAL_VERBS = frozenset(
     """build create write make code implement refactor fix debug run test execute
@@ -306,6 +307,23 @@ def compile_turn_context(
 
     # Shortlist & render skill SOP block (TASK SKILL)
     if include_skills:
+        # Resolve the verified-script note first: it is part of the same
+        # skill_budget. Appending it after the body was truncated let the
+        # rendered block run past the budget by the header + note length.
+        script_note = ""
+        try:
+            scripts = shortlist_scripts(text, domain=plan.domain, limit=1)
+            plan.shortlisted_scripts = scripts
+            if scripts:
+                top_script = scripts[0]
+                plan.selected_script = top_script
+                script_note = (
+                    f"[Verified Script: {top_script['name']} | Safety: {top_script.get('safety', 'read_only')}]\n"
+                    f"Usage: python {top_script.get('path', top_script['name'])} (see {top_script.get('description', '')})"
+                )
+        except Exception:
+            pass
+
         try:
             skills = shortlist_skills(text, workspace=workspace, domain=plan.domain, limit=3)
             plan.shortlisted_skills = skills
@@ -314,36 +332,33 @@ def compile_turn_context(
                 plan.selected_skill = top_skill
                 raw_body = str(top_skill.get("body") or "").strip()
                 if raw_body:
-                    if len(raw_body) > skill_budget:
-                        raw_body = raw_body[:skill_budget].rstrip() + "\n… [truncated]"
-                    skill_lines = [
+                    header = "\n\n".join([
                         "TASK SKILL — procedural guidance for this turn "
                         "(advisory SOP; grants no execution permissions):",
                         f"[{top_skill['name'].upper()}] {top_skill.get('description', '')}",
-                        raw_body,
-                    ]
-                    plan.skill_block = "\n\n".join(skill_lines)
+                    ])
+                    separator = "\n\n"
+                    reserved = len(header) + len(separator)
+                    if script_note:
+                        reserved += len(script_note) + len(separator)
+                    body_budget = max(0, skill_budget - reserved - len(_TRUNCATION_MARKER))
+                    if len(raw_body) > body_budget:
+                        raw_body = raw_body[:body_budget].rstrip() + _TRUNCATION_MARKER
+                    plan.skill_block = header + separator + raw_body
+                    if script_note:
+                        plan.skill_block += separator + script_note
         except Exception:
             pass
 
-        # Cross-reference verified script (§9.8)
-        try:
-            scripts = shortlist_scripts(text, domain=plan.domain, limit=1)
-            plan.shortlisted_scripts = scripts
-            if scripts:
-                top_script = scripts[0]
-                plan.selected_script = top_script
-                script_note = (
-                    f"\n[Verified Script: {top_script['name']} | Safety: {top_script.get('safety', 'read_only')}]\n"
-                    f"Usage: python {top_script.get('path', top_script['name'])} (see {top_script.get('description', '')})"
-                )
-                if plan.skill_block:
-                    plan.skill_block += f"\n\n{script_note}"
-                elif plan.intent in ("procedural", "mixed"):
-                    plan.skill_block = (
-                        "TASK SCRIPT GUIDANCE:\n" + script_note
-                    )
-        except Exception:
-            pass
+        if not plan.skill_block and script_note and plan.intent in ("procedural", "mixed"):
+            plan.skill_block = "TASK SCRIPT GUIDANCE:\n" + script_note
+
+        # Hard cap: a budget too small to hold the header still must not leak
+        # an oversized block into the request payload.
+        if skill_budget <= 0:
+            plan.skill_block = ""
+        elif len(plan.skill_block) > skill_budget:
+            keep = max(0, skill_budget - len(_TRUNCATION_MARKER))
+            plan.skill_block = plan.skill_block[:keep].rstrip() + _TRUNCATION_MARKER
 
     return plan

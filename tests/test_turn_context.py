@@ -96,16 +96,26 @@ Step 3: Verify the output.
     assert first["name"] == "sample-skill"
     assert "Step 1" in first["body"]
 
-    # Compile turn context with strict skill budget (e.g. 50 chars)
+    # Compile turn context with a budget that fits the header but not the body.
     plan = compile_turn_context(
         "run a sample testing procedural routine",
         workspace=tmp_path,
-        skill_budget=50,
+        skill_budget=260,
         include_skills=True,
     )
     assert plan.has_skill
     assert "[SAMPLE-SKILL]" in plan.skill_block
     assert "… [truncated]" in plan.skill_block
+    assert len(plan.skill_block) <= 260
+
+    # A budget smaller than the header must still not leak an oversized block.
+    tiny = compile_turn_context(
+        "run a sample testing procedural routine",
+        workspace=tmp_path,
+        skill_budget=50,
+        include_skills=True,
+    )
+    assert len(tiny.skill_block) <= 50
 
 
 def test_context_as_payload_ordering():
