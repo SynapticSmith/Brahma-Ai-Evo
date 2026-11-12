@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+import io
+import json
 import time
+import urllib.error
 
 import pytest
 from PyQt6.QtWidgets import QApplication, QInputDialog, QMessageBox
@@ -254,6 +257,40 @@ def test_endpoint_text_flags_a_loopback_only_peer_port(qapp):
     assert "not running" in PeerManagementWidget._endpoint_text("")
 
 
+def test_peer_note_flags_an_edge_that_cannot_work(qapp):
+    """A pin is an edge: the endpoint and the token each decide whether it does."""
+    assert PeerManagementWidget._peer_note("https://192.168.1.20:8443", True) == ""
+    loop = PeerManagementWidget._peer_note("https://127.0.0.1:8443", True)
+    assert "loopback" in loop and "not reachable" in loop
+    no_token = PeerManagementWidget._peer_note("https://192.168.1.20:8443", False)
+    assert "no outbound token" in no_token
+    both = PeerManagementWidget._peer_note("https://127.0.0.1:8443", False)
+    assert "loopback" in both and "no outbound token" in both
+
+
+def test_pinned_peer_card_renders_the_note(qapp):
+    widget = PeerManagementWidget(peer_service=None)
+    try:
+        card = widget._create_pinned_peer_card(
+            {
+                "name": "DESKTOP-24JNU8J",
+                "node_id": "irhe2isnkenpql7n",
+                "endpoint": "https://127.0.0.1:8443",
+                "profile": "worker",
+                "has_outbound_token": False,
+            }
+        )
+        from PyQt6.QtWidgets import QLabel
+
+        text = " ".join(lbl.text() for lbl in card.findChildren(QLabel))
+        assert "127.0.0.1" in text
+        assert "loopback" in text
+        assert "no outbound token" in text
+        card.deleteLater()
+    finally:
+        widget.close()
+
+
 def test_service_unavailable_message_names_the_missing_config_copy(qapp, monkeypatch):
     """A second machine has no config at all: it is gitignored user data.
 
@@ -343,9 +380,57 @@ def test_pair_by_offer_refuses_a_loopback_offer_before_dialing(
     try:
         widget._pair_by_offer()
         assert seen and seen[0][1] == "Offer Is Loopback-Only"
+        # The operator needs to know *which* node made the offer: with three
+        # machines on one desk, a wrong paste is the usual cause.
+        assert "node-remote" in seen[0][2]
+        assert "127.0.0.1" in seen[0][2]
     finally:
         widget.close()
         service.close()
+
+
+def test_pairing_error_text_explains_a_consumed_offer(qapp):
+    """A 403 is the callee saying 'that offer is gone', not a network fault."""
+    body = io.BytesIO(
+        json.dumps(
+            {
+                "error": {
+                    "code": "unauthorized_pairing_offer",
+                    "message": "Pairing offer was not issued by an authenticated "
+                    "operator on this node, or has already been consumed.",
+                }
+            }
+        ).encode("utf-8")
+    )
+    exc = urllib.error.HTTPError(
+        "https://192.168.1.20:8443/pair/exchange", 403, "Forbidden", {}, body
+    )
+    offer = PairingOffer(
+        node_id="node-b",
+        spki_sha256="ab" * 32,
+        host="192.168.1.20",
+        port=8443,
+        nonce="n-used",
+        created_at=time.time(),
+    )
+    text = PeerManagementWidget._pairing_error_text(
+        exc, offer, "https://192.168.1.20:8443/pair/exchange"
+    )
+    assert "already used or has expired" in text
+    assert "single-use" in text
+    assert "node-b" in text
+    assert "HTTP Error" not in text
+
+
+def test_pairing_error_text_falls_back_to_the_server_sentence(qapp):
+    body = io.BytesIO(
+        json.dumps({"error": {"code": "something_new", "message": "nope"}}).encode("utf-8")
+    )
+    exc = urllib.error.HTTPError("https://x/pair/exchange", 403, "Forbidden", {}, body)
+    offer = PairingOffer(node_id="node-c", host="10.0.0.5", port=8443, nonce="n", created_at=0.0)
+    text = PeerManagementWidget._pairing_error_text(exc, offer, "https://x/pair/exchange")
+    assert "Server said: nope" in text
+    assert "node-c" in text
 
 
 def test_pair_by_offer_refuses_an_offer_created_here(tmp_path: Path, qapp, monkeypatch):

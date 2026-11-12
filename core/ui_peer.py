@@ -11,6 +11,7 @@ import json
 import logging
 import ssl
 from typing import Any, Dict, Optional
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -344,6 +345,7 @@ class PeerManagementWidget(QFrame):
                             "endpoint": p.endpoint,
                             "spki_sha256": p.spki_sha256,
                             "profile": p.profile,
+                            "has_outbound_token": bool(p.token),
                         }
                         for p in reg.list_peers()
                     ],
@@ -436,6 +438,23 @@ class PeerManagementWidget(QFrame):
         service.store.request_cancel(origin_node, task_id)
         self.refresh_data()
 
+    @staticmethod
+    def _peer_note(endpoint: str, has_outbound_token: bool) -> str:
+        """Say what stops a pinned peer from working, not just its address.
+
+        A pin is an edge, not a promise: the endpoint can be this machine's own
+        loopback (the other node never published a LAN address) and the token
+        can be empty (this node was the callee, so it may not dispatch). Both
+        look identical to a bare "Endpoint: https://127.0.0.1:8443" line.
+        """
+        notes: list[str] = []
+        host = urllib.parse.urlsplit(str(endpoint or "")).hostname or ""
+        if is_loopback_host(host):
+            notes.append("loopback — not reachable from this machine")
+        if not has_outbound_token:
+            notes.append("no outbound token — this node cannot dispatch here")
+        return f"  — {'; '.join(notes)}" if notes else ""
+
     def _create_pinned_peer_card(self, peer_info: Dict[str, Any]) -> QFrame:
         card = QFrame()
         card.setProperty("class", "PeerCard")
@@ -445,7 +464,14 @@ class PeerManagementWidget(QFrame):
         info_col = QVBoxLayout()
         info_col.setSpacing(2)
         lbl_name = QLabel(f"{peer_info.get('name', 'Peer')} ({peer_info.get('node_id', '')})")
-        lbl_sub = QLabel(f"Endpoint: {peer_info.get('endpoint', '')} | Profile: {peer_info.get('profile', '')}")
+        note = self._peer_note(
+            str(peer_info.get("endpoint", "")),
+            bool(peer_info.get("has_outbound_token", True)),
+        )
+        lbl_sub = QLabel(
+            f"Endpoint: {peer_info.get('endpoint', '')}{note} | "
+            f"Profile: {peer_info.get('profile', '')}"
+        )
         lbl_sub.setObjectName("SubtleLabel")
         info_col.addWidget(lbl_name)
         info_col.addWidget(lbl_sub)
@@ -571,11 +597,59 @@ class PeerManagementWidget(QFrame):
         dlg = QMessageBox(self)
         dlg.setWindowTitle("Pairing Offer Created")
         dlg.setText(
+            f"Created by node {ident.node_id} — this URI only works for that node.\n\n"
             f"Single-use 120s Pairing Offer URI:\n\n{uri}\n\n"
             "On the other machine, open Brahma's peer card, click Pair with Node, "
             f"and paste this URI within 120 seconds.{warning}"
         )
         dlg.exec()
+
+    @staticmethod
+    def _pairing_error_text(exc: "urllib.error.HTTPError", offer: PairingOffer, exchange_url: str) -> str:
+        """Explain a rejected exchange instead of showing ``HTTP Error 403``.
+
+        The callee answers a stale, already-consumed or foreign offer with the
+        same 403, and each of those has a different fix. ``error.code`` is the
+        only reliable discriminator, so map the known ones and always echo the
+        server's own sentence.
+        """
+        code = ""
+        server_message = ""
+        try:
+            payload = json.loads(exc.read().decode("utf-8", "replace"))
+            error = payload.get("error") or {}
+            code = str(error.get("code") or "")
+            server_message = str(error.get("message") or "")
+        except Exception:
+            pass
+
+        hints = {
+            "unauthorized_pairing_offer": (
+                "That offer was already used or has expired. Each offer is single-use "
+                "and lives 120 seconds, so a URI that paired one node cannot pair a "
+                "second one. Create a new offer on that node and paste that instead."
+            ),
+            "forbidden_peer_profile": (
+                "A peer cannot be granted the operator profile; pair it as a worker "
+                "or reader."
+            ),
+            "invalid_value": (
+                "The node rejected the offer as malformed. Create a new offer there "
+                "and paste it unchanged."
+            ),
+        }
+        lines = [
+            f"The node at {exchange_url} rejected this offer "
+            f"(created by node {offer.node_id} for {offer.host}:{offer.port})."
+        ]
+        hint = hints.get(code)
+        if hint:
+            lines.append(hint)
+        if server_message:
+            lines.append(f"Server said: {server_message}")
+        elif not hint:
+            lines.append(f"The server returned HTTP {exc.code} with no explanation.")
+        return "\n\n".join(lines)
 
     def _pair_by_offer(self) -> None:
         """Pair by pasting an offer, with no UDP discovery required."""
@@ -640,10 +714,15 @@ class PeerManagementWidget(QFrame):
             QMessageBox.warning(
                 self,
                 "Offer Is Loopback-Only",
-                "This offer advertises a loopback address, which only works on the machine "
-                "that created it.\n\nOn that machine set \"peer_host\": \"0.0.0.0\" and "
-                "\"allow_remote_bind\": true in config/brahma_api.json, restart Brahma, "
-                "and create a new offer.",
+                f"This offer was created by node {offer.node_id} and advertises "
+                f"{offer.host}:{offer.port}, which only works on the machine that "
+                "created it.\n\n"
+                "If that is not the machine you meant to pair with, you pasted the "
+                "wrong offer: each node creates its own, and the dialog that shows "
+                "the URI names the node.\n\n"
+                "On the node named above, set \"peer_host\": \"0.0.0.0\" and "
+                "\"allow_remote_bind\": true in config/brahma_api.json, restart "
+                "Brahma, and create a new offer.",
             )
             return
 
@@ -688,6 +767,13 @@ class PeerManagementWidget(QFrame):
             with urllib.request.urlopen(req, timeout=5.0, context=ctx) as resp:
                 if resp.status == 200:
                     exchanged_data = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            QMessageBox.warning(
+                self,
+                "Pairing Rejected",
+                self._pairing_error_text(exc, offer, exchange_url),
+            )
+            return
         except Exception as exc:
             QMessageBox.warning(
                 self,

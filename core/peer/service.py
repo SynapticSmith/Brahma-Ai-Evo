@@ -221,6 +221,7 @@ class PeerService:
                         "spki_sha256": p.spki_sha256,
                         "profile": p.profile,
                         "paired_at": p.paired_at,
+                        "has_outbound_token": bool(p.token),
                     }
                     for p in pinned
                 ],
