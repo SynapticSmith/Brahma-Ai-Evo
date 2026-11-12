@@ -851,6 +851,26 @@ def test_peer_server_cryptographic_sas_pairing_exchange(tmp_path: Path):
     )
     assert r_task.status_code == 202
 
+    # Idempotent retry of the same signed task must return 200, not a
+    # nonce_replayed 401. The signature is verified once per request, so the
+    # duplicate path must not record the nonce a second time (Invariant S-04).
+    dup_ts = int(time.time())
+    dup_sig = node_a.sign_request("POST", "/tasks", body_bytes, dup_ts, "nonce-pair-2")
+    r_dup = client.post(
+        "/tasks",
+        content=body_bytes,
+        headers={
+            **auth(token_a_for_b),
+            "Content-Type": "application/json",
+            "X-Brahma-Node": node_a.node_id,
+            "X-Brahma-Timestamp": str(dup_ts),
+            "X-Brahma-Nonce": "nonce-pair-2",
+            "X-Brahma-Signature": dup_sig,
+        },
+    )
+    assert r_dup.status_code == 200
+    assert r_dup.json()["task_id"] == "pair-task-1"
+
     # Unsigned cancel from pinned peer must fail with 401 signature_required
     r_un_cancel = client.post(
         "/tasks/pair-task-1/cancel",

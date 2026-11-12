@@ -253,8 +253,16 @@ def build_peer_router(
         raw_nonce: Optional[str],
         body_bytes: bytes = b"",
         action_name: str = "access",
+        *,
+        signature_verified: bool = False,
     ) -> None:
-        """Enforce origin isolation: creator token, bound token, or cryptographically signed peer."""
+        """Enforce origin isolation: creator token, bound token, or cryptographically signed peer.
+
+        ``signature_verified`` is set when the caller already verified this
+        request's signature earlier in the same handler. Re-verifying would
+        record the nonce a second time and reject an idempotent retry as a
+        replay (ADR-037 / Invariant S-04).
+        """
         if not config.auth_required:
             return
         caller_tok_id = getattr(principal.token, "id", None) if getattr(principal, "token", None) else None
@@ -269,7 +277,9 @@ def build_peer_router(
         is_mutating = action_name in ("cancel", "upload_artifact")  # Task creation is verified at line 465
         enforce_signature = is_paired_peer and is_mutating
 
-        if enforce_signature or raw_sig:
+        if signature_verified:
+            is_signed = True
+        elif enforce_signature or raw_sig:
             is_signed = _verify_signature_if_present(
                 method=request.method,
                 path=request.url.path,
@@ -611,6 +621,10 @@ def build_peer_router(
                 raw_nonce,
                 body_bytes=raw_body,
                 action_name="access",
+                # The creation path above already verified this request's
+                # signature. Re-verifying here would record the nonce twice and
+                # turn an idempotent retry into a nonce_replayed 401 (S-04).
+                signature_verified=bool(raw_sig),
             )
             return JSONResponse(
                 status_code=200,
