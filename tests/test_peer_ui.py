@@ -268,6 +268,12 @@ def test_peer_note_flags_an_edge_that_cannot_work(qapp):
     assert "loopback" in both and "no outbound token" in both
 
 
+def test_peer_label_does_not_repeat_a_node_id(qapp):
+    assert PeerManagementWidget._peer_label("DESKTOP-24JNU8J", "irhe2is") == "DESKTOP-24JNU8J (irhe2is)"
+    assert PeerManagementWidget._peer_label("irhe2is", "irhe2is") == "irhe2is"
+    assert PeerManagementWidget._peer_label("", "irhe2is") == "irhe2is"
+
+
 def test_pinned_peer_card_renders_the_note(qapp):
     widget = PeerManagementWidget(peer_service=None)
     try:

@@ -455,6 +455,19 @@ class PeerManagementWidget(QFrame):
             notes.append("no outbound token — this node cannot dispatch here")
         return f"  — {'; '.join(notes)}" if notes else ""
 
+    @staticmethod
+    def _peer_label(name: str, node_id: str) -> str:
+        """Show the hostname once when a pin has no better name than its id.
+
+        Pairing by pasted offer leaves the initiator without the callee's
+        hostname, so ``name`` is the node id; printing "id (id)" wastes the
+        line the operator reads first.
+        """
+        clean = str(name or "").strip()
+        if not clean or clean == node_id:
+            return node_id
+        return f"{clean} ({node_id})"
+
     def _create_pinned_peer_card(self, peer_info: Dict[str, Any]) -> QFrame:
         card = QFrame()
         card.setProperty("class", "PeerCard")
@@ -463,7 +476,8 @@ class PeerManagementWidget(QFrame):
 
         info_col = QVBoxLayout()
         info_col.setSpacing(2)
-        lbl_name = QLabel(f"{peer_info.get('name', 'Peer')} ({peer_info.get('node_id', '')})")
+        node_id = str(peer_info.get("node_id", ""))
+        lbl_name = QLabel(self._peer_label(str(peer_info.get("name", "")), node_id))
         note = self._peer_note(
             str(peer_info.get("endpoint", "")),
             bool(peer_info.get("has_outbound_token", True)),
