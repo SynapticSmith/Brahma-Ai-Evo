@@ -170,7 +170,12 @@ def test_peer_service_pending_offers_pruning(tmp_path: Path):
     """Verify that expired pairing offers are pruned automatically."""
     from core.peer.pairing import PairingOffer
     ident = NodeIdentity.create_new(hostname="host-prune")
-    service = PeerService(identity=ident)
+    service = PeerService(
+        identity=ident,
+        registry=PeerRegistry(tmp_path / "peers.json"),
+        artifact_store=PeerArtifactStore(tmp_path / "artifacts"),
+        task_store=PeerTaskStore(tmp_path / "tasks.db"),
+    )
     try:
         fresh_offer = PairingOffer(
             v=1,

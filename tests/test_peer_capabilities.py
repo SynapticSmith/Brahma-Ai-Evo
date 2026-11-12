@@ -7,6 +7,7 @@ import time
 import pytest
 
 from api_support import auth, build_client, make_config, mint
+from core.peer.artifacts import PeerArtifactStore
 from core.peer.capabilities import (
     PeerCapabilityCard,
     matches_requirements,
@@ -196,6 +197,7 @@ def test_peer_task_admission_respects_reservation_ledger_and_service_routing(tmp
         identity=ident,
         registry=reg,
         ledger=ledger,
+        artifact_store=PeerArtifactStore(tmp_path / "artifacts"),
         task_store=task_store,
     )
 
@@ -299,9 +301,14 @@ def test_peer_task_admission_respects_reservation_ledger_and_service_routing(tmp
     assert ledger.active_tasks_for_node("node-alpha") == 1
 
 
-def test_peer_service_build_verification_request():
+def test_peer_service_build_verification_request(tmp_path: Path):
     """Verify PeerService.build_verification_request creates read-only verifier task."""
-    service = PeerService(endpoint="https://127.0.0.1:8443")
+    service = PeerService(
+        registry=PeerRegistry(tmp_path / "peers.json"),
+        task_store=PeerTaskStore(tmp_path / "tasks.db"),
+        artifact_store=PeerArtifactStore(tmp_path / "artifacts"),
+        endpoint="https://127.0.0.1:8443",
+    )
     try:
         orig_task = BrahmaTaskRequest(
             task_id="task-work-1",

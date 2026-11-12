@@ -443,8 +443,10 @@ def test_remote_adapter_endpoint_scan_auto_detects_registry_peer(tmp_path: Path,
 
 def test_remote_agent_adapter_auto_selects_candidate_peer_from_active_service(tmp_path: Path):
     """Verify RemoteAgentAdapter queries PeerService when endpoint is not configured."""
+    from core.peer.artifacts import PeerArtifactStore
     from core.peer.pairing import PeerRegistry, PinnedPeer
     from core.peer.service import PeerService, set_active_peer_service
+    from core.peer.store import PeerTaskStore
 
     reg = PeerRegistry(tmp_path / "peers_select.json")
     pinned = PinnedPeer(
@@ -461,7 +463,12 @@ def test_remote_agent_adapter_auto_selects_candidate_peer_from_active_service(tm
     )
     reg.save_peer(pinned)
 
-    service = PeerService(registry=reg, endpoint="https://127.0.0.1:8443")
+    service = PeerService(
+        registry=reg,
+        task_store=PeerTaskStore(tmp_path / "tasks_select.db"),
+        artifact_store=PeerArtifactStore(tmp_path / "artifacts_select"),
+        endpoint="https://127.0.0.1:8443",
+    )
     set_active_peer_service(service)
 
     try:
