@@ -593,47 +593,25 @@ model calls writes one record whose `turn` field names the last turn.
 
 ---
 
-## 11. Open questions for the author
+## 11. Questions the thread left open — and what we chose
 
-The thread gives the *shape* of the loop and none of the *semantics*. These are
-the seven answers that would change the design, ordered by how much they'd save:
+The thread gives the shape of the loop and none of the semantics. These were the
+seven answers that would have changed the design; the build answered them
+locally, and each choice is recorded here so a later change has to argue with it.
 
-1. **Ground truth.** At the end of a task, what do you compare against — the
-   routed skill's declared use case, the task's acceptance criteria, or the diff
-   of what the agent actually did?
-2. **Checker cost.** Is the check a rule set, a second model pass, or a small
-   classifier in the same out-of-context lane as JEV? What's the per-task budget?
-3. **What may a fix touch.** Routing table only (triggers/tags/domain), or the
-   skill body too? Who owns the body?
-4. **Negative feedback.** Does a wrong pick *demote* the skill (score/priority)
-   or only boost the correct one? Do you quarantine after N misses?
-5. **What is "wrong but harmless"** (injected, never used) versus "wrong and
-   harmful"? Do you track the unused case at all?
-6. **Neighbour regression.** How do you stop a trigger-phrase fix from stealing
-   another skill's cases — a frozen replay set, or a re-score of the whole table?
-7. **Smallest version.** If you had to ship one rule, which one catches most of
-   your misses?
+| # | Question | What we chose | Where |
+|---|---|---|---|
+| 1 | Ground truth | Not the model's opinion: the record (injected skill + scores) joined to the run's evidence (stop reason, tools actually run, verification verdict), plus replay. | §4, `agent/skill_audit.py` |
+| 2 | Checker cost | Deterministic rules, zero model calls. A flagged ambiguity may spend one, and nothing does today. | §5 |
+| 3 | What a fix may touch | Routing metadata only (`triggers`, `description`, `domain`); never the body. | §6 |
+| 4 | Negative feedback | No automatic demotion or quarantine: a miss is a candidate, and R3's `costly_skill` is the only demote-shaped fix. | §5, §6 |
+| 5 | Wrong but harmless | Tracked as its own rule (R3 `unused`, verdict `bloat`) and as `unused_rate`, the context-bloat KPI. | §5, §9 |
+| 6 | Neighbour regression | Frozen replay set: a trigger fix that steals a neighbour's case is red before it ships. | §8, §10 M4 |
+| 7 | Smallest version | Not measured yet. R1 and R2 are the two that need no failure evidence, so they ship first. | §5 |
 
-Also worth one line of flattery-with-a-point: he said "400x faster" for
-out-of-context lookup — asking *against what baseline* (per-turn embedding
-lookup? full-catalogue scan?) would tell us whether our `0.25`-cutoff scorer is
-in the same class or a toy. Worth knowing that a local 256-dim scan over 90 rows
-is already sub-millisecond, so "400x" likely means something else (catalogue
-size, or a hosted round-trip), and that distinction decides whether T2 is even
-worth building.
-
-### 11.1 Draft message (ready to paste)
-
-> Hey — your reply about the end-of-task skill check stuck with me, so I wrote up
-> the design from your description and mapped it onto the seams I already have
-> (routing record → outcome evidence → deterministic detector → staged patch →
-> replay case). Seven things I had to guess at, if you have a minute:
-> (1) what's your ground truth at task end, (2) rule set or model pass for the
-> check, (3) does a fix ever touch the skill body or only the routing table,
-> (4) do you demote the wrong skill or only boost the right one, (5) do you track
-> injected-but-never-used as its own failure, (6) how you stop a trigger fix from
-> stealing a neighbour's cases, (7) if you shipped one rule, which one.
-> Also curious what "400x faster" is measured against. Happy to share the doc.
+His "400x faster" stays unmeasured: a local scan over a few hundred rows is
+already sub-millisecond here, so for us the out-of-context win is tokens, not
+latency — which is what T2 is gated on.
 
 ---
 
