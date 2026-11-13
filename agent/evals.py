@@ -22,7 +22,7 @@ from agent.trace import TraceCollector, TraceSink
 
 # -- Scenario Definition ----------------------------------------------------
 
-VALID_CATEGORIES = ("tool_choice", "multi_step", "recovery", "safety", "memory")
+VALID_CATEGORIES = ("tool_choice", "multi_step", "recovery", "safety", "memory", "skill_choice")
 
 
 @dataclass
@@ -43,6 +43,11 @@ class Scenario:
     setup_files: Dict[str, str] = field(default_factory=dict)
     verify_files: Dict[str, str] = field(default_factory=dict)
     tags: List[str] = field(default_factory=list)
+    #: ``skill_choice`` only: the skill that must rank first. These scenarios
+    #: never call a model — they assert the deterministic T1 router directly.
+    expected_skill: str = ""
+    forbidden_skills: List[str] = field(default_factory=list)
+    expected_domain: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.category not in VALID_CATEGORIES:
@@ -164,6 +169,8 @@ class EvalRunner:
         from agent.loop import AgentLoop
 
         start_time = time.time()
+        if scenario.category == "skill_choice":
+            return self._run_skill_choice(scenario, start_time)
         is_temp_ws = False
         ws_path: Path
         if workspace_dir:
@@ -268,6 +275,74 @@ class EvalRunner:
             if is_temp_ws:
                 import shutil
                 shutil.rmtree(ws_path, ignore_errors=True)
+
+    def _run_skill_choice(self, scenario: Scenario, start_time: float) -> ScenarioResult:
+        """Assert the deterministic T1 router picks the expected skill.
+
+        No model, no provider, no workspace: skill selection is a pure function
+        over ``config/skills_index.json``, so a failure here is a routing bug or
+        a stale index, never model variance. That is exactly what makes it
+        useful as a regression gate.
+        """
+        from agent.turn_context import shortlist_skills, skills_index_path
+
+        failures: List[str] = []
+        index_path = skills_index_path()
+        if index_path is None:
+            failures.append(
+                "No compiled skills index found; run "
+                "`python tools/skills_index.py --build` first"
+            )
+            shortlist = []
+        else:
+            shortlist = shortlist_skills(
+                scenario.prompt,
+                workspace=None,
+                domain=scenario.expected_domain or None,
+                limit=3,
+            )
+
+        names = [str(item.get("name") or "") for item in shortlist]
+        if scenario.expected_skill:
+            if not names:
+                failures.append(
+                    f"No skill was shortlisted; expected {scenario.expected_skill!r}"
+                )
+            elif names[0] != scenario.expected_skill:
+                failures.append(
+                    f"Expected skill {scenario.expected_skill!r} to rank first, "
+                    f"got {names!r}"
+                )
+        elif not names:
+            failures.append("Expected at least one shortlisted skill, got none")
+
+        for forbidden in scenario.forbidden_skills:
+            # Only the top pick is injected; a runner-up in the shortlist is
+            # telemetry, not a decision the model ever sees.
+            if names and names[0] == forbidden:
+                failures.append(f"Forbidden skill {forbidden!r} was selected ({names})")
+
+        why = ""
+        if shortlist:
+            top = shortlist[0]
+            why = f" (why: {', '.join(top.get('why') or []) or 'no signals'})"
+        if names:
+            inspected = f"shortlist={names}{why}"
+        else:
+            inspected = "shortlist=[]"
+
+        duration_ms = (time.time() - start_time) * 1000.0
+        return ScenarioResult(
+            scenario_id=scenario.id,
+            category=scenario.category,
+            passed=(len(failures) == 0),
+            duration_ms=duration_ms,
+            turns=0,
+            tools_called=[],
+            failures=[f"{f} [{inspected}]" for f in failures],
+            trace_id=None,
+            stop_reason="shortlist",
+        )
 
     def run_suite(
         self,

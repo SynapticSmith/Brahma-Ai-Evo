@@ -238,6 +238,21 @@ flowchart TD
   - Updated [`scripts/setup_dev.ps1`](file:///C:/Users/Admin/Brahma-Ai-Evo/scripts/setup_dev.ps1) to add Step 5 tool auditing and `-InstallSystemTools` parameter.
   - Updated [`scripts/install_optional_deps.ps1`](file:///C:/Users/Admin/Brahma-Ai-Evo/scripts/install_optional_deps.ps1) to include the `system-tools` group.
 
+### Track 19: Skill-Selection Self-Check Loop (M1–M4, M6 implemented; M5 deferred)
+Design record: [`docs/SKILL-SELECTION-SELF-CHECK-LOOP.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/SKILL-SELECTION-SELF-CHECK-LOOP.md).
+Extracted from an external developer's description of his end-of-task routing
+check; maps onto existing seams (TurnPlan → trace → `verify_work` → forge
+staging → `agent eval`). **Local-first, no online JEV dependency.**
+
+- [x] **M1** Persist a `SkillSelection` record per run at turn end (per-signal `signals`/`why`, `score_raw`, source + cookbook digests, `index_sha`, `winner_margin`, `retrieval.tier`, outcome evidence; joinable on `trace_id`). `agent/turn_context.py`, `agent/trace.py` (`SkillSelectionSink`), `agent/loop.py`.
+- [x] **M2** Deterministic detector `agent/skill_audit.py` (R1 domain mismatch, R2 weak signal, R3 injected-but-unused, R4 failure-attributable, R5 source drift evaluated first) + `python -m agent skills audit [--since 7d] [--json]`. No model calls.
+- [x] **M3** Diagnosis → staged fix diff (never applied; index fixes land in `skills/<n>/SKILL.md` + rebuild, proposals go to `staged_skills/_audit/`). `python -m agent skills audit --stage-fixes`; `skills/` is never written.
+- [x] **M4** Replay corpus: `skill_choice` category in `agent/evals.py` + `evals/scenarios/skill_choice.json` (6 cases), with a neighbour guard on the top pick. `python -m agent eval --category skill_choice --provider stub`.
+- [ ] **M5** Cover model-initiated loads (`load_project_skill`, `load_skill`) and surface a "Misses" digest. R1–R4 already cover every injected skill; the explicit call detector and the Settings → Skills tab are deferred.
+- [x] **M6 (optional)** Local embedding retrieval (T2) — **local-first, no online JEV**: `tools/skills_index.py --build-embeddings` emits `config/skills_embeddings.json`; `agent/turn_context.py` takes an injected `embed` callable (default `second_brain.embed_query`) and reuses the same local `urllib` embedding pattern, in-memory cosine, `SKILL_COSINE_FLOOR=0.5`, `SKILL_EMBED_WEIGHT=0.35`. Gated on the measured R2 (`weak_signal`) rate and `BRAHMA_SKILL_EMBED=1`; T1 keyword scoring remains the fallback and the contract. T3 model tie-break deliberately not built.
+- [ ] Open questions for the author (§11 of the doc) still unanswered — semantics of ground truth, checker cost, and negative feedback are guesses.
+- [x] Measured gate for this track: `python -m ruff check .` clean; `$env:QT_QPA_PLATFORM="offscreen"; python -m pytest tests -q -k "agent or trace or turn_context or skills_index or skill_audit"` → 710 passed, 3 skipped in 112 s.
+
 ### Verification Gate (AGENTS.md)
 - [x] `python -m ruff check .` -> All checks passed (0 errors).
 - [x] `$env:QT_QPA_PLATFORM="offscreen"; python -m pytest tests -q` -> 1,716 passed, 7 skipped, 0 failed.

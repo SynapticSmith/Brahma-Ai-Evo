@@ -656,6 +656,15 @@ def _embed_query(text: str) -> Optional[List[float]]:
     return vectors[0] if vectors else None
 
 
+def embed_query(text: str) -> Optional[List[float]]:
+    """Public alias of :func:`_embed_query` for the optional T2 retrieval lane.
+
+    Returns ``None`` when the local embedding server is unreachable, which is
+    exactly the signal ``turn_context`` needs to fall back to T1 keywords.
+    """
+    return _embed_query(text)
+
+
 def _pack(vector: Sequence[float]) -> bytes:
     return struct.pack(f"<{len(vector)}f", *vector)
 

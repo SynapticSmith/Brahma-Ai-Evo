@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 
 from agent.loop import AgentLoop
@@ -9,6 +10,7 @@ from agent.providers import build_completer
 from agent.runtime import AgentRuntime
 from agent.trace import (
     FailureTaxonomy,
+    SkillSelectionSink,
     Span,
     TraceCollector,
     TraceRecord,
@@ -235,3 +237,62 @@ def test_trace_collector_agent_loop_integration(tmp_path):
     turn_spans = [s for s in saved_trace.spans if s.kind == "turn"]
     assert len(turn_spans) >= 1
     assert turn_spans[0].name == "turn_1"
+
+
+# -- Skill-selection record sink -------------------------------------------
+
+
+def test_skill_selection_sink_appends_and_lists_in_order(tmp_path):
+    sink = SkillSelectionSink(base_dir=tmp_path)
+    first = sink.save({"trace_id": "tr_a", "ts_epoch": 100.0, "selected": "alpha"})
+    sink.save({"trace_id": "tr_b", "ts_epoch": 200.0, "selected": "beta"})
+    assert first.parent == tmp_path
+
+    records = sink.list_records()
+    assert [record["trace_id"] for record in records] == ["tr_a", "tr_b"]
+    assert [record["trace_id"] for record in sink.list_records(since=150.0)] == ["tr_b"]
+    assert [record["trace_id"] for record in sink.list_records(limit=1)] == ["tr_b"]
+
+
+def test_skill_selection_sink_redacts_and_can_drop_the_query(tmp_path):
+    sink = SkillSelectionSink(base_dir=tmp_path)
+    sink.save({"trace_id": "tr_secret", "query": "deploy password=hunter2"})
+
+    payload = sink.list_records()[0]
+    assert "hunter2" not in payload["query"]
+    assert "<redacted>" in payload["query"]
+
+    dropping = SkillSelectionSink(base_dir=tmp_path / "no_query", retain_query=False)
+    dropping.save({"trace_id": "tr_nq", "query": "deploy password=hunter2"})
+    assert "query" not in dropping.list_records()[0]
+
+
+def test_skill_selection_sink_rotates_by_size(tmp_path):
+    sink = SkillSelectionSink(base_dir=tmp_path, max_bytes=200)
+    sink.save({"trace_id": "tr_1", "padding": "x" * 180})
+    sink.save({"trace_id": "tr_2", "padding": "y" * 180})
+
+    files = sorted(tmp_path.glob("skill_selections_*.jsonl"))
+    assert len(files) == 2
+    assert len(sink.list_records()) == 2
+
+
+def test_skill_selection_sink_prunes_old_files_only(tmp_path):
+    sink = SkillSelectionSink(base_dir=tmp_path)
+    old = tmp_path / "skill_selections_2000-01-01.jsonl"
+    old.write_text('{"trace_id": "old"}\n', encoding="utf-8")
+    stale = time.time() - 90 * 86_400
+    os.utime(old, (stale, stale))
+    sink.save({"trace_id": "fresh"})
+
+    assert sink.prune(keep_days=30) == 1
+    assert not old.exists()
+    assert [record["trace_id"] for record in sink.list_records()] == ["fresh"]
+
+
+def test_skill_selection_sink_can_read_without_creating_the_directory(tmp_path):
+    target = tmp_path / "missing"
+    sink = SkillSelectionSink(base_dir=target, create=False)
+    assert sink.list_records() == []
+    assert not target.exists()
+

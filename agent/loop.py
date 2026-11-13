@@ -269,6 +269,7 @@ class AgentLoop:
         tracer: Optional[TraceCollector] = None,
         verify_policy: Optional[Any] = None,
         plan: Optional[Any] = None,
+        skill_log: Optional[Any] = None,
     ):
         self._complete = complete
         self._native_dispatch = native_dispatch
@@ -378,6 +379,13 @@ class AgentLoop:
         self._include_skills = bool(include_skills)
         self._skill_budget = skill_budget
         self._skill_override = str(skill or "").strip() or None
+        #: The plan compiled for this run, kept so the end-of-task record can
+        #: describe the choice that was actually injected.
+        self._turn_plan: Optional[Any] = None
+        self._turn_query = ""
+        #: Optional ``SkillSelectionSink``. Without one the record still rides
+        #: on the trace attributes, so a run is never unjoinable.
+        self._skill_log = skill_log
 
         if context is not None:
             self._context = context
@@ -1203,6 +1211,8 @@ class AgentLoop:
             else:
                 block = ""
 
+        self._turn_plan = plan
+        self._turn_query = text
         self._context.set_retrieval(block or "")
         if skill_block:
             self._context.set_skill(skill_block)
@@ -1521,6 +1531,15 @@ class AgentLoop:
             if self._last_verdict is not None
             else not self._mutations_occurred
         )
+        self._record_skill_selection(
+            status=(
+                "completed"
+                if stop_reason == STOP_COMPLETED
+                else ("cancelled" if stop_reason == STOP_CANCELLED else "error")
+            ),
+            stop_reason=stop_reason,
+            turn=turn,
+        )
         self._emit(
             "stop",
             reason=stop_reason,
@@ -1573,6 +1592,121 @@ class AgentLoop:
             if message.get("role") == "assistant" and str(message.get("content") or "").strip():
                 return str(message["content"]).strip()
         return ""
+
+    # -- skill-selection record (design §7) --------------------------------
+
+    def _advertised_tool_names(self) -> List[str]:
+        names: List[str] = []
+        for item in self._tools:
+            if isinstance(item, str):
+                name = item
+            elif isinstance(item, Mapping):
+                name = str(item.get("name") or "")
+            else:
+                name = str(getattr(item, "name", "") or "")
+            if name and name not in names:
+                names.append(name)
+        return names
+
+    def _cookbook_tool_hints(self, plan: Any) -> List[str]:
+        """Which advertised tools the injected cookbook actually names.
+
+        A deterministic substring match — a hint for rule R3, never a verdict.
+        Short names are skipped because ``ls``-shaped tokens appear in prose.
+        """
+        skill = getattr(plan, "selected_skill", None) or {}
+        body = str(skill.get("cookbook") or skill.get("body") or "")
+        if not body:
+            return []
+        hints: List[str] = []
+        for name in self._advertised_tool_names():
+            if len(name) >= 5 and name in body and name not in hints:
+                hints.append(name)
+        return hints[:8]
+
+    def _tools_run_names(self) -> List[str]:
+        names: List[str] = []
+        for event in self._events:
+            if event.get("type") != "tool_call":
+                continue
+            name = str(event.get("name") or "")
+            if name and name not in names:
+                names.append(name)
+            if len(names) >= 24:
+                break
+        return names
+
+    def _verify_evidence(self) -> List[str]:
+        verdict = self._last_verdict
+        if verdict is None:
+            return []
+        kind = str(getattr(verdict, "kind", "none") or "none")
+        passed = "PASSED" if bool(getattr(verdict, "verified", False)) else "FAILED"
+        reason = str(getattr(verdict, "reason", "") or "")[:120]
+        return [f"{kind}:{passed}" + (f" ({reason})" if reason else "")]
+
+    def _record_skill_selection(
+        self,
+        *,
+        status: str,
+        stop_reason: Optional[str],
+        turn: int,
+    ) -> None:
+        """Persist one skill-selection record for this run (design §7).
+
+        Reads the plan the turn already compiled and the events the loop already
+        emitted, so it costs no model call and adds no scoring pass. The record
+        is attached to the trace attributes (joinable on ``trace_id``) and, when
+        a sink was injected, appended to the audit corpus.
+        """
+        plan = self._turn_plan
+        if plan is None:
+            return
+        if not (plan.selected_skill or plan.selected_script or plan.shortlisted_skills):
+            return
+        try:
+            from .trace import classify_failure
+            from .turn_context import selection_record
+
+            tracer_record = getattr(self._tracer, "record", None)
+            record = selection_record(
+                plan,
+                trace_id=str(getattr(self._tracer, "trace_id", "") or ""),
+                session_id=self._session.id if self._session is not None else None,
+                turn=turn,
+                query=self._turn_query,
+                status=status,
+                stop_reason=stop_reason,
+                failure_label=classify_failure(
+                    status=status,
+                    stop_reason=stop_reason,
+                    spans=list(getattr(tracer_record, "spans", []) or []),
+                ),
+                tools_run=self._tools_run_names(),
+                verify=self._verify_evidence(),
+                cookbook_tools=self._cookbook_tool_hints(plan),
+                retain_query=bool(getattr(self._skill_log, "retain_query", True)),
+            )
+        except Exception:  # noqa: BLE001 - telemetry must never fail a run
+            return
+
+        if tracer_record is not None:
+            try:
+                tracer_record.attributes["skill_selection"] = record
+            except Exception:
+                pass
+        if self._skill_log is not None:
+            try:
+                self._skill_log.save(record)
+            except Exception:
+                pass
+        self._emit(
+            "skill_selection",
+            skill=record.get("selected", ""),
+            tier=(record.get("retrieval") or {}).get("tier", "T1"),
+            outcome=status,
+            chars=record.get("injected_chars", 0),
+        )
 
 
 def run_agent(

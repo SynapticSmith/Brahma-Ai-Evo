@@ -31,6 +31,11 @@ class FailureTaxonomy:
     CONTEXT_LIMIT = "context_limit"
     UNVERIFIED_STOP = "unverified_stop"
     LOOP_DIVERGENCE = "loop_divergence"
+    #: The turn failed and the injected task skill did not fit the task. Kept
+    #: separate from ``TOOL_CHOICE_ERROR`` so the skill-selection audit (R4) can
+    #: tell "the model called the wrong tool" apart from "we routed the wrong
+    #: SOP to it".
+    SKILL_CHOICE_ERROR = "skill_choice_error"
     UNKNOWN_ERROR = "unknown_error"
 
     ALL_LABELS = (
@@ -41,6 +46,7 @@ class FailureTaxonomy:
         CONTEXT_LIMIT,
         UNVERIFIED_STOP,
         LOOP_DIVERGENCE,
+        SKILL_CHOICE_ERROR,
         UNKNOWN_ERROR,
     )
 
@@ -252,6 +258,39 @@ def redact_text(text: str) -> str:
     return text
 
 
+def _rotate_file(
+    directory: Path,
+    target_file: Path,
+    incoming_bytes: int,
+    max_bytes: int,
+) -> None:
+    """Move today's JSONL aside when the next line would cross the cap.
+
+    Rotated files keep the ``<stem>.<n>.jsonl`` shape so a reverse-chronological
+    glob still finds them, and sort *before* the live file so listing stays
+    correct. Failure to rotate is not fatal: writing one oversized day is better
+    than losing the record.
+    """
+    try:
+        size = target_file.stat().st_size
+    except OSError:
+        return
+    if size + incoming_bytes <= max_bytes:
+        return
+    stem = target_file.name[: -len(".jsonl")]
+    index = 1
+    while True:
+        # Zero-pad so lexicographic listing stays chronological past .9.
+        rotated = directory / f"{stem}.{index:03d}.jsonl"
+        if not rotated.exists():
+            break
+        index += 1
+    try:
+        target_file.replace(rotated)
+    except OSError:
+        pass
+
+
 class TraceSink:
     """Thread-safe, append-only JSONL storage for execution traces."""
 
@@ -285,31 +324,8 @@ class TraceSink:
         return self._dir / f"traces_{day}.jsonl"
 
     def _rotate_if_needed(self, target_file: Path, incoming_bytes: int) -> None:
-        """Move today's file aside when the next line would cross the cap.
-
-        Rotated files keep the ``traces_<date>.<n>.jsonl`` shape so
-        ``list_traces`` still finds them, and sort *before* the live file so
-        reverse-chronological listing stays correct. Failure to rotate is not
-        fatal: writing one oversized day is better than losing the trace.
-        """
-        try:
-            size = target_file.stat().st_size
-        except OSError:
-            return
-        if size + incoming_bytes <= self.max_bytes:
-            return
-        stem = target_file.name[: -len(".jsonl")]
-        index = 1
-        while True:
-            # Zero-pad so lexicographic listing stays chronological past .9.
-            rotated = self._dir / f"{stem}.{index:03d}.jsonl"
-            if not rotated.exists():
-                break
-            index += 1
-        try:
-            target_file.replace(rotated)
-        except OSError:
-            pass
+        """Move today's file aside when the next line would cross the cap."""
+        _rotate_file(self._dir, target_file, incoming_bytes, self.max_bytes)
 
     def save_trace(self, trace: TraceRecord) -> Path:
         """Append a completed trace to the daily JSONL trace log."""
@@ -364,6 +380,119 @@ class TraceSink:
                 except Exception:
                     continue
         return None
+
+
+# -- Skill-Selection Record Sink --------------------------------------------
+
+#: One record per task is a few KB, so a much smaller cap than a trace file.
+DEFAULT_MAX_SKILL_RECORD_BYTES = 2 * 1024 * 1024
+DEFAULT_SKILL_RECORD_RETENTION_DAYS = 30
+
+
+class SkillSelectionSink:
+    """Append-only JSONL store for one skill-selection record per task.
+
+    Separate from :class:`TraceSink` because the two have different lifetimes
+    and sizes: a trace carries every tool argument, a selection record carries
+    the routing decision and its outcome. The ``trace_id`` field joins them.
+    """
+
+    def __init__(
+        self,
+        base_dir: Optional[Path] = None,
+        *,
+        max_bytes: int = DEFAULT_MAX_SKILL_RECORD_BYTES,
+        redact: bool = True,
+        retain_query: bool = True,
+        create: bool = True,
+    ) -> None:
+        if base_dir:
+            self._dir = Path(base_dir).resolve()
+        else:
+            local_appdata = os.environ.get("LOCALAPPDATA")
+            if local_appdata:
+                self._dir = Path(local_appdata) / "BrahmaAI" / "skill_selections"
+            else:
+                self._dir = Path(".brahma") / "skill_selections"
+        if create:
+            self._dir.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.Lock()
+        self.max_bytes = max(1, int(max_bytes))
+        self.redact = bool(redact)
+        self.retain_query = bool(retain_query)
+
+    @property
+    def base_dir(self) -> Path:
+        return self._dir
+
+    def _record_file(self, date_str: Optional[str] = None) -> Path:
+        day = date_str or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+        return self._dir / f"skill_selections_{day}.jsonl"
+
+    def save(self, record: Dict[str, Any]) -> Path:
+        """Append one record; returns the file it landed in."""
+        payload = dict(record)
+        if not self.retain_query:
+            payload.pop("query", None)
+        line = json.dumps(payload, ensure_ascii=False) + "\n"
+        if self.redact:
+            line = redact_text(line)
+        target_file = self._record_file()
+        with self._lock:
+            _rotate_file(self._dir, target_file, len(line.encode("utf-8")), self.max_bytes)
+            with open(target_file, "a", encoding="utf-8") as handle:
+                handle.write(line)
+        return target_file
+
+    def list_records(
+        self,
+        *,
+        since: Optional[float] = None,
+        limit: int = 500,
+    ) -> List[Dict[str, Any]]:
+        """Recent records, oldest first, optionally filtered by epoch seconds."""
+        collected: List[Dict[str, Any]] = []
+        with self._lock:
+            files = sorted(self._dir.glob("skill_selections_*.jsonl"))
+            for fpath in files:
+                try:
+                    with open(fpath, "r", encoding="utf-8") as handle:
+                        for line in handle:
+                            if not line.strip():
+                                continue
+                            try:
+                                data = json.loads(line)
+                            except ValueError:
+                                continue
+                            if not isinstance(data, dict):
+                                continue
+                            if since is not None and float(data.get("ts_epoch") or 0.0) < since:
+                                continue
+                            collected.append(data)
+                except OSError:
+                    continue
+        collected.sort(key=lambda item: float(item.get("ts_epoch") or 0.0))
+        if limit and len(collected) > limit:
+            collected = collected[-limit:]
+        return collected
+
+    def prune(self, keep_days: float = DEFAULT_SKILL_RECORD_RETENTION_DAYS) -> int:
+        """Delete day-files older than ``keep_days``. Returns files removed.
+
+        Retention is an explicit operator action (``skills audit --prune``), not
+        a background timer: a silent deleter is indistinguishable from data loss.
+        """
+        cutoff = time.time() - max(1.0, float(keep_days)) * 86_400
+        removed = 0
+        with self._lock:
+            for fpath in sorted(self._dir.glob("skill_selections_*.jsonl")):
+                try:
+                    if fpath.stat().st_mtime < cutoff:
+                        fpath.unlink()
+                        removed += 1
+                except OSError:
+                    continue
+        return removed
 
 
 # -- Real-Time Event Collector ----------------------------------------------

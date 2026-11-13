@@ -8,11 +8,14 @@ from agent.context import ContextBudget, ConversationContext
 from agent.loop import AgentLoop
 from agent.second_brain import with_turn_context
 from agent.turn_context import (
+    SkillEmbeddingTable,
     TurnPlan,
     classify_intent,
     compile_turn_context,
     shortlist_scripts,
     shortlist_skills,
+    skills_embed_enabled,
+    skills_index_path,
 )
 
 
@@ -481,6 +484,108 @@ def test_batch6_skills_triggers_and_cookbooks():
     assert len(falsify_skills) >= 1
     assert falsify_skills[0]["name"] == "confirmation-bias-inversion"
     assert "Falsification" in falsify_skills[0]["cookbook"]
+
+
+# -- Selection telemetry: signals, why, margin, digest ----------------------
+
+
+def test_shortlist_skills_exposes_signal_breakdown():
+    ranked = shortlist_skills(
+        "we should perform a premortem analysis before running this migration"
+    )
+    assert ranked
+    top = ranked[0]
+    assert top["name"] == "pre-mortem-analysis"
+    assert {"trigger", "domain", "tags", "description", "name"} <= set(
+        top["signals"]
+    )
+    assert "trigger:premortem analysis" in top["why"]
+    assert top["score_raw"] >= top["score"]
+    assert top["signals"]["trigger"] == 0.5
+
+
+def test_compile_turn_context_pins_the_index_digest():
+    assert skills_index_path() is not None
+    plan = compile_turn_context("scan for secrets and detect leaks in the repo")
+    assert len(plan.index_sha) == 64
+    assert plan.retrieval_tier == "T1"
+    assert plan.winner_margin >= 0.0
+    assert plan.selected_skill is not None
+
+
+def test_skills_embed_is_opt_in(monkeypatch):
+    monkeypatch.delenv("BRAHMA_SKILL_EMBED", raising=False)
+    assert skills_embed_enabled() is False
+    monkeypatch.setenv("BRAHMA_SKILL_EMBED", "1")
+    assert skills_embed_enabled() is True
+    monkeypatch.setenv("BRAHMA_SKILL_EMBED", "off")
+    assert skills_embed_enabled() is False
+
+
+def _maybe_names(entries: List[Dict[str, Any]]) -> List[str]:
+    return [str(entry.get("name") or "") for entry in entries]
+
+
+def _fake_index() -> List[Dict[str, Any]]:
+    return [
+        {
+            "name": "semantic-only",
+            "description": "",
+            "domain": "coding",
+            "academic_domain": "",
+            "tags": [],
+            "triggers": [],
+            "cookbook": "",
+        },
+        {
+            "name": "lexical",
+            "description": "handles widgets",
+            "domain": "coding",
+            "academic_domain": "",
+            "tags": [],
+            "triggers": [],
+            "cookbook": "",
+        },
+    ]
+
+
+def test_t2_embedding_can_lift_a_skill_but_not_replace_t1(monkeypatch):
+    from agent import turn_context as tc
+
+    monkeypatch.setattr(tc, "_load_skills_index", lambda workspace=None: _fake_index())
+    monkeypatch.setattr(
+        tc, "discover_skills", lambda workspace: type("C", (), {"skills": []})()
+    )
+    table = SkillEmbeddingTable(
+        path=Path("skills_embeddings.json"),
+        vectors={"semantic-only": [1.0, 0.0, 0.0], "lexical": [0.0, 1.0, 0.0]},
+        model="fake-embed",
+        digest="d" * 64,
+    )
+    monkeypatch.setattr(tc, "load_skill_embeddings", lambda workspace=None: table)
+
+    # T1 alone scores nothing for this query.
+    assert _maybe_names(tc.shortlist_skills("zebra query lift")) == []
+
+    calls: List[str] = []
+
+    def embed(text: str) -> List[float]:
+        calls.append(text)
+        return [3.0, 0.0, 0.0]
+
+    lifted = tc.shortlist_skills("zebra query lift", embed=embed)
+    assert [entry["name"] for entry in lifted] == ["semantic-only"]
+    assert lifted[0]["cosine"] == 1.0
+    assert lifted[0]["signals"]["embedding"] > 0
+    assert calls == ["zebra query lift"]
+
+    # A vector below the cosine floor adds nothing (it is far from both).
+    below = tc.shortlist_skills("zebra query floor", embed=lambda text: [0.4, 0.4, 1.0])
+    assert _maybe_names(below) == []
+
+    # A dead embedder degrades to T1 instead of raising.
+    dead = tc.shortlist_skills("zebra query dead", embed=lambda text: None)
+    assert _maybe_names(dead) == []
 
 
 

@@ -36,7 +36,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Formatting Responses for Instant Scannability\n\n## Objective\nTransform dense, verbose explanations into structured, scannable, executive-ready responses.\n\n## Prerequisites\n- Complex technical finding, bug diagnosis, or strategic proposal to communicate.\n\n## Execution Recipe\n1. **Extract the Bottom Line**:\n   Formulate the single most important finding or action into one direct sentence:\n   - Example: **\"Root Cause Identified: PortAudio buffer underrun caused by concurrent mic polling in `audio_io.py:165`.\"**\n2. **Strip Pleasantries and Introductory Context**:\n   Delete greeting sentences, rhetorical questions, and restatements of the user's prompt.\n3. **Format Key Findings as Bold Bulleted Items**:\n   - **The Problem**: Concrete symptom and affected file.\n   - **The Fix**: Exact code edit or configuration change.\n   - **Verification**: Command executed and test outcome.\n4. **Present Next Decisions as Mutually Exclusive Options**:\n   Provide 2 to 3 distinct numbered choices with recommended default:\n   - `Option 1 (Recommended)`: ...\n   - `Option 2`: ...\n5. **Verification Gate**:\n   - Is the direct answer visible in the first 2 lines without scrolling?\n   - Are there any paragraphs longer than 3 sentences?\n   - Can the reader scan the bold lead-ins in under 10 seconds?\n6. **Remediation**:\n   If text feels cluttered, convert prose explanations into a Markdown table or push detailed logs into a persistent artifact.",
-      "sha256": "c848b7c7ea8b880ba1e75ab021be19d277ca899758e0b3dfac05957b99b21480"
+      "sha256": "c848b7c7ea8b880ba1e75ab021be19d277ca899758e0b3dfac05957b99b21480",
+      "cookbook_sha256": "751847d7832f21faac9f64c3f134733864ab978b46244eac5aa45ad6ab75c6ee"
     },
     {
       "name": "agent-reach-scraper",
@@ -63,7 +64,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Zero-Fee Multi-Platform Web Research\n\n## Objective\nSearch public platforms (GitHub repos/issues, documentation sites, technical forums) for solutions to obscure error codes or library bugs.\n\n## Prerequisites\n- Standard Python `urllib` or `httpx` with network permission enabled.\n\n## Execution Recipe\n1. **Target GitHub Public Search**:\n   Query GitHub's public search API for code snippets or issues:\n   ```python\n   import urllib.request, json\n   url = f\"https://api.github.com/search/issues?q={query}+in:title,body\"\n   req = urllib.request.Request(url, headers={\"User-Agent\": \"Brahma-Agent-Research/1.0\"})\n   with urllib.request.urlopen(req) as resp:\n       data = json.loads(resp.read().decode())\n   ```\n2. **Fetch Documentation Pages via Markdown Extractor**:\n   Retrieve target technical doc and convert to clean text using `trafilatura` or `markitdown`.\n3. **Filter and Deduplicate**:\n   Discard navigation bars, cookie banners, and footer text; extract core code solutions.\n4. **Verification Gate**:\n   - Relevant answers cite original URLs and timestamps.\n   - Total network payload < 1 MB.\n5. **Remediation**:\n   If 429 Too Many Requests is returned, apply exponential backoff (wait 2s $\\rightarrow$ 4s $\\rightarrow$ 8s) or switch to local second-brain cache.",
-      "sha256": "2334c347c5d153ffb331adfec570eabed0216b317b3abe21fb611f312f014162"
+      "sha256": "2334c347c5d153ffb331adfec570eabed0216b317b3abe21fb611f312f014162",
+      "cookbook_sha256": "5acee96214ba90c5f3dc2a5bc0e7d93d509a3635f078fd116d8128b08d3abf0b"
     },
     {
       "name": "answer-me-with-html",
@@ -90,7 +92,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Compiling Self-Contained HTML Reports\n\n## Objective\nGenerate a complete, single-file interactive HTML dashboard answering a complex user query or presenting system metrics.\n\n## Prerequisites\n- Structured data, metrics, or comparison table to visualize.\n\n## Execution Recipe\n1. **Initialize Self-Contained Template**:\n   Start with standard responsive HTML5 skeleton with inline system-font CSS.\n2. **Embed Key Metric Cards**:\n   Create a top-level grid of summary metric cards (Totals, Success Rates, Latency).\n3. **Format Data as Interactive Table**:\n   Render rows inside `<table id=\"report-table\">`. Include a quick search filter:\n   ```html\n   <input type=\"text\" id=\"filter\" placeholder=\"Filter rows...\" onkeyup=\"filterTable()\">\n   ```\n4. **Embed Pure CSS / Canvas Visuals**:\n   Use CSS bar charts or SVG sparklines for trend comparisons.\n5. **Write File to Disk**:\n   Save to target path (e.g. `reports/<topic>-dashboard.html`).\n6. **Verification Gate**:\n   Open in browser or verify file syntax:\n   - File opens completely offline with 0 broken asset requests.\n   - Total file size $\\le$ 200 KB.\n7. **Remediation**:\n   If icons or external fonts break, replace with inline SVGs and system font stack (`system-ui, -apple-system, sans-serif`).",
-      "sha256": "d1698974286c55e27ad03758ba679ae7893e4e86a4fbbcb4a139bc15477ed756"
+      "sha256": "d1698974286c55e27ad03758ba679ae7893e4e86a4fbbcb4a139bc15477ed756",
+      "cookbook_sha256": "bbd247fe00503816825e9c4ebbc127ea4ef795105c148d7e6ef5cf3d82129af8"
     },
     {
       "name": "answering-engine-synthesizer",
@@ -120,7 +123,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Perplexity-Style Citation-Grounded Answer Synthesis\n\n## Objective\nSynthesize an authoritative research answer with inline numbered citations and a complete reference bibliography.\n\n## Prerequisites\n- Retrieved context passages with associated source titles and URLs or file paths.\n\n## Execution Recipe\n1. **Assign Monotonic Identifiers to Context Chunks**:\n   ```\n   [1] \"SQLite FTS5 uses BM25 scoring with configurable column weights.\" (docs/sqlite.md)\n   [2] \"Porter stemmer normalizes inflections like 'running' to 'run'.\" (docs/nlp.md)\n   ```\n2. **Draft Response with Inline Citations**:\n   Write focused prose referencing the source indices:\n   ```markdown\n   SQLite full-text search implements the BM25 probabilistic ranking function [1].\n   Search terms are automatically reduced to linguistic roots via Porter stemming [2].\n   ```\n3. **Compile Footnote References Section**:\n   ```markdown\n   ## References\n   - [1] `docs/sqlite.md` — SQLite FTS5 Architecture Reference\n   - [2] `docs/nlp.md` — Natural Language Tokenization Guide\n   ```\n4. **Verification Gate**:\n   *Gate: Every cited number `[X]` appears in `## References`; zero orphaned citations.*\n5. **Remediation**:\n   If a claim lacks direct source proof, remove the claim or qualify it with \"Hypothesis (unsourced)\".",
-      "sha256": "2ce447f81423f7ff20c7fe9fb8185098ede48bdb598154981cbcde2c81528cc4"
+      "sha256": "2ce447f81423f7ff20c7fe9fb8185098ede48bdb598154981cbcde2c81528cc4",
+      "cookbook_sha256": "94fbacbeac51679b7b3fb2318f35378ad542f3eafba458e7c54ae2b3516231c8"
     },
     {
       "name": "api-mock-engine",
@@ -138,7 +142,8 @@
       "tags": [],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: API Mock Engine & Fixture Generation\n\n## Objective\nGenerate a lightweight, standalone mock API server with simulated endpoints and synthetic data fixtures.\n\n## Prerequisites\n- python 3.11+\n- fastapi or flask (optional for server launch)\n\n## Execution Recipe\n1. **Define Schema**:\n   Identify required endpoints, methods (GET/POST), status codes, and JSON response models.\n2. **Scaffold Mock Server Script**:\n   Generate `mock_server.py` using standard library `http.server` or `FastAPI`:\n   ```powershell\n   python -c \"import http.server, socketserver; print('Ready to serve mock endpoints')\"\n   ```\n3. **Generate Synthetic Fixtures**:\n   Create mock JSON data payloads under `tests/fixtures/<endpoint>.json`.\n4. **Verification Gate**:\n   Query the mock endpoint with a curl or python script:\n   ```powershell\n   python -c \"import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/health').read())\"\n   ```\n5. **Remediation**:\n   If port is in use, bind to dynamic port `8080` or increment port number.",
-      "sha256": "69a413fe6b717f1d7aa5ac4a690fdd35e1a69f6b6f2930a01058caebfa5df917"
+      "sha256": "69a413fe6b717f1d7aa5ac4a690fdd35e1a69f6b6f2930a01058caebfa5df917",
+      "cookbook_sha256": "749fa73f272283281233775b833ffc73f370f920b3c32b8ba8b88280e67d28ab"
     },
     {
       "name": "authenticated-browser-automation",
@@ -164,7 +169,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Background Browser Automation via Persistent Context\n\n## Objective\nLaunch an isolated headless browser session that inherits local browser cookies to inspect authenticated pages.\n\n## Prerequisites\n- Playwright or CDP client available (`python -m playwright` or Chrome remote debugging port).\n\n## Execution Recipe\n1. **Locate Chrome User Profile or Exported Cookies**:\n   Identify path to user data directory or exported session state (`%LOCALAPPDATA%\\Google\\Chrome\\User Data`).\n2. **Launch Background Context**:\n   Use Playwright `launch_persistent_context` in headless mode:\n   ```python\n   from playwright.sync_api import sync_playwright\n   with sync_playwright() as p:\n       browser = p.chromium.launch_persistent_context(\n           user_data_dir=user_data_path,\n           headless=True,\n           args=[\"--disable-blink-features=AutomationControlled\"]\n       )\n       page = browser.new_page()\n       page.goto(target_url, wait_until=\"networkidle\")\n   ```\n3. **Inspect Authenticated DOM**:\n   Extract content or take background screenshot:\n   ```python\n   content = page.locator(\"main\").inner_text()\n   ```\n4. **Verification Gate**:\n   - Status 200 received without redirect to login page.\n   - User foreground focus was not interrupted.\n5. **Remediation**:\n   If an anti-bot challenge is encountered, stop immediately, alert the user, and allow manual completion in visible browser.",
-      "sha256": "3934ec8e5cc676121338a06abe91119f03a3fef3dec785a7584d8639c3cd23a0"
+      "sha256": "3934ec8e5cc676121338a06abe91119f03a3fef3dec785a7584d8639c3cd23a0",
+      "cookbook_sha256": "2c684e00d6949ab99ea830e943e09e147292dee5c213d995c75ec83647ecf904"
     },
     {
       "name": "autonomous-web-research",
@@ -191,7 +197,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Autonomous Multi-Source Web Research & Synthesis\n\n## Objective\nExecute multi-query search, triangulate claims across authoritative domains, and author a citation-grounded research note.\n\n## Prerequisites\n- Web search / scraper tool or API connectivity.\n\n## Execution Recipe\n1. **Generate 3 Search Angles**:\n   - Query 1: `<topic> official documentation architecture`\n   - Query 2: `<topic> github implementation benchmarks`\n   - Query 3: `<topic> limitations pitfalls failure modes`\n2. **Execute Searches & Extract Clean Content**:\n   Query top 3 distinct domains per angle; extract headings and code snippets.\n3. **Triangulate Invariants**:\n   Identify claims verified by $\\ge 2$ independent sources. Flag conflicting statements as open questions.\n4. **Author Research Note**:\n   Draft markdown document with:\n   - **Executive Summary**: Core definition and purpose.\n   - **Technical Deep-Dive**: Invariants, data structures, and APIs.\n   - **Trade-offs**: Failure modes and scaling limits.\n   - **Citations**: Full URLs and dates.\n5. **Verification Gate**:\n   *Gate: All factual claims cite a verifiable URL; zero unsourced assertions.*\n6. **Remediation**:\n   If conflicting claims cannot be resolved, document both positions explicitly with respective citations.",
-      "sha256": "f966ee887cb6253d5bc863c4af5373b2edca767dd9b380e4b9c544ee777c9028"
+      "sha256": "f966ee887cb6253d5bc863c4af5373b2edca767dd9b380e4b9c544ee777c9028",
+      "cookbook_sha256": "5d9c2875eb31e9d2644450f00d17436baf835cab1881a28dc68bbf751995ea92"
     },
     {
       "name": "blast-radius-analyzer",
@@ -220,7 +227,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Structural Blast Radius & Impact Analysis\n\n## Objective\nTrace inbound callers, classify blast radius severity, and identify downstream modules affected by a proposed signature change.\n\n## Prerequisites\n- Ripgrep (`rg`), Python AST analyzer, or graph index.\n\n## Execution Recipe\n1. **Search Symbol Inbound Invocations**:\n   ```powershell\n   python -m agent search_code \"<symbol_name>\"\n   # or via ripgrep:\n   rg \"\\b<symbol_name>\\b\" --glob \"!tests/*\"\n   ```\n2. **Classify Affected Modules & Severity**:\n   - Count direct call-sites:\n     - 0-2 (Tier 3 - Local)\n     - 3-10 (Tier 2 - Subsystem)\n     - >10 (Tier 1 - Broad / Public API)\n3. **Trace Upward Entrypoints**:\n   Trace which CLI commands, HTTP routes, or background workers invoke the callers.\n4. **Identify Affected Test Cases**:\n   ```powershell\n   rg \"\\b<symbol_name>\\b\" tests/\n   ```\n5. **Verification Gate**:\n   *Gate: Complete inventory of all callers and tests produced; no untracked dependencies remain.*\n6. **Remediation**:\n   If blast radius exceeds Tier 2 (cross-module breaking change), create a backward-compatible wrapper or deprecation shim rather than altering signatures in-place.",
-      "sha256": "c6e9ee98d265bf4fb7b061aa4cdce5b0e610e6905d1a50fee6b58ce69e5cd0b9"
+      "sha256": "c6e9ee98d265bf4fb7b061aa4cdce5b0e610e6905d1a50fee6b58ce69e5cd0b9",
+      "cookbook_sha256": "3fa2586aa57db2a01f2ba5e98ad277d7a140a93999eb24d3e48cda2b1626536b"
     },
     {
       "name": "book-to-knowledge",
@@ -245,7 +253,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Book to Knowledge Ingestion\n\n## Objective\nConvert an unprocessed book (EPUB, PDF, DOCX) into clean Markdown, extract atomic knowledge units, and route them to the academic taxonomy spine with Calyx anchoring.\n\n## Prerequisites\n- python 3.11+\n- tools/ingest_multimodal.py\n- tools/extract_knowledge.py\n\n## Execution Recipe\n1. **Convert Raw Book to Markdown**:\n   ```powershell\n   python tools/ingest_multimodal.py --source <path-to-book> --slug <book-slug>\n   ```\n2. **Extract Atomic Knowledge Units**:\n   ```powershell\n   python tools/extract_knowledge.py --source book-library/fulltext/<book-slug>.md --taxonomy taxonomy.json\n   ```\n3. **Commit Calyx Anchors**:\n   Record cryptographic ledger constellations for all extracted units:\n   ```powershell\n   python tools/calyx_sync.py\n   ```\n4. **Verification Gate**:\n   Check that units are placed in `wiki/library/knowledge/` and index is refreshed:\n   ```powershell\n   python tools/brain_sync.py\n   ```\n5. **Remediation**:\n   If low confidence occurs, review orphaned notes staged in `_inbox/` and manually tag appropriate parent node.",
-      "sha256": "13ebd55547cc021b037e3ed356ee3d70141afe192d1c5d043f9fdbcf1c58591c"
+      "sha256": "13ebd55547cc021b037e3ed356ee3d70141afe192d1c5d043f9fdbcf1c58591c",
+      "cookbook_sha256": "349129651d6d35073631725288b897a86f3caed1dedf0e22ebaa335d392e9f35"
     },
     {
       "name": "book-to-skill-compiler",
@@ -273,7 +282,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Technical Book Distillation to Agent Skill\n\n## Objective\nConvert a technical book chapter or manual into a standardized `SKILL.md` and small-model `cookbook.md`.\n\n## Prerequisites\n- Markdown or text extraction of the source book (`markitdown` or OCR).\n\n## Execution Recipe\n1. **Extract Core Architectural Invariants**:\n   Identify author-mandated constraints: rules that must never be broken (e.g. \"always validate schema\", \"never catch generic Exception\").\n2. **Draft YAML Frontmatter**:\n   ```yaml\n   ---\n   name: <kebab-slug>\n   description: <one-sentence summary>\n   metadata:\n     domain: <canonical-domain>\n     tags: [<tag1>, <tag2>]\n   triggers: [\"<trigger 1>\", \"<trigger 2>\"]\n   ---\n   ```\n3. **Synthesize Progressive Disclosure Body**:\n   Write `SKILL.md` with Overview, Invariant Rules, and Multi-Step Procedure.\n4. **Author 5-Header Compact Cookbook**:\n   Write `cookbook.md` ($\\le 1,200$ chars) containing:\n   - Objective & Prerequisites\n   - Execution Recipe with concrete CLI commands\n   - Verification Gate with quantitative pass condition\n   - Remediation branch\n5. **Verification Gate**:\n   *Gate: `python tools/skills_index.py --check` passes cleanly for the new skill directory.*\n6. **Remediation**:\n   If validation fails on YAML or missing headers, adjust frontmatter formatting and ensure exact header spelling.",
-      "sha256": "ab970b46f560359ad4c10d1cf7c2cbb3a50c63e9bac1d37eb352402bb60cf86d"
+      "sha256": "ab970b46f560359ad4c10d1cf7c2cbb3a50c63e9bac1d37eb352402bb60cf86d",
+      "cookbook_sha256": "77db1c44d8901f754f01e0555c4ce5190c10a44ece43f887eff2a14ff77524dc"
     },
     {
       "name": "browser-automation",
@@ -292,7 +302,8 @@
       "tags": [],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Headless Browser Automation\n\n## Objective\nAutomate web interactions, DOM extraction, and visual screenshot verification.\n\n## Prerequisites\n- playwright or selenium installed in environment\n\n## Execution Recipe\n1. **Pre-flight Check**:\n   Verify browser driver availability.\n2. **Execute Headless Task**:\n   Launch automation script targeting URL with explicit selectors and wait states:\n   ```powershell\n   python -c \"print('Navigating to target and awaiting DOM content')\"\n   ```\n3. **Extract Content / Capture State**:\n   Save HTML snapshot to `cache/browser_dump.html` and screenshot to `.assets/`.\n4. **Verification Gate**:\n   Verify output file size > 500 bytes and screenshot PNG signature exists.\n5. **Remediation**:\n   If selector timeout occurs, increase explicit wait timeout from 5s to 15s.",
-      "sha256": "b0f334767feefdca77628837cb224428014721ed53b23c080fbb89b04430aff1"
+      "sha256": "b0f334767feefdca77628837cb224428014721ed53b23c080fbb89b04430aff1",
+      "cookbook_sha256": "8f7685e7f7843c16ce55f578de6d2ee3530f1fc066d6662081dbf62a10be5ab9"
     },
     {
       "name": "chestertons-fence",
@@ -320,7 +331,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Investigating and Retiring Legacy Fences Safely\n\n## Objective\nSafely evaluate, verify, and either preserve or retire legacy code, constraints, or workarounds without re-introducing historical bugs.\n\n## Prerequisites\n- A target code block, workaround, or condition proposed for deletion.\n- Access to git history (`git log`, `git blame`).\n\n## Execution Recipe\n1. **Trace Git Provenance**:\n   Run `git log -S` or `git blame` on the lines in question:\n   ```powershell\n   git log -L <start>,<end>:<file>\n   ```\n   Read the commit message, author notes, and linked PR/issue.\n2. **Formulate the Original Threat Hypothesis**:\n   Answer in writing:\n   - What broke when this fence was absent?\n   - What operating system, library version, or external API behavior mandated it?\n3. **Check Current Environmental Reality**:\n   Determine whether the upstream bug was resolved or whether the platform constraint remains active.\n4. **Author a Boundary Test Case**:\n   Before modifying the code, write a unit test reproducing the exact failure mode the fence protects against.\n5. **Evaluate Safe Removal or Simplification**:\n   - If the condition is still active: document the rationale with an explicit comment and retain the fence.\n   - If the condition is obsolete: run the test suite with the fence removed.\n6. **Verification Gate**:\n   ```powershell\n   python -m pytest tests -q\n   ```\n7. **Remediation**:\n   If an unexpected test fails or regressions occur, revert immediately: the fence is still protecting the system.",
-      "sha256": "20339e263dcd1d30c6649cd8a3b0a73b9c1e68711d336cdd95b0700f0e20a3dd"
+      "sha256": "20339e263dcd1d30c6649cd8a3b0a73b9c1e68711d336cdd95b0700f0e20a3dd",
+      "cookbook_sha256": "f70e6359a0d9428cfa4d71570aed12de077b398c0142e394351234276afadc8f"
     },
     {
       "name": "circle-of-competence",
@@ -346,7 +358,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Epistemic Boundary Check and Truthfulness Gate\n\n## Objective\nPrevent hallucinations and maintain strict truthfulness by verifying that required knowledge exists in local state before generating answers.\n\n## Prerequisites\n- User query requiring specific factual, architectural, or doctrinal knowledge.\n\n## Execution Recipe\n1. **Assess Boundary Ownership**:\n   Ask: \"Does the repository, second-brain vault, or attached tools contain ground-truth data for this query?\"\n   - If YES $\\rightarrow$ Proceed to step 2.\n   - If NO $\\rightarrow$ Proceed to step 4.\n2. **Retrieve Verified Evidence**:\n   Query local second brain or AST symbols:\n   ```python\n   # Execute brain_search or grep_files to fetch verified sources\n   ```\n3. **Anchor Answer Strictly to Cited Evidence**:\n   Every non-trivial claim must reference an exact file path, function signature, or verified source.\n4. **If Outside Competence Boundary**:\n   State the limitation directly:\n   - \"This inquiry falls outside the local repository and indexed second brain.\"\n   - Provide the exact search command or external verification step for the user.\n5. **Verification Gate**:\n   - 0 fabricated function names or nonexistent file paths.\n   - All factual assertions link to valid local or retrieved references.\n6. **Remediation**:\n   If an answer begins guessing about external systems, halt and replace speculation with an explicit question or research action.",
-      "sha256": "dd6a97d2745df9305045b487cb6a60492eef834e157b1a48567bdfd32307a2fd"
+      "sha256": "dd6a97d2745df9305045b487cb6a60492eef834e157b1a48567bdfd32307a2fd",
+      "cookbook_sha256": "d0362a3149ffed132a9dc11dc35bd196ef2ebada838b8efd61d422487b671bc2"
     },
     {
       "name": "circuit-breaker-resilience",
@@ -375,7 +388,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Python Circuit Breaker & Jittered Retry Engine\n\n## Objective\nImplement a thread-safe, 3-state Circuit Breaker with exponential backoff and randomized jitter in pure Python stdlib.\n\n## Prerequisites\n- Python 3.11+ (stdlib `time`, `random`, `threading`).\n\n## Execution Recipe\n1. **Author State Machine & Retry Wrapper**:\n   ```python\n   import random, time, threading\n\n   class CircuitBreaker:\n       def __init__(self, failure_threshold=5, recovery_timeout=30.0):\n           self.threshold = failure_threshold\n           self.timeout = recovery_timeout\n           self.failure_count = 0\n           self.state = \"CLOSED\" # CLOSED, OPEN, HALF_OPEN\n           self.last_failure_time = 0.0\n           self.lock = threading.Lock()\n\n       def call(self, func, *args, **kwargs):\n           with self.lock:\n               now = time.time()\n               if self.state == \"OPEN\":\n                   if now - self.last_failure_time > self.timeout:\n                       self.state = \"HALF_OPEN\"\n                   else:\n                       raise RuntimeError(\"CircuitBreaker is OPEN; call rejected\")\n           try:\n               res = func(*args, **kwargs)\n               with self.lock:\n                   if self.state == \"HALF_OPEN\":\n                       self.state = \"CLOSED\"\n                       self.failure_count = 0\n               return res\n           except Exception as exc:\n               with self.lock:\n                   self.failure_count += 1\n                   self.last_failure_time = time.time()\n                   if self.failure_count >= self.threshold or self.state == \"HALF_OPEN\":\n                       self.state = \"OPEN\"\n               raise exc\n   ```\n2. **Verification Gate**:\n   *Gate: Breaker trips to OPEN after threshold failures; rejects subsequent calls instantly in < 0.1ms.*\n3. **Remediation**:\n   If canary request hangs in HALF_OPEN, wrap invocation with an explicit socket timeout.",
-      "sha256": "446d2a45d9adfe9ba6adf0d708191171ab5ff126d0243faaabe9dc4cf5e98486"
+      "sha256": "446d2a45d9adfe9ba6adf0d708191171ab5ff126d0243faaabe9dc4cf5e98486",
+      "cookbook_sha256": "2793860fbef0feb1ea73c5c02fa798b2a35b386f4b31d58e288bd2b71e4f28b9"
     },
     {
       "name": "cli-wrapper-generator",
@@ -401,7 +415,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Authoring an Agent-Native CLI Wrapper\n\n## Objective\nConvert an external executable or shell script into a robust Python wrapper complying with Brahma's `ToolSpec` and AST safety standards.\n\n## Prerequisites\n- The target binary or CLI utility (e.g. `ffmpeg`, `ripgrep`, `git`, `docker`).\n\n## Execution Recipe\n1. **Define CLI Argument Parsing**:\n   Create `tools/<name>.py` using `argparse` with explicit types and defaults. Include `--json` flag.\n2. **Execute via Safe Process Runner**:\n   Invoke the binary via `agent.process.run_captured` to enforce stdin closure and timeout boundaries:\n   ```python\n   from agent.process import run_captured\n   result = run_captured([\"binary_name\", \"--flag\", arg], cwd=repo_root, timeout=30.0)\n   ```\n3. **Format Output as JSON**:\n   Parse stdout lines or capture structured output:\n   ```python\n   if args.json:\n       print(json.dumps({\"ok\": result.returncode == 0, \"output\": result.stdout}, indent=2))\n       return 0 if result.returncode == 0 else 4\n   ```\n4. **Register in Harness Scripts Index**:\n   Re-index verified tools:\n   ```powershell\n   python tools/scripts_index.py --build\n   python tools/scripts_index.py --check\n   ```\n5. **Verification Gate**:\n   Verify the script passes static AST analysis and is registered in `config/scripts.json`.\n6. **Remediation**:\n   If the tool leaks child processes on timeout, ensure it uses `run_captured` which binds executions to Win32 Job Objects.",
-      "sha256": "b02ea986e9b1f613ede160a37c8fe06e1963eadf60d333d506ce5dcfc61028bf"
+      "sha256": "b02ea986e9b1f613ede160a37c8fe06e1963eadf60d333d506ce5dcfc61028bf",
+      "cookbook_sha256": "5232bf51ec2329f8cdaed22682c2cbec4ccebe2fc21f5e82b9977483034c2346"
     },
     {
       "name": "code-graph-navigator",
@@ -428,7 +443,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Monorepo Symbol & Call Hierarchy Tracing\n\n## Objective\nTrace every caller and dependent module of a function or class before executing breaking refactors or API changes.\n\n## Prerequisites\n- Target repository with Python source files.\n\n## Execution Recipe\n1. **Parse AST and Extract Function Callers**:\n   Run an AST visitor script over target directory:\n   ```python\n   import ast, pathlib\n   target_fn = \"execute_tool\"\n   callers = []\n   for py_path in pathlib.Path(\"core\").rglob(\"*.py\"):\n       tree = ast.parse(py_path.read_text(encoding=\"utf-8\"))\n       for node in ast.walk(tree):\n           if isinstance(node, ast.Call) and getattr(node.func, \"id\", None) == target_fn:\n               callers.append(f\"{py_path.name}:{node.lineno}\")\n   ```\n2. **Trace Upstream Caller Tiers**:\n   Map from leaf callers back to public API entry points.\n3. **Map Import Dependencies**:\n   Inspect module-level imports to detect dependency directions and cycles.\n4. **Verification Gate**:\n   Every caller is accounted for in refactoring plans with zero unexpected `NameError` or `AttributeError` exceptions.\n5. **Remediation**:\n   For dynamic dispatches (e.g. `getattr(self, fn_name)`), supplement AST inspection with targeted `grep` checks.",
-      "sha256": "d0c515ecb109ca410befa6813d9b77d510dc6ef039d9266722cc366a190b2761"
+      "sha256": "d0c515ecb109ca410befa6813d9b77d510dc6ef039d9266722cc366a190b2761",
+      "cookbook_sha256": "e5ea2dc950592e81f85353fc047fc51f457c50c554ab6ed3b9de34227dd28d6d"
     },
     {
       "name": "code-review",
@@ -446,7 +462,8 @@
       "tags": [],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Automated Code Review\n\n## Objective\nPerform a structured, line-by-line architectural and syntax review on git diffs before merging.\n\n## Prerequisites\n- git\n- python 3.11+\n\n## Execution Recipe\n1. **Inspect Staged Diffs**:\n   ```powershell\n   git diff --staged\n   ```\n2. **Run Linter & Static Analysis**:\n   ```powershell\n   python -m ruff check .\n   ```\n3. **Execute Targeted Regression Tests**:\n   ```powershell\n   python -m pytest tests -q\n   ```\n4. **Verification Gate**:\n   Ensure 0 lint errors, 0 test failures, and no unprotected secret keys or temporary debug statements.\n5. **Remediation**:\n   Use `ruff check --fix .` for automated fixes; revert manual regressions if tests fail.",
-      "sha256": "e8eb4e5ee6cb557a11d7675b44045aaf734345e00573abafcddaa8f24c8d897a"
+      "sha256": "e8eb4e5ee6cb557a11d7675b44045aaf734345e00573abafcddaa8f24c8d897a",
+      "cookbook_sha256": "42ba742623e59b78309c87a6366ff56f0b8c380a3ed5fb10e361ba09a0dafdb6"
     },
     {
       "name": "collaborative-canvas-designer",
@@ -476,7 +493,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Structured SVG Canvas Wireframe Generation\n\n## Objective\nAuthor a semantic, scalable SVG visual mockup with header, metric cards, and layout grid.\n\n## Prerequisites\n- Standard SVG viewer or browser.\n\n## Execution Recipe\n1. **Define Root ViewBox & Design Tokens**:\n   ```xml\n   <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1200 800\" width=\"100%\" height=\"100%\">\n     <defs>\n       <style>\n         .bg { fill: #0f172a; }\n         .card { fill: #1e293b; stroke: #334155; rx: 8px; }\n         .text-title { fill: #f8fafc; font-family: system-ui; font-size: 20px; font-weight: 600; }\n         .text-metric { fill: #38bdf8; font-family: system-ui; font-size: 32px; font-weight: 700; }\n         .text-sub { fill: #94a3b8; font-family: system-ui; font-size: 14px; }\n       </style>\n     </defs>\n     <rect width=\"1200\" height=\"800\" class=\"bg\"/>\n   ```\n2. **Assemble Layout Grid & Components**:\n   ```xml\n     <g id=\"navbar\">\n       <rect x=\"40\" y=\"30\" width=\"1120\" height=\"60\" class=\"card\"/>\n       <text x=\"70\" y=\"68\" class=\"text-title\">Brahma Canvas Dashboard</text>\n     </g>\n     <g id=\"metric-card-1\">\n       <rect x=\"40\" y=\"120\" width=\"350\" height=\"160\" class=\"card\"/>\n       <text x=\"70\" y=\"160\" class=\"text-sub\">Total Active Nodes</text>\n       <text x=\"70\" y=\"210\" class=\"text-metric\">1,024</text>\n     </g>\n   </svg>\n   ```\n3. **Verification Gate**:\n   *Gate: SVG renders valid XML with 0 parsing errors; all elements render inside viewBox.*\n4. **Remediation**:\n   If text overlaps rects, calculate vertical offset as `y = top + font_size + padding`.",
-      "sha256": "ac4f329124c9d366f05a9f41eff5d118b1cd104536cfee96221c52654fd7f669"
+      "sha256": "ac4f329124c9d366f05a9f41eff5d118b1cd104536cfee96221c52654fd7f669",
+      "cookbook_sha256": "03c96934d198cf6a3a59c7b0e6c19a7b71e0de64ad31c46230aa2a2ac7a6b627"
     },
     {
       "name": "confirmation-bias-inversion",
@@ -504,7 +522,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Popperian Falsification & Adversarial Negative Testing\n\n## Objective\nAuthor negative edge cases and adversarial counter-tests to actively falsify engineering assumptions.\n\n## Prerequisites\n- Pytest environment (`pytest`, `hypothesis`).\n\n## Execution Recipe\n1. **Identify the Core Assumption**:\n   Formulate statement: `\"This function handles all valid user input strings.\"`\n2. **Author 4 Falsification Negative Test Cases**:\n   ```python\n   import pytest\n\n   def test_falsification_edge_cases():\n       # Case 1: Extreme boundary length (10MB string)\n       with pytest.raises((ValueError, MemoryError)):\n           process_input(\"A\" * 10_000_000)\n\n       # Case 2: Null and control characters\n       with pytest.raises(ValueError):\n           process_input(\"\\x00\\r\\n\\t\")\n\n       # Case 3: Unicode RTL override & zero-width spaces\n       assert process_input(\"\\u202E\\u200Bmalicious\") != \"\"\n\n       # Case 4: SQL/Shell metacharacters\n       res = process_input(\"'; DROP TABLE users; --\")\n       assert \"DROP TABLE\" not in res # Must be safely escaped\n   ```\n3. **Execute Adversarial Test Suite**:\n   ```powershell\n   py -3.11 -m pytest tests/test_falsification.py -v\n   ```\n4. **Verification Gate**:\n   *Gate: All negative and malformed inputs are caught gracefully; zero unhandled 500 exceptions.*\n5. **Remediation**:\n   If an adversarial input crashes the process, add strict type boundary assertions at the function entrypoint.",
-      "sha256": "ee8f66ecfcc89e0f487cd4da5d62c0e0be849ef22d40af98d2fb5710c8189802"
+      "sha256": "ee8f66ecfcc89e0f487cd4da5d62c0e0be849ef22d40af98d2fb5710c8189802",
+      "cookbook_sha256": "78ea1c19bb2d5e3ba8047a765fd32b2a1d077fedeed1434e32aa6d6694c906d6"
     },
     {
       "name": "context-boundary-optimizer",
@@ -530,7 +549,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Progressive Context Window Optimization\n\n## Objective\nReduce LLM prompt bloat and enforce deterministic progressive disclosure (L0 to L3) for sub-2B small models and cloud agents alike.\n\n## Prerequisites\n- An agent loop or prompt assembly pipeline.\n\n## Execution Recipe\n1. **Measure Baseline Turn Context**:\n   Profile the prompt payload:\n   ```python\n   prompt_chars = len(assembled_prompt)\n   estimated_tokens = prompt_chars // 4\n   print(f\"Context payload: {estimated_tokens} tokens ({prompt_chars} chars)\")\n   ```\n2. **Audit Component Token Shares**:\n   Verify individual component thresholds:\n   - System baseline: <= 1,000 tokens\n   - Tool declarations: <= 2,500 tokens (defer low-priority tools)\n   - Second-brain JIT snippet: <= 800 tokens\n   - Skills cookbook: <= 1,200 tokens\n3. **Apply Dynamic Tool Pruning**:\n   If tool declarations exceed threshold, filter by turn intent: advertise primary tools and defer specialized tools to `search_tools`.\n4. **Enforce Cookbook Clamping**:\n   Clamp injected SOP/cookbook to max 4KB (`cookbook[:4096]`).\n5. **Verification Gate**:\n   Assert that total prompt token size is under the target model's optimal window without sacrificing functional accuracy:\n   ```powershell\n   python -m pytest tests -q -k \"turn_context or prompt\"\n   ```\n6. **Remediation**:\n   If a prompt exceeds the token ceiling, discard low-relevance conversation history turns before truncating system instructions or active cookbooks.",
-      "sha256": "e952c59921c44983e5a120291b8295087b0f83f157a775720a8562d610d8ff6b"
+      "sha256": "e952c59921c44983e5a120291b8295087b0f83f157a775720a8562d610d8ff6b",
+      "cookbook_sha256": "208ea38cbb750cf0e271f13bb1b17dccb0fc986defa7a2848ef661f20274c0ee"
     },
     {
       "name": "conventional-commit-generator",
@@ -558,7 +578,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Atomic Conventional Commit Generation\n\n## Objective\nInspect git diffs, infer type and scope, and author a clean Conventional Commit message.\n\n## Prerequisites\n- Working changes present in git workspace.\n\n## Execution Recipe\n1. **Inspect Staged Diffs**:\n   ```powershell\n   git status --short\n   git diff --staged --stat\n   ```\n   If nothing is staged, stage specific files: `git add <files>`.\n2. **Infer Scope & Type**:\n   - Determine folder / module (e.g. `agent`, `skills`, `core`, `tests`).\n   - Match action: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`.\n3. **Draft Subject Line**:\n   `<type>(<scope>): <concise imperative summary under 72 chars>`\n4. **Commit with Optional Why-Body**:\n   ```powershell\n   git commit -m \"<type>(<scope>): <subject>\" -m \"<Why this change was made and impact on consumers>\"\n   ```\n5. **Verification Gate**:\n   ```powershell\n   git log -1 --stat\n   ```\n   *Gate: Commit hash created, message adheres to `<type>(<scope>): <subject>` format.*\n6. **Remediation**:\n   If an error or typo is present in the latest un-pushed commit:\n   `git commit --amend` to modify message or staged files.",
-      "sha256": "ae23908042e6c0bd3cd1864be6b2b299e05dc8a695d202fa2f2c984f236b4138"
+      "sha256": "ae23908042e6c0bd3cd1864be6b2b299e05dc8a695d202fa2f2c984f236b4138",
+      "cookbook_sha256": "c30954e445f769201c702bc095fe56e7ce140bb08921212abd26278b39d69aac"
     },
     {
       "name": "cynefin-framework",
@@ -586,7 +607,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Problem Classification and Action Routing via Cynefin\n\n## Objective\nClassify an engineering challenge or system failure into its Cynefin domain and route execution to the correct cognitive protocol.\n\n## Prerequisites\n- A technical challenge, bug report, or system outage.\n\n## Execution Recipe\n1. **Identify the Operating Domain**:\n   - Is production actively corrupting data or crashing repeatedly? $\\rightarrow$ **Chaotic**.\n   - Are multiple distributed systems exhibiting non-deterministic behavior? $\\rightarrow$ **Complex**.\n   - Is there a specific bug or performance hotspot requiring deep code inspection? $\\rightarrow$ **Complicated**.\n   - Is it a well-understood routine task (e.g. adding a field, linting)? $\\rightarrow$ **Clear**.\n2. **Execute Domain-Specific Action**:\n   - **If Chaotic**: *Act first*. Kill the failing service or stop audio stream (`Ctrl+Shift+X`). Stabilize first, ask questions later.\n   - **If Complex**: *Probe first*. Launch an isolated git worktree (`tools/worktree.py`) or spike prototype. Test safe-to-fail hypotheses.\n   - **If Complicated**: *Analyze first*. Use `systematic-debugging` and `profiler`. Do not guess; run diagnostics.\n   - **If Clear**: *Follow recipe*. Execute standard OpenMonoAgent cookbook.\n3. **Prevent Domain Collapse**:\n   Never treat a Complex problem as Clear (applying rigid dogma to emergent behavior causes catastrophic failure).\n4. **Verification Gate**:\n   Verify the chosen protocol restored stability (Chaotic $\\rightarrow$ Complex $\\rightarrow$ Complicated $\\rightarrow$ Clear).\n5. **Remediation**:\n   If an approach stalls for more than 2 turns, the problem was misclassified. Shift one domain higher and adjust strategy.",
-      "sha256": "ecb4b343e26ca292457917ea1c85cbad6ba0b8d8a79a4581dee42eff9abab63b"
+      "sha256": "ecb4b343e26ca292457917ea1c85cbad6ba0b8d8a79a4581dee42eff9abab63b",
+      "cookbook_sha256": "8bbdccd9bbf5706c9b9bfab252ad40386906112a3cc76c32b75e8609248a72c9"
     },
     {
       "name": "database-architect",
@@ -604,7 +626,8 @@
       "tags": [],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Database Architecture & Zero-Downtime Migration\n\n## Objective\nDesign, version, and migrate relational and vector database schemas without data loss.\n\n## Prerequisites\n- sqlite3\n\n## Execution Recipe\n1. **Inspect Current Schema**:\n   Extract DDL and table pragma info:\n   ```powershell\n   python -c \"import sqlite3; conn=sqlite3.connect('second_brain.db'); print(conn.execute('PRAGMA user_version').fetchone())\"\n   ```\n2. **Draft Forward Migration**:\n   Create SQL statements using `CREATE TABLE IF NOT EXISTS` and transactional updates.\n3. **Verify Integrity & Foreign Keys**:\n   ```powershell\n   python -c \"import sqlite3; conn=sqlite3.connect('second_brain.db'); print(conn.execute('PRAGMA integrity_check').fetchall())\"\n   ```\n4. **Verification Gate**:\n   Query test row insertions and verify `user_version` counter increments.\n5. **Remediation**:\n   Rollback transaction immediately if `sqlite3.DatabaseError` is raised.",
-      "sha256": "f251ac5260667eacd5071afc6d59ce624105bab2d53f89d0bbd67de5dd1eeab0"
+      "sha256": "f251ac5260667eacd5071afc6d59ce624105bab2d53f89d0bbd67de5dd1eeab0",
+      "cookbook_sha256": "6e32cb1ed1e70e4be8b011ac9de449327d80a99ab626fe1cd2a91f38062111f2"
     },
     {
       "name": "database-migration-ops",
@@ -633,7 +656,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Zero-Downtime Safe Database Migrations\n\n## Objective\nExecute schema migrations with pre-flight backup snapshots, dry-run SQL inspection, and validated rollback scripts.\n\n## Prerequisites\n- Database connection string or SQLite file path.\n- Migration script file containing DDL statements.\n\n## Execution Recipe\n1. **Create Pre-Flight Backup Snapshot**:\n   Create an atomic point-in-time copy:\n   ```powershell\n   Copy-Item -Path \"data.db\" -Destination \"data.db.pre_migrate_$(Get-Date -Format yyyyMMdd_HHmmss)\"\n   ```\n2. **Execute Schema Dry-Run**:\n   Inspect generated SQL statements and explain execution plan without committing changes:\n   ```powershell\n   python tools/db_migrate.py --dry-run --plan\n   ```\n3. **Validate Rollback Script in Staging / Temporary DB**:\n   Execute forward migration followed by rollback script on a shadow database to confirm clean revert:\n   ```powershell\n   python tools/db_migrate.py --db-path \"data.test.db\" --up\n   python tools/db_migrate.py --db-path \"data.test.db\" --down\n   ```\n4. **Apply Production Migration**:\n   Run forward migration in an explicit transaction block:\n   ```powershell\n   python tools/db_migrate.py --apply\n   ```\n5. **Run Post-Migration Smoke Tests**:\n   Verify row counts, table existence, and index lookups:\n   ```powershell\n   python -c \"import sqlite3; conn = sqlite3.connect('data.db'); print(conn.execute('PRAGMA integrity_check').fetchall())\"\n   ```\n6. **Verification Gate**:\n   `PRAGMA integrity_check` returns `[('ok',)]` and all primary application queries return within baseline latency.\n7. **Remediation**:\n   If schema errors occur or queries fail, immediately restore the pre-flight snapshot:\n   ```powershell\n   Copy-Item -Path \"data.db.pre_migrate_*\" -Destination \"data.db\" -Force\n   ```",
-      "sha256": "add976333b87141102f99f6a118bdb9b704bdfe11d9f70ff523aec78fe1c2cf4"
+      "sha256": "add976333b87141102f99f6a118bdb9b704bdfe11d9f70ff523aec78fe1c2cf4",
+      "cookbook_sha256": "b1446eaf4d44e29b6c28d4d060c17b45a34e5719212c4a130b02626771d75e7f"
     },
     {
       "name": "decision-matrix-analysis",
@@ -659,7 +683,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Objective Decision Matrix Evaluation\n\n## Objective\nEvaluate competing technical designs or dependencies using a weighted scoring matrix to achieve a rational, defensible architecture choice.\n\n## Prerequisites\n- At least two viable technical proposals or candidate packages.\n\n## Execution Recipe\n1. **Define Candidate Set**:\n   Document the options under review:\n   - Candidate 1: Standard library `sqlite3` + FTS5\n   - Candidate 2: In-memory dictionary + custom BM25\n   - Candidate 3: External search engine daemon (e.g. Meilisearch)\n2. **Assign Criteria Weights**:\n   - `W1 (Zero extra install burden)`: 30%\n   - `W2 (Sub-10ms query latency)`: 25%\n   - `W3 (Crash resilience & persistence)`: 25%\n   - `W4 (Cross-platform Python stdlib)`: 20%\n3. **Score Matrix Generation**:\n   Construct the scoring table (1 = Poor, 5 = Excellent):\n   - SQLite FTS5: W1=5, W2=5, W3=5, W4=5 -> Total = 5.0\n   - In-memory BM25: W1=5, W2=5, W3=2, W4=5 -> Total = 4.25\n   - External Daemon: W1=1, W2=5, W3=5, W4=1 -> Total = 3.0\n4. **Enforce Non-Negotiable Pass/Fail Gates**:\n   Ensure winning candidate meets all strict constraints (e.g. must run on offline Windows client without docker).\n5. **Verification Gate**:\n   Implement a prototype spike with the winning candidate and verify benchmarks match matrix assumptions.\n6. **Remediation**:\n   If benchmark data invalidates a score, update the matrix and re-evaluate the runner-up candidate.",
-      "sha256": "ca4783e52d20a866148d93dcd951b1c81616c9699c716c78032d0a46687ee4d6"
+      "sha256": "ca4783e52d20a866148d93dcd951b1c81616c9699c716c78032d0a46687ee4d6",
+      "cookbook_sha256": "9eaf977c8ddd4f85eae4ac8b5e2b93442867d593680af3e3229f0166fb8f2e37"
     },
     {
       "name": "desktop-app-instrumentation",
@@ -687,7 +712,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Desktop Process Interception & Python Wrapping\n\n## Objective\nIdentify local IPC channels (ports, pipes, COM) of a desktop app and generate a scriptable Python wrapper.\n\n## Prerequisites\n- Target desktop app running locally.\n- PowerShell or Python with `requests`, `websockets`, or `pywin32`.\n\n## Execution Recipe\n1. **Find Process PID & Local Listening Ports**:\n   ```powershell\n   $proc = Get-Process \"<AppName>\"\n   Get-NetTCPConnection -OwningProcess $proc.Id | Where-Object { $_.State -eq \"Listen\" }\n   ```\n2. **Inspect Named Pipes**:\n   ```powershell\n   [System.IO.Directory]::GetFiles(\"\\\\.\\\\pipe\\\\\") | Select-String \"<AppName>\"\n   ```\n3. **Probe Endpoint with JSON-RPC / HTTP**:\n   ```powershell\n   Invoke-RestMethod -Uri \"http://127.0.0.1:<port>/api\" -Method Get\n   ```\n4. **Author Python Wrapper Class**:\n   Wrap discovered endpoints into typed methods (`def perform_action(self, payload): ...`) using `urllib` or `requests`.\n5. **Verification Gate**:\n   *Gate: Python wrapper executes commands and retrieves state from the running app in <100ms.*\n6. **Remediation**:\n   If endpoints require auth tokens, locate session tokens in `%APPDATA%/<AppName>/Local State` or launch flags.",
-      "sha256": "87ff5f3a0b6bf7416628cfe724c9bf7f554fc1a85f563004ffbf11c37c9db3e1"
+      "sha256": "87ff5f3a0b6bf7416628cfe724c9bf7f554fc1a85f563004ffbf11c37c9db3e1",
+      "cookbook_sha256": "7b1f1b238fa5e92a87ab1d60b02855f1be581608546a3f8b962a4022a2402baf"
     },
     {
       "name": "desloppify",
@@ -711,7 +737,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Code Desloppification & Clean Refactoring\n\n## Objective\nPurge code slop, eliminate dead branches, enforce strict type hints, and align with project architecture.\n\n## Prerequisites\n- python 3.11+\n- ruff\n\n## Execution Recipe\n1. **Audit Complexity & Unused Code**:\n   ```powershell\n   python -m ruff check . --select F,E,W,UP,I\n   ```\n2. **Format & Sort Imports**:\n   ```powershell\n   python -m ruff check --fix .\n   ```\n3. **Enforce Type Invariants & Clean Signatures**:\n   Remove wildcard imports (`from x import *`), add return annotations, and eliminate duplicate logic.\n4. **Verification Gate**:\n   ```powershell\n   python -m ruff check .\n   python -m pytest tests -q\n   ```\n5. **Remediation**:\n   If refactoring breaks tests, revert via `git checkout -p` and perform targeted edits.",
-      "sha256": "e5706429bb5d9ee13f599e02ef377a88d918810fa116cd954f0efdf3c7974aef"
+      "sha256": "e5706429bb5d9ee13f599e02ef377a88d918810fa116cd954f0efdf3c7974aef",
+      "cookbook_sha256": "6de04d7e181667dcedae5c9c92bc60574a34a0d5facf17afe8429aa1beb5f704"
     },
     {
       "name": "deterministic-code-audit",
@@ -739,7 +766,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Pre-Commit Security & Invariant Audit\n\n## Objective\nScan repository diffs or target source files for critical security vulnerabilities, Null Pointer dereferences, and resource leaks.\n\n## Prerequisites\n- Git diff or target source files to audit.\n- Python 3.11+ environment with `ruff` or static linter.\n\n## Execution Recipe\n1. **Inspect Staged Changes**:\n   ```powershell\n   git diff --staged\n   ```\n2. **Scan for Injection Patterns**:\n   Search for raw shell commands, unsafe SQL concatenation, and path traversals:\n   - Verify all `subprocess` invocations use array arguments with `shell=False`.\n   - Verify all SQL queries use parameterized placeholders (`?` or `:name`).\n   - Verify all path resolution checks `path.resolve().is_relative_to(root)`.\n3. **Scan for Null / None Dereferences**:\n   Check functions returning `Optional[...]` to ensure callers handle `None` prior to attribute access.\n4. **Scan for Resource Leaks**:\n   Verify all file streams, sockets, and subprocess trees use context managers or cleanup handlers:\n   - Ensure child processes are terminated in `finally` blocks or bound to Job Objects.\n5. **Run Static Analyzer**:\n   ```powershell\n   python -m ruff check .\n   ```\n6. **Verification Gate**:\n   - 0 raw shell commands with user variables.\n   - 0 unparameterized SQL queries.\n   - 0 linter violations.\n7. **Remediation**:\n   Replace any dangerous pattern with a safe standard-library primitive before staging commits.",
-      "sha256": "d04cdcb59b5ebba032faa7bf92d8876c123dceda5e18c9fabfd8cecb3640a36a"
+      "sha256": "d04cdcb59b5ebba032faa7bf92d8876c123dceda5e18c9fabfd8cecb3640a36a",
+      "cookbook_sha256": "75a4b293c34339a9fb91fffc0c696cae370a57d26ad6234cd1c4c70427c78420"
     },
     {
       "name": "docker-devops",
@@ -757,7 +785,8 @@
       "tags": [],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Docker Build & Container Testing\n\n## Objective\nContainerize python applications using minimal multi-stage builds and verify container launch.\n\n## Prerequisites\n- Docker CLI or Podman\n\n## Execution Recipe\n1. **Audit Dockerfile**:\n   Ensure non-root user, slim base image (e.g. `python:3.11-slim`), and cached dependency layers.\n2. **Build Image**:\n   ```powershell\n   docker build -t app:latest .\n   ```\n3. **Execute Container Smoke Test**:\n   ```powershell\n   docker run --rm app:latest python --version\n   ```\n4. **Verification Gate**:\n   Verify container exits with code 0 and image size is within budget (< 500MB).\n5. **Remediation**:\n   If build fails on missing compiler, add build dependencies in builder stage only.",
-      "sha256": "f9991f2b6771026dbf476da51d864bb71bc12bc25c33a64c9a14c7441474cb35"
+      "sha256": "f9991f2b6771026dbf476da51d864bb71bc12bc25c33a64c9a14c7441474cb35",
+      "cookbook_sha256": "7f4f7af855c707e8eacda944ab508133ec3f62565d32f487c1e4e7370426f816"
     },
     {
       "name": "epistemic-arbitrage",
@@ -786,7 +815,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Epistemic Arbitrage & Context Gap Bridging\n\n## Objective\nIdentify where a task depends on local ground truth vs general reasoning, and inject targeted context to eliminate model hallucinations.\n\n## Prerequisites\n- Complex reasoning or architectural refactoring task.\n\n## Execution Recipe\n1. **Classify Epistemic Requirements**:\n   - Class A (General Knowledge): Standard algorithms, RFC protocols -> *Handled by model alone.*\n   - Class B (Local Facts): Function signatures, schema, config -> *Must inject exact file text.*\n   - Class C (User Intent): Strategic priority, risk tolerance -> *Must confirm via question.*\n2. **Retrieve & Anchor Local Facts Before Prompting**:\n   Read exact file contents or run AST search:\n   ```powershell\n   python -m agent search_code \"<target_symbol>\"\n   ```\n3. **Formulate High-Leverage Arbitrage Prompt**:\n   Feed verified local context (Class B) into the model's generalized reasoning engine (Class A):\n   `\"Given this verified schema <SCHEMA>, generate an optimized query following RFC 3339.\"`\n4. **Verification Gate**:\n   *Gate: Zero hallucinated class names or methods; output directly runs on the local repo.*\n5. **Remediation**:\n   If the model invents a non-existent parameter, prune model discretion by supplying a strict interface contract.",
-      "sha256": "8302d1ec4a1a78effd79d5722941b33976cba0f4b48cc55126720f6a1192dcc5"
+      "sha256": "8302d1ec4a1a78effd79d5722941b33976cba0f4b48cc55126720f6a1192dcc5",
+      "cookbook_sha256": "5175f5c493c102f1c26e887b437a5fc3408e97eecf5bfb6b8dabb9d8d3305d25"
     },
     {
       "name": "ffmpeg-media-processing",
@@ -814,7 +844,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Deterministic FFmpeg Video & Audio Operations\n\n## Objective\nExecute precise media transformations (cutting, transcoding, loudness normalization, audio extraction) using standard FFmpeg commands.\n\n## Prerequisites\n- `ffmpeg` binary installed and available in system PATH.\n\n## Execution Recipe\n1. **Lossless Video Clip Trimming**:\n   Extract a segment between timestamp 00:01:30 and 00:02:45 without re-encoding:\n   ```powershell\n   ffmpeg -ss 00:01:30 -to 00:02:45 -i input.mp4 -c copy output_clip.mp4\n   ```\n2. **Web-Optimized Transcode (H.264 / AAC)**:\n   Compress a large video for streaming:\n   ```powershell\n   ffmpeg -i input.mov -c:v libx264 -crf 23 -preset medium -c:a aac -b:a 128k -movflags +faststart output.mp4\n   ```\n3. **EBU R128 Audio Loudness Normalization**:\n   Normalize an audio track to standard podcast / web targets (-14 LUFS):\n   ```powershell\n   ffmpeg -i speech.wav -af loudnorm=I=-14:LRA=7:tp=-1.0 -ar 44100 normalized.wav\n   ```\n4. **Extract Representative Frame Thumbnail**:\n   Export high-resolution JPEG at timestamp 00:00:15:\n   ```powershell\n   ffmpeg -ss 00:00:15 -i input.mp4 -vframes 1 -q:v 2 thumbnail.jpg\n   ```\n5. **Verification Gate**:\n   Inspect output file metadata using `ffprobe`:\n   ```powershell\n   ffprobe -v error -show_entries format=duration,size output.mp4\n   ```\n6. **Remediation**:\n   If video cuts with frozen initial frames in copy mode, remove `-c copy` and re-encode the stream to establish a keyframe at the cut boundary.",
-      "sha256": "37de51f057f929190d30823f23eefbf615174b594673537b604cd7140793b64a"
+      "sha256": "37de51f057f929190d30823f23eefbf615174b594673537b604cd7140793b64a",
+      "cookbook_sha256": "8fe29e402c54419f8ac4ff5c46a17526e629fee40c87bf768486bd03f8ec50a3"
     },
     {
       "name": "first-principles-thinking",
@@ -838,7 +869,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: First-Principles Problem Solving\n\n## Objective\nDeconstruct a difficult engineering or conceptual problem down to bedrock truths and build up an optimal solution.\n\n## Prerequisites\n- None\n\n## Execution Recipe\n1. **Identify and Clarify the Challenge**:\n   Write down the surface problem and identify existing assumptions.\n2. **Deconstruct to Indisputable Truths**:\n   Strip away analogies, conventions, and received wisdom. Ask: *What physical, computational, or mathematical facts are impossible to dispute?*\n3. **Synthesize from Fundamentals**:\n   Rebuild the architecture from those foundational truths. Ignore \"how it has always been done.\"\n4. **Verification Gate**:\n   Validate that the new design introduces fewer dependencies, lowers complexity, and solves the root bottleneck.\n5. **Remediation**:\n   If an assumption creeps back in, re-apply the \"5-Whys\" test to challenge it.",
-      "sha256": "ba6d2b4b48fe2ef916fce556eedffea7295ed42b1eb8e55feab5a41aad24033b"
+      "sha256": "ba6d2b4b48fe2ef916fce556eedffea7295ed42b1eb8e55feab5a41aad24033b",
+      "cookbook_sha256": "291f06d8f1ec314e4a87f967986101514505f8c4445e2a164f6f6fe3e4ff8e3e"
     },
     {
       "name": "five-whys-root-cause",
@@ -864,7 +896,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: 5-Whys Root-Cause Investigation\n\n## Objective\nSystematically diagnose a failing test, bug, or production defect by chaining interrogations down to the foundational failure mechanism.\n\n## Prerequisites\n- A reproducible failure trace, error log, or failing unit test.\n\n## Execution Recipe\n1. **Capture the Ground Failure**:\n   Run the failing command and record the full traceback:\n   ```powershell\n   python -m pytest tests/test_failing.py -q -vv\n   ```\n2. **Execute the 5 Whys Chain**:\n   Write down the sequence:\n   - *Why 1 (Symptom)*: What direct line threw the exception?\n   - *Why 2 (State)*: What unexpected value or state triggered that line?\n   - *Why 3 (Mechanism)*: Where did that bad value originate?\n   - *Why 4 (Contract)*: Why did the preceding boundary/function fail to validate or sanitize it?\n   - *Why 5 (Architecture/Policy)*: Why was there no schema, lint rule, or test asserting this invariant?\n3. **Formulate the Structural Fix**:\n   Write code addressing the root invariant at Why #4 or #5 (e.g., input validation at boundary, synchronization gate, state machine transition check).\n4. **Author Regression Test**:\n   Create a dedicated unit test reproducing the exact sequence that triggered the failure, proving the root cause is eliminated.\n5. **Verification Gate**:\n   Run the full test suite and verify the bug is resolved without breaking existing invariants:\n   ```powershell\n   python -m ruff check .\n   python -m pytest tests -q\n   ```\n6. **Remediation**:\n   If the bug recurs under high concurrency, inspect thread safety and lock contention across shared state.",
-      "sha256": "6458b510bb635859c69bbe8a302efc1b85407d0212196f74250710f7e595f163"
+      "sha256": "6458b510bb635859c69bbe8a302efc1b85407d0212196f74250710f7e595f163",
+      "cookbook_sha256": "87d018f28fbb42ce769eefe0b680ccdeeaa9f1be6bf6b61393506e0ad5223be0"
     },
     {
       "name": "fullstack-scaffolder",
@@ -882,7 +915,8 @@
       "tags": [],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Fullstack Scaffolding\n\n## Objective\nScaffold a modular frontend and backend repository with clean configuration and dev tooling.\n\n## Prerequisites\n- python 3.11+ / node.js\n\n## Execution Recipe\n1. **Generate Root Structure**:\n   Scaffold `backend/`, `frontend/`, `tests/`, and `config/`.\n2. **Configure Package Managers**:\n   Generate `pyproject.toml` or `package.json` with pinned development scripts.\n3. **Scaffold Entrypoints**:\n   Create minimal `main.py` and healthcheck test.\n4. **Verification Gate**:\n   Run the health test and ensure server starts cleanly.\n5. **Remediation**:\n   If dependencies conflict, lock versions in a virtual environment.",
-      "sha256": "4b20e757e049a59d579acc3f71bbf050107d30b84007b376623cc85f77e9cda8"
+      "sha256": "4b20e757e049a59d579acc3f71bbf050107d30b84007b376623cc85f77e9cda8",
+      "cookbook_sha256": "eea630b82f714f99ab00373c460addf5e9abbbb666c6cd899f577cb76f15cfbe"
     },
     {
       "name": "git-workflow",
@@ -900,7 +934,8 @@
       "tags": [],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Git Branching & Atomic Commits\n\n## Objective\nManage git branches, worktrees, and atomic commits safely without dirtying working trees.\n\n## Prerequisites\n- git\n\n## Execution Recipe\n1. **Check Status & Branch Cleanliness**:\n   ```powershell\n   git status\n   ```\n2. **Create Feature Branch or Worktree**:\n   ```powershell\n   git checkout -b feature/<task-name>\n   ```\n3. **Stage Specific Files & Commit**:\n   ```powershell\n   git add <path/to/file>\n   git commit -m \"type(scope): clear description of change\"\n   ```\n4. **Verification Gate**:\n   ```powershell\n   git log -n 1 --stat\n   ```\n5. **Remediation**:\n   If incorrect files are staged, unstage with `git restore --staged <file>`.",
-      "sha256": "22ddb25a556141d31c9c8d5b8a37780c5efb2570c00ffde48b8ea46a1db8796c"
+      "sha256": "22ddb25a556141d31c9c8d5b8a37780c5efb2570c00ffde48b8ea46a1db8796c",
+      "cookbook_sha256": "bc960215e86f26f0d16fe76b9a1bfc090a9dadee65c9b34364cc8fa6debce202"
     },
     {
       "name": "github-automation",
@@ -918,7 +953,8 @@
       "tags": [],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: GitHub Actions Workflow Creation\n\n## Objective\nConfigure GitHub Actions workflows for automated testing, linting, and continuous integration.\n\n## Prerequisites\n- git\n\n## Execution Recipe\n1. **Scaffold Workflow Directory**:\n   Create `.github/workflows/` if not present.\n2. **Draft CI Workflow (`.github/workflows/ci.yml`)**:\n   Include triggers (`on: [push, pull_request]`), OS matrix, Python setup, and test runner steps.\n3. **Verify YAML Syntax**:\n   ```powershell\n   python -c \"import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))\"\n   ```\n4. **Verification Gate**:\n   Verify workflow file exists, passes YAML parser, and references valid branch names.\n5. **Remediation**:\n   Fix indentation errors if YAML parsing fails.",
-      "sha256": "66b4683f68c2e3d8fcde703276e0e9018ca67a66cf8d3aab1f107ca0d8322632"
+      "sha256": "66b4683f68c2e3d8fcde703276e0e9018ca67a66cf8d3aab1f107ca0d8322632",
+      "cookbook_sha256": "221e45e47260549beef4af428e0dc0b93668b679d914615974f413204f33afc2"
     },
     {
       "name": "goodharts-law",
@@ -945,7 +981,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Auditing Metric Ratchets Against Goodhart's Pathology\n\n## Objective\nEvaluate a software target, architectural ratchet, or benchmark against Goodhart's Law to prevent unintended degeneration or metric gaming.\n\n## Prerequisites\n- A quantitative goal (e.g. line count ceiling, test count target, latency threshold).\n\n## Execution Recipe\n1. **Identify the Target Metric**:\n   State the exact threshold (e.g., `core/tool_exec.py <= 147 lines and 0 elif branches`).\n2. **Perform Adversarial Gaming Simulation**:\n   Brainstorm 3 ways to meet the metric while degrading the system:\n   - *Gaming 1*: Shoving complex logic into dictionary lookups or `exec()` strings to avoid `elif`.\n   - *Gaming 2*: Removing comments and docstrings to stay under the line count ceiling.\n   - *Gaming 3*: Splitting code into arbitrary tiny files that obscure the execution flow.\n3. **Establish Counter-Balancing Invariants**:\n   For each gaming vector, establish a protective constraint:\n   - Add AST check prohibiting raw `exec`/`eval`.\n   - Mandate docstring preservation rule (`AGENTS.md`).\n   - Require architectural cohesion in new module extraction.\n4. **Verification Gate**:\n   Verify the metric is achieved through substantive architectural refactoring rather than cosmetic compression.\n5. **Remediation**:\n   If metric pressure forces bad code patterns, adjust the metric ceiling to reflect clean architectural boundaries.",
-      "sha256": "0116b65525b8715b91bb320b217cd4ba9ab69d30cd790fba12d0492afd5cb49a"
+      "sha256": "0116b65525b8715b91bb320b217cd4ba9ab69d30cd790fba12d0492afd5cb49a",
+      "cookbook_sha256": "92327c702291a66fc84c4d68a025b5832cc68950e80788b0c9931419ae447921"
     },
     {
       "name": "graph-rag-hybrid-retriever",
@@ -975,7 +1012,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Reciprocal Rank Fusion & 1-Hop Graph RAG Retrieval\n\n## Objective\nRetrieve top documents using combined BM25 keyword matching, vector similarity, and 1-hop entity graph expansion.\n\n## Prerequisites\n- SQLite database with FTS5 table, vector embeddings, and an `edges` table `(source, relation, target)`.\n\n## Execution Recipe\n1. **Query Lexical & Vector Top-K**:\n   Fetch top 10 candidates from BM25 and top 10 from vector cosine distance.\n2. **Compute Reciprocal Rank Fusion (RRF)**:\n   ```python\n   def rrf_merge(bm25_ranks, vec_ranks, k=60):\n       scores = {}\n       for rank, doc_id in enumerate(bm25_ranks):\n           scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (k + rank + 1)\n       for rank, doc_id in enumerate(vec_ranks):\n           scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (k + rank + 1)\n       return sorted(scores.items(), key=lambda x: x[1], reverse=True)\n   ```\n3. **Expand Top 3 Candidates via 1-Hop Graph Relational Edges**:\n   ```sql\n   SELECT target, relation FROM entity_edges WHERE source IN (?, ?, ?) LIMIT 10;\n   ```\n4. **Format Context Block**:\n   Assemble primary chunk texts followed by the `[KNOWLEDGE GRAPH RELATIONS]` block.\n5. **Verification Gate**:\n   *Gate: Combined context block contains both raw text and verified entity edges within token budget.*\n6. **Remediation**:\n   If entity expansion exceeds context budget, prune leaf nodes with edge degree = 1.",
-      "sha256": "06f7ed6df88745160ee4264200d02d997113b84d696da1e20b8347fdd1ba6e9c"
+      "sha256": "06f7ed6df88745160ee4264200d02d997113b84d696da1e20b8347fdd1ba6e9c",
+      "cookbook_sha256": "58844d266536b65461c33fcfd267b13463ed2b351e7036a7a43bbddce9f34c4b"
     },
     {
       "name": "grounded-claim-verification",
@@ -1003,7 +1041,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Codebase Claim Grounding & Provenance Audit\n\n## Objective\nAudit technical claims, anchor them with exact line-level hyperlinks, and eliminate hallucinated assertions.\n\n## Prerequisites\n- Local workspace access with grep / ripgrep.\n\n## Execution Recipe\n1. **Extract High-Risk Assertions**:\n   Identify statements regarding interface contracts, dependency versions, or performance metrics.\n2. **Retrieve File Provenance**:\n   ```powershell\n   rg -n \"<symbol_or_keyword>\" <directory>\n   ```\n3. **Format Grounded File Link**:\n   Format every assertion with standard markdown file links:\n   `[filename.py#L42-L48](file:///C:/path/to/file#L42-L48)`\n4. **Empirical Gate Verification**:\n   If claiming a test passes or fails, run the command and include the exact return code and tail output:\n   ```powershell\n   py -3.11 -m pytest tests/test_target.py -q\n   ```\n5. **Verification Gate**:\n   *Gate: 100% of technical assertions are anchored by valid file hyperlinks or verifiable command outputs.*\n6. **Remediation**:\n   If an assertion cannot be verified on disk, mark it explicitly as \"Unverified Hypothesis\" or discard it entirely.",
-      "sha256": "fbc6a2db91538a4f2240b198cbee2122c3686c24e5d0163f762ed994a612ca87"
+      "sha256": "fbc6a2db91538a4f2240b198cbee2122c3686c24e5d0163f762ed994a612ca87",
+      "cookbook_sha256": "fbbcd303800d67cc3c4abc9c60f91edb4aa58274005726d090c16ec10535518e"
     },
     {
       "name": "hanlons-razor",
@@ -1029,7 +1068,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Systemic Diagnostic Attribution via Hanlon's Razor\n\n## Objective\nDiagnose unexpected errors and security rejections by systematically auditing benign operational causes before escalating to complex adversarial hypotheses.\n\n## Prerequisites\n- Error report, connection failure, or unexpected system denial.\n\n## Execution Recipe\n1. **Audit Input Types and Serialization**:\n   Inspect the raw payloads crossing the boundary:\n   - Check for UTF-8 BOM encoding issues (`utf-8` vs `utf-8-sig`).\n   - Check for string vs integer type mismatches in JSON arguments.\n2. **Inspect Environmental Context**:\n   - Verify file permissions, current working directory (`cwd`), and path existence.\n   - Verify environment variable availability (`echo $env:VARIABLE`).\n3. **Inspect Network / Socket Timing**:\n   - Check if the remote host closed the connection due to an unhandled exception or keepalive timeout.\n   - Review server-side stderr/logs for 400 Bad Request / 1007 Invalid Argument details.\n4. **Inspect State Concurrency**:\n   - Check for simultaneous reads and writes to non-thread-safe data structures.\n5. **Evaluate Adversarial Breach Only If Benign Causes Are Eliminated**:\n   If inputs, config, and concurrency are provably valid, initiate red-team security review.\n6. **Verification Gate**:\n   Reproduce the failure with a benign minimal test case and verify the fix removes the anomaly.\n7. **Remediation**:\n   Add input validation and descriptive error logging so future misconfigurations do not masquerade as mysterious failures.",
-      "sha256": "e6ffd46112d1ced033c786f291382f0f649d0c20f3d9273d19562fcd7dd8a9de"
+      "sha256": "e6ffd46112d1ced033c786f291382f0f649d0c20f3d9273d19562fcd7dd8a9de",
+      "cookbook_sha256": "74c07afa88a7b6e647487e6a75ec737c52a8cb35a76f83fc4a92861868b472b4"
     },
     {
       "name": "headless-office-automation",
@@ -1058,7 +1098,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Headless Office Document Processing\n\n## Objective\nRead, modify, or generate Word, Excel, and PowerPoint documents programmatically using lightweight Python tooling.\n\n## Prerequisites\n- Python 3.11+ environment with `openpyxl`, `python-docx`, or `python-pptx` (installed in optional dependencies).\n\n## Execution Recipe\n1. **Extract Structured Data from Excel (`.xlsx`)**:\n   ```python\n   import openpyxl\n   wb = openpyxl.load_workbook(\"data.xlsx\", data_only=True)\n   sheet = wb.active\n   rows = [[cell.value for cell in row] for row in sheet.iter_rows()]\n   ```\n2. **Generate Styled Word Report (`.docx`)**:\n   ```python\n   from docx import Document\n   doc = Document()\n   doc.add_heading(\"Operational Summary\", level=1)\n   doc.add_paragraph(\"Automated summary generated by Brahma AI harness.\")\n   table = doc.add_table(rows=1, cols=3)\n   doc.save(\"output_report.docx\")\n   ```\n3. **Inspect Slides and Notes in PowerPoint (`.pptx`)**:\n   ```python\n   from pptx import Presentation\n   prs = Presentation(\"deck.pptx\")\n   for idx, slide in enumerate(prs.slides):\n       notes = slide.notes_slide.notes_text_frame.text if slide.has_notes_slide else \"\"\n   ```\n4. **Verification Gate**:\n   Verify that generated files open without XML corruption warnings:\n   - File size > 0 bytes.\n   - ZIP container structure valid (`python -m zipfile -t <file>`).\n5. **Remediation**:\n   If a library is missing, fall back to converting documents to Markdown/CSV via `tools/ingest_multimodal.py`.",
-      "sha256": "aa871c5c9b2200abdc02fcaa4294d7fa80575721ab859fc3b445f2712f533f29"
+      "sha256": "aa871c5c9b2200abdc02fcaa4294d7fa80575721ab859fc3b445f2712f533f29",
+      "cookbook_sha256": "1aee1cc33da610250f6e9175c35664b9242ef040808326c05cceda207deba0f2"
     },
     {
       "name": "icm-architect",
@@ -1083,7 +1124,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: ICM Workspace Structuring\n\n## Objective\nOrganize problem spaces into deterministic, filesystem-backed agent architectures.\n\n## Prerequisites\n- python 3.11+\n\n## Execution Recipe\n1. **Analyze Topology**:\n   Map input sources, intermediate staging zones, and permanent asset stores.\n2. **Scaffold Directory Layout**:\n   Create `input/`, `staging/`, `canonical/`, and `config/` directories.\n3. **Define Routing Rules**:\n   Write declarative JSON or YAML index defining transitions between stages.\n4. **Verification Gate**:\n   Verify that each stage contains a README or index.md defining its contracts.\n5. **Remediation**:\n   If notes linger in staging, trigger extraction router to resolve destination.",
-      "sha256": "0e77a8efa300bb5ceb5e13492cfa40c4005948c04658ff0c2403a58d1ce847cc"
+      "sha256": "0e77a8efa300bb5ceb5e13492cfa40c4005948c04658ff0c2403a58d1ce847cc",
+      "cookbook_sha256": "4e15a4c71a3099a6ca1a0e98146dd818fa2d8e92547adda9425d3157fd7aa842"
     },
     {
       "name": "incident-response",
@@ -1112,7 +1154,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: 6-Step Incident Response & Recovery\n\n## Objective\nGuide an operator through structured emergency triage, non-destructive mitigation, recovery verification, and postmortem authoring.\n\n## Prerequisites\n- Access to service logs, process monitoring, or error telemetry.\n\n## Execution Recipe\n1. **Step 1: Gather Logs & Error Spikes**:\n   Capture the exact UTC timestamp and error signatures from active logs without restarting processes.\n2. **Step 2: Determine Blast Radius**:\n   Classify severity: P0 (Total outage), P1 (Critical degradation), P2 (Partial feature failure), P3 (Minor defect). Identify affected endpoints and user count.\n3. **Step 3: Review Scope & Select Mitigation Strategy**:\n   Choose the least destructive intervention:\n   - Config flag rollback\n   - Service restart with graceful drain\n   - Emergency hotfix commit\n   - Traffic throttling / circuit breaking\n4. **Step 4: Apply Mitigation**:\n   Execute the chosen fix. Record the exact command run and return code.\n5. **Step 5: Verify Recovery**:\n   Query health check endpoints and monitor error rate for 3 minutes:\n   ```powershell\n   curl -I http://localhost:<port>/health\n   ```\n   *Gate: Return code must be 200 OK and error rate must drop to baseline.*\n6. **Step 6: Generate Postmortem Document**:\n   Write `docs/postmortems/INCIDENT-<DATE>.md` detailing: Timeline, Root Cause, Impact, Mitigation, and Action Items.\n7. **Remediation**:\n   If the initial mitigation fails to resolve the incident, do not attempt second-order tweaks; trigger immediate rollback to the last known stable release.",
-      "sha256": "f2f9ee695d93fdbe79447a1808a8ef1947105c08f63569c0c3e1f93eb1e5cf5f"
+      "sha256": "f2f9ee695d93fdbe79447a1808a8ef1947105c08f63569c0c3e1f93eb1e5cf5f",
+      "cookbook_sha256": "3a6ad5eef066da3acffbc9e46c99e554387961d2124ff5fe5c28d169dd5b9fc6"
     },
     {
       "name": "interactive-data-visualization",
@@ -1142,7 +1185,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Declarative Interactive Vega-Lite Chart Generation\n\n## Objective\nConvert tabular data into an interactive, standalone HTML chart with zoom, pan, and hover tooltips.\n\n## Prerequisites\n- Tabular data file (`data.csv` or `data.json`).\n- Python `altair` or pure Vega-Lite HTML template.\n\n## Execution Recipe\n1. **Prepare Data & Encoding Channels**:\n   Map X (timestamp/category), Y (metric value), and Color (grouping).\n2. **Author Self-Contained Vega-Lite Specification**:\n   ```html\n   <!DOCTYPE html>\n   <html>\n   <head>\n     <script src=\"https://cdn.jsdelivr.net/npm/vega@5\"></script>\n     <script src=\"https://cdn.jsdelivr.net/npm/vega-lite@5\"></script>\n     <script src=\"https://cdn.jsdelivr.net/npm/vega-embed@6\"></script>\n   </head>\n   <body>\n     <div id=\"vis\"></div>\n     <script>\n       const spec = {\n         \"$schema\": \"https://vega.github.io/schema/vega-lite/v5.json\",\n         \"description\": \"Interactive metric trends\",\n         \"data\": { \"values\": [ {\"x\": \"2026-01\", \"y\": 28}, {\"x\": \"2026-02\", \"y\": 55} ] },\n         \"mark\": \"bar\",\n         \"encoding\": {\n           \"x\": {\"field\": \"x\", \"type\": \"nominal\", \"axis\": {\"title\": \"Month\"}},\n           \"y\": {\"field\": \"y\", \"type\": \"quantitative\", \"axis\": {\"title\": \"Latency (ms)\"}},\n           \"tooltip\": [{\"field\": \"x\"}, {\"field\": \"y\"}]\n         }\n       };\n       vegaEmbed(\"#vis\", spec);\n     </script>\n   </body>\n   </html>\n   ```\n3. **Verification Gate**:\n   *Gate: HTML file renders cleanly in browser; tooltips trigger on hover without console errors.*\n4. **Remediation**:\n   If axes clip text, add `\"autosize\": {\"type\": \"fit\", \"contains\": \"padding\"}` to spec.",
-      "sha256": "d4312f141ffb701fe934b2c6e526ec00c22e7c7653f609b725ee66b66bda802d"
+      "sha256": "d4312f141ffb701fe934b2c6e526ec00c22e7c7653f609b725ee66b66bda802d",
+      "cookbook_sha256": "547db4f66fee7f80c6e948673a221ef7b8e37d79323f75f58497d2a40433cbbe"
     },
     {
       "name": "inversion-thinking",
@@ -1167,7 +1211,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Inversion-Based Problem Solving\n\n## Objective\nApply inversion thinking to discover hidden flaws, anti-patterns, and fatal failure paths in an architecture or codebase before implementation.\n\n## Prerequisites\n- A clear technical objective or architectural decision.\n\n## Execution Recipe\n1. **Identify Success Goal**:\n   Formulate the desired state in one concise sentence (e.g., \"Harness runs untrusted code safely without resource exhaustion\").\n2. **Construct Anti-Goal**:\n   Formulate the opposite condition (e.g., \"Harness allows runaway fork-bombs, memory leaks, and disk exhaustion\").\n3. **Brainstorm Failure Mechanisms**:\n   List at least 4 ways to cause the anti-goal:\n   - Unbounded memory allocations\n   - Subprocesses not attached to job objects\n   - Infinite recursive loops without turn limits\n   - File descriptors left unclosed\n4. **Translate to Active Invariants**:\n   Convert each failure mechanism into an automated test or architectural gate:\n   - Cap subprocess memory with Job Object limits.\n   - Enforce hard turn budgets (max 12 iterations).\n   - Use `with` blocks or explicit try-finally cleanup for all I/O handles.\n5. **Verification Gate**:\n   Execute test suite to prove each anti-goal scenario is blocked and raises expected exceptions.\n6. **Remediation**:\n   If an anti-goal scenario slips through, insert an AST check or policy rule to reject it before runtime.",
-      "sha256": "efa4f3770b2cb3763bce1abc1a2dc90ccfc4a1bab3e4581e4121e1a60499b833"
+      "sha256": "efa4f3770b2cb3763bce1abc1a2dc90ccfc4a1bab3e4581e4121e1a60499b833",
+      "cookbook_sha256": "691ad7dbd415d86765cfc2dee3222c8681a01e825c434e4ddce0865065487369"
     },
     {
       "name": "llms-txt-generator",
@@ -1194,7 +1239,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Project LLMs.txt & LLMs-Full.txt Generation\n\n## Objective\nGenerate standardized `llms.txt` and `llms-full.txt` index manifests from repository markdown documentation.\n\n## Prerequisites\n- Repository documentation directory (`docs/` or root markdown files).\n- Python 3.11+.\n\n## Execution Recipe\n1. **Catalog Markdown Specifications**:\n   ```powershell\n   Get-ChildItem -Path docs/ -Filter \"*.md\" | Select-Object Name, FullName\n   ```\n2. **Compile `llms.txt` Header & Core Links**:\n   Format project summary and annotate each primary document:\n   ```markdown\n   # <Project Name>\n   > <Canonical project mission and invariants>\n\n   ## Core Documentation\n   - [Architecture Spec](docs/ARCHITECTURE-SPEC.md): System map and invariants.\n   - [Harness Guide](docs/AGENTIC-HARNESS.md): Agent runtime and tool protocol.\n   ```\n3. **Assemble `llms-full.txt`**:\n   Concatenate all referenced markdown documents with clear section delimiters into a single offline reference file.\n4. **Verification Gate**:\n   *Gate: `llms.txt` passes markdown lint; all link targets exist on disk.*\n5. **Remediation**:\n   If broken relative links are detected, update paths to match actual file system locations.",
-      "sha256": "e24f83b4a645faebab21b87df7e4c384d445969b91d1af253cbe2cf28b9f24ef"
+      "sha256": "e24f83b4a645faebab21b87df7e4c384d445969b91d1af253cbe2cf28b9f24ef",
+      "cookbook_sha256": "110da8654b8dc8cf2c770001d061b367146fc38301ca6a9e87223a6d1255ec98"
     },
     {
       "name": "loss-aversion-calibrator",
@@ -1222,7 +1268,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Loss Aversion Audit & Symmetric Expected Value Scoring\n\n## Objective\nNeutralize loss aversion in architectural decisions by calculating symmetric Expected Value and bounding downside risk.\n\n## Prerequisites\n- A proposed high-impact refactoring or technology migration.\n\n## Execution Recipe\n1. **Catalog Prospective Gains & Potential Losses**:\n   - Gains: Execution speedup, test run reduction, code simplification, developer velocity.\n   - Losses: Regression risk, migration effort, transient deployment bugs.\n2. **Compute Symmetric Expected Value (EV)**:\n   ```\n   EV = (Prob_Gain * Value_Gain) - (Prob_Loss * Cost_Loss)\n   ```\n   *Rule: Score probabilities objectively based on automated test coverage.*\n3. **Bound Downside via Two-Way Door Mechanism**:\n   Design an instant rollback mechanism to reduce `Cost_Loss` to near-zero:\n   - Git worktree isolation: `git worktree add ../migration-test`\n   - Config feature flag: `ENABLE_V2_PIPELINE = false`\n4. **Verification Gate**:\n   *Gate: EV > 0 and worst-case recovery time is bounded to < 5 minutes via git or feature flag.*\n5. **Remediation**:\n   If team hesitation persists despite positive EV, run a 24-hour shadow test without altering production traffic.",
-      "sha256": "f5654f046f2740ab4b973834535ae8517789fa0ee0fa8e58e693d80eabca5899"
+      "sha256": "f5654f046f2740ab4b973834535ae8517789fa0ee0fa8e58e693d80eabca5899",
+      "cookbook_sha256": "d02e5d19b1052f6f94e00097c267ea78b4f72e229800afc30f112e6769b56134"
     },
     {
       "name": "memory-consolidation",
@@ -1249,7 +1296,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Consolidating Session Working Memory into Second Brain\n\n## Objective\nDistill a completed agent session transcript into durable, structured memory notes and refresh the second-brain search index.\n\n## Prerequisites\n- Completed session transcript or conversation history in `agent/session.py`.\n- Obsidian second-brain vault.\n\n## Execution Recipe\n1. **Extract Durable Decisions and Preferences**:\n   Scan transcript turns for:\n   - System configurations adopted (e.g. \"always use Python 3.11 for gates\").\n   - User project decisions and architectural dispositions.\n   - Newly discovered book/concept relationships.\n2. **Draft Atomic Concept or Preference Note**:\n   Create Markdown note under `wiki/library/knowledge/` or `wiki/decisions/`:\n   ```markdown\n   ---\n   type: DecisionNote\n   title: \"Session Resumption Invalidation on 1007\"\n   domain: applied-sciences/engineering-and-technology\n   status: reviewed\n   date: 2026-11-10\n   ---\n   # Decision: Invalidate Resumption Handle on 1007 Error\n   ...\n   ```\n3. **Re-Index Second Brain Search**:\n   ```powershell\n   python tools/brain_sync.py --no-embed\n   ```\n4. **Verification Gate**:\n   Query the newly consolidated memory via `python -m agent run \"brain_search query='<topic>'\"` and confirm retrieval.\n5. **Remediation**:\n   If index shows stale entries, run `python tools/brain_sync.py --rebuild` for a fresh SQLite FTS5 rebuild.",
-      "sha256": "77c9bf76a17220e4824c5abfea3a128b029d420ade9ec57475ff59a8c786e18a"
+      "sha256": "77c9bf76a17220e4824c5abfea3a128b029d420ade9ec57475ff59a8c786e18a",
+      "cookbook_sha256": "b19dcda46e6b3692da45048d3e9a0fcc44f2140a98458ed5cdf606b1fa5b4129"
     },
     {
       "name": "multimodal-media-crawler",
@@ -1279,7 +1327,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Video Subtitle & Audio Extraction via yt-dlp\n\n## Objective\nExtract closed captions and compressed audio tracks from a video URL without downloading full video files.\n\n## Prerequisites\n- `yt-dlp` and `ffmpeg` installed and in PATH.\n\n## Execution Recipe\n1. **Probe Available Subtitle Languages**:\n   ```powershell\n   yt-dlp --list-subs \"<media_url>\"\n   ```\n2. **Download Subtitle Track to Clean VTT**:\n   ```powershell\n   yt-dlp --write-sub --write-auto-sub --sub-lang \"en.*\" --skip-download --sub-format vtt -o \"%(title)s.%(ext)s\" \"<media_url>\"\n   ```\n3. **Extract Lightweight Speech Audio (if subtitles missing)**:\n   ```powershell\n   yt-dlp -x --audio-format mp3 --audio-quality 5 -o \"%(title)s.%(ext)s\" \"<media_url>\"\n   ```\n4. **Convert VTT to Clean Paragraph Markdown**:\n   Filter out VTT timestamps and duplicate lines using regex:\n   ```powershell\n   (Get-Content -Path \"*.vtt\") | Where-Object { $_ -notmatch '-->|^[0-9]+$|^WEBVTT' } | Out-File \"transcript.md\"\n   ```\n5. **Verification Gate**:\n   *Gate: Subtitle or audio file exists on disk with size > 1KB.*\n6. **Remediation**:\n   If video is geo-restricted or bot-blocked, pass browser cookies via `--cookies-from-browser chrome`.",
-      "sha256": "b0c3afedad793f0a1de9dc152d9959dcd88179f1b9e13011409c430725dc843e"
+      "sha256": "b0c3afedad793f0a1de9dc152d9959dcd88179f1b9e13011409c430725dc843e",
+      "cookbook_sha256": "29b9e5588ff12d2767d056e9b95077598b25dd26c11d291dacc39e00b191133b"
     },
     {
       "name": "occams-razor",
@@ -1305,7 +1354,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Complexity Pruning via Occam's Razor\n\n## Objective\nStrip speculative complexity and excess dependencies from a code module, leaving only minimal, verified primitives.\n\n## Prerequisites\n- A working test suite covering the target module's functional requirements.\n\n## Execution Recipe\n1. **Audit External Imports**:\n   Scan target files for heavy third-party dependencies:\n   ```powershell\n   Select-String -Path \".\\*.py\" -Pattern \"^import |^from \" | Group-Object Line\n   ```\n2. **Evaluate In-House Substitution**:\n   Identify libraries imported for trivial utilities (e.g., `requests` for a single GET request, `lodash` for cloning). Replace with Python stdlib (`urllib.request`, `copy.deepcopy`).\n3. **Flatten Class Hierarchies**:\n   Collapse multi-level class inheritances into simple data classes or pure functions when no polymorphic behavior is needed.\n4. **Remove Unused Knobs**:\n   Delete configuration parameters that have never been overridden in production or tests.\n5. **Verification Gate**:\n   Run unit tests and lint checks:\n   ```powershell\n   python -m ruff check .\n   python -m pytest tests -q\n   ```\n   All tests must pass with zero behavioral regressions and fewer dependencies.\n6. **Remediation**:\n   If an edge case required a deleted abstraction, restore only the minimum inline logic needed to handle that specific edge case.",
-      "sha256": "189e6e310d09487315bc23f151f7b095d626d72d5f245b90affcd19eb8cec0dd"
+      "sha256": "189e6e310d09487315bc23f151f7b095d626d72d5f245b90affcd19eb8cec0dd",
+      "cookbook_sha256": "8138093123e80e5ab35a9af0dad404332e6706fe16efe41915c3c4d5359f3a1c"
     },
     {
       "name": "open-codesign",
@@ -1333,7 +1383,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Rapid UI Component Prototyping\n\n## Objective\nGenerate a complete, accessible, and responsive frontend component prototype from a functional specification.\n\n## Prerequisites\n- UI requirement or wireframe brief.\n\n## Execution Recipe\n1. **Declare Semantic Design Tokens**:\n   Setup base palette and spacing tokens in CSS `:root`:\n   ```css\n   :root {\n       --primary: #3b82f6;\n       --background: #0f172a;\n       --surface: #1e293b;\n       --text: #f8fafc;\n       --radius: 8px;\n   }\n   ```\n2. **Structure Semantic HTML**:\n   Write clean markup using appropriate HTML5 tags (`<header>`, `<section>`, `<article>`).\n3. **Apply Responsive CSS Grid/Flexbox**:\n   Structure elements with auto-fit grids:\n   ```css\n   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }\n   ```\n4. **Style State Transitions**:\n   Add subtle, performant transitions (`transform`, `opacity`) for interactive controls.\n5. **Verification Gate**:\n   - Check contrast ratio $\\ge$ 4.5:1.\n   - Verify keyboard navigability via `Tab` key.\n   - Verify layout scales gracefully on 375px mobile view.\n6. **Remediation**:\n   If layout wraps awkwardly on small screens, adjust flex-wrap rules or decrease minimum column width.",
-      "sha256": "5fe6b7f08c08afefc9bb4386acd888da40ed4066f16a2f938859ed215a39f360"
+      "sha256": "5fe6b7f08c08afefc9bb4386acd888da40ed4066f16a2f938859ed215a39f360",
+      "cookbook_sha256": "d2a4b3e17c6de0e5a8c1f02a96b9260b143e8b263d2934cb1daa236f4168e9a7"
     },
     {
       "name": "opportunity-cost-evaluator",
@@ -1359,7 +1410,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Evaluating Opportunity Costs of Architectural Choices\n\n## Objective\nEvaluate competing technical directions by explicitly measuring what capabilities, maintenance cycles, and simplifications are sacrificed.\n\n## Prerequisites\n- A non-trivial engineering decision with at least two viable implementation approaches.\n\n## Execution Recipe\n1. **List the Competing Alternatives**:\n   - *Option A*: Build custom in-house implementation (e.g. custom AST validator).\n   - *Option B*: Standardize on established stdlib / existing tool (e.g. `ast.parse` + existing `scripts_index.py`).\n2. **Tabulate Costs Beyond Initial Code**:\n   For each option, quantify:\n   - Initial implementation turns/hours.\n   - Ongoing CI maintenance and test execution time.\n   - Cognitive burden on other developers/agents.\n3. **Identify the True Forgone Value**:\n   Ask: \"If we spend 3 days building Option A, which critical roadmap features get delayed?\"\n4. **Choose the Maximum Net-Leverage Option**:\n   Select the direction that maximizes system value per unit of ongoing maintenance risk.\n5. **Verification Gate**:\n   Document the trade-off in an ADR or commit message justifying why the forgone alternative was inferior.\n6. **Remediation**:\n   If an in-house bespoke implementation begins consuming disproportionate debugging cycles, retire it in favor of a standard solution.",
-      "sha256": "c656adcd712baa314119e361b59554093fdae68a6675b3d8d8cb53d1d6a60df7"
+      "sha256": "c656adcd712baa314119e361b59554093fdae68a6675b3d8d8cb53d1d6a60df7",
+      "cookbook_sha256": "ecb8185fdf07118bd7c658804d7130241e74dc1b6b3bdd90d034b51eb9d4f5fa"
     },
     {
       "name": "pareto-principle-80-20",
@@ -1387,7 +1439,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Pareto Optimization and Leverage Point Discovery\n\n## Objective\nIdentify and resolve the top 20% of code paths or failure vectors causing 80% of latency, resource consumption, or bugs.\n\n## Prerequisites\n- Performance profile, test failure logs, or benchmark telemetry.\n\n## Execution Recipe\n1. **Gather Performance / Defect Distribution**:\n   Run profiler or aggregate logs to identify hotspot frequencies:\n   ```powershell\n   python -m cProfile -s tottime main.py\n   ```\n2. **Sort Hotspots Descending**:\n   Create a ranked table of functions by total time or error frequency.\n3. **Select the Top 20% Cutoff**:\n   Identify the top 1 to 3 functions that account for the bulk of execution time.\n4. **Formulate High-Leverage Fix**:\n   Apply algorithmic optimizations, caching, or early-exit gates strictly to those top hotspots.\n   - Example: Adding an LRU cache or indexing a database column.\n5. **Verification Gate**:\n   Benchmark the optimized code against the baseline to prove measurable gains (> 50% improvement in targeted metric).\n6. **Remediation**:\n   If an optimization on a top hotspot does not move the needle, re-profile to detect whether external I/O or waiting states were misattributed.",
-      "sha256": "7582072e04ef8e9fe1a8eaacfebbfd87934e3217f6cd6c352df4f84d8f5ebe64"
+      "sha256": "7582072e04ef8e9fe1a8eaacfebbfd87934e3217f6cd6c352df4f84d8f5ebe64",
+      "cookbook_sha256": "4e52ea5ea05691df49be527cfec8941d56c67547d6ef604dc121b49906ddbab1"
     },
     {
       "name": "parkinsons-law-compression",
@@ -1414,7 +1467,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Radical Scope Compression via Artificial Constraints\n\n## Objective\nCompress a sprawling task or bloated implementation by applying strict boundaries on turns, token budgets, and lines of code.\n\n## Prerequisites\n- A complex, over-engineered task or sprawling pull request.\n\n## Execution Recipe\n1. **Set Hard Artificial Constraints**:\n   - Limit turn budget: `max_turns = 4`.\n   - Limit diff size: `max_lines_changed = 30`.\n   - Limit prompt size: `max_chars = 1200`.\n2. **Prune Speculative Features**:\n   Strip all \"nice-to-have\" abstractions, premature helper functions, and speculative edge cases that are not directly tested.\n3. **Draft the Minimal Bedrock Solution**:\n   Write the simplest working code that passes the unit test using existing stdlib primitives.\n4. **Compare Compressed Solution Against Sprawling Solution**:\n   Evaluate whether the compressed solution achieves 95% of the value with 10% of the complexity.\n5. **Verification Gate**:\n   ```powershell\n   python -m pytest tests -q\n   python -m ruff check .\n   ```\n6. **Remediation**:\n   If a compressed solution fails tests, add back only the specific missing check required by the failure, not the entire sprawling architecture.",
-      "sha256": "ef6471853ddeb36a656c61bf72b03fe2ca430ec1480f567374c24a6528fec1ef"
+      "sha256": "ef6471853ddeb36a656c61bf72b03fe2ca430ec1480f567374c24a6528fec1ef",
+      "cookbook_sha256": "38876fa653dda1f70571b2777e151656835792f99b39530e4f052e934dd25212"
     },
     {
       "name": "performance-profiler",
@@ -1432,7 +1486,8 @@
       "tags": [],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Performance Profiling & Optimization\n\n## Objective\nProfile execution time and memory allocations to identify and remediate bottlenecks.\n\n## Prerequisites\n- python 3.11+\n- cProfile\n\n## Execution Recipe\n1. **Run cProfile on Target Code**:\n   ```powershell\n   python -m cProfile -s cumulative <script.py>\n   ```\n2. **Analyze Hot Paths**:\n   Identify functions consuming > 80% of execution time.\n3. **Apply Targeted Optimization**:\n   Replace repeated allocations with generators, vectorize math, or add caching.\n4. **Verification Gate**:\n   Re-run profile and verify execution time reduction (> 20%).\n5. **Remediation**:\n   If optimization changes outputs, run unit test suite to detect regressions.",
-      "sha256": "78331fdb79118f6640b74fb3980a356558e2ef1a05adb498a1470c92d154e647"
+      "sha256": "78331fdb79118f6640b74fb3980a356558e2ef1a05adb498a1470c92d154e647",
+      "cookbook_sha256": "73b4fc34e9e53b46fcb7f2dd34315139666bd012dc01127d913af9dc8aefb89b"
     },
     {
       "name": "postgres-query-optimizer",
@@ -1460,7 +1515,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: PostgreSQL Query Plan Optimization & Indexing\n\n## Objective\nDiagnose slow PostgreSQL queries using `EXPLAIN (ANALYZE, BUFFERS)` and deploy non-blocking index fixes.\n\n## Prerequisites\n- Access to PostgreSQL database via `psql` or connection string.\n\n## Execution Recipe\n1. **Run Deep Execution Plan**:\n   ```sql\n   EXPLAIN (ANALYZE, BUFFERS, VERBOSE, SETTINGS)\n   <YOUR_QUERY_HERE>;\n   ```\n2. **Audit Bottleneck Nodes**:\n   - Check for `Seq Scan` on large tables: indicates missing index on filter columns.\n   - Check `Buffers: read=...`: indicates physical disk I/O instead of shared memory cache hit.\n   - Check `Rows Removed by Filter`: high numbers indicate poor index selectivity.\n3. **Deploy Non-Blocking Index**:\n   ```sql\n   CREATE INDEX CONCURRENTLY idx_orders_customer_created\n   ON orders (customer_id, created_at DESC);\n   ```\n4. **Re-Run & Compare Execution Plan**:\n   Verify node converted from `Seq Scan` to `Index Scan` or `Bitmap Index Scan`.\n5. **Verification Gate**:\n   *Gate: Execution time drops by $\\ge 80\\%$ and physical disk reads (`read=`) drop to 0.*\n6. **Remediation**:\n   If planner still chooses sequential scan, verify row estimates via `ANALYZE orders;` or adjust `random_page_cost`.",
-      "sha256": "4e21996d70a025acc47153e06e1bc58f57a3d18e60b26b7d2121a8db1e7f4f33"
+      "sha256": "4e21996d70a025acc47153e06e1bc58f57a3d18e60b26b7d2121a8db1e7f4f33",
+      "cookbook_sha256": "6784f5ce00af392e95e8368ac103e5a7c47eaef3826f4549aae317f7029440c3"
     },
     {
       "name": "pr-readiness",
@@ -1490,7 +1546,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Branch PR Readiness & Pre-Flight Validation\n\n## Objective\nValidate that a branch is synced, tested, linted, and ready for immediate pull request creation without CI failures.\n\n## Prerequisites\n- Feature or bugfix branch checked out (not `main`).\n- GitHub CLI (`gh`) or git remote configured.\n\n## Execution Recipe\n1. **Sync Check with Target**:\n   ```powershell\n   git fetch origin main\n   $behind = git rev-list --count HEAD..origin/main\n   if ($behind -gt 0) { git rebase origin/main }\n   ```\n2. **Execute Local Test Suite**:\n   ```powershell\n   py -3.11 -m pytest tests -q\n   ```\n3. **Run Linter & Static Checks**:\n   ```powershell\n   py -3.11 -m ruff check .\n   ```\n4. **Inspect Diff & Generate PR Description**:\n   ```powershell\n   git log origin/main..HEAD --oneline\n   ```\n   Draft markdown description:\n   - **Summary**: Concise high-level intent.\n   - **Changes**: Bulleted breakdown of commits.\n   - **Verification**: Exact test commands executed.\n5. **Submit PR**:\n   ```powershell\n   gh pr create --title \"<type>(<scope>): <subject>\" --body-file pr_body.md\n   ```\n6. **Verification Gate**:\n   *Gate: Tests pass 100%, linter returns 0 errors, no merge conflicts.*\n7. **Remediation**:\n   If behind target branch or tests fail, resolve conflicts locally, rerun tests, and re-verify before submitting.",
-      "sha256": "f289292cfd1ad68c1754845954e2c3d9e0e7fbbc30c63102b4264578eb94f475"
+      "sha256": "f289292cfd1ad68c1754845954e2c3d9e0e7fbbc30c63102b4264578eb94f475",
+      "cookbook_sha256": "4e9e63ee4994844ce733659f33bf3814164d847ccba72dc61f5b35e97527e75b"
     },
     {
       "name": "pre-mortem-analysis",
@@ -1515,7 +1572,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Pre-Mortem Risk Immunization\n\n## Objective\nIdentify and neutralize high-risk failure modes before initiating breaking changes or production operations.\n\n## Prerequisites\n- A planned migration, refactoring, or infrastructure update.\n\n## Execution Recipe\n1. **Declare Hypothetical Catastrophe**:\n   Document the exact failure state: \"The migration script ran, wiped 30% of user data, and the rollback failed.\"\n2. **Scan for Failure Vectors**:\n   Inspect the code and operational plan for:\n   - Destructive commands without dry-run flags (`DROP TABLE`, `rm -rf`, `git reset --hard`)\n   - Unhandled exception paths inside loops\n   - Missing atomic transaction wrappers\n3. **Draft the Emergency Rollback Recipe**:\n   Write the exact CLI command sequence required to restore state within 60 seconds if failure strikes.\n4. **Implement Defense Fences**:\n   - Add SQLite backup snapshot step before running schema changes.\n   - Enforce dry-run mode by default; require `--force` or explicit confirmation for destructive actions.\n5. **Verification Gate**:\n   Simulate an intentional mid-execution abort (e.g. `KeyboardInterrupt`) and verify the database or workspace rolls back cleanly without corruption.\n6. **Remediation**:\n   If an operation cannot be cleanly rolled back, refactor it into an append-only or versioned shadow table strategy.",
-      "sha256": "4b640c9782572a397f1a9f234234c504a4e25ac34bc7792bfa5b5a0053e0b293"
+      "sha256": "4b640c9782572a397f1a9f234234c504a4e25ac34bc7792bfa5b5a0053e0b293",
+      "cookbook_sha256": "3927167b4ec8aaacb7b455c809dab5b7be4a47a644d0cf65c18c3ee36522dfd4"
     },
     {
       "name": "red-team-blue-team",
@@ -1543,7 +1601,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Adversarial Red/Blue Security Verification\n\n## Objective\nProactively probe a newly implemented tool, API endpoint, or permission boundary for security bypasses and harden it with automated tests.\n\n## Prerequisites\n- A target module, tool specification, or permission check.\n\n## Execution Recipe\n1. **Red Team Probe Phase**:\n   Draft an exploit test case in `tests/test_redteam.py` attempting to violate system invariants:\n   - Path Traversal: Passing `../../etc/passwd` or `..\\..\\Windows\\System32`.\n   - Command Injection: Passing `; rm -rf /` or `& calc.exe`.\n   - Resource Exhaustion: Triggering an infinite recursive call or huge allocation.\n2. **Execute Probe**:\n   ```powershell\n   python -m pytest tests/test_redteam.py -k \"test_adversarial_probe\" -v\n   ```\n   *Observation: Did the defense block the attack, or did the breach succeed?*\n3. **Blue Team Defense Phase**:\n   If the probe succeeded, implement immediate hardening:\n   - Enforce path normalization via `Path.resolve()` and verify containment.\n   - Restrict tool command execution to stdlib `run_captured` without `shell=True`.\n   - Enforce memory and execution timeouts via Job Objects.\n4. **Permanent Test Integration**:\n   Rename the probe into a permanent regression test asserting that the exploit raises a permission denial or sanitized result.\n5. **Verification Gate**:\n   ```powershell\n   python -m pytest tests/test_redteam.py -v\n   python -m ruff check .\n   ```\n6. **Remediation**:\n   If an exploit vector cannot be closed in software alone, add a policy-level `deny` rule in `agent_permissions.json`.",
-      "sha256": "590502fa8fcde7efeefbb4a7c6f2b432031e54b2b182f9c5bf4ea8ab97d8ee23"
+      "sha256": "590502fa8fcde7efeefbb4a7c6f2b432031e54b2b182f9c5bf4ea8ab97d8ee23",
+      "cookbook_sha256": "983a8c5f30c73b455045a2b826bfdf57c8e56697201ea0cf58131d2d36aefd7b"
     },
     {
       "name": "release-engineering",
@@ -1572,7 +1631,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Production Release & Version Tagging\n\n## Objective\nOrchestrate a verified, reproducible release with changelog generation, semver bump, and annotated git tagging.\n\n## Prerequisites\n- Clean git working tree on target release branch (`main` / `release`).\n- Full test runner configured and passing.\n\n## Execution Recipe\n1. **Pre-Flight Validation**:\n   ```powershell\n   git status --porcelain\n   # Must return 0 lines\n   ```\n2. **Analyze Commits Since Last Tag**:\n   ```powershell\n   $lastTag = git describe --tags --abbrev=0 2>$null\n   if (-not $lastTag) { git log --oneline -n 20 } else { git log \"$lastTag..HEAD\" --oneline }\n   ```\n3. **Draft Changelog & Bump Version**:\n   Update `CHANGELOG.md` with Added/Fixed/Changed entries. Bump version in project manifest (`pyproject.toml`, `package.json`, or version file).\n4. **Execute Verification Gate**:\n   ```powershell\n   py -3.11 -m pytest tests -q\n   py -3.11 -m ruff check .\n   ```\n   *Gate: All tests must pass and 0 lint warnings.*\n5. **Create Tag & Publish (or Dry Run)**:\n   ```powershell\n   git commit -am \"chore(release): bump version to v<new_version>\"\n   git tag -a \"v<new_version>\" -m \"Release v<new_version>\"\n   ```\n6. **Remediation**:\n   If tests fail during validation, do not tag. Revert version bump edits via `git restore .` and address defects before retrying.",
-      "sha256": "d41fed9ac41398b1f36e69eb863a3858cff59e281fb649e1e47ddd32b797937f"
+      "sha256": "d41fed9ac41398b1f36e69eb863a3858cff59e281fb649e1e47ddd32b797937f",
+      "cookbook_sha256": "ca1b1bf8a1b2f7674af1c841c3c325a160fe4bc24a147c0039acfffa962e549f"
     },
     {
       "name": "rest-api-contract-generator",
@@ -1601,7 +1661,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: OpenAPI 3.1 Contract Design & Mock Testing\n\n## Objective\nAuthor a strict OpenAPI 3.1 specification and spin up an instant local mock server for testing.\n\n## Prerequisites\n- Node.js (`npx @stoplight/prism-cli`) or Python `openapi-spec-validator`.\n\n## Execution Recipe\n1. **Draft Core OpenAPI 3.1 Document**:\n   ```yaml\n   openapi: 3.1.0\n   info:\n     title: Brahma Agent API\n     version: 1.0.0\n   paths:\n     /api/v1/tasks:\n       post:\n         summary: Submit an agent task\n         requestBody:\n           required: true\n           content:\n             application/json:\n               schema:\n                 $ref: '#/components/schemas/TaskRequest'\n         responses:\n           '201':\n             description: Created\n             content:\n               application/json:\n                 schema:\n                   $ref: '#/components/schemas/TaskResponse'\n   components:\n     schemas:\n       TaskRequest:\n         type: object\n         required: [prompt]\n         properties:\n           prompt: { type: string }\n       TaskResponse:\n         type: object\n         required: [id, status]\n         properties:\n           id: { type: string }\n           status: { type: string, enum: [pending, running, done] }\n   ```\n2. **Validate Contract Syntax**:\n   ```powershell\n   npx @stoplight/prism-cli mock openapi.yaml --port 4010\n   ```\n3. **Verification Gate**:\n   *Gate: Prism mock server starts without schema errors; returns 201 on valid POST requests.*\n4. **Remediation**:\n   If validation reports unresolved references, check `$ref` pointer paths against `components/schemas`.",
-      "sha256": "cb66c8ac328a2b395025222c98f9ef05b59181abb7ebb23e0f82d61310dc1752"
+      "sha256": "cb66c8ac328a2b395025222c98f9ef05b59181abb7ebb23e0f82d61310dc1752",
+      "cookbook_sha256": "d7712918318df443e6d95db49f75c327e2007cd21c8a11e87effd60764ac62c9"
     },
     {
       "name": "reversibility-two-way-doors",
@@ -1629,7 +1690,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Decision Triage via Reversibility Analysis\n\n## Objective\nClassify a pending engineering choice as Type 1 or Type 2, match it with the correct decision process, and prevent unnecessary paralysis on reversible items.\n\n## Prerequisites\n- A proposed technical change, architectural decision, or implementation direction.\n\n## Execution Recipe\n1. **Assess Reversibility Cost**:\n   Ask: \"If this change fails completely in production, how long does it take to restore the prior state and what is the blast radius?\"\n   - If rollback requires > 1 day or causes permanent data loss $\\rightarrow$ **Type 1 (One-Way Door)**.\n   - If rollback requires `git revert` or restoring a backup table $\\rightarrow$ **Type 2 (Two-Way Door)**.\n2. **If Type 1 (One-Way Door)**:\n   - Halt fast execution.\n   - Author a formal spec using `spec-driven-development`.\n   - Run a `pre-mortem-analysis` to map failure vectors.\n   - Require explicit human/supervisor review before merging.\n3. **If Type 2 (Two-Way Door)**:\n   - Maximize decision velocity.\n   - Write a quick unit test, apply the change, run verification.\n   - Ship and iterate.\n4. **Build the Rollback Handle**:\n   Even for Type 2 decisions, ensure the rollback path is verified (e.g. clean git tree, database transaction).\n5. **Verification Gate**:\n   Type 2 changes must pass existing CI gates (`pytest`, `ruff`) without requiring architectural ratchets or policy changes.\n6. **Remediation**:\n   If a Type 2 decision turns out to have hidden one-way dependencies, immediately pause, roll back, and re-classify as Type 1.",
-      "sha256": "bc49c73a8ba5511e70ea3f22f851878940916c181789585644f95982d348cf8c"
+      "sha256": "bc49c73a8ba5511e70ea3f22f851878940916c181789585644f95982d348cf8c",
+      "cookbook_sha256": "896f8d3493dc182af1d13c7f6858e29897a1344d9ad84e5f05bbe10a90d30647"
     },
     {
       "name": "root-cause-fishbone",
@@ -1656,7 +1718,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: 6M Fishbone Root-Cause Analysis\n\n## Objective\nIsolate complex, non-obvious defects by analyzing contributing factors across the 6 Ishikawa categories.\n\n## Prerequisites\n- System defect with intermittent, multi-variable, or platform-specific symptoms.\n\n## Execution Recipe\n1. **Define the Defect Spine**:\n   Write the exact symptom at the head of the fishbone (e.g. \"WebSocket drops with 1007 error during voice turns\").\n2. **Brainstorm across the 6 Categories**:\n   - **Machine**: Windows Store Python 3.12, directsound audio drivers.\n   - **Method**: Concurrent microphone audio chunk streaming while tool execution is active.\n   - **Material**: Resumption handle string corrupted or rejected by server.\n   - **Manpower**: User speaks while model executes a 5-second tool call.\n   - **Measurement**: Log trace caught `1007 invalid frame payload data`.\n   - **Milieu**: Gemini Live server enforcing strict full-duplex protocol framing.\n3. **Isolate Primary vs Secondary Drivers**:\n   Circle the intersecting factors causing the failure (e.g., Method + Machine + Milieu).\n4. **Draft Multi-Layered Remediation**:\n   Implement a fix that addresses both the trigger (pause audio streaming during tool execution) and the recovery (clear resumption handle on 1007).\n5. **Verification Gate**:\n   Execute simulated defect scenario; verify both layers hold.\n6. **Remediation**:\n   If defect recurs, inspect the remaining unaddressed 6M branches.",
-      "sha256": "77d7a3c93e574acbb8948c78fa2e204ece316086a48e67581c1758b0280cefe2"
+      "sha256": "77d7a3c93e574acbb8948c78fa2e204ece316086a48e67581c1758b0280cefe2",
+      "cookbook_sha256": "3a4b6fe95a1d9a65557caeb43e9d34b02fa3a4ca33729fde2ac382b43cc9d14b"
     },
     {
       "name": "scroll-driven-web-design",
@@ -1684,7 +1747,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Native CSS Scroll-Driven Animation & Layout\n\n## Objective\nBuild a performant, 60fps scroll-driven landing page section using native CSS `animation-timeline`.\n\n## Prerequisites\n- HTML5 & modern CSS environment (Chrome 115+, Safari 17+ support).\n\n## Execution Recipe\n1. **Scaffold Sticky Timeline Section**:\n   ```html\n   <div class=\"scroll-track\" style=\"height: 300vh; position: relative;\">\n     <div class=\"sticky-viewport\" style=\"position: sticky; top: 0; height: 100vh; overflow: hidden;\">\n       <div class=\"hero-card\">Interactive Narrative</div>\n     </div>\n   </div>\n   ```\n2. **Define Pure CSS Animation Timeline**:\n   ```css\n   @keyframes revealFade {\n     from { opacity: 0; transform: translateY(40px) scale(0.95); }\n     to { opacity: 1; transform: translateY(0) scale(1); }\n   }\n   .hero-card {\n     animation: revealFade linear both;\n     animation-timeline: view();\n     animation-range: entry 15% cover 50%;\n   }\n   ```\n3. **Add Accessible Fallback**:\n   ```css\n   @supports not (animation-timeline: view()) {\n     .hero-card { opacity: 1; transform: none; }\n   }\n   ```\n4. **Verification Gate**:\n   *Gate: Animations run smoothly at 60fps; content is 100% visible if animation is disabled.*\n5. **Remediation**:\n   If layout jitters occur, replace animated `margin`/`top` with `transform: translate3d()`.",
-      "sha256": "1e999bea0178911b7068da43f3a2af146d758a81859834559045046c6090e514"
+      "sha256": "1e999bea0178911b7068da43f3a2af146d758a81859834559045046c6090e514",
+      "cookbook_sha256": "17c943e09f907e813598069f8cd3ef2f4f18df14200b6c99264d42c8335e8fa7"
     },
     {
       "name": "second-order-thinking",
@@ -1709,7 +1773,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Second-Order Consequence Analysis\n\n## Objective\nTrace cascading downstream impacts of an architectural change to prevent system-wide instability or unintended feedback loops.\n\n## Prerequisites\n- A proposed architectural modification, rate-limit adjustment, or concurrency change.\n\n## Execution Recipe\n1. **Define the Immediate Change**:\n   Document the proposal (e.g., \"Cache search query results in memory for 10 minutes to reduce database load\").\n2. **Execute Second-Order Traversal**:\n   Answer the following 4 cascading questions:\n   - *Question 1*: What happens when the underlying data is updated during those 10 minutes? (Stale data served to users).\n   - *Question 2*: What happens to process memory under a sudden surge of unique, long-tail queries? (RAM spikes, potential OOM crash).\n   - *Question 3*: What happens if multiple worker processes cache independently? (Duplicate memory footprint, inconsistent reads across cluster).\n   - *Question 4*: What happens on cache restart or expiration? (Cache stampede / database spike).\n3. **Draft Balancing Guardrails**:\n   - Enforce LRU eviction with a strict max-entries cap (`maxsize=1000`).\n   - Add explicit cache invalidation hook on data writes.\n   - Introduce probabilistic early expiration (XFetch) or mutex locks to prevent dog-piling.\n4. **Verification Gate**:\n   Execute load simulation or concurrency tests to ensure bounded memory growth and consistent invalidation:\n   ```powershell\n   python -m pytest tests -q -k \"cache or concurrency\"\n   ```\n5. **Remediation**:\n   If unconstrained downstream resource growth occurs, replace local in-memory caching with persistent file-backed or bounded TTL ring buffers.",
-      "sha256": "f98f37773f1375366c8c8ab7fa2447be23c56eb98ee28f8b15592644eac8f5d2"
+      "sha256": "f98f37773f1375366c8c8ab7fa2447be23c56eb98ee28f8b15592644eac8f5d2",
+      "cookbook_sha256": "82ce8ea104b27beb01bad0c234c95a462033fa3546458d282440f9405facedff"
     },
     {
       "name": "secret-and-leak-scanner",
@@ -1739,7 +1804,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Pre-Commit Secret & Credential Leak Audit\n\n## Objective\nScan repository files and staged changes for leaked credentials, private keys, and high-entropy API tokens.\n\n## Prerequisites\n- Git repository workspace.\n- PowerShell or bash terminal.\n\n## Execution Recipe\n1. **Scan Untracked & Sensitive Files**:\n   ```powershell\n   Get-ChildItem -Recurse -Include *.env, *.pem, *.key, *id_rsa*, credentials.json -Exclude .git, node_modules, .venv\n   ```\n2. **Audit Staged Diffs for Token Signatures**:\n   ```powershell\n   $patterns = @('sk-[a-zA-Z0-9]{20,}', 'ghp_[a-zA-Z0-9]{36}', 'AKIA[0-9A-Z]{16}', 'bearer [a-zA-Z0-9_\\-\\.]{25,}')\n   git diff --staged | Select-String -Pattern $patterns\n   ```\n3. **Scan Recent Commits for Secret Ingestion**:\n   ```powershell\n   git log -p -n 5 | Select-String -Pattern $patterns\n   ```\n4. **Verification Gate**:\n   *Gate: Zero matches found across file names, staged diffs, and commit logs.*\n5. **Remediation**:\n   - If uncommitted: add file to `.gitignore`, run `git reset <file>`.\n   - If committed in git: purge via `git filter-repo --invert-paths --path <file>`, force rotate the credential immediately at the third-party provider.",
-      "sha256": "9ac3694d92d54ff6ac0834e2dcf66874ca315c7c881e36dff73e2a21c4727cb8"
+      "sha256": "9ac3694d92d54ff6ac0834e2dcf66874ca315c7c881e36dff73e2a21c4727cb8",
+      "cookbook_sha256": "a2252d16fc8c4df0c94e835f062763db8f020675c67372129183cc2702613dbf"
     },
     {
       "name": "security-auditor",
@@ -1757,7 +1823,8 @@
       "tags": [],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Security Audit & Secret Scanning\n\n## Objective\nScan codebase for hardcoded credentials, API keys, unsafe subprocess calls, and known vulnerabilities.\n\n## Prerequisites\n- git\n- python 3.11+\n\n## Execution Recipe\n1. **Scan for Hardcoded Secrets**:\n   Search for common key prefixes (`AIza`, `sk-`, `ghp_`, `Bearer`):\n   ```powershell\n   git grep -E \"(AIza|sk-[a-zA-Z0-9]{20,}|ghp_)\"\n   ```\n2. **Audit Shell Invocations**:\n   Check for `shell=True` without sanitization in python files:\n   ```powershell\n   git grep \"shell=True\"\n   ```\n3. **Verify File Permissions & Sandbox Policies**:\n   Inspect `config/agent_permissions.example.json` to ensure least-privilege defaults.\n4. **Verification Gate**:\n   Verify 0 exposed secrets and all subprocess executions use array arguments (`shell=False`).\n5. **Remediation**:\n   Move detected keys to environment variables and scrub git history if needed.",
-      "sha256": "cbd3bdc93c41fb1f00bfe333469dd92ac71cc25e448ce2a67d3393c59ec5707c"
+      "sha256": "cbd3bdc93c41fb1f00bfe333469dd92ac71cc25e448ce2a67d3393c59ec5707c",
+      "cookbook_sha256": "1cf304e2e86c11afddb4a308edcd2122f1fa8039f43463aa09bd47662cd75c72"
     },
     {
       "name": "server-deployment-ops",
@@ -1786,7 +1853,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Zero-Downtime Server Deployment & Verification\n\n## Objective\nSafely pull code updates, rebuild containers, execute rolling restarts, and verify service health probes.\n\n## Prerequisites\n- SSH / local shell access to server host.\n- Docker & Docker Compose installed.\n\n## Execution Recipe\n1. **Sync Target Branch**:\n   ```powershell\n   git fetch origin main; git pull --ff-only origin main\n   ```\n2. **Review Deployment Scope**:\n   ```powershell\n   git log -1 --stat\n   docker compose config --services\n   ```\n3. **Execute Rolling Rebuild & Launch**:\n   ```powershell\n   docker compose up -d --build --remove-orphans\n   ```\n4. **Poll Health Check Probe**:\n   ```powershell\n   curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8080/health\n   ```\n5. **Inspect Startup Logs**:\n   ```powershell\n   docker compose logs --tail 30\n   ```\n6. **Verification Gate**:\n   *Gate: Health check probe returns 200 OK and container logs show 0 fatal errors.*\n7. **Remediation**:\n   If health check returns non-200 or times out, immediately roll back to previous image tag:\n   ```powershell\n   docker compose rollback || docker compose up -d --build --rollback\n   ```",
-      "sha256": "03e7b284ad1475bcd09daa918fac83e7a2c4cf9f20b9854c055d77529c6cf4bc"
+      "sha256": "03e7b284ad1475bcd09daa918fac83e7a2c4cf9f20b9854c055d77529c6cf4bc",
+      "cookbook_sha256": "994345927eacc0e15c2890044564a1388dd6ca52506a682ae34c2beef3ca42be"
     },
     {
       "name": "simplified-technical-english",
@@ -1813,7 +1881,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Rewriting Technical Documentation into ASD-STE100\n\n## Objective\nConvert complex, ambiguous technical documentation into concise, ASD-STE100 compliant text.\n\n## Prerequisites\n- Draft documentation, API guides, or architecture summaries to be simplified.\n\n## Execution Recipe\n1. **Sentence Length Audit**:\n   Scan draft text. Split any sentence containing more than 20 words into two separate sentences.\n2. **Convert Passive Voice to Imperative**:\n   - *Draft*: \"The configuration file must be modified by the user to contain the port number.\"\n   - *STE100*: \"Write the port number in the configuration file.\"\n3. **Replace Ambiguous Verbs**:\n   - Replace \"make sure that\" with \"verify that\".\n   - Replace \"carry out the check\" with \"check the system\".\n   - Replace \"take into consideration\" with \"consider\".\n4. **Unpack Noun Clusters**:\n   - *Draft*: \"User session database connection pool timeout limit\" (6 nouns)\n   - *STE100*: \"Timeout limit for the pool of database connections in a user session\"\n5. **Ensure Consistent Terminology**:\n   Choose one word for a concept and use it exclusively (e.g. do not alternate between \"directory\", \"folder\", and \"location\").\n6. **Verification Gate**:\n   - Average sentence length $\\le$ 18 words.\n   - 0 passive voice constructions in procedural instructions.\n   - 0 uses of ambiguous modal verbs (\"should\", \"might\").\n7. **Remediation**:\n   If a sentence remains awkward, break it into a bulleted list or a step-by-step table.",
-      "sha256": "0979259f74b52cd3d821b9b9f41c3dcb65a6c486d1fc877e0295ca2468c5a3d5"
+      "sha256": "0979259f74b52cd3d821b9b9f41c3dcb65a6c486d1fc877e0295ca2468c5a3d5",
+      "cookbook_sha256": "be02a32fa84523f65b33b20fa6b5fe510689dec49122bdf7f25e746cd771c7c1"
     },
     {
       "name": "skill-distillation",
@@ -1839,7 +1908,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Distilling Technical Resources into Skills\n\n## Objective\nConvert raw technical guides, READMEs, or logs into standardized `SKILL.md` and `cookbook.md` files.\n\n## Prerequisites\n- Source technical documentation or execution transcript.\n\n## Execution Recipe\n1. **Extract Core Capability and Name**:\n   Determine the kebab-case skill identifier (e.g. `ffmpeg-transcoder`).\n2. **Assign Academic Domain**:\n   Classify into: `cognitive`, `coding`, `architecture`, `devops`, `security`, or `research`.\n3. **Identify High-Precision Triggers**:\n   List 4 to 8 concrete user query phrases that signal the intent to use this skill.\n4. **Draft `SKILL.md`**:\n   Write YAML frontmatter followed by overview, procedural steps, and invariants.\n5. **Draft `cookbook.md`**:\n   Write the 5 mandatory sections:\n   - `## Objective`\n   - `## Prerequisites`\n   - `## Execution Recipe`\n   - `## Verification Gate`\n   - `## Remediation`\n6. **Rebuild Skills Index**:\n   ```powershell\n   python tools/skills_index.py --build\n   python tools/skills_index.py --check\n   ```\n7. **Verification Gate**:\n   Ensure `python -m pytest tests/test_skills_index.py -v` passes cleanly.\n8. **Remediation**:\n   If index validation fails on YAML or missing sections, fix the frontmatter indentation and re-run `--build`.",
-      "sha256": "bf638e090d41eb48a93dfc1fe4b3beee474e18a134e1978ee5fd138b4d810226"
+      "sha256": "bf638e090d41eb48a93dfc1fe4b3beee474e18a134e1978ee5fd138b4d810226",
+      "cookbook_sha256": "5155dbd8250522861c43f12f31dc3bd71319c33dc53d4b0cf7be35831273f637"
     },
     {
       "name": "skill-optimizer",
@@ -1864,7 +1934,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Iterative Skill Optimization from Failure Logs\n\n## Objective\nAnalyze a failed agent execution transcript and update the corresponding skill's triggers and cookbook to prevent future failures.\n\n## Prerequisites\n- Error transcript or test failure from a previous agentic turn.\n- Existing skill directory in `skills/<name>/`.\n\n## Execution Recipe\n1. **Analyze Failure Point in Transcript**:\n   Locate the exact turn where the agent drifted, hallucinated arguments, or failed to shortlist the skill.\n2. **Diagnose Optimization Target**:\n   - If skill wasn't triggered: Append the exact user prompt phrasing to `triggers` in `SKILL.md`.\n   - If tool arguments failed: Add explicit JSON / CLI argument syntax into `cookbook.md`.\n   - If remediation looped: Add a concrete abort condition into `## Remediation`.\n3. **Apply Edits**:\n   Update `skills/<name>/SKILL.md` or `skills/<name>/cookbook.md`.\n4. **Recompile Skills Index**:\n   ```powershell\n   python tools/skills_index.py --build\n   python tools/skills_index.py --check\n   ```\n5. **Verification Gate**:\n   Simulate the failing turn with `python -m agent run \"<failing_prompt>\" --provider stub --json --no-session` to ensure the updated skill shortlists and compiles into the turn plan.\n6. **Remediation**:\n   If the prompt exceeds the 1,200 character budget, compress verbose explanations while preserving all code and CLI examples.",
-      "sha256": "ced7fad7d8a93f2ae2933eccb916c873555adaeb62e3899b7afbba9eeaffbc72"
+      "sha256": "ced7fad7d8a93f2ae2933eccb916c873555adaeb62e3899b7afbba9eeaffbc72",
+      "cookbook_sha256": "b180180924d3ffd651a9b1f719a0e99d78888f77d0a9126bde87fadfafbacc99"
     },
     {
       "name": "smart-web-scraper-graph",
@@ -1894,7 +1965,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Schema-Driven Web Extraction to JSON\n\n## Objective\nExtract structured JSON data from a target web page using HTML pre-stripping and JSON Schema validation.\n\n## Prerequisites\n- Python 3.11+ with `urllib` and `json`.\n\n## Execution Recipe\n1. **Fetch & Strip Heavy HTML Elements**:\n   ```python\n   import re, urllib.request\n\n   req = urllib.request.Request(url, headers={\"User-Agent\": \"Brahma/1.0\"})\n   html = urllib.request.urlopen(req, timeout=15).read().decode(\"utf-8\", \"ignore\")\n   # Strip scripts, styles, comments, and SVGs:\n   clean = re.sub(r\"<(script|style|svg)[^>]*>.*?</\\1>\", \"\", html, flags=re.DOTALL | re.IGNORECASE)\n   clean = re.sub(r\"<!--.*?-->\", \"\", clean, flags=re.DOTALL)\n   clean_text = re.sub(r\"\\s+\", \" \", re.sub(r\"<[^>]+>\", \" \", clean)).strip()[:10000]\n   ```\n2. **Execute Structured Schema Extraction**:\n   Pass `clean_text` to agent completer with strict JSON Schema:\n   ```json\n   {\n     \"type\": \"object\",\n     \"required\": [\"items\"],\n     \"properties\": {\n       \"items\": {\n         \"type\": \"array\",\n         \"items\": { \"type\": \"object\", \"properties\": { \"title\": {\"type\": \"string\"}, \"price\": {\"type\": \"number\"} } }\n       }\n     }\n   }\n   ```\n3. **Verification Gate**:\n   *Gate: Extracted payload parses as valid JSON and contains $\\ge 1$ item with non-null values.*\n4. **Remediation**:\n   If dynamic JS rendering hides data, fetch through headless browser or query internal API endpoints directly.",
-      "sha256": "7530e1580b8726b65b30da8ba482f4847cd2b5de46083d5c192be993bcd09680"
+      "sha256": "7530e1580b8726b65b30da8ba482f4847cd2b5de46083d5c192be993bcd09680",
+      "cookbook_sha256": "1e32b1abc59af07d01e149387e3cb772f9c888606c57f501d58a68c61dd2496e"
     },
     {
       "name": "sop-builder",
@@ -1921,7 +1993,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Compiling an Operational SOP / Runbook\n\n## Objective\nAuthor a production-ready Standard Operating Procedure (SOP) that any agent or on-call engineer can execute without ambiguity.\n\n## Prerequisites\n- A verified, repeatable workflow (e.g. database migration, release build, certificate rotation).\n\n## Execution Recipe\n1. **Define Objective and Boundaries**:\n   State what the SOP accomplishes in one sentence and specify non-applicable contexts.\n2. **List Required Tooling and Environment**:\n   List exact CLI utilities, Python versions, and authentication tokens required before starting.\n3. **Format Step Sequence**:\n   For every action step, provide:\n   - **Command**: Copy-paste ready shell command.\n   - **Expected Output**: Exact regex or string indicating success.\n   - **Failure Signal**: Error text that triggers immediate abort.\n4. **Author the Rollback Section**:\n   Write the exact inverse sequence of commands to execute if a failure signal appears:\n   ```powershell\n   # Emergency Rollback Sequence\n   git restore .\n   python tools/restore_backup.py --snapshot pre_migration\n   ```\n5. **Verification Gate**:\n   Perform a clean test run of the SOP in a staging or dry-run environment.\n6. **Remediation**:\n   If an operator gets stuck at any step, revise the step description to include prerequisite installation or environment setup instructions.",
-      "sha256": "d8e4a8eb3285ed4f9b5d8d2080fa1bd446e999b3f67dd65ff045b7e10eb475e0"
+      "sha256": "d8e4a8eb3285ed4f9b5d8d2080fa1bd446e999b3f67dd65ff045b7e10eb475e0",
+      "cookbook_sha256": "6f19d304bc7a004ef2fa377601a81a05ecc0c33f02408359e63df17f6e5446b8"
     },
     {
       "name": "spec-driven-development",
@@ -1948,7 +2021,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Authoring a Software Design Document (SDD)\n\n## Objective\nAuthor a clear, actionable architecture specification that guides autonomous agents or engineers through implementation without design ambiguity.\n\n## Prerequisites\n- A target capability, refactor, or subsystem requirement.\n\n## Execution Recipe\n1. **Create the Spec Markdown File**:\n   Target location: `docs/<FEATURE-NAME>-SPEC.md`.\n2. **Document Invariants First**:\n   Identify hard constraints before writing functional steps:\n   - Dependency rules (e.g., \"no external packages at module scope\").\n   - Safety rules (e.g., \"all file writes must be bounded by workspace\").\n   - Performance budgets (e.g., \"turn compilation must complete in < 50ms\").\n3. **Specify the Component API**:\n   Write full Python function/class signatures with type annotations:\n   ```python\n   def process_payload(data: Dict[str, Any], timeout_s: float = 5.0) -> Tuple[bool, str]:\n       ...\n   ```\n4. **Define Explicit Error Codes**:\n   Enumerate all possible error conditions and return types (avoiding bare exceptions).\n5. **Draft the Acceptance Criteria Table**:\n   Tabulate every feature requirement against its designated test module and function name.\n6. **Verification Gate**:\n   Review spec against Occam's Razor: prune any speculative features not required for the immediate milestone.\n7. **Remediation**:\n   If team members or agents encounter ambiguity during implementation, pause and update the spec before editing code.",
-      "sha256": "d0025d9bbee09a6cec4edfced082411d8d79ef01b52e65e3466eba5f934255c4"
+      "sha256": "d0025d9bbee09a6cec4edfced082411d8d79ef01b52e65e3466eba5f934255c4",
+      "cookbook_sha256": "80fba0bfa84eb70d58386637534d0ddbfce61d4f1d360573d15e571cebe69b3d"
     },
     {
       "name": "sqlite-fts-optimizer",
@@ -1978,7 +2052,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: SQLite FTS5 Index Maintenance & BM25 Tuning\n\n## Objective\nOptimize SQLite FTS5 full-text search indexes, merge b-tree segments, and tune BM25 weights.\n\n## Prerequisites\n- SQLite3 CLI or Python `sqlite3` module.\n\n## Execution Recipe\n1. **Verify Index Integrity**:\n   ```sql\n   INSERT INTO fts_chunks(fts_chunks) VALUES('integrity-check');\n   -- Must return 0 rows (no error)\n   ```\n2. **Execute Segment Merge & Optimization**:\n   Merge b-tree leaf segments to accelerate lookup latency:\n   ```sql\n   INSERT INTO fts_chunks(fts_chunks) VALUES('optimize');\n   PRAGMA optimize;\n   ```\n3. **Query with Weighted BM25 Ranking**:\n   Give higher weight to title (column 0) over content (column 1):\n   ```sql\n   SELECT page_id, chunk_index, rank\n   FROM fts_chunks\n   WHERE fts_chunks MATCH 'buddhism philosophy'\n   ORDER BY bm25(fts_chunks, 10.0, 1.0)\n   LIMIT 10;\n   ```\n4. **Shrink Database Footprint**:\n   ```sql\n   VACUUM;\n   ```\n5. **Verification Gate**:\n   *Gate: `integrity-check` passes without errors; query execution completes in < 5ms.*\n6. **Remediation**:\n   If index corruption is reported, rebuild the virtual table using `INSERT INTO fts_chunks(fts_chunks) VALUES('rebuild')`.",
-      "sha256": "efd114ba1cd2c178f68efa646e84bf18263b4a21be91081cbce30fce6842c584"
+      "sha256": "efd114ba1cd2c178f68efa646e84bf18263b4a21be91081cbce30fce6842c584",
+      "cookbook_sha256": "b53b0ee47bc75a7a9de1774082f120f06729c93d8db665bec25805cfc10446fd"
     },
     {
       "name": "structured-grammar-generator",
@@ -2008,7 +2083,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Constrained JSON Generation via Ollama/Llama.cpp Grammars\n\n## Objective\nEnforce strict JSON Schema compliance at model generation time via grammar constraints, eliminating syntax errors.\n\n## Prerequisites\n- Ollama or llama.cpp endpoint with grammar/format support.\n\n## Execution Recipe\n1. **Define Pydantic Schema Model**:\n   ```python\n   from pydantic import BaseModel, Field\n\n   class AgentTaskPlan(BaseModel):\n       task_name: str = Field(..., description=\"Short title\")\n       steps: list[str] = Field(..., min_items=1)\n       estimated_seconds: int = Field(..., ge=1)\n   ```\n2. **Export Canonical JSON Schema**:\n   ```python\n   schema = AgentTaskPlan.model_json_schema()\n   ```\n3. **Dispatch to Ollama with `format` Parameter**:\n   ```python\n   import json, urllib.request\n\n   payload = {\n       \"model\": \"lfm3:1.7b\",\n       \"prompt\": \"Create a task plan for compiling the project.\",\n       \"format\": schema, # Enforces grammar-level token masking\n       \"stream\": False\n   }\n   req = urllib.request.Request(\"http://localhost:11434/api/generate\", data=json.dumps(payload).encode(\"utf-8\"), headers={\"Content-Type\": \"application/json\"})\n   resp = urllib.request.urlopen(req)\n   result_json = json.loads(json.loads(resp.read())[\"response\"])\n   ```\n4. **Verification Gate**:\n   *Gate: `result_json` deserializes into `AgentTaskPlan` without throwing ValidationError.*\n5. **Remediation**:\n   If older model backend lacks dynamic JSON schema support, supply GBNF grammar file explicitly.",
-      "sha256": "b02a14f735e88a80388b38ebc88b637a732c68173745659ef1843e24e1c06d56"
+      "sha256": "b02a14f735e88a80388b38ebc88b637a732c68173745659ef1843e24e1c06d56",
+      "cookbook_sha256": "0d9c8e1077418414a5335fb83413d8f76d0a1b135a2d9e1cd167704747b74d6c"
     },
     {
       "name": "structured-task-planning",
@@ -2035,7 +2111,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Atomic Task Breakdown and Dependency Ordering\n\n## Objective\nConvert a feature request or major refactor into a sequence of isolated, verifiable tasks with zero merge conflicts.\n\n## Prerequisites\n- High-level user requirement or feature proposal.\n- Knowledge of target repository directory layout.\n\n## Execution Recipe\n1. **Catalog Affected Files and Seams**:\n   List all modules, classes, and test suites that will be created or modified.\n2. **Order by Dependency Layer**:\n   Arrange execution into strict topological tiers:\n   - Tier 1: Data schemas, type definitions, and database migrations.\n   - Tier 2: Core domain logic and business functions.\n   - Tier 3: Harness tools, adapters, and API endpoints.\n   - Tier 4: User interfaces, CLI commands, and telemetry.\n3. **Draft the Implementation Checklist**:\n   Format each subtask as:\n   - **Task ID & Name**: e.g., `Task 1: Add UserSession dataclass`.\n   - **Files to Edit**: Explicit relative paths.\n   - **Acceptance Criteria**: Concrete condition (e.g., `assert session.is_valid()`).\n   - **Verification Command**: Exact CLI test command.\n4. **Execution Protocol**:\n   Execute tasks one at a time. Run tests immediately after each task before proceeding to the next.\n5. **Verification Gate**:\n   ```powershell\n   python -m ruff check .\n   python -m pytest tests -q\n   ```\n6. **Remediation**:\n   If a task is blocked by unexpected legacy coupling, halt, extract the blocker into an isolated preparatory task, and re-order the queue.",
-      "sha256": "c3025ce3660db0bbeea0c8865fad4e42e35eed571fb399a856a34ecf3f9cd046"
+      "sha256": "c3025ce3660db0bbeea0c8865fad4e42e35eed571fb399a856a34ecf3f9cd046",
+      "cookbook_sha256": "f6f2cbb8210318dcb7bed37cc7e2c9ee9c06d8c065a90233778038ee789513ff"
     },
     {
       "name": "sunk-cost-fallacy-detector",
@@ -2064,7 +2141,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Sunk Cost Evaluation & Clean Subsystem Decommissioning\n\n## Objective\nAudit an underperforming feature or architecture, decouple historical investment, and execute clean codebase deletion.\n\n## Prerequisites\n- Git repository workspace.\n\n## Execution Recipe\n1. **Execute Clean-Sheet Counterfactual Assessment**:\n   Answer two diagnostic questions:\n   - *Q1: If we started this project today with zero lines written, would we choose this path?*\n   - *Q2: Does continuing this path yield higher ROI than alternative investments?*\n   If NO to either, initiate decommissioning.\n2. **Catalog Blast Radius & Usages**:\n   ```powershell\n   rg \"\\b<dead_module_or_symbol>\\b\" --stats\n   ```\n3. **Atomic Purge of Dead Subsystem**:\n   Delete source files, dead tests, and unneeded dependencies in a single refactoring branch:\n   ```powershell\n   git rm -r src/legacy_module/ tests/test_legacy.py\n   ```\n4. **Run Invariant & Test Suite Verification**:\n   ```powershell\n   py -3.11 -m ruff check .\n   py -3.11 -m pytest tests -q\n   ```\n5. **Verification Gate**:\n   *Gate: All tests pass; 0 references remain to the decommissioned module; codebase line count decreases.*\n6. **Remediation**:\n   If removal breaks downstream consumers, introduce a lightweight shim or redirect callers to the canonical alternative.",
-      "sha256": "14e4929ce66e96034fedf4794bf1bd0e16c08657db2ce3b970e079d7a17e693d"
+      "sha256": "14e4929ce66e96034fedf4794bf1bd0e16c08657db2ce3b970e079d7a17e693d",
+      "cookbook_sha256": "b6531e4106792636570a3f29cc8ab0bfe330e89a4b3e1171481e8c319146d9d4"
     },
     {
       "name": "survivorship-bias-auditor",
@@ -2093,7 +2171,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Survivorship Bias Telemetry Audit & Silent Failure Detection\n\n## Objective\nDetect silent failure modes that bypass application logging, and implement external watchdog supervision.\n\n## Prerequisites\n- Application process logs and OS telemetry.\n\n## Execution Recipe\n1. **Inspect OS Event Logs for Hard Crashes**:\n   Query Windows Event Log for unhandled application crashes (`Event ID 1000` / `1001`):\n   ```powershell\n   Get-WinEvent -FilterHashtable @{LogName='Application'; Level=1,2} -MaxEvents 20 | Select-Object TimeCreated, Message\n   ```\n2. **Audit Funnel Dropouts**:\n   Compare inbound request counter with completed response counter:\n   ```powershell\n   $started = (Select-String -Path \"app.log\" -Pattern \"TURN_STARTED\").Count\n   $completed = (Select-String -Path \"app.log\" -Pattern \"TURN_COMPLETED\").Count\n   $silent_drops = $started - $completed\n   Write-Host \"Silent unlogged drops: $silent_drops\"\n   ```\n3. **Instrument External Watchdog Probe**:\n   Ensure an out-of-process monitor polls process health every 5 seconds.\n4. **Verification Gate**:\n   *Gate: `silent_drops == 0` or all non-completions accounted for with explicit exit codes.*\n5. **Remediation**:\n   If silent drops exist, register an unhandled exception handler (`sys.excepthook` / `atexit`).",
-      "sha256": "2bd18a575f9a73c541dbdce95ef17f6ba3adb674308e693f92cbe44b54c083bb"
+      "sha256": "2bd18a575f9a73c541dbdce95ef17f6ba3adb674308e693f92cbe44b54c083bb",
+      "cookbook_sha256": "f59c149f7606f3b7c876932ffa103a37e75a56d8f48d34f8312250f454680be2"
     },
     {
       "name": "system-architecture-diagrammer",
@@ -2120,7 +2199,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Authoring Syntax-Valid Mermaid Architecture Diagrams\n\n## Objective\nAuthor a clean, syntax-valid Mermaid diagram visualizing a system's components, seams, or lifecycles.\n\n## Prerequisites\n- System components, API interfaces, and dataflow direction to visualize.\n\n## Execution Recipe\n1. **Choose Direction and Layout**:\n   - For sequential pipelines: `flowchart LR`.\n   - For hierarchical trees: `flowchart TD`.\n   - For message exchanges: `sequenceDiagram`.\n2. **Define Subgraphs for Logical Seams**:\n   Group components into functional clusters:\n   ```mermaid\n   flowchart TD\n       subgraph UI[\"User Interface Layer\"]\n           HUD[\"HUD Window\"]\n       end\n       subgraph CORE[\"Harness Core\"]\n           RT[\"AgentRuntime\"]\n       end\n       HUD -->|dispatch| RT\n   ```\n3. **Quote All Special Characters**:\n   Ensure every label with spaces, brackets, or math symbols is double-quoted (`[\"...\"]`).\n4. **Style Key Decision Nodes**:\n   Use standard shapes: diamonds (`{\"Decision?\"}`) for branching, cylinders (`[(\"Database\")]`) for storage.\n5. **Verification Gate**:\n   Validate Mermaid syntax rendering without parse exceptions.\n6. **Remediation**:\n   If a rendering syntax error occurs, check for unquoted parentheses `(` `)` or reserved keywords in node IDs.",
-      "sha256": "f4902611221b4c3d90492f3b76724242efd0413b1106820360d42d40e8ced4a7"
+      "sha256": "f4902611221b4c3d90492f3b76724242efd0413b1106820360d42d40e8ced4a7",
+      "cookbook_sha256": "133379e9a292781711cb82396ecf7d7b23a89e2a6abb09e1b02c8e99a9ba213f"
     },
     {
       "name": "systematic-debugging",
@@ -2147,7 +2227,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Systematic Bug Isolation and Repair\n\n## Objective\nReproduce an unexpected error or test failure, isolate the root cause, and apply a surgical fix guarded by a permanent test.\n\n## Prerequisites\n- Working dev environment (`python -m pytest` available).\n- Reproducible error message, traceback, or unexpected behavior.\n\n## Execution Recipe\n1. **Capture the Traceback and Failing Inputs**:\n   Identify the entry point, the failing function, the exact exception type, and the argument values.\n2. **Author a Minimal Failing Test**:\n   Create a reproduction test in `tests/test_<subsystem>.py`:\n   ```python\n   def test_reproduce_reported_bug():\n       # Provide the exact input that triggered the defect\n       result = function_under_test(trigger_input)\n       assert result == expected_output\n   ```\n3. **Run the Reproduction Test**:\n   ```powershell\n   python -m pytest tests/test_<subsystem>.py -k \"test_reproduce\" -v\n   ```\n   *Gate: The test must fail with the reported error.*\n4. **Inspect State Invariants**:\n   Check if the defect arises from:\n   - Type mismatch or unexpected `None`/null value\n   - Off-by-one boundary condition in loop or slice\n   - Unhandled edge case in conditional branch\n   - Asynchronous race condition or missing lock\n5. **Apply Minimal Surgical Fix**:\n   Edit only the source lines responsible for the corrupted invariant.\n6. **Verification Gate**:\n   Rerun reproduction test and full subsystem suite:\n   ```powershell\n   python -m pytest tests/test_<subsystem>.py -v\n   python -m ruff check .\n   ```\n7. **Remediation**:\n   If other tests break, the fix introduced collateral damage. Revert the edit and re-evaluate the hypothesis.",
-      "sha256": "101d069ae35cfbff2b86f04f625146db7eec5dd7da624d3a22d2f7d3e5f77083"
+      "sha256": "101d069ae35cfbff2b86f04f625146db7eec5dd7da624d3a22d2f7d3e5f77083",
+      "cookbook_sha256": "ef820fe9ebbfc6a5f8ce3ef7ba58aed4cd18ac2a16a7ecabffd47fcddb4fc27d"
     },
     {
       "name": "test-driven-development",
@@ -2165,7 +2246,8 @@
       "tags": [],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Test-Driven Development Loop\n\n## Objective\nImplement features using strict test-driven development: write failing test, write minimal passing code, refactor.\n\n## Prerequisites\n- python 3.11+\n- pytest\n\n## Execution Recipe\n1. **Write Failing Test (Red)**:\n   Create `tests/test_<feature>.py` asserting expected input/output behavior.\n2. **Run Test to Verify Failure**:\n   ```powershell\n   python -m pytest tests/test_<feature>.py -q\n   ```\n3. **Implement Minimal Code (Green)**:\n   Write the simplest implementation that satisfies the test assertion.\n4. **Run Test to Verify Success**:\n   ```powershell\n   python -m pytest tests/test_<feature>.py -q\n   ```\n5. **Refactor & Verify**:\n   Clean up code, run full test suite, and check linting:\n   ```powershell\n   python -m ruff check .\n   python -m pytest tests -q\n   ```\n6. **Remediation**:\n   If test passes without code changes, refine assertion to test boundary conditions.",
-      "sha256": "13163ca855bb3ec88d3799ee985472eefcf7b38164454e9e812ba3f166a625f1"
+      "sha256": "13163ca855bb3ec88d3799ee985472eefcf7b38164454e9e812ba3f166a625f1",
+      "cookbook_sha256": "b39b6e13e375ce965af788ee86bdb29c6b06c9b2a551fb7753a820896ee37bfb"
     },
     {
       "name": "test-suite-flakiness-hunter",
@@ -2195,7 +2277,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Flaky Test Stress Reproduction & Deterministic Repair\n\n## Objective\nReproduce an intermittent test failure, isolate the root cause, and replace arbitrary sleeps with deterministic condition polling.\n\n## Prerequisites\n- Pytest environment (`pytest`).\n\n## Execution Recipe\n1. **Stress-Test Reproduction Loop**:\n   Run target test 50 times in rapid succession to verify failure rate:\n   ```powershell\n   1..50 | ForEach-Object { py -3.11 -m pytest tests/test_target.py -k \"test_flaky_case\" -q } | Select-String \"FAILED\"\n   ```\n2. **Replace `time.sleep()` with Condition Polling**:\n   Refactor hardcoded sleep to a deterministic predicate loop:\n   ```python\n   import time\n\n   def wait_until(predicate, timeout=5.0, interval=0.05):\n       deadline = time.monotonic() + timeout\n       while time.monotonic() < deadline:\n           if predicate():\n               return True\n           time.sleep(interval)\n       raise TimeoutError(\"Condition not met within timeout\")\n   ```\n3. **Verify Random Order Execution**:\n   Run tests with shuffled ordering to ensure zero cross-test global state contamination:\n   ```powershell\n   py -3.11 -m pytest tests/test_target.py --random-order\n   ```\n4. **Verification Gate**:\n   *Gate: Test suite passes 100 consecutive runs with 0 failures.*\n5. **Remediation**:\n   If test still fails intermittently, check unclosed background threads or lingering file locks.",
-      "sha256": "91031d06f6e31ea866c0af067fc79aca73d04489d71c96ae59dde7a737092808"
+      "sha256": "91031d06f6e31ea866c0af067fc79aca73d04489d71c96ae59dde7a737092808",
+      "cookbook_sha256": "5f908326032a24a0ed1ca938680a2fba299fae09b682e9c9e2b4c4d687c60dab"
     },
     {
       "name": "text-to-cad-modeling",
@@ -2226,7 +2309,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Parametric OpenSCAD Part Modeling & STL Export\n\n## Objective\nGenerate a parameterized, watertight OpenSCAD 3D solid model and compile it to an STL file.\n\n## Prerequisites\n- OpenSCAD CLI installed (`openscad.exe` in PATH).\n\n## Execution Recipe\n1. **Define Parametric Headers**:\n   Declare all mechanical dimensions, tolerances, and mesh resolution:\n   ```openscad\n   $fn = 64; // Fragment resolution\n   length = 50.0; width = 30.0; height = 15.0;\n   wall_thick = 2.5; hole_diam = 4.2;\n   ```\n2. **Author Constructive Solid Geometry**:\n   ```openscad\n   module enclosure_base() {\n     difference() {\n       cube([length, width, height], center=true);\n       translate([0, 0, wall_thick])\n         cube([length - 2*wall_thick, width - 2*wall_thick, height], center=true);\n       cylinder(d=hole_diam, h=height+2, center=true);\n     }\n   }\n   enclosure_base();\n   ```\n3. **Compile Script to STL**:\n   ```powershell\n   openscad -o model.stl model.scad\n   ```\n4. **Verification Gate**:\n   *Gate: OpenSCAD CLI exits code 0; generated STL file size > 0 and geometry is manifold.*\n5. **Remediation**:\n   If mesh contains non-manifold edges, add a small epsilon overlap (`0.01mm`) to CSG `difference()` cutouts.",
-      "sha256": "cfa41bcbd32528d8869e8e504982c8267605aa803873f111c89effcfc726b9ef"
+      "sha256": "cfa41bcbd32528d8869e8e504982c8267605aa803873f111c89effcfc726b9ef",
+      "cookbook_sha256": "e3277584fd52b0daa7a9f4e0c823ce9817c5fe9e458503732d4ea778c8144426"
     },
     {
       "name": "tradeoff-evaluator",
@@ -2252,7 +2336,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Trade-Off Balancing and Boundary Enforcement\n\n## Objective\nQuantify and enforce boundaries on engineering compromises to prevent uncontrolled resource exhaustion or latency degradation.\n\n## Prerequisites\n- A proposed optimization that trades one system property for another.\n\n## Execution Recipe\n1. **Define the Trade-Off Statement**:\n   Fill in the template: \"We are trading [Property A: e.g., Disk Space] to maximize [Property B: e.g., Turn Context Assembly Speed].\"\n2. **Measure Baseline Metrics**:\n   Record initial benchmarks:\n   - Peak RAM usage: `<x> MB`\n   - Assembly Latency: `<y> ms`\n   - Disk footprint: `<z> MB`\n3. **Set Hard Ceiling on Sacrificed Metric**:\n   Establish maximum allowable tolerance for the sacrificed dimension (e.g., Disk cache must never exceed 250MB).\n4. **Implement Automatic Throttling / Eviction**:\n   Write cleanup logic that monitors the metric and evicts oldest items when 90% of tolerance is reached:\n   ```python\n   if current_disk_usage > MAX_CACHE_BYTES * 0.9:\n       prune_oldest_cache_entries()\n   ```\n5. **Verification Gate**:\n   Execute a stress test pushing data past the threshold; assert that memory or disk never exceeds the ceiling and performance gracefully degrades rather than crashing:\n   ```powershell\n   python -m pytest tests -q -k \"stress or cache\"\n   ```\n6. **Remediation**:\n   If the ceiling is breached, switch from in-process storage to compressed on-disk SQLite or memory-mapped files.",
-      "sha256": "057122fdc56095f2b565f9541dc28be2856dd372d2b37a97a7eb6504d691d4ec"
+      "sha256": "057122fdc56095f2b565f9541dc28be2856dd372d2b37a97a7eb6504d691d4ec",
+      "cookbook_sha256": "4e738ed0c0288b589e5ff59f68004b180316391d12bb94d6d82941962e1408e0"
     },
     {
       "name": "triangulation-validation",
@@ -2279,7 +2364,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: 3-Point Triangulation of Technical Claims\n\n## Objective\nRigorously verify an architectural assumption, root-cause diagnosis, or third-party claim using three independent verification channels.\n\n## Prerequisites\n- A critical claim, bug diagnosis, or platform assumption requiring certainty.\n\n## Execution Recipe\n1. **Define the Hypothesis Under Test**:\n   State the exact claim: e.g., \"Windows Store Python 3.12 triggers Access Denied when assigning child processes to Job Objects.\"\n2. **Channel 1 — Static Code & AST Inspection**:\n   Examine source implementation: inspect `agent/process.py` and confirm `AssignProcessToJobObject` calls.\n3. **Channel 2 — Empirical Runtime Execution**:\n   Execute isolated reproduction test and capture exit code:\n   ```powershell\n   python -c \"import ctypes; # simulate assign process to job object\"\n   ```\n   Confirm exact error code (`ERROR_ACCESS_DENIED = 5`).\n4. **Channel 3 — External Documentation / System Behavior**:\n   Cross-reference Microsoft documentation on AppX/MSIX package execution aliases and job object security boundaries.\n5. **Compile Triangulated Proof**:\n   Synthesize all three channels into a conclusive finding with code references.\n6. **Verification Gate**:\n   Do all 3 channels agree without contradictory evidence?\n7. **Remediation**:\n   If channel 1 and channel 2 disagree (e.g. code says one thing, runtime shows another), investigate environment variables or dynamic imports causing divergence.",
-      "sha256": "cf19cf05b37ebe6122121419d0b0043c8201c7e1156872941ac0d52cf0339a4f"
+      "sha256": "cf19cf05b37ebe6122121419d0b0043c8201c7e1156872941ac0d52cf0339a4f",
+      "cookbook_sha256": "060cbf0c73c3a4711939679a4b998e77c41296e509f0d099075bc213fe64748c"
     },
     {
       "name": "universal-document-converter",
@@ -2311,7 +2397,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Multi-Format Document Conversion to Clean Markdown\n\n## Objective\nConvert binary Office documents (DOCX, PPTX, XLSX), PDFs, and EPUBs into clean GitHub-Flavored Markdown.\n\n## Prerequisites\n- Python 3.11+ with `markitdown` or `pandoc`.\n\n## Execution Recipe\n1. **Convert File via MarkItDown CLI / Python Engine**:\n   ```powershell\n   python -c \"from markitdown import MarkItDown; md = MarkItDown(); result = md.convert('document.docx'); open('output.md', 'w', encoding='utf-8').write(result.text_content)\"\n   ```\n2. **Batch Ingest Across Document Folders**:\n   ```powershell\n   Get-ChildItem -Path \"docs_raw/\" -Include *.pdf, *.docx, *.epub -Recurse | ForEach-Object {\n     $dest = $_.FullName -replace '\\.[^.]+$', '.md'\n     python -c \"from markitdown import MarkItDown; open('$dest', 'w', encoding='utf-8').write(MarkItDown().convert('$($_.FullName)').text_content)\"\n   }\n   ```\n3. **Format Table Alignments & Strip Page Numbers**:\n   Filter out standalone header/footer page numbers and empty lines.\n4. **Verification Gate**:\n   *Gate: Generated markdown file size > 0; headers `#` and pipe tables `|---|` properly rendered.*\n5. **Remediation**:\n   If PDF is an image scan, pass to OCR engine: `python tools/ingest_multimodal.py --ocr <pdf_path>`.",
-      "sha256": "7776158dac5d4012b51fe0a35dad6d946c143728199b9fa1e1b893d3f809269f"
+      "sha256": "7776158dac5d4012b51fe0a35dad6d946c143728199b9fa1e1b893d3f809269f",
+      "cookbook_sha256": "8a02cb5d3bafecb7790cc79679c0e797b9209190a5ca982f431b4f6a8dff18ad"
     },
     {
       "name": "web-scraper-stealth",
@@ -2328,7 +2415,8 @@
       "tags": [],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Web Scraping & Content Ingestion\n\n## Objective\nFetch, sanitize, and structure web content with polite rate limiting and fallback headers.\n\n## Prerequisites\n- python 3.11+\n\n## Execution Recipe\n1. **Check robots.txt**:\n   Inspect target site's robots.txt for disallowed routes and crawl delays.\n2. **Execute Polite Fetch**:\n   Use standard User-Agent header, timeout clamping, and exponential backoff.\n3. **Sanitize & Convert HTML to Markdown**:\n   Strip scripts, styles, and navigation elements. Extract article body.\n4. **Verification Gate**:\n   Check that extracted text is non-empty, contains article headers, and has no raw HTML tags.\n5. **Remediation**:\n   If 403 Forbidden is returned, rotate User-Agent or fall back to cached copy.",
-      "sha256": "4cf6d225627f9d010426d982989c2d9a6ed1393c25685adddcb5bd0400c78223"
+      "sha256": "4cf6d225627f9d010426d982989c2d9a6ed1393c25685adddcb5bd0400c78223",
+      "cookbook_sha256": "6f50027434038059970b8af9ef5ec3a6485ba54b9b8f7f3d6dfa66c8b913813f"
     },
     {
       "name": "windows-gui-automation",
@@ -2356,7 +2444,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: Windows Desktop GUI Inspection & Control\n\n## Objective\nLocate a target Windows application window, inspect its UI Automation tree, and invoke actions without blind coordinate clicking.\n\n## Prerequisites\n- Windows OS with Python `pywin32` or PowerShell UIA access.\n\n## Execution Recipe\n1. **Find Target Window Handle**:\n   ```powershell\n   Get-Process | Where-Object { $_.MainWindowTitle -match \"<AppName>\" } | Select-Object Id, MainWindowTitle, MainWindowHandle\n   ```\n2. **Bring Target Window to Foreground**:\n   ```powershell\n   [Microsoft.VisualBasic.Interaction]::AppActivate(\"<AppName>\")\n   ```\n3. **Inspect UIA Control Tree via PowerShell**:\n   ```powershell\n   Add-Type -AssemblyName UIAutomationClient\n   $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)\n   $condition = [System.Windows.Automation.Condition]::TrueCondition\n   $elements = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)\n   ```\n4. **Trigger UIA Button or Input Pattern**:\n   Invoke `InvokePattern` on the matching `AutomationId` or `Name`.\n5. **Verification Gate**:\n   *Gate: Element state or window text changes within 3 seconds of invocation.*\n6. **Remediation**:\n   If UIA tree is empty, bring window to foreground and dispatch synthetic keyboard accelerators (`Alt+<key>`).",
-      "sha256": "3d9f55827349114525475ec49b7224ab13cc7eca958c5b207e5ba028b53ad586"
+      "sha256": "3d9f55827349114525475ec49b7224ab13cc7eca958c5b207e5ba028b53ad586",
+      "cookbook_sha256": "1bff470e72149c128e7e6ecdc16a1c12679d4162104514cee89e5c5478a52def"
     },
     {
       "name": "zero-downtime-canary-deploy",
@@ -2385,7 +2474,8 @@
       ],
       "has_dedicated_cookbook": true,
       "cookbook": "# Cookbook: NGINX Dynamic Traffic Splitting & Canary Rollout\n\n## Objective\nConfigure an NGINX reverse proxy with weighted traffic splitting for safe canary verification and instant rollback.\n\n## Prerequisites\n- NGINX or reverse proxy with `split_clients` or `upstream weight`.\n\n## Execution Recipe\n1. **Configure Weighted Upstream Ingress**:\n   ```nginx\n   upstream app_backend {\n     server 127.0.0.1:8001 weight=98; # Stable baseline\n     server 127.0.0.1:8002 weight=2;  # Canary instance\n   }\n   server {\n     listen 80;\n     location / {\n       proxy_pass http://app_backend;\n       proxy_set_header X-Canary $upstream_addr;\n     }\n   }\n   ```\n2. **Reload NGINX Non-Disruptively**:\n   ```powershell\n   nginx -s reload\n   ```\n3. **Monitor Error Rates for 5 Minutes**:\n   ```powershell\n   # Sample canary responses:\n   1..100 | ForEach-Object { curl -s -I http://localhost/health } | Select-String \"HTTP/1.1 200\"\n   ```\n4. **Promote Canary or Roll Back**:\n   - Promote: Set canary weight to 100, reload.\n   - Rollback: Set canary weight to 0, reload.\n5. **Verification Gate**:\n   *Gate: Canary handles requests; error rate $\\le 0.01\\%$; P99 latency within baseline.*\n6. **Remediation**:\n   If errors detected, immediately revert upstream weight=0 and reload NGINX in < 1 second.",
-      "sha256": "81f4f17acba42ad71339cd1ceef849b4618a50ab820c9b642d2b3a75fad3c156"
+      "sha256": "81f4f17acba42ad71339cd1ceef849b4618a50ab820c9b642d2b3a75fad3c156",
+      "cookbook_sha256": "cb1b349e05e2b7b93c847e1a66a8f402f546895153c12d6a75294c575c9e194b"
     }
   ]
 }

@@ -1,0 +1,63 @@
+[
+  {
+    "id": "sc_01_premortem",
+    "name": "Risk review routes to pre-mortem",
+    "category": "skill_choice",
+    "prompt": "we should perform a premortem analysis before running this migration",
+    "description": "The named technique must win outright; the migration tooling it mentions is not the SOP the turn needs.",
+    "expected_skill": "pre-mortem-analysis",
+    "forbidden_skills": ["database-migration-ops"],
+    "tags": ["skill_choice", "cognitive", "trigger"]
+  },
+  {
+    "id": "sc_02_secret_scan",
+    "name": "Credential scan routes to the leak scanner",
+    "category": "skill_choice",
+    "prompt": "run a pre-commit security audit to scan for secrets and detect leaks",
+    "description": "Two skill triggers overlap; the more specific operational one must rank first.",
+    "expected_skill": "secret-and-leak-scanner",
+    "forbidden_skills": ["security-auditor"],
+    "tags": ["skill_choice", "security", "ambiguous"]
+  },
+  {
+    "id": "sc_03_dockerize",
+    "name": "Container build routes to docker skill",
+    "category": "skill_choice",
+    "prompt": "dockerize this service and create a dockerfile for deployment",
+    "description": "A single strong trigger should beat incidental substring matches in unrelated skills.",
+    "expected_skill": "docker-devops",
+    "forbidden_skills": ["performance-profiler"],
+    "tags": ["skill_choice", "devops"]
+  },
+  {
+    "id": "sc_04_occams_razor",
+    "name": "Named mental model routes exactly",
+    "category": "skill_choice",
+    "prompt": "apply occams razor to cut unnecessary complexity",
+    "description": "Named-model requests are the highest-precision trigger class and must not drift to a neighbouring razor.",
+    "expected_skill": "occams-razor",
+    "forbidden_skills": ["hanlons-razor"],
+    "tags": ["skill_choice", "cognitive"]
+  },
+  {
+    "id": "sc_05_five_whys",
+    "name": "Incident diagnosis routes to five whys",
+    "category": "skill_choice",
+    "prompt": "use five whys for root cause analysis of this outage",
+    "description": "Outage language plus a named method; the cognitive diagnostic skill is the SOP, not the incident pager.",
+    "expected_skill": "five-whys-root-cause",
+    "forbidden_skills": ["incident-response"],
+    "tags": ["skill_choice", "cognitive", "devops"]
+  },
+  {
+    "id": "sc_06_domain_bias_architecture",
+    "name": "Domain bias picks the architecture skill",
+    "category": "skill_choice",
+    "prompt": "design database sql schema for orders",
+    "expected_domain": "architecture",
+    "description": "When two skills match, the compiled taxonomy domain must break the tie toward architecture.",
+    "expected_skill": "database-architect",
+    "forbidden_skills": ["database-migration-ops"],
+    "tags": ["skill_choice", "architecture", "domain"]
+  }
+]

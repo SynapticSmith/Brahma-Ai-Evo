@@ -372,13 +372,16 @@ def _cmd_run(args: argparse.Namespace) -> int:
             )
 
         system = build_system_prompt(workspace, permission_note=policy_note())
-        from .trace import TraceCollector, TraceSink
+        from .trace import SkillSelectionSink, TraceCollector, TraceSink
 
         trace_collector = TraceCollector(
             sink=TraceSink() if getattr(args, "trace", True) else None,
             task_prompt=prompt,
             session_id=session.id if session else None,
         )
+        # One routing record per run, written at turn end. Opted out with the
+        # same switch as the trace: both are local telemetry, not the answer.
+        skill_log = SkillSelectionSink() if getattr(args, "trace", True) else None
 
         loop = AgentLoop(
             completer,
@@ -396,6 +399,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             cancel=runtime.cancel_event,
             stream=args.stream,
             tracer=trace_collector,
+            skill_log=skill_log,
         )
         runtime.reset_cancel()
         restore = _install_cancel(runtime)
@@ -563,7 +567,10 @@ def _cmd_subagents(args: argparse.Namespace) -> int:
 
 
 def _cmd_skills(args: argparse.Namespace) -> int:
-    """Show what discovery found before blaming the model for ignoring a skill."""
+    """Show what discovery found, or audit recorded routing decisions."""
+    if getattr(args, "action", "list") == "audit":
+        return _cmd_skills_audit(args)
+
     from .skills import discover
     from .turn_context import _load_skills_index
 
@@ -603,6 +610,123 @@ def _cmd_skills(args: argparse.Namespace) -> int:
         sys.stdout.write(f"{skill.name:<32} [{domain}] {skill.description}\n    {skill.path}\n")
     for diagnostic in catalog.diagnostics:
         sys.stderr.write(f"warning: {diagnostic}\n")
+    return EXIT_OK
+
+
+def _cmd_skills_audit(args: argparse.Namespace) -> int:
+    """Audit recorded skill-routing decisions.
+
+    Read-only by default. A fix is only *staged* under ``staged_skills/_audit``
+    when the operator passes ``--stage-fixes``; nothing here ever edits
+    ``skills/`` or rebuilds the index. That keeps the "skills are never
+    auto-installed" invariant intact while still automating the detection.
+    """
+    from .skill_audit import audit_records, parse_since, stage_fix, summarize
+    from .trace import DEFAULT_SKILL_RECORD_RETENTION_DAYS, SkillSelectionSink
+
+    sink = SkillSelectionSink(create=False)
+    if getattr(args, "prune", False):
+        removed = sink.prune(DEFAULT_SKILL_RECORD_RETENTION_DAYS)
+        sys.stderr.write(
+            f"pruned {removed} skill-selection file(s) older than "
+            f"{DEFAULT_SKILL_RECORD_RETENTION_DAYS:g} day(s)\n"
+        )
+        return EXIT_OK
+
+    since = parse_since(getattr(args, "since", None))
+    limit = max(1, int(getattr(args, "limit", None) or 500))
+    records = sink.list_records(since=since, limit=limit)
+
+    workspace = Path(args.cwd or os.getcwd()).expanduser().resolve()
+    skills_dir = Path(
+        getattr(args, "skills_dir", None) or (workspace / "skills")
+    ).expanduser().resolve()
+    source_dir = skills_dir if skills_dir.is_dir() else None
+
+    findings = audit_records(records, skills_dir=source_dir)
+    metrics = summarize(records, findings)
+
+    stage = bool(getattr(args, "stage_fixes", False)) and not bool(
+        getattr(args, "dry_run", False)
+    )
+    staged: List[Dict[str, Any]] = []
+    if stage:
+        for finding in findings:
+            try:
+                staged.append(stage_fix(finding, skills_dir=source_dir))
+            except Exception as exc:  # noqa: BLE001 - one bad record must not stop the audit
+                staged.append({"path": "", "note": f"staging failed: {exc}"})
+
+    if args.json:
+        payload = {
+            "ok": True,
+            "schema": 1,
+            "records": len(records),
+            "metrics": metrics,
+            "findings": [
+                {
+                    "trace_id": finding.get("trace_id", ""),
+                    "ts": finding.get("ts", ""),
+                    "query": finding.get("query", ""),
+                    "selected": finding.get("selected", ""),
+                    "domain": finding.get("domain", ""),
+                    "retrieval_tier": finding.get("retrieval_tier", "T1"),
+                    "verdict": finding.get("verdict") or {},
+                }
+                for finding in findings
+            ],
+            "staged": staged,
+        }
+        sys.stdout.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+        return EXIT_OK
+
+    sys.stdout.write(f"records: {len(records)}")
+    if since is not None:
+        sys.stdout.write(f" (since {args.since})")
+    sys.stdout.write("\n")
+    if not records:
+        sys.stdout.write(
+            "No skill-selection records yet. One record is written per completed "
+            "harness run; run a task first.\n"
+        )
+        return EXIT_OK
+
+    sys.stdout.write(
+        f"selection precision: {metrics['selection_precision']:.0%}    "
+        f"findings: {metrics['findings']}    "
+        f"prompt chars/turn: {metrics['prompt_chars_per_turn']:.0f}\n"
+    )
+    if metrics["by_rule"]:
+        breakdown = ", ".join(
+            f"{rule}×{count}" for rule, count in metrics["by_rule"].items()
+        )
+        sys.stdout.write(f"by rule: {breakdown}\n")
+    if not findings:
+        sys.stdout.write("No routing problems detected.\n")
+        return EXIT_OK
+
+    for finding in findings:
+        verdict = finding.get("verdict") or {}
+        sys.stdout.write(
+            f"\n[{verdict.get('rule', '?')} {verdict.get('kind', '?')}] "
+            f"{finding.get('ts', '')}  {finding.get('selected', '')}\n"
+        )
+        if finding.get("query"):
+            sys.stdout.write(f"  query: {finding['query']}\n")
+        sys.stdout.write(f"  {verdict.get('why', '')}\n")
+        for extra in verdict.get("evidence") or []:
+            sys.stdout.write(f"  also: {extra}\n")
+        sys.stdout.write(f"  fix: {verdict.get('fix_kind', '')}\n")
+
+    if staged:
+        sys.stdout.write(f"\nstaged {len(staged)} proposal(s):\n")
+        for item in staged:
+            sys.stdout.write(f"  {item.get('path') or '(not staged)'} — {item.get('note', '')}\n")
+    elif not stage:
+        sys.stdout.write(
+            "\nNothing was staged. Re-run with --stage-fixes to write reviewable "
+            "proposals under staged_skills/_audit.\n"
+        )
     return EXIT_OK
 
 
@@ -782,8 +906,13 @@ def _cmd_eval(args: argparse.Namespace) -> int:
 
     # The stub replays a canned script; it does not exercise a model. A
     # scorecard from it measures the harness, not agent quality, so it is
-    # opt-in rather than the silent default.
-    if args.provider == "stub" and not getattr(args, "allow_stub", False):
+    # opt-in rather than the silent default. ``skill_choice`` is exempt: it
+    # asserts a deterministic router and never calls a provider at all.
+    if (
+        args.provider == "stub"
+        and not getattr(args, "allow_stub", False)
+        and getattr(args, "category", None) != "skill_choice"
+    ):
         sys.stderr.write(
             "error: --provider stub runs a canned script, not a model, so its "
             "scorecard does not measure agent quality. Pass --allow-stub to "
@@ -933,10 +1062,42 @@ def build_parser() -> argparse.ArgumentParser:
     tools = sub.add_parser("tools", help="List registered harness tools")
     tools.add_argument("--json", action="store_true")
 
-    skills = sub.add_parser("skills", help="List discovered project skills")
+    skills = sub.add_parser("skills", help="List discovered project skills, or audit skill routing")
+    skills.add_argument(
+        "action",
+        nargs="?",
+        choices=("list", "audit"),
+        default="list",
+        help="list discovered skills (default) or audit recorded routing decisions",
+    )
     skills.add_argument("--cwd", help="Workspace root used for discovery")
     skills.add_argument("--domain", help="Filter by taxonomy domain (e.g. cognitive, devops, coding)")
     skills.add_argument("--json", action="store_true")
+    # -- audit-only flags
+    skills.add_argument(
+        "--since",
+        help="Only audit records newer than e.g. 7d, 24h, 90m, or an ISO date",
+    )
+    skills.add_argument(
+        "--skills-dir",
+        help="Skill source root for drift checks (default: <cwd>/skills)",
+    )
+    skills.add_argument("--limit", type=int, default=500, help="Max records to audit (default: 500)")
+    skills.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report findings only; never stage a fix (the default)",
+    )
+    skills.add_argument(
+        "--stage-fixes",
+        action="store_true",
+        help="Write proposals under staged_skills/_audit for human review (never to skills/)",
+    )
+    skills.add_argument(
+        "--prune",
+        action="store_true",
+        help="Delete record files older than the retention window, then exit",
+    )
 
     scripts = sub.add_parser("scripts", help="List verified repository scripts")
     scripts.add_argument("--domain", help="Filter by taxonomy domain")
@@ -1002,7 +1163,7 @@ def build_parser() -> argparse.ArgumentParser:
     eval_parser.add_argument("--scenarios-dir", default=None, help="Directory containing scenario JSON files")
     eval_parser.add_argument(
         "--category",
-        choices=("tool_choice", "multi_step", "recovery", "safety", "memory"),
+        choices=("tool_choice", "multi_step", "recovery", "safety", "memory", "skill_choice"),
         default=None,
         help="Filter scenarios by category",
     )
