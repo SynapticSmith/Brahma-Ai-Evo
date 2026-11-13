@@ -270,6 +270,7 @@ class AgentLoop:
         verify_policy: Optional[Any] = None,
         plan: Optional[Any] = None,
         skill_log: Optional[Any] = None,
+        skill_load_log: Optional[Any] = None,
     ):
         self._complete = complete
         self._native_dispatch = native_dispatch
@@ -386,6 +387,10 @@ class AgentLoop:
         #: Optional ``SkillSelectionSink``. Without one the record still rides
         #: on the trace attributes, so a run is never unjoinable.
         self._skill_log = skill_log
+        #: Optional ``SkillLoadSink`` for model-initiated loads (design M5).
+        #: Written even when nothing was injected, which is why it is a
+        #: separate stream from the selection record.
+        self._skill_load_log = skill_load_log
 
         if context is not None:
             self._context = context
@@ -1265,6 +1270,10 @@ class AgentLoop:
         *,
         first_response: Optional[Any] = None,
     ) -> AgentResult:
+        # Events describe *this* run: the result's `events`, the end-of-task
+        # record's tool evidence and the model-load scan all read them, so a
+        # second `run()` on the same loop must not inherit the first one's.
+        self._events.clear()
         ctx = self._context
         if prompt:
             message = ctx.append_user(prompt)
@@ -1531,6 +1540,7 @@ class AgentLoop:
             if self._last_verdict is not None
             else not self._mutations_occurred
         )
+        self._record_model_loads(turn)
         self._record_skill_selection(
             status=(
                 "completed"
@@ -1644,6 +1654,78 @@ class AgentLoop:
         passed = "PASSED" if bool(getattr(verdict, "verified", False)) else "FAILED"
         reason = str(getattr(verdict, "reason", "") or "")[:120]
         return [f"{kind}:{passed}" + (f" ({reason})" if reason else "")]
+
+    def _indexed_skill_names(self) -> set:
+        try:
+            from .turn_context import indexed_skill_names
+
+            # Must be the index the router read: the runtime workspace, not cwd.
+            return indexed_skill_names(self._runtime.workspace)
+        except Exception:
+            return set()
+
+    def _record_model_loads(self, turn: int) -> None:
+        """Record each model-initiated skill load for this run (design M5).
+
+        This runs **before** the selection record and never returns early on an
+        empty shortlist: a load while nothing was injected is the most
+        informative miss, and it is exactly the case the selection record cannot
+        describe. The outcome is a classification, not a verdict — whether a
+        miss is the router's fault is for the audit and a human to decide.
+        """
+        try:
+            from .skill_audit import extract_model_loads, model_load_record
+        except Exception:  # noqa: BLE001 - telemetry must never fail a run
+            return
+
+        loads = extract_model_loads(self._events)
+        if not loads:
+            return
+
+        plan = self._turn_plan
+        injected = None
+        if plan is not None and plan.selected_skill:
+            injected = str(plan.selected_skill.get("name") or "") or None
+        indexed = self._indexed_skill_names()
+        trace_id = str(getattr(self._tracer, "trace_id", "") or "")
+        session_id = self._session.id if self._session is not None else None
+
+        rows: List[Dict[str, Any]] = []
+        for item in loads:
+            try:
+                row = model_load_record(
+                    tool=item["tool"],
+                    name=item["name"],
+                    source="harness",
+                    injected=injected,
+                    indexed=item["name"].strip().lower() in indexed,
+                    routed=True,
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    turn=turn,
+                    query=self._turn_query,
+                )
+            except Exception:  # noqa: BLE001
+                continue
+            rows.append(row)
+            self._emit(
+                "skill_load",
+                name=row["name"],
+                outcome=row["outcome"],
+                injected=row["injected"] or "",
+            )
+            if self._skill_load_log is not None:
+                try:
+                    self._skill_load_log.save(row)
+                except Exception:  # noqa: BLE001
+                    pass
+
+        tracer_record = getattr(self._tracer, "record", None)
+        if tracer_record is not None and rows:
+            try:
+                tracer_record.attributes["model_skill_loads"] = rows
+            except Exception:
+                pass
 
     def _record_skill_selection(
         self,

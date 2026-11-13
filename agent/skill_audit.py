@@ -493,6 +493,232 @@ def parse_since(value: Optional[str], now: Optional[float] = None) -> Optional[f
     return parsed.timestamp()
 
 
+# -- Model-initiated loads (design §10, M5) ---------------------------------
+
+#: The two tools that pull a skill in by name. ``load_project_skill`` is the
+#: harness tool over ``skills/`` + ``.brahma/skills``; ``load_skill`` is the
+#: Skills Library meta-tool. Both are model *requests*, not router decisions.
+LOAD_TOOLS = ("load_project_skill", "load_skill")
+
+LOAD_CONFIRMED = "confirmed"
+LOAD_MISS = "miss"
+LOAD_OFF_INDEX = "off_index"
+LOAD_UNROUTED = "unrouted"
+
+#: Argument spellings the two surfaces use for the skill identifier.
+_LOAD_NAME_KEYS = ("name", "skill", "skill_name", "skill_id")
+
+
+def load_name_from_args(arguments: Any) -> str:
+    """Best-effort skill name from a load tool's arguments."""
+    if not isinstance(arguments, dict):
+        return ""
+    for key in _LOAD_NAME_KEYS:
+        value = arguments.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def extract_model_loads(
+    events: Sequence[Dict[str, Any]],
+    *,
+    tools: Sequence[str] = LOAD_TOOLS,
+    dedupe: bool = True,
+) -> List[Dict[str, str]]:
+    """``[{tool, name}]`` for each load call in a loop's event stream.
+
+    Reads events, not tool results: the call happened even if the name was
+    wrong, and a failed load is itself worth seeing.
+    """
+    wanted = {str(tool) for tool in tools}
+    found: List[Dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for event in events or ():
+        if not isinstance(event, dict) or event.get("type") != "tool_call":
+            continue
+        tool = str(event.get("name") or "")
+        if tool not in wanted:
+            continue
+        name = load_name_from_args(event.get("arguments"))
+        if not name:
+            continue
+        key = (tool, name)
+        if dedupe and key in seen:
+            continue
+        seen.add(key)
+        found.append({"tool": tool, "name": name})
+    return found
+
+
+def classify_model_load(
+    name: str,
+    *,
+    injected: Optional[str] = None,
+    indexed: bool = False,
+    routed: bool = True,
+) -> Tuple[str, str]:
+    """``(outcome, detail)`` for one load.
+
+    ``confirmed`` means the model loaded exactly what the router injected.
+    ``miss`` means the router injected something else (or nothing) while the
+    skill was in the compiled index — the actionable case, because a trigger or
+    description edit could have picked it. ``off_index`` means the name is not
+    routable at all (a project or Skills Library skill), so T1 could never have
+    chosen it and calling it a miss would blame the wrong surface. ``unrouted``
+    is a path with no router decision (voice), so it is usage telemetry only.
+    """
+    loaded = str(name or "").strip()
+    chosen = str(injected or "").strip()
+    if not routed:
+        if indexed:
+            return LOAD_UNROUTED, "no router decision on this path (voice); load recorded as usage"
+        return LOAD_OFF_INDEX, f"{loaded!r} is not in the compiled index"
+    if indexed and chosen and loaded == chosen:
+        return LOAD_CONFIRMED, f"model loaded the injected skill {loaded!r}"
+    if indexed:
+        if chosen:
+            return LOAD_MISS, f"model loaded {loaded!r} but the router injected {chosen!r}"
+        return LOAD_MISS, f"model loaded {loaded!r} while the router injected nothing"
+    return LOAD_OFF_INDEX, f"{loaded!r} is not in the compiled index"
+
+
+def model_load_record(
+    *,
+    tool: str,
+    name: str,
+    source: str,
+    injected: Optional[str] = None,
+    indexed: bool = False,
+    routed: bool = True,
+    trace_id: str = "",
+    session_id: Optional[str] = None,
+    turn: Optional[int] = None,
+    query: str = "",
+    now: Optional[float] = None,
+) -> Dict[str, Any]:
+    """One JSONL row for a model-initiated load."""
+    stamp = float(now if now is not None else time.time())
+    outcome, detail = classify_model_load(
+        name, injected=injected, indexed=indexed, routed=routed
+    )
+    record: Dict[str, Any] = {
+        "schema": SCHEMA,
+        "ts": datetime.datetime.fromtimestamp(
+            stamp, datetime.timezone.utc
+        ).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "ts_epoch": stamp,
+        "source": str(source or "harness"),
+        "tool": str(tool or ""),
+        "name": str(name or ""),
+        "injected": str(injected) if injected else None,
+        "indexed": bool(indexed),
+        "outcome": outcome,
+        "detail": detail,
+        "trace_id": str(trace_id or ""),
+        "session_id": session_id,
+        "turn": turn,
+    }
+    if query:
+        record["query"] = query
+    return record
+
+
+#: The lazily-created sink for loads observed outside the loop. One process
+#: keeps one, so a long-running GUI does not reopen the file per call.
+_DEFAULT_LOAD_SINK: Any = None
+
+
+def _default_load_sink() -> Any:
+    global _DEFAULT_LOAD_SINK
+    if _DEFAULT_LOAD_SINK is None:
+        from .trace import SkillLoadSink
+
+        _DEFAULT_LOAD_SINK = SkillLoadSink()
+    return _DEFAULT_LOAD_SINK
+
+
+def note_skill_load(
+    tool: str,
+    arguments: Any,
+    *,
+    source: str = "voice",
+    injected: Optional[str] = None,
+    routed: bool = False,
+    workspace: Optional[Path] = None,
+    sink: Any = None,
+) -> Optional[Dict[str, Any]]:
+    """Record a load seen outside the loop (voice/desktop funnel, design M5).
+
+    The text path reads loads from the loop's event stream; this path has no
+    loop, so it writes the row directly. With no router decision there is no
+    ``miss`` verdict: the row is ``unrouted`` (usage) or ``off_index``. Returns
+    the record, or ``None`` when this is not a load or telemetry is unavailable.
+    Never raises — an observation must not fail the tool call it observed.
+    """
+    try:
+        if str(tool or "") not in LOAD_TOOLS:
+            return None
+        name = load_name_from_args(arguments)
+        if not name:
+            return None
+        from .turn_context import indexed_skill_names
+
+        target = sink if sink is not None else _default_load_sink()
+        record = model_load_record(
+            tool=tool,
+            name=name,
+            source=source,
+            injected=injected,
+            indexed=name.strip().lower() in indexed_skill_names(workspace),
+            routed=routed,
+        )
+        target.save(record)
+        return record
+    except Exception:  # noqa: BLE001 - telemetry must never fail a tool call
+        return None
+
+
+def miss_digest(records: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    """The operator-facing digest: what did the model ask for that T1 missed?"""
+    loads = len(records)
+    counts: Dict[str, int] = {
+        LOAD_CONFIRMED: 0,
+        LOAD_MISS: 0,
+        LOAD_OFF_INDEX: 0,
+        LOAD_UNROUTED: 0,
+    }
+    by_skill: Dict[str, int] = {}
+    recent: List[Dict[str, Any]] = []
+    for record in records:
+        outcome = str(record.get("outcome") or "")
+        if outcome in counts:
+            counts[outcome] += 1
+        if outcome != LOAD_MISS:
+            continue
+        name = str(record.get("name") or "")
+        if name:
+            by_skill[name] = by_skill.get(name, 0) + 1
+        recent.append({
+            "ts": record.get("ts", ""),
+            "name": name,
+            "injected": record.get("injected"),
+            "tool": record.get("tool", ""),
+            "source": record.get("source", ""),
+            "trace_id": record.get("trace_id", ""),
+        })
+    return {
+        "loads": loads,
+        "confirmed": counts[LOAD_CONFIRMED],
+        "misses": counts[LOAD_MISS],
+        "off_index": counts[LOAD_OFF_INDEX],
+        "unrouted": counts[LOAD_UNROUTED],
+        "miss_rate": round(counts[LOAD_MISS] / loads, 4) if loads else 0.0,
+        "by_skill": dict(sorted(by_skill.items(), key=lambda item: (-item[1], item[0]))),
+        "recent_misses": recent[-10:],
+    }
+
+
 # -- Staged fixes (design §6) -----------------------------------------------
 
 

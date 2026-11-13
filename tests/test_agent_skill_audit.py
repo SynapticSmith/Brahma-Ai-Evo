@@ -17,6 +17,10 @@ from agent.skill_audit import (
     KIND_BLOAT,
     KIND_STALE,
     KIND_WRONG,
+    LOAD_CONFIRMED,
+    LOAD_MISS,
+    LOAD_OFF_INDEX,
+    LOAD_UNROUTED,
     R1,
     R2,
     R3,
@@ -24,7 +28,12 @@ from agent.skill_audit import (
     R5,
     audit_record,
     audit_records,
+    classify_model_load,
     draft_fix,
+    extract_model_loads,
+    load_name_from_args,
+    miss_digest,
+    model_load_record,
     parse_since,
     rule_domain_mismatch,
     rule_drift,
@@ -546,3 +555,223 @@ def test_selection_record_can_omit_the_query_text():
     record = selection_record(plan, query="secret task", retain_query=False)
     assert "query" not in record
     assert record["query_sha256"]
+
+
+# -- Model-initiated loads (M5) --------------------------------------------
+
+
+def test_load_name_from_args_accepts_both_surfaces():
+    assert load_name_from_args({"name": " alpha "}) == "alpha"
+    assert load_name_from_args({"skill_id": "library.skill"}) == "library.skill"
+    assert load_name_from_args({"skill": "beta"}) == "beta"
+    assert load_name_from_args({}) == ""
+    assert load_name_from_args(None) == ""
+
+
+def test_extract_model_loads_reads_events_and_dedupes():
+    events = [
+        {"type": "tool_call", "name": "load_project_skill", "arguments": {"name": "alpha"}},
+        {"type": "tool_call", "name": "read_file", "arguments": {"path": "x"}},
+        {"type": "tool_call", "name": "load_skill", "arguments": {"skill_id": "beta"}},
+        {"type": "tool_call", "name": "load_project_skill", "arguments": {"name": "alpha"}},
+        {"type": "tool_result", "name": "load_project_skill"},
+    ]
+    assert extract_model_loads(events) == [
+        {"tool": "load_project_skill", "name": "alpha"},
+        {"tool": "load_skill", "name": "beta"},
+    ]
+    assert len(extract_model_loads(events, dedupe=False)) == 3
+
+
+def test_classify_model_load_keeps_verdicts_honest():
+    assert classify_model_load("alpha", injected="alpha", indexed=True)[0] == LOAD_CONFIRMED
+    assert classify_model_load("beta", injected="alpha", indexed=True)[0] == LOAD_MISS
+    # Nothing injected but the name is routable: still a miss.
+    assert classify_model_load("beta", injected=None, indexed=True)[0] == LOAD_MISS
+    # Not in the compiled index: another surface, so not the router's fault.
+    off_index = classify_model_load("project-skill", injected="alpha", indexed=False)
+    assert off_index[0] == LOAD_OFF_INDEX
+    # A path with no router decision (voice) is usage, never a verdict.
+    assert (
+        classify_model_load("alpha", indexed=True, routed=False)[0] == LOAD_UNROUTED
+    )
+    assert (
+        classify_model_load("thing", indexed=False, routed=False)[0] == LOAD_OFF_INDEX
+    )
+
+
+def test_miss_digest_counts_outcomes_and_ranks_names():
+    records = [
+        model_load_record(
+            tool="load_project_skill", name="alpha", source="harness",
+            injected="alpha", indexed=True, now=100.0,
+        ),
+        model_load_record(
+            tool="load_project_skill", name="beta", source="harness",
+            injected="alpha", indexed=True, now=200.0,
+        ),
+        model_load_record(
+            tool="load_project_skill", name="beta", source="harness",
+            injected="gamma", indexed=True, now=300.0,
+        ),
+        model_load_record(
+            tool="load_skill", name="lib", source="voice", routed=False, now=400.0,
+        ),
+        model_load_record(
+            tool="load_project_skill", name="delta", source="voice",
+            routed=False, indexed=True, now=500.0,
+        ),
+    ]
+    digest = miss_digest(records)
+    assert digest["loads"] == 5
+    assert digest["misses"] == 2
+    assert digest["confirmed"] == 1
+    assert digest["off_index"] == 1
+    assert digest["unrouted"] == 1
+    assert digest["by_skill"] == {"beta": 2}
+    assert [item["name"] for item in digest["recent_misses"]] == ["beta", "beta"]
+    assert digest["miss_rate"] == 0.4
+
+
+def test_note_skill_load_writes_an_unrouted_voice_row(tmp_path, monkeypatch):
+    from agent.skill_audit import note_skill_load
+    from agent.trace import SkillLoadSink
+
+    monkeypatch.setattr(
+        "agent.turn_context.indexed_skill_names", lambda workspace=None: {"alpha"}
+    )
+    sink = SkillLoadSink(base_dir=tmp_path)
+
+    record = note_skill_load("load_project_skill", {"name": "alpha"}, sink=sink)
+
+    assert record is not None
+    assert record["source"] == "voice"
+    assert record["outcome"] == LOAD_UNROUTED
+    assert record["injected"] is None
+    assert [row["name"] for row in sink.list_records()] == ["alpha"]
+
+    # A non-load tool is not an observation, and a broken sink is swallowed.
+    assert note_skill_load("read_file", {"path": "x"}, sink=sink) is None
+
+    class _Broken:
+        def save(self, _record):
+            raise OSError("disk full")
+
+    assert note_skill_load("load_skill", {"name": "alpha"}, sink=_Broken()) is None
+    assert len(sink.list_records()) == 1
+
+
+def test_loop_records_a_load_even_when_nothing_was_injected(tmp_path, monkeypatch):
+    from agent.loop import AgentLoop
+    from agent.runtime import AgentRuntime
+    from agent.trace import SkillLoadSink
+
+    skill_root = tmp_path / "skills"
+    _write_skill(skill_root, "alpha", "# alpha\n")
+    monkeypatch.setenv("BRAHMA_SKILLS_DIR", str(skill_root))
+    monkeypatch.setattr(
+        "agent.turn_context._load_skills_index", lambda workspace=None: []
+    )
+
+    runtime = AgentRuntime(workspace=tmp_path)
+    calls = {"n": 0}
+
+    def completer(messages, tools):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {
+                            "name": "load_project_skill",
+                            "arguments": json.dumps({"name": "alpha"}),
+                        },
+                    }
+                ],
+            }
+        return {"role": "assistant", "content": "done"}
+
+    sink = SkillLoadSink(base_dir=tmp_path / "telemetry")
+    loop = AgentLoop(
+        completer,
+        runtime=runtime,
+        max_turns=3,
+        retrieve=False,
+        include_skills=False,
+        skill_load_log=sink,
+    )
+    result = loop.run("load the alpha skill")
+
+    assert result.ok is True
+    records = sink.list_records()
+    assert len(records) == 1
+    assert records[0]["name"] == "alpha"
+    assert records[0]["injected"] is None
+    assert records[0]["outcome"] == LOAD_OFF_INDEX
+    assert records[0]["source"] == "harness"
+
+
+def test_loop_classifies_against_the_runtime_workspace_index(tmp_path, monkeypatch):
+    """A routable name loaded while nothing was injected is a miss, not off-index.
+
+    Regression: the classifier once read the index relative to the process cwd,
+    so a run in another workspace called every load off-index and hid the miss.
+    """
+    from agent.loop import AgentLoop
+    from agent.runtime import AgentRuntime
+    from agent.trace import SkillLoadSink
+
+    skill_root = tmp_path / "skills"
+    _write_skill(skill_root, "alpha", "# alpha\n")
+    monkeypatch.setenv("BRAHMA_SKILLS_DIR", str(skill_root))
+
+    seen = {}
+
+    def fake_index(workspace=None):
+        seen["workspace"] = workspace
+        return [{"name": "alpha"}]
+
+    monkeypatch.setattr("agent.turn_context._load_skills_index", fake_index)
+
+    calls = {"n": 0}
+
+    def completer(messages, tools):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {
+                            "name": "load_project_skill",
+                            "arguments": json.dumps({"name": "alpha"}),
+                        },
+                    }
+                ],
+            }
+        return {"role": "assistant", "content": "done"}
+
+    sink = SkillLoadSink(base_dir=tmp_path / "telemetry")
+    loop = AgentLoop(
+        completer,
+        runtime=AgentRuntime(workspace=tmp_path),
+        max_turns=3,
+        retrieve=False,
+        include_skills=False,
+        skill_load_log=sink,
+    )
+    result = loop.run("load the alpha skill")
+
+    assert result.ok is True
+    records = sink.list_records()
+    assert [row["outcome"] for row in records] == [LOAD_MISS]
+    assert records[0]["indexed"] is True
+    assert Path(str(seen["workspace"])).resolve() == tmp_path.resolve()
+

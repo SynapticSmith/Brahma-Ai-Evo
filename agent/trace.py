@@ -395,12 +395,18 @@ class SkillSelectionSink:
     Separate from :class:`TraceSink` because the two have different lifetimes
     and sizes: a trace carries every tool argument, a selection record carries
     the routing decision and its outcome. The ``trace_id`` field joins them.
+
+    ``prefix`` selects the stream: ``skill_selections`` for routing decisions
+    and ``skill_loads`` for model-initiated loads (see :class:`SkillLoadSink`).
+    Both use the same directory and rotation rules, so one retention pass covers
+    the pair and an operator has one place to look.
     """
 
     def __init__(
         self,
         base_dir: Optional[Path] = None,
         *,
+        prefix: str = "skill_selections",
         max_bytes: int = DEFAULT_MAX_SKILL_RECORD_BYTES,
         redact: bool = True,
         retain_query: bool = True,
@@ -417,6 +423,7 @@ class SkillSelectionSink:
         if create:
             self._dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+        self.prefix = str(prefix or "skill_selections")
         self.max_bytes = max(1, int(max_bytes))
         self.redact = bool(redact)
         self.retain_query = bool(retain_query)
@@ -427,7 +434,7 @@ class SkillSelectionSink:
 
     def _record_file(self, date_str: Optional[str] = None) -> Path:
         day = date_str or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
-        return self._dir / f"skill_selections_{day}.jsonl"
+        return self._dir / f"{self.prefix}_{day}.jsonl"
 
     def save(self, record: Dict[str, Any]) -> Path:
         """Append one record; returns the file it landed in."""
@@ -453,7 +460,7 @@ class SkillSelectionSink:
         """Recent records, oldest first, optionally filtered by epoch seconds."""
         collected: List[Dict[str, Any]] = []
         with self._lock:
-            files = sorted(self._dir.glob("skill_selections_*.jsonl"))
+            files = sorted(self._dir.glob(f"{self.prefix}_*.jsonl"))
             for fpath in files:
                 try:
                     with open(fpath, "r", encoding="utf-8") as handle:
@@ -485,7 +492,7 @@ class SkillSelectionSink:
         cutoff = time.time() - max(1.0, float(keep_days)) * 86_400
         removed = 0
         with self._lock:
-            for fpath in sorted(self._dir.glob("skill_selections_*.jsonl")):
+            for fpath in sorted(self._dir.glob(f"{self.prefix}_*.jsonl")):
                 try:
                     if fpath.stat().st_mtime < cutoff:
                         fpath.unlink()
@@ -493,6 +500,36 @@ class SkillSelectionSink:
                 except OSError:
                     continue
         return removed
+
+
+class SkillLoadSink(SkillSelectionSink):
+    """Append-only JSONL store for model-initiated skill loads (design M5).
+
+    A *load* is not a decision: the router already chose (or chose nothing), and
+    this is the model reaching for a skill by name. Written to its own stream so
+    a miss is visible even on a turn where nothing was injected — the case the
+    selection record cannot describe, because it is only written when a skill
+    was actually shortlisted. Both streams share a directory and a retention
+    pass; ``trace_id`` joins them.
+    """
+
+    def __init__(
+        self,
+        base_dir: Optional[Path] = None,
+        *,
+        max_bytes: int = DEFAULT_MAX_SKILL_RECORD_BYTES,
+        redact: bool = True,
+        retain_query: bool = True,
+        create: bool = True,
+    ) -> None:
+        super().__init__(
+            base_dir,
+            prefix="skill_loads",
+            max_bytes=max_bytes,
+            redact=redact,
+            retain_query=retain_query,
+            create=create,
+        )
 
 
 # -- Real-Time Event Collector ----------------------------------------------

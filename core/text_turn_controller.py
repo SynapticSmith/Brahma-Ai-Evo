@@ -1581,6 +1581,11 @@ class TextTurnController:
         runtime = current_agent_runtime()
         desktop_tools.attach_host(host)
         runtime.reset_cancel()
+        # Local telemetry, same streams the CLI writes: one routing record per
+        # task and one row per model-initiated load. Both are read-only inputs
+        # to `python -m agent skills audit|misses` and the Settings card.
+        from agent.trace import SkillLoadSink, SkillSelectionSink
+
         loop = AgentLoop(
             _complete,
             tools=surface,
@@ -1593,6 +1598,8 @@ class TextTurnController:
             cancel=runtime.cancel_event,
             stream=source in ("local", "custom"),
             retrieval=retrieval or None,
+            skill_log=SkillSelectionSink(),
+            skill_load_log=SkillLoadSink(),
         )
         try:
             result = loop.run(first_response=res)
@@ -1658,6 +1665,12 @@ class TextTurnController:
                     else "reload failed (old rules kept)"
                 )
                 print(f"[BRAHMA EVO] \U0001f4dc policy {state}")
+            elif kind == "skill_load":
+                injected = event.get("injected") or "nothing"
+                print(
+                    f"[BRAHMA EVO] \U0001f3af skill load {event.get('name')} "
+                    f"({event.get('outcome')}; router injected {injected})"
+                )
             elif kind == "mcp":
                 if event.get("ok"):
                     print(

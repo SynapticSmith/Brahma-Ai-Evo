@@ -7,6 +7,8 @@ Everything the GUI can do with an agent, without starting a GUI:
     python -m agent sessions
     python -m agent tools
     python -m agent skills
+    python -m agent skills audit --since 7d
+    python -m agent skills misses
     python -m agent subagents --query "code review"
     python -m agent mcp list
     python -m agent permissions init
@@ -108,6 +110,12 @@ def _render_event(event: Dict[str, Any]) -> Optional[str]:
         return f"  ~~ loaded instructions: {labels}{suffix}"
     if kind == "stream_fallback":
         return f"  ~~ streaming unavailable: {event.get('reason')}"
+    if kind == "skill_load":
+        injected = event.get("injected") or "nothing"
+        outcome = event.get("outcome")
+        if outcome == "confirmed":
+            return f"  ~~ skill load: {event.get('name')} (matches the injected skill)"
+        return f"  ~~ skill load: {event.get('name')} ({outcome}; router injected {injected})"
     if kind == "error":
         return f"  !! {event.get('error')}"
     if kind == "stop":
@@ -372,7 +380,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             )
 
         system = build_system_prompt(workspace, permission_note=policy_note())
-        from .trace import SkillSelectionSink, TraceCollector, TraceSink
+        from .trace import SkillLoadSink, SkillSelectionSink, TraceCollector, TraceSink
 
         trace_collector = TraceCollector(
             sink=TraceSink() if getattr(args, "trace", True) else None,
@@ -381,7 +389,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
         )
         # One routing record per run, written at turn end. Opted out with the
         # same switch as the trace: both are local telemetry, not the answer.
-        skill_log = SkillSelectionSink() if getattr(args, "trace", True) else None
+        tracing = bool(getattr(args, "trace", True))
+        skill_log = SkillSelectionSink() if tracing else None
+        # Model-initiated loads are a separate stream: they must be recorded
+        # even on a run where the router injected nothing (design M5).
+        skill_load_log = SkillLoadSink() if tracing else None
 
         loop = AgentLoop(
             completer,
@@ -400,6 +412,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             stream=args.stream,
             tracer=trace_collector,
             skill_log=skill_log,
+            skill_load_log=skill_load_log,
         )
         runtime.reset_cancel()
         restore = _install_cancel(runtime)
@@ -570,6 +583,8 @@ def _cmd_skills(args: argparse.Namespace) -> int:
     """Show what discovery found, or audit recorded routing decisions."""
     if getattr(args, "action", "list") == "audit":
         return _cmd_skills_audit(args)
+    if getattr(args, "action", "list") == "misses":
+        return _cmd_skills_misses(args)
 
     from .skills import discover
     from .turn_context import _load_skills_index
@@ -613,6 +628,83 @@ def _cmd_skills(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _write_miss_digest(digest: Dict[str, Any]) -> None:
+    """One compact block for the model-load stream (design M5)."""
+    if not digest or not digest.get("loads"):
+        return
+    sys.stdout.write(
+        f"model loads: {digest['loads']}    misses: {digest['misses']}    "
+        f"confirmed: {digest['confirmed']}    off-index: {digest['off_index']}"
+    )
+    if digest.get("unrouted"):
+        sys.stdout.write(f"    unrouted (voice): {digest['unrouted']}")
+    sys.stdout.write("\n")
+    if digest.get("misses"):
+        top = list((digest.get("by_skill") or {}).items())[:5]
+        breakdown = ", ".join(f"{name}×{count}" for name, count in top)
+        sys.stdout.write(f"most-missed: {breakdown}\n")
+
+
+def _cmd_skills_misses(args: argparse.Namespace) -> int:
+    """Recent model-initiated loads the router did not predict (design M5).
+
+    Read-only: this is the "the model reached for something T1 missed" digest.
+    A miss here is a candidate for the R1/R2 rules, not a verdict — the model
+    may have loaded a skill for a reason the query did not name.
+    """
+    from .skill_audit import LOAD_MISS, miss_digest, parse_since
+    from .trace import DEFAULT_SKILL_RECORD_RETENTION_DAYS, SkillLoadSink
+
+    sink = SkillLoadSink(create=False)
+    if getattr(args, "prune", False):
+        removed = sink.prune(DEFAULT_SKILL_RECORD_RETENTION_DAYS)
+        sys.stderr.write(
+            f"pruned {removed} skill-load file(s) older than "
+            f"{DEFAULT_SKILL_RECORD_RETENTION_DAYS:g} day(s)\n"
+        )
+        return EXIT_OK
+
+    since = parse_since(getattr(args, "since", None))
+    limit = max(1, int(getattr(args, "limit", None) or 500))
+    records = sink.list_records(since=since, limit=limit)
+    digest = miss_digest(records)
+    misses = [record for record in records if record.get("outcome") == LOAD_MISS]
+
+    if args.json:
+        payload = {
+            "ok": True,
+            "schema": 1,
+            "digest": digest,
+            "misses": misses,
+        }
+        sys.stdout.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+        return EXIT_OK
+
+    if not records:
+        sys.stdout.write(
+            "No model-initiated skill loads recorded yet. A load is recorded when "
+            "the model calls load_project_skill or load_skill during a run.\n"
+        )
+        return EXIT_OK
+
+    _write_miss_digest(digest)
+    if not misses:
+        sys.stdout.write("No misses: every load matched what the router injected or was off-index.\n")
+        return EXIT_OK
+
+    sys.stdout.write("\n")
+    for record in misses[-20:]:
+        injected = record.get("injected") or "(nothing)"
+        source = record.get("source") or "harness"
+        sys.stdout.write(
+            f"[miss] {record.get('ts', '')}  {record.get('name', '')} "
+            f"<- injected {injected}  ({source})\n"
+        )
+        if record.get("detail"):
+            sys.stdout.write(f"  {record['detail']}\n")
+    return EXIT_OK
+
+
 def _cmd_skills_audit(args: argparse.Namespace) -> int:
     """Audit recorded skill-routing decisions.
 
@@ -621,14 +713,26 @@ def _cmd_skills_audit(args: argparse.Namespace) -> int:
     ``skills/`` or rebuilds the index. That keeps the "skills are never
     auto-installed" invariant intact while still automating the detection.
     """
-    from .skill_audit import audit_records, parse_since, stage_fix, summarize
-    from .trace import DEFAULT_SKILL_RECORD_RETENTION_DAYS, SkillSelectionSink
+    from .skill_audit import (
+        audit_records,
+        miss_digest,
+        parse_since,
+        stage_fix,
+        summarize,
+    )
+    from .trace import (
+        DEFAULT_SKILL_RECORD_RETENTION_DAYS,
+        SkillLoadSink,
+        SkillSelectionSink,
+    )
 
     sink = SkillSelectionSink(create=False)
+    load_sink = SkillLoadSink(create=False)
     if getattr(args, "prune", False):
         removed = sink.prune(DEFAULT_SKILL_RECORD_RETENTION_DAYS)
+        removed += load_sink.prune(DEFAULT_SKILL_RECORD_RETENTION_DAYS)
         sys.stderr.write(
-            f"pruned {removed} skill-selection file(s) older than "
+            f"pruned {removed} skill telemetry file(s) older than "
             f"{DEFAULT_SKILL_RECORD_RETENTION_DAYS:g} day(s)\n"
         )
         return EXIT_OK
@@ -636,6 +740,8 @@ def _cmd_skills_audit(args: argparse.Namespace) -> int:
     since = parse_since(getattr(args, "since", None))
     limit = max(1, int(getattr(args, "limit", None) or 500))
     records = sink.list_records(since=since, limit=limit)
+    load_records = load_sink.list_records(since=since, limit=limit)
+    digest = miss_digest(load_records)
 
     workspace = Path(args.cwd or os.getcwd()).expanduser().resolve()
     skills_dir = Path(
@@ -663,6 +769,7 @@ def _cmd_skills_audit(args: argparse.Namespace) -> int:
             "schema": 1,
             "records": len(records),
             "metrics": metrics,
+            "model_loads": digest,
             "findings": [
                 {
                     "trace_id": finding.get("trace_id", ""),
@@ -689,6 +796,7 @@ def _cmd_skills_audit(args: argparse.Namespace) -> int:
             "No skill-selection records yet. One record is written per completed "
             "harness run; run a task first.\n"
         )
+        _write_miss_digest(digest)
         return EXIT_OK
 
     sys.stdout.write(
@@ -701,6 +809,12 @@ def _cmd_skills_audit(args: argparse.Namespace) -> int:
             f"{rule}×{count}" for rule, count in metrics["by_rule"].items()
         )
         sys.stdout.write(f"by rule: {breakdown}\n")
+    _write_miss_digest(digest)
+    if digest.get("misses"):
+        sys.stdout.write(
+            "note: model-load misses are candidates, not verdicts "
+            "(see `python -m agent skills misses`)\n"
+        )
     if not findings:
         sys.stdout.write("No routing problems detected.\n")
         return EXIT_OK
@@ -1066,9 +1180,12 @@ def build_parser() -> argparse.ArgumentParser:
     skills.add_argument(
         "action",
         nargs="?",
-        choices=("list", "audit"),
+        choices=("list", "audit", "misses"),
         default="list",
-        help="list discovered skills (default) or audit recorded routing decisions",
+        help=(
+            "list discovered skills (default), audit recorded routing decisions, "
+            "or show model-initiated loads the router missed"
+        ),
     )
     skills.add_argument("--cwd", help="Workspace root used for discovery")
     skills.add_argument("--domain", help="Filter by taxonomy domain (e.g. cognitive, devops, coding)")
@@ -1096,7 +1213,7 @@ def build_parser() -> argparse.ArgumentParser:
     skills.add_argument(
         "--prune",
         action="store_true",
-        help="Delete record files older than the retention window, then exit",
+        help="Delete skill telemetry files (both streams) older than the retention window, then exit",
     )
 
     scripts = sub.add_parser("scripts", help="List verified repository scripts")

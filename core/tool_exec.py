@@ -12,6 +12,7 @@ import traceback
 
 from google.genai import types
 
+from agent.skill_audit import note_skill_load
 from core import desktop_host
 
 # Bound on how long execute_sync waits for a tool running on the live loop.
@@ -98,6 +99,7 @@ class ToolExecutor:
                     call_id=call_id,
                     extra={"host": self._desktop.host},
                 )
+                note_skill_load(name, args, source="voice")
                 print(f"[BRAHMA EVO] 🧰 {name} -> {str(text)[:200].replace(chr(10), ' ')}")
                 payload = {"result": text}
                 if spec.silent:
@@ -112,6 +114,7 @@ class ToolExecutor:
             if tool_bridge.is_meta_tool(name):
                 call_id = getattr(fc, "id", None) or f"call_{name}"
                 text = await tool_bridge.execute_meta(name, args)
+                note_skill_load(name, args, source="voice")
                 print(f"[BRAHMA EVO] 🧭 {name} -> {text[:200].replace(chr(10), ' ')}")
                 return types.FunctionResponse(name=name, id=call_id, response={"result": text})
         except Exception as exc:

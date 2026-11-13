@@ -250,6 +250,20 @@ def _load_skills_index(workspace: Optional[Path] = None) -> List[Dict[str, Any]]
     return []
 
 
+def indexed_skill_names(workspace: Optional[Path] = None) -> set[str]:
+    """Lower-cased names in the compiled index — the set T1 can actually choose.
+
+    Used by the model-load detector (design M5) to separate a routing *miss*
+    (the skill was routable and was not chosen) from an ``off_index`` load (a
+    project or Skills Library skill that T1 never sees).
+    """
+    return {
+        str(item.get("name") or "").strip().lower()
+        for item in _load_skills_index(workspace)
+        if item.get("name")
+    }
+
+
 def load_skill_embeddings(workspace: Optional[Path] = None) -> SkillEmbeddingTable:
     """Load the optional local vector table, cached on ``(path, mtime, size)``.
 

@@ -1216,6 +1216,129 @@ class SystemConnectivityPage(QWidget):
         _rebuild()
         return card
 
+    def _build_skill_misses_card(self):
+        """Digest of model-initiated loads the JIT router did not predict (M5).
+
+        The router injects at most one skill per turn. When the model then calls
+        ``load_project_skill`` or ``load_skill`` for something else, that is the
+        clearest single signal that the router missed — and it is recorded even
+        on a turn where nothing was injected, which the selection record cannot
+        describe. Read-only: fixes stay a staged diff behind
+        ``python -m agent skills audit --stage-fixes``.
+        """
+        card = self._card(
+            "Skill Routing Misses",
+            "Model-initiated skill loads the JIT router did not inject. "
+            "Read-only telemetry — nothing here edits skills or the index.",
+        )
+        lay = card.layout()
+
+        summary = QLabel("Reading skill telemetry…")
+        summary.setWordWrap(True)
+        summary.setStyleSheet(f"color: {C.TEXT};")
+        lay.addWidget(summary)
+
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
+        body_lay.setSpacing(4)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setMaximumHeight(260)
+        scroll.setStyleSheet(
+            f"QScrollArea {{ border: 1px solid {C.BORDER}; border-radius: 6px; background: transparent; }}"
+        )
+        scroll.setWidget(body)
+        lay.addWidget(scroll)
+
+        footer = QLabel("")
+        footer.setWordWrap(True)
+        footer.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
+        lay.addWidget(footer)
+
+        def _clear(layout):
+            while layout.count():
+                item = layout.takeAt(0)
+                widget = item.widget()
+                if widget is not None:
+                    widget.setParent(None)
+                    widget.deleteLater()
+                else:
+                    sub = item.layout()
+                    if sub is not None:
+                        _clear(sub)
+
+        def _rebuild():
+            _clear(body_lay)
+            try:
+                from agent.skill_audit import miss_digest
+                from agent.trace import SkillLoadSink
+
+                records = SkillLoadSink(create=False).list_records(limit=500)
+            except Exception as exc:  # noqa: BLE001 - a card must never crash the hub
+                summary.setText("Skill telemetry unavailable.")
+                footer.setText(str(exc)[:200])
+                return
+
+            digest = miss_digest(records)
+            if not digest.get("loads"):
+                summary.setText("No model-initiated skill loads recorded yet.")
+                footer.setText(
+                    "A load is recorded when the model calls load_project_skill "
+                    "or load_skill during a run."
+                )
+                return
+
+            summary.setText(
+                f"{digest['loads']} load(s) · {digest['misses']} miss(es) · "
+                f"{digest['confirmed']} confirmed · {digest['off_index']} off-index"
+                + (
+                    f" · {digest['unrouted']} unrouted (voice)"
+                    if digest.get("unrouted")
+                    else ""
+                )
+            )
+            misses = digest.get("recent_misses") or []
+            if not misses:
+                note = QLabel("No misses: the model loaded what the router injected.")
+                note.setWordWrap(True)
+                note.setStyleSheet(f"color: {C.TEXT_DIM}; font-size: 11px;")
+                body_lay.addWidget(note)
+            for entry in reversed(misses):
+                row = QLabel(
+                    f"<b>{entry.get('name', '')}</b> "
+                    f"<span style='color:{C.TEXT_DIM}'>router injected "
+                    f"{entry.get('injected') or 'nothing'} · "
+                    f"{entry.get('source') or 'harness'} · {entry.get('ts', '')}</span>"
+                )
+                row.setTextFormat(Qt.TextFormat.RichText)
+                row.setWordWrap(True)
+                row.setStyleSheet(f"color: {C.TEXT};")
+                body_lay.addWidget(row)
+            body_lay.addStretch(1)
+
+            by_skill = digest.get("by_skill") or {}
+            if by_skill:
+                top = ", ".join(
+                    f"{name}×{count}" for name, count in list(by_skill.items())[:5]
+                )
+                footer.setText(f"Most missed: {top}")
+            else:
+                footer.setText(
+                    "No miss to act on. Full report: python -m agent skills misses"
+                )
+
+        btn_row = QHBoxLayout()
+        btn_refresh = QPushButton("Refresh")
+        btn_refresh.setFixedWidth(90)
+        btn_refresh.clicked.connect(_rebuild)
+        btn_row.addWidget(btn_refresh)
+        btn_row.addStretch(1)
+        lay.addLayout(btn_row)
+
+        _rebuild()
+        return card
+
     # ------------------------------------------------------------------
     # Memory System & Modular Connectors
     # ------------------------------------------------------------------
@@ -3028,6 +3151,7 @@ class SystemConnectivityPage(QWidget):
         # Skills Library: the on-demand playbook layer, next to the tool list so
         # the two "what the agent can reach" surfaces read together.
         lay.addWidget(self._build_skills_library_card())
+        lay.addWidget(self._build_skill_misses_card())
 
         # Memory System & Connectors: local SQLite/JSON + Mem0 + Letta
         lay.addWidget(self._build_memory_connector_card())

@@ -1,7 +1,8 @@
 # Skill-Selection Self-Check Loop — design record
 
-**Status**: Implemented — M1–M6 (see §10.1). T3 model tie-break and the
-Settings "Misses" tab (M5 UI half) remain out of scope.
+**Status**: Implemented — M1–M6 (see §10.1). T3 model tie-break remains out of
+scope. The M5 UI half is a read-only "Skill Routing Misses" card in the
+System & Connect page, not a separate tab.
 **Origin**: external developer's description of his own harness (see §1)
 **Retrieval stance**: local-first, open source only — no online JEV dependency.
 T1 keyword scoring is the contract; T2 local embeddings are a measured upgrade
@@ -114,8 +115,10 @@ There are four, and they fail differently:
 
 Start with the JIT index: it is the only surface where *we* make the choice, so
 the ground truth (the row we chose, its score, its declared use case) is already
-in hand. Model-initiated loads need a different detector (tool call intent vs.
-loaded skill's domain) and belong to milestone M5, not M1.
+in hand. Model-initiated loads are a separate detector (M5): a load is compared
+against what the router injected, and only a name that is in the compiled index
+can be a routing *miss*. A load from another surface is `off_index`, and a voice
+load is `unrouted` — usage, not a verdict.
 
 ### 3.2 The in-repo precedent: `agent/second_brain.py`
 
@@ -358,6 +361,29 @@ when two rules disagree. Escalated diagnosis may use one model call, and the
 record must mark `diagnosed_by: "model"`, so a model verdict is never confused
 with a rule verdict.
 
+### 5.3 Model-initiated loads (M5)
+
+R1–R5 judge the skill the router *chose*. They cannot see the opposite case: the
+router chose nothing (or something else) and the model then called
+`load_project_skill` or `load_skill` by name. That call is recorded on a separate
+`skill_loads_<date>.jsonl` stream, because a load can happen on a turn where no
+selection record exists at all.
+
+Each load is classified, not judged:
+
+| Outcome | Meaning | Actionable? |
+|---|---|---|
+| `confirmed` | loaded name == injected name | no — the router and the model agree |
+| `miss` | name is in the compiled index, but the router injected something else or nothing | **yes** — a trigger/description edit could have picked it; candidate for R1/R2 |
+| `off_index` | name is not in the compiled index (project skill, Skills Library) | no — T1 never sees that surface, so blaming the router is wrong |
+| `unrouted` | voice/desktop path, no router decision exists | no — usage telemetry only, never a verdict |
+
+Classification reads the *event stream*, not the tool result: a load of a name
+that does not exist still happened and is still worth seeing. For a harness run,
+`indexed` uses the runtime workspace's index — the same one the router read. The
+voice funnel has no router and no run workspace, so it classifies against the
+process workspace; its rows are `unrouted`/`off_index` either way.
+
 ---
 
 ## 6. Fix kinds and where they land
@@ -524,6 +550,7 @@ This is a new `skill_choice` category in `agent/evals.py:25` plus
 | `iterations_to_green` | replay runs per accepted fix | < 2 |
 | `retrieval_tier_mix` | share of turns decided by T1 / T2 / T3 (from the record) | T3 stays < 2 %; T2 only if it beats T1 on `top3_recall` |
 | `prompt_chars_per_turn` | **guardrail** | flat or down; the loop must never increase resident cost |
+| `model_load_miss_rate` | model-initiated loads classified `miss` / all loads (M5) | ↓; `confirmed` and `off_index` are not misses, `unrouted` is voice usage only |
 
 ---
 
@@ -535,7 +562,7 @@ This is a new `skill_choice` category in `agent/evals.py:25` plus
 | **M2** | Detector + report | new `agent/skill_audit.py` (rules R1-R5), `python -m agent skills audit --since 7d` | rule verdicts on synthetic plans; no model calls; determinism test |
 | **M3** | Diagnosis + staged fix | `agent/skill_audit.py`, `core/skill_forge.py` handoff, staged-diff writer | a fixture miss produces a reviewable diff and never mutates `skills/` |
 | **M4** | Replay corpus | `agent/evals.py` (`skill_choice`), `evals/scenarios/skill_choice.json` | existing `agent eval` runs it; neighbour guard asserted |
-| **M5** | Model-initiated loads + UI | `agent/skills.py`, `core/skills_library.py`, Settings → Skills "Misses" tab | detection for `load_project_skill`/`load_skill`; operator sees digest |
+| **M5** | Model-initiated loads + UI | `agent/skills.py`, `core/skills_library.py`, read-only Settings card | detection for `load_project_skill`/`load_skill`; operator sees digest |
 | **M6** (optional) | Local embedding retrieval (T2) | `tools/skills_index.py` emits `config/skills_embeddings.json`; `core/` HTTP client (reuse `second_brain._embed`); `agent/turn_context.py` takes an injected `embed` callable | T1 still passes with the callable `None`; T2 improves `top3_recall` on the M4 corpus; server-down falls through to T1; `agent/` still imports stdlib-only |
 
 M1 and M2 are the whole value. M3-M5 are mechanical if the verdicts are good.
@@ -550,7 +577,7 @@ keyword scoring blurs, not because JEV has embeddings.
 | **M2** | **Done** | `agent/skill_audit.py` (R1–R5, `audit_record`, `audit_records`, `summarize`, `parse_since`). `agent/__main__.py`: `skills audit`. | `python -m agent skills audit --since 7d`, `--json`. Read-only by default. No model call anywhere in the module. |
 | **M3** | **Done** | `agent/skill_audit.py`: `draft_fix` (unified diff, trigger insertion) and `stage_fix` (`staged_skills/_audit/<stamp>_<rule>_<skill>/`). | `python -m agent skills audit --stage-fixes`. A proposal has `proposal.json`, `proposal.patch`, `README.md`; `skills/` is never written. |
 | **M4** | **Done** | `agent/evals.py` (`skill_choice` category and its evaluator), `evals/scenarios/skill_choice.json` (6 cases). | `python -m agent eval --category skill_choice --provider stub` — no model is called, so the category is exempt from the `--allow-stub` guard. |
-| **M5** | **Not built** | Detection is still available through R1–R4 because the record covers every injected skill. The explicit "miss" detector for `load_project_skill`/`load_skill` calls and the Settings → Skills tab are deferred. | Escape hatch today: `/skills` discovery output plus the audit report. |
+| **M5** | **Done** | `agent/skill_audit.py`: `LOAD_TOOLS`, `load_name_from_args`, `extract_model_loads`, `classify_model_load`, `model_load_record`, `miss_digest`, `note_skill_load` (voice funnel). `agent/trace.py`: `SkillLoadSink` (own `skill_loads_<date>.jsonl` stream, shared dir/retention). `agent/loop.py`: `skill_load_log=`, `_record_model_loads` (runs before the selection record, emits `skill_load`). `agent/turn_context.py`: `indexed_skill_names(workspace)`. `agent/__main__.py`: `skills misses`, audit digest. `core/tool_exec.py`: voice/desktop `note_skill_load` hook. `core/text_turn_controller.py`: the GUI text loop writes both streams. `core/ui_connectivity.py`: read-only "Skill Routing Misses" card. | `python -m agent skills misses [--json] [--since 7d] [--prune]`; a `load_project_skill`/`load_skill` call emits `skill_load` and writes `skill_loads_<date>.jsonl`. Classification: `confirmed` (loaded == injected), `miss` (indexed but the router injected something else/nothing), `off_index` (not in the compiled index — another surface), `unrouted` (voice; usage only, never a verdict). Tests: `tests/test_agent_skill_audit.py`, `tests/test_agent_trace.py`, `tests/test_skill_misses_card.py`. |
 | **M6** | **Build + query side done** | `tools/skills_index.py`: `cookbook_sha256`, `skill_embedding_text`, `build_embeddings`, `verify_embeddings`, `--build-embeddings`, `--embed-endpoint`, `--embed-model`, `--embeddings-out`; `--check` flags stale vectors. `agent/turn_context.py`: `embed=` injection, `skills_embed_enabled()`, cached table/query vectors. `agent/second_brain.py`: public `embed_query`. | `python tools/skills_index.py --build-embeddings` once a local server is up; `BRAHMA_SKILL_EMBED=1 python -m agent eval --category skill_choice --provider stub` to compare. T1 remains the contract with no table and no env var. |
 
 **Not built on purpose.** T3 (model tie-break) stays a documented escalation, not
@@ -656,6 +683,7 @@ plus the record → audit → replay loop itself:
 ```powershell
 python -m agent skills audit --since 7d --json
 python -m agent skills audit --stage-fixes        # writes proposals, never edits skills/
+python -m agent skills misses --since 7d --json   # model-initiated loads vs. the router
 python -m agent eval --category skill_choice --provider stub
 python tools/skills_index.py --check              # flags stale embedding rows if a table exists
 ```

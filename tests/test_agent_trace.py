@@ -10,6 +10,7 @@ from agent.providers import build_completer
 from agent.runtime import AgentRuntime
 from agent.trace import (
     FailureTaxonomy,
+    SkillLoadSink,
     SkillSelectionSink,
     Span,
     TraceCollector,
@@ -295,4 +296,15 @@ def test_skill_selection_sink_can_read_without_creating_the_directory(tmp_path):
     sink = SkillSelectionSink(base_dir=target, create=False)
     assert sink.list_records() == []
     assert not target.exists()
+
+
+def test_skill_load_sink_uses_its_own_stream_in_the_same_directory(tmp_path):
+    selection = SkillSelectionSink(base_dir=tmp_path)
+    loads = SkillLoadSink(base_dir=tmp_path)
+    selection.save({"trace_id": "tr_sel", "ts_epoch": 1.0})
+    written = loads.save({"trace_id": "tr_load", "ts_epoch": 2.0})
+
+    assert written.name.startswith("skill_loads_")
+    assert [record["trace_id"] for record in selection.list_records()] == ["tr_sel"]
+    assert [record["trace_id"] for record in loads.list_records()] == ["tr_load"]
 
