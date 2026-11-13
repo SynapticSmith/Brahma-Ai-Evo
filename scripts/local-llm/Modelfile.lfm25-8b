@@ -1,0 +1,9 @@
+FROM lfm2.5:8b-a1b-q4_K_M
+
+# 32K context: the interactive agentic sweet spot on 16 GB / CPU.
+# Decode stays usable and the KV cache stays small with q8_0.
+PARAMETER num_ctx 32768
+PARAMETER num_thread 12
+PARAMETER num_predict 4096
+PARAMETER temperature 0.2
+PARAMETER top_p 0.9

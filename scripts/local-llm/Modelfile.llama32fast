@@ -1,0 +1,3 @@
+FROM llama32-1b-local
+PARAMETER num_ctx 8192
+PARAMETER num_thread 10

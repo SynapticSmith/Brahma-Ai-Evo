@@ -186,3 +186,56 @@ def test_tools_flat_declarations_normalized_to_openai_shape(monkeypatch):
     assert normalized[0]["function"]["parameters"]["type"] == "object"
     assert normalized[0]["function"]["parameters"]["properties"]["city"]["type"] == "string"
 
+
+def test_local_provider_sends_reasoning_effort(client):
+    """A thinking-capable local model must be told to skip the reasoning pass.
+
+    ``reasoning_effort: "none"`` is the difference between a 1.7B thinking
+    model answering in ~1s and burning 30-60s (and hundreds of tokens) on a
+    hidden pass. LocalBrain owns the setting; this transport borrows it.
+    """
+    c, captured = client
+    c.chat_as_completion("local", "hi")
+    assert captured["kwargs"]["reasoning_effort"] == "none"
+
+
+def test_local_chat_route_sends_reasoning_effort(client):
+    c, captured = client
+    c._provider = "Local"
+    c.chat("hi")
+    assert captured["kwargs"]["reasoning_effort"] == "none"
+
+
+def test_custom_provider_omits_reasoning_effort(client):
+    """Only the local provider gets the field; a remote endpoint may reject it."""
+    c, captured = client
+    c.chat_as_completion("custom", "hi")
+    assert captured["kwargs"]["reasoning_effort"] is None
+
+
+def test_openai_chat_completion_puts_reasoning_effort_in_payload(monkeypatch):
+    import requests
+
+    c = UnifiedAIClient()
+    monkeypatch.setattr(c, "reload_settings", lambda: None)
+    captured = {}
+
+    class FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+    monkeypatch.setattr(
+        requests, "post",
+        lambda endpoint, json=None, **kw: captured.update(payload=json) or FakeResp(),
+    )
+    c._openai_chat_completion(
+        [], "http://example.com/v1", "test-model", reasoning_effort="none"
+    )
+    assert captured["payload"]["reasoning_effort"] == "none"
+
+    c._openai_chat_completion([], "http://example.com/v1", "test-model")
+    assert "reasoning_effort" not in captured["payload"]
+
+

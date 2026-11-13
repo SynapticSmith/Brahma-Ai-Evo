@@ -84,10 +84,13 @@ PS_CACHE_TTL = 60.0
 # smaller than the system prompt this app actually sends: core/prompt.txt plus
 # the skill-context block and a bounded tool surface comfortably exceeds 4K
 # tokens, so without an explicit budget the model would lose the operating
-# instructions before the user's turn. 8192 leaves headroom for a real answer
-# on top; the bundled 3B models (qwen2.5, llama3.2) support 32K natively, and
+# instructions before the user's turn. 32768 leaves room for the system prompt,
+# a multi-turn agentic exchange and a large pasted document on top; the default
+# local models (lfm2.5 125K, lfm3 262K, qwen3/llama3.2 32K+) support it, and
 # non-Ollama OpenAI-compatible servers ignore the unknown `options` field.
-LOCAL_NUM_CTX = 8192
+# Memory note: on a 16 GB CPU-only laptop the KV cache is the cost driver, so
+# the runtime should run with OLLAMA_KV_CACHE_TYPE=q8_0 (see README).
+LOCAL_NUM_CTX = 32768
 
 CORE_LOCAL_TOOL_NAMES = {
     "open_app", "computer_settings", "system_diagnostics", "spotify_controller",
@@ -151,6 +154,110 @@ def _load_settings() -> Dict[str, Any]:
 
 
 _DEFAULT_LOAD_SETTINGS = _load_settings
+
+#: Inline reasoning markers. LFM2.5 always writes its chain of thought into
+#: ``content`` between these tags: Ollama ignores ``reasoning_effort`` and
+#: ``think:false`` for it because its GGUF carries no chat template to gate the
+#: block on. Both local paths scrub a *leading* block so the UI never shows the
+#: raw tag and the reasoning is not replayed as conversation history. A block in
+#: the middle of an answer is left alone, so code that quotes the tag survives.
+_THINK_OPEN = "\x3cthink\x3e"
+_THINK_CLOSE = "\x3c/think\x3e"
+
+
+def _strip_think(text: str) -> str:
+    """Remove leading `` thinking...`` blocks from a completed reply."""
+    if not isinstance(text, str):
+        return text
+    rest = text.lstrip()
+    if not rest.startswith(_THINK_OPEN):
+        return text
+    while rest.startswith(_THINK_OPEN):
+        rest = rest[len(_THINK_OPEN):]
+        close = rest.find(_THINK_CLOSE)
+        if close == -1:
+            # The model ran out of budget mid-thought: there is no answer to
+            # show. Returning the raw block would leak the reasoning instead.
+            return ""
+        rest = rest[close + len(_THINK_CLOSE):].lstrip()
+    return rest
+
+
+class _ThinkStreamFilter:
+    """Incremental :func:`_strip_think` for streamed content deltas.
+
+    Holds text only while it could still be the opening tag or while a block is
+    open, so ordinary replies pass through with no added latency.
+    """
+
+    def __init__(self) -> None:
+        self._buf = ""
+        self._state = "start"  # start -> thinking -> done
+
+    def feed(self, text: str) -> str:
+        if not isinstance(text, str) or not text:
+            return ""
+        if self._state == "done":
+            return text
+        self._buf += text
+        if self._state == "start":
+            head = self._buf.lstrip()
+            if len(head) < len(_THINK_OPEN) and _THINK_OPEN.startswith(head):
+                return ""  # could still become the tag
+            if not head.startswith(_THINK_OPEN):
+                self._state = "done"
+                out, self._buf = self._buf, ""
+                return out
+            self._state = "thinking"
+            self._buf = head[len(_THINK_OPEN):]
+        # state == thinking: discard until the closing tag, keeping a tail that
+        # could be a partial closing tag.
+        close = self._buf.find(_THINK_CLOSE)
+        if close == -1:
+            keep = len(_THINK_CLOSE) - 1
+            self._buf = self._buf[-keep:] if len(self._buf) > keep else self._buf
+            return ""
+        rest = self._buf[close + len(_THINK_CLOSE):].lstrip()
+        self._buf = ""
+        self._state = "done"
+        return rest
+
+    def flush(self) -> str:
+        out = self._buf if self._state == "start" else ""
+        self._buf = ""
+        return out
+
+
+def _scrub_stream_chunk(chunk: Any, filt: _ThinkStreamFilter) -> Any:
+    """Apply ``filt`` to every ``delta.content`` in an OpenAI-style chunk."""
+    if not isinstance(chunk, dict):
+        return chunk
+    choices = chunk.get("choices")
+    if not isinstance(choices, list):
+        return chunk
+    for choice in choices:
+        if not isinstance(choice, dict):
+            continue
+        delta = choice.get("delta")
+        if isinstance(delta, dict) and isinstance(delta.get("content"), str):
+            delta["content"] = filt.feed(delta["content"])
+    return chunk
+
+
+def _scrub_completion_choices(payload: Any) -> Any:
+    """Strip inline reasoning from a non-streaming completion payload."""
+    if not isinstance(payload, dict):
+        return payload
+    choices = payload.get("choices")
+    if not isinstance(choices, list):
+        return payload
+    for choice in choices:
+        if not isinstance(choice, dict):
+            continue
+        message = choice.get("message")
+        if isinstance(message, dict) and isinstance(message.get("content"), str):
+            message["content"] = _strip_think(message["content"])
+    return payload
 
 
 def _ps_load_speed(data: Any, model: str) -> Optional[str]:
@@ -716,6 +823,7 @@ class LocalBrain:
         )
         with self._open_stream(req) as resp:
             tightened = False
+            think = _ThinkStreamFilter()
             for line in resp:
                 if not tightened:
                     # The first byte proves the server is generating (prefill
@@ -730,9 +838,12 @@ class LocalBrain:
                         break
                     try:
                         chunk = json.loads(content)
-                        yield chunk
+                        yield _scrub_stream_chunk(chunk, think)
                     except Exception:
                         pass
+            tail = think.flush()
+            if tail:
+                yield {"choices": [{"index": 0, "delta": {"content": tail}}]}
 
     def _open_stream(self, req: urllib.request.Request):
         """Open a streaming response with the profile's first-token budget.
@@ -823,7 +934,7 @@ class LocalBrain:
             raise LocalBrainError(
                 f"local model '{active_model}' returned no choices: {body[:200]!r}"
             )
-        return res
+        return _scrub_completion_choices(res)
 
 
 # Global singleton instance

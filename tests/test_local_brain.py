@@ -40,6 +40,9 @@ from core.local_brain import (
     LocalBrain,
     LocalBrainError,
     _ps_load_speed,
+    _scrub_completion_choices,
+    _strip_think,
+    _ThinkStreamFilter,
 )
 
 
@@ -646,3 +649,85 @@ def test_stream_skips_tools_for_remembered_toolless_model(monkeypatch):
     )
 
     assert "tools" not in captured["payload"]
+
+
+# ------------------------------------------------------ inline reasoning scrub
+
+# Spelled with escapes because a literal tag in this file is rewritten by some
+# editors/tooling; at runtime these are exactly the markers LFM2.5 emits.
+_OPEN = "\x3cthink\x3e"
+_CLOSE = "\x3c/think\x3e"
+
+
+def test_strip_think_removes_a_leading_block():
+    assert _strip_think(_OPEN + "\nThe user asks 2+2.\n\n" + _CLOSE + "\n\n4") == "4"
+
+
+def test_strip_think_keeps_mid_answer_mentions():
+    text = f"A chat template can open a block with `{_OPEN}` and close it later."
+    assert _strip_think(text) == text
+
+
+def test_strip_think_drops_an_unterminated_block():
+    assert _strip_think(_OPEN + "\nstill reasoning at the token limit") == ""
+
+
+def test_strip_think_handles_multiple_leading_blocks():
+    text = _OPEN + "a" + _CLOSE + _OPEN + "b" + _CLOSE + "answer"
+    assert _strip_think(text) == "answer"
+
+
+def test_think_stream_filter_hides_the_block_across_chunk_boundaries():
+    filt = _ThinkStreamFilter()
+    parts = ["\x3cth", "ink\x3e\nreason", "ing...", "\x3c/th", "ink\x3e\n\n", "4"]
+    assert "".join(filt.feed(p) for p in parts) + filt.flush() == "4"
+
+
+def test_think_stream_filter_passes_plain_text_through():
+    filt = _ThinkStreamFilter()
+    assert filt.feed("Hello") == "Hello"
+    assert filt.feed(" world") == " world"
+    assert filt.flush() == ""
+
+
+def test_think_stream_filter_flushes_a_partial_opening_tag():
+    filt = _ThinkStreamFilter()
+    assert filt.feed("\x3cthi") == ""
+    assert filt.flush() == "\x3cthi"
+
+
+def test_scrub_completion_choices_strips_message_content():
+    payload = {
+        "choices": [
+            {"message": {"role": "assistant", "content": _OPEN + "\nx\n\n" + _CLOSE + "\nOK"}}
+        ]
+    }
+    assert _scrub_completion_choices(payload)["choices"][0]["message"]["content"] == "OK"
+
+
+def test_stream_scrubs_inline_reasoning(monkeypatch):
+    """The streaming UI must not receive the raw think block, even when the
+    tag is split across SSE chunks."""
+    brain = _brain_with_settings(monkeypatch, {})
+
+    def sse(content):
+        body = {"choices": [{"delta": {"content": content}}]}
+        return ("data: " + json.dumps(body) + "\n").encode("utf-8")
+
+    lines = [
+        sse("\x3cth"),
+        sse("ink\x3e\nwhy\n\n"),
+        sse("\x3c/th"),
+        sse("ink\x3e\n\n"),
+        sse("4"),
+        b"data: [DONE]\n",
+    ]
+    stream = _FakeStream(lines)
+    monkeypatch.setattr(brain, "_open_stream", lambda req: stream)
+
+    chunks = list(brain.generate_chat_stream([{"role": "user", "content": "hi"}]))
+    text = "".join(
+        (c.get("choices") or [{}])[0].get("delta", {}).get("content", "")
+        for c in chunks
+    )
+    assert text == "4"

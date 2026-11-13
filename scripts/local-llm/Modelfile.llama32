@@ -1,0 +1,3 @@
+FROM C:\Users\Admin\AppData\Local\Temp\opencode\llama-test\llama32-1b-q4km.gguf
+PARAMETER num_ctx 8192
+PARAMETER num_thread 10

@@ -31,6 +31,26 @@ DEFAULT_LOCAL_MODEL = "llama3.2"
 REQUEST_TIMEOUT = (10.0, 180.0)
 
 
+def _local_reasoning_effort() -> Optional[str]:
+    """``reasoning_effort`` for the local provider, or None to omit the field.
+
+    LocalBrain already resolves this from Settings (``local_reasoning_effort``,
+    default ``"none"``) for the agentic path, and ``"none"`` is what makes a
+    thinking-capable model (lfm3, deepseek-r1, qwen3) answer instead of
+    spending 30-60s on a hidden reasoning pass. Borrowing that value here
+    keeps the plain text and gateway calls on the same switch instead of a
+    second default. ``"auto"`` means "send nothing"; any failure keeps the
+    historical payload rather than guessing a field the server may reject.
+    """
+    try:
+        from core.local_brain import local_brain
+
+        effort = str(getattr(local_brain, "_reasoning_effort", "auto") or "auto")
+        return None if effort == "auto" else effort
+    except Exception:
+        return None
+
+
 def _local_read_timeout() -> tuple:
     """(connect, read) budget for the local provider.
 
@@ -135,6 +155,7 @@ class UnifiedAIClient:
         timeout: tuple = REQUEST_TIMEOUT,
         tools: Optional[List[Dict[str, Any]]] = None,
         return_message: bool = False,
+        reasoning_effort: Optional[str] = None,
     ) -> Optional[Any]:
         """One OpenAI-compatible chat call.
 
@@ -154,6 +175,9 @@ class UnifiedAIClient:
             payload["max_tokens"] = max_tokens
         if response_format:
             payload["response_format"] = response_format
+        if reasoning_effort:
+            # Ollama/llama.cpp: "none" disables the thinking pass entirely.
+            payload["reasoning_effort"] = reasoning_effort
         if tools:
             formatted_tools: List[Dict[str, Any]] = []
             for t in tools:
@@ -235,6 +259,7 @@ class UnifiedAIClient:
             temperature=temperature,
             response_format=response_format,
             label="Local AI",
+            reasoning_effort=_local_reasoning_effort(),
         )
 
     def _custom_chat_completion(
@@ -351,6 +376,7 @@ class UnifiedAIClient:
                 max_tokens=max_tokens,
                 response_format=response_format,
                 label="Local AI",
+                reasoning_effort=_local_reasoning_effort(),
             )
             if result:
                 return result
@@ -536,6 +562,7 @@ class UnifiedAIClient:
             timeout=timeout,
             tools=tools,
             return_message=True,
+            reasoning_effort=_local_reasoning_effort() if pid == "local" else None,
         )
         if result:
             return result
