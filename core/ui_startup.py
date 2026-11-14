@@ -11,6 +11,9 @@ import time
 
 from pathlib import (Path)
 
+from core.ui_theme import DEFAULT_APP_THEME
+from core.ui_transients import DEFAULT_BOOT_SPEED
+
 
 def bind(*, BASE_DIR, _OS):
     globals().update(BASE_DIR=BASE_DIR, _OS=_OS)
@@ -66,12 +69,17 @@ def _launched_from_windows_startup() -> bool:
 def _default_app_settings() -> dict:
     return {
         "startup_animation_enabled": True,
+        "startup_anim_speed": DEFAULT_BOOT_SPEED,
         "last_boot_stamp": 0,
         "boot_sequence_played": True,
         "show_workspace_on_startup": False,
         "launcher_pos": None,
         "launch_minimized": False,
         "check_updates_on_startup": True,
+        # A hex accent or a slug from templates/themes (core/ui_theme.py).
+        # Blank/unknown falls back to DEFAULT_APP_THEME, matching the old
+        # "Gold" -> #ffffff fallback without adding a third literal.
+        "app_theme": DEFAULT_APP_THEME,
         "default_ai_provider": "Gemini",
         "auto_provider_switch": True,
         "local_ai_url": "http://localhost:11434/v1",

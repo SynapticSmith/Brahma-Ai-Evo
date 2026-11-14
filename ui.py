@@ -76,28 +76,16 @@ from core.ui_theme import C
 try:
     if APP_SETTINGS_FILE.exists():
         with open(APP_SETTINGS_FILE, "r", encoding="utf-8") as f:
-            _global_settings = json.load(f)
-            C.load_theme(_global_settings.get("app_theme", "#ffffff"))
+            C.apply_theme_value(json.load(f).get("app_theme", C.DEFAULT_APP_THEME))
 except Exception:
     pass
 
-# Patch setStyleSheet to dynamically replace hardcoded gold colors with active white and ice theme
-_old_setStyleSheet = QWidget.setStyleSheet
-def _new_setStyleSheet(self, style):
-    if style:
-        style = style.replace("#00e5ff", getattr(C, "ACC", "#00e5ff"))
-        style = style.replace("#00e5ff", getattr(C, "ACC", "#00e5ff"))
-        style = style.replace("#00e5ff", getattr(C, "ACC", "#00e5ff"))
-        style = style.replace("#ffd700", getattr(C, "ACC", "#00e5ff"))
-        style = style.replace("#d4af37", getattr(C, "ACC", "#00e5ff"))
-        style = style.replace("#80ffff", getattr(C, "ACC2", "#80ffff"))
-        style = style.replace("#00b4d8", getattr(C, "ACC", "#00e5ff"))
-        style = style.replace("255, 179, 0", "0, 229, 255")
-        style = style.replace("255,179,0", "0,229,255")
-        style = style.replace("255, 190, 26", "0, 229, 255")
-        style = style.replace("244, 180, 0", "0, 229, 255")
-    _old_setStyleSheet(self, style)
-QWidget.setStyleSheet = _new_setStyleSheet
+# Legacy widget styles hardcode the old accent literals ("#ffd700", "#00b4d8",
+# "255, 179, 0", ...). Rewrite them on the way into Qt, keep the original on the
+# widget, and re-run it on a theme change. The table, the patch and the walker
+# live in core.ui_theme, which is where they can be tested without a QApplication.
+C.install_stylesheet_patch(QWidget)
+C.register_listener(C.reapply_all)
 
 
 from core import ui_bg as _ui_bg

@@ -12,6 +12,7 @@ from PyQt6.QtCore import (QEasingCurve, QPropertyAnimation, QTimer, Qt, pyqtSign
 from PyQt6.QtGui import (QFont)
 from PyQt6.QtWidgets import (QApplication, QDialog, QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QProgressBar, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
 from core.ui_theme import (C)
+from core import popup_settings
 from pathlib import (Path)
 from sound_manager import (sound_mgr)
 
@@ -276,7 +277,32 @@ class SmallPanelCard(QFrame):
         self._body_lbl.setStyleSheet(f"color: {accent}; background: transparent;")
         lay.addWidget(self._body_lbl)
 
-class BrahmaTelemetryWing(QFrame):
+class _DismissBudgetMixin:
+    """Shared popup-timer policy for the two wings.
+
+    ``core.popup_settings`` is the single owner of the cosmetic dismiss rules,
+    so a wing must not keep its own 10 s constant: the Settings card that
+    promises to control popups has to reach these two surfaces too.
+    """
+
+    def _refresh_dismiss_budget(self) -> bool:
+        """Apply the configured timer. False means "stay open until closed"."""
+        seconds = popup_settings.dismiss_seconds(
+            popup_settings.DEFAULT_TELEMETRY_WING_SECONDS
+        )
+        if seconds is None:
+            self._total_duration_ms = 0
+            self._remaining_ms = 0
+            self._timer.stop()
+            self._fuse_bar.setValue(100)
+            self._fuse_lbl.setText("∞")
+            return False
+        self._total_duration_ms = int(seconds * 1000)
+        self._remaining_ms = self._total_duration_ms
+        return True
+
+
+class BrahmaTelemetryWing(_DismissBudgetMixin, QFrame):
     """
     Brahma Right Wing: Live Operations, Research Streams, and Sources.
     Auto-dismisses in 10 seconds unless pinned or hovered.
@@ -291,8 +317,8 @@ class BrahmaTelemetryWing(QFrame):
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.MinimumExpanding)
         self._pinned = False
         self._paused = False
-        self._total_duration_ms = 10000
-        self._remaining_ms = 10000
+        self._total_duration_ms = int(popup_settings.DEFAULT_TELEMETRY_WING_SECONDS * 1000)
+        self._remaining_ms = self._total_duration_ms
         self._sources_list = []
         self._theme_pri = "#00e5ff"
         self._theme_rgb = (0, 229, 255)
@@ -395,6 +421,7 @@ class BrahmaTelemetryWing(QFrame):
         self.apply_theme()
         if hasattr(C, "register_listener"):
             C.register_listener(self.apply_theme)
+        self._refresh_dismiss_budget()
 
         self.hide()
 
@@ -533,9 +560,8 @@ class BrahmaTelemetryWing(QFrame):
                 """)
                 self._sources_lay.addWidget(pill)
 
-        self._remaining_ms = self._total_duration_ms
         self._paused = False
-        if not self._pinned:
+        if not self._pinned and self._refresh_dismiss_budget():
             self._timer.start()
 
         # Fade-in animation
@@ -557,7 +583,7 @@ class BrahmaTelemetryWing(QFrame):
         self._anim.start()
 
     def _on_tick(self):
-        if self._pinned or self._paused:
+        if self._pinned or self._paused or self._total_duration_ms <= 0:
             return
         self._remaining_ms -= 100
         pct = max(0, int((self._remaining_ms / self._total_duration_ms) * 100))
@@ -588,7 +614,7 @@ class BrahmaTelemetryWing(QFrame):
         self._anim.start()
 
 
-class BrahmaResultWing(QFrame):
+class BrahmaResultWing(_DismissBudgetMixin, QFrame):
     """
     Brahma Left Wing: Final Results, Generated Deliverables (PDF/Word/Media/Code),
     Executive Summary Bullets, and Quick Action Buttons.
@@ -604,8 +630,8 @@ class BrahmaResultWing(QFrame):
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.MinimumExpanding)
         self._pinned = False
         self._paused = False
-        self._total_duration_ms = 10000
-        self._remaining_ms = 10000
+        self._total_duration_ms = int(popup_settings.DEFAULT_TELEMETRY_WING_SECONDS * 1000)
+        self._remaining_ms = self._total_duration_ms
         self._active_file_path = None
         self._theme_pri = "#00e5ff"
         self._theme_rgb = (0, 229, 255)
@@ -732,6 +758,7 @@ class BrahmaResultWing(QFrame):
         self.apply_theme()
         if hasattr(C, "register_listener"):
             C.register_listener(self.apply_theme)
+        self._refresh_dismiss_budget()
 
         self.hide()
 
@@ -886,9 +913,8 @@ class BrahmaResultWing(QFrame):
             b_lbl.setWordWrap(True)
             self._bullets_lay.addWidget(b_lbl)
 
-        self._remaining_ms = self._total_duration_ms
         self._paused = False
-        if not self._pinned:
+        if not self._pinned and self._refresh_dismiss_budget():
             self._timer.start()
 
         # Fade-in animation
@@ -909,7 +935,7 @@ class BrahmaResultWing(QFrame):
         self._anim.start()
 
     def _on_tick(self):
-        if self._pinned or self._paused:
+        if self._pinned or self._paused or self._total_duration_ms <= 0:
             return
         self._remaining_ms -= 100
         pct = max(0, int((self._remaining_ms / self._total_duration_ms) * 100))

@@ -924,7 +924,7 @@ class SetupOverlay(QWidget):
         lay.insertWidget(lay.count() - 1, self._color_box, 0, Qt.AlignmentFlag.AlignCenter)
         
     def _pick_setup_color(self):
-        color = QColorDialog.getColor(QColor(C.PRI), self, "Select App Theme Color")
+        color = QColorDialog.getColor(QColor(C.ACC), self, "Select App Theme Color")
         if color.isValid():
             hex_col = color.name()
             self._setup_color_btn.setStyleSheet(f"QPushButton {{ background: {hex_col}; color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 12px; }}")
@@ -936,7 +936,7 @@ class SetupOverlay(QWidget):
                 settings["app_theme"] = hex_col
                 with open(APP_SETTINGS_FILE, "w", encoding="utf-8") as f:
                     json.dump(settings, f, indent=4)
-                C.load_theme(hex_col)
+                C.apply_theme_value(hex_col)
             except:
                 pass
                 

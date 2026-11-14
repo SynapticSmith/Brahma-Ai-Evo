@@ -18,6 +18,12 @@ def _ease_out_expo(x: float) -> float:
 def _ease_in_out_sine(x: float) -> float:
     return -(math.cos(math.pi * x) - 1.0) / 2.0
 
+#: Boot-overlay length per ``startup_anim_speed`` value. "Normal" is the
+#: historical 3.6 s, so an install that never touched the setting is unchanged.
+BOOT_SPEED_SECONDS = {"Fast": 2.2, "Normal": 3.6, "Slow": 5.4}
+DEFAULT_BOOT_SPEED = "Normal"
+
+
 class ScanningOverlay(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -452,7 +458,7 @@ class ScanningOverlay(QWidget):
 class BootSequenceOverlay(QWidget):
     finished = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, speed: str = DEFAULT_BOOT_SPEED):
         super().__init__(parent)
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -466,7 +472,8 @@ class BootSequenceOverlay(QWidget):
         self._boot_finished = False
         self._time = 0.0
         self._dt = 0.016
-        self._total_duration = 3.6
+        self._speed = speed if speed in BOOT_SPEED_SECONDS else DEFAULT_BOOT_SPEED
+        self._total_duration = BOOT_SPEED_SECONDS[self._speed]
 
         # Particles & Effects State
         self._particles = []

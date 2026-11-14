@@ -211,8 +211,8 @@ The left sidebar has three top-level sections:
 | **Attention Prompts** | Incoming message and call prompts. |
 | **Startup** | Windows startup, launch-minimized, update check. |
 | **Shortcuts & Pinning** | Desktop/Start Menu shortcuts and pinning. |
-| **App Theme** | Primary color theme. |
-| **Startup Animation** | Boot animation behavior and speed. |
+| **App Theme** | Bundled theme template or a custom accent color; applies immediately. |
+| **Startup Animation** | Boot animation on/off, Fast/Normal/Slow speed, live preview. |
 | **Discord Bot** | Mirror the app to a Discord server. |
 | **About Brahma Evo** | Version and product information. |
 | **Auto-Heal** | Sentry status, patch history, rollback. |

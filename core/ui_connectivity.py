@@ -19,6 +19,8 @@ import time
 from pathlib import Path
 
 from core.ui_thread import run_on_ui
+from core.ui_theme import contrasting_text
+from core.ui_transients import BOOT_SPEED_SECONDS, DEFAULT_BOOT_SPEED
 
 from PyQt6.QtCore import (
     QObject,
@@ -31,7 +33,6 @@ from PyQt6.QtGui import (
     QFont,
 )
 from PyQt6.QtWidgets import (
-    QApplication,
     QCheckBox,
     QColorDialog,
     QComboBox,
@@ -3537,26 +3538,34 @@ class SystemConnectivityPage(QWidget):
         lay.addWidget(shortcuts)
 
         # App Theme
-        theme_card = self._card("App Theme", "Select the primary color theme for Brahma Evo.")
+        theme_card = self._card(
+            "App Theme",
+            "Pick a bundled theme template or a custom accent color. "
+            "Changes apply immediately.",
+        )
         tl = theme_card.layout()
+
+        template_row = QHBoxLayout()
+        template_row.addWidget(QLabel("Theme Template:"))
+        self._theme_combo = QComboBox()
+        self._theme_combo.addItem("Custom accent color", "")
+        for _theme in C.load_theme_templates():
+            _label = _theme.get("name") or _theme["slug"]
+            if _theme.get("variant"):
+                _label = f"{_label} ({_theme['variant']})"
+            self._theme_combo.addItem(_label, _theme["slug"])
+        template_row.addWidget(self._theme_combo, 1)
+        tl.addLayout(template_row)
+
         theme_row = QHBoxLayout()
         theme_row.addWidget(QLabel("Primary Color:"))
-        
+
         self._pick_theme_btn = QPushButton("Pick Color Palette")
         self._pick_theme_btn.clicked.connect(self._pick_theme_color)
-        
-        current_theme = "Gold"
-        try:
-            if APP_SETTINGS_FILE.exists():
-                with open(APP_SETTINGS_FILE, "r", encoding="utf-8") as f:
-                    _d = json.load(f)
-                    current_theme = _d.get("app_theme", "Gold")
-        except:
-            pass
-            
-        if current_theme.startswith("#"):
-            self._pick_theme_btn.setStyleSheet(f"background: {current_theme}; color: #ffffff;")
-        
+
+        self._sync_theme_controls(self._load_app_settings().get("app_theme", C.DEFAULT_APP_THEME))
+        self._theme_combo.currentIndexChanged.connect(self._on_theme_template_changed)
+
         theme_row.addWidget(self._pick_theme_btn, 1)
         tl.addLayout(theme_row)
         lay.addWidget(theme_card)
@@ -3569,10 +3578,13 @@ class SystemConnectivityPage(QWidget):
         speed_row = QHBoxLayout()
         speed_row.addWidget(QLabel("Animation Speed"))
         self._anim_speed = QComboBox()
-        self._anim_speed.addItems(["Fast", "Normal", "Slow"])
-        self._anim_speed.setCurrentText(self._load_app_settings().get("startup_anim_speed", "Normal"))
+        self._anim_speed.addItems(list(BOOT_SPEED_SECONDS))
+        self._anim_speed.setCurrentText(
+            self._load_app_settings().get("startup_anim_speed", DEFAULT_BOOT_SPEED)
+        )
         speed_row.addWidget(self._anim_speed, 1)
         al.addLayout(speed_row)
+        self._anim_speed.currentTextChanged.connect(self._on_animation_speed_changed)
         self._anim_preview_btn = QPushButton("Preview Animation")
         self._anim_preview_btn.clicked.connect(self._preview_animation)
         al.addWidget(self._anim_preview_btn)
@@ -4588,21 +4600,58 @@ class SystemConnectivityPage(QWidget):
             self._ah_output_lbl.setText(f"Error repairing bug: {e}")
 
     def _pick_theme_color(self):
-        color = QColorDialog.getColor(QColor(C.PRI), self, "Select App Theme Color")
+        color = QColorDialog.getColor(QColor(C.ACC), self, "Select App Theme Color")
         if color.isValid():
             self._change_theme(color.name())
 
-    def _change_theme(self, new_theme: str):
-        settings = self._load_app_settings()
-        old_theme = settings.get("app_theme", "Gold")
-        if new_theme.lower() == str(old_theme).lower():
+    def _sync_theme_controls(self, current_theme):
+        """Point the template combo and the swatch button at ``current_theme``."""
+        value = str(current_theme or "")
+        if hasattr(self, "_theme_combo"):
+            index = self._theme_combo.findData(value)
+            if index < 0:
+                index = 0
+            self._theme_combo.blockSignals(True)
+            self._theme_combo.setCurrentIndex(index)
+            self._theme_combo.blockSignals(False)
+        if hasattr(self, "_pick_theme_btn"):
+            accent = C.ACC
+            self._pick_theme_btn.setStyleSheet(
+                f"background: {accent}; color: {contrasting_text(accent)};"
+            )
+
+    def _on_theme_template_changed(self, index: int):
+        if not hasattr(self, "_theme_combo"):
             return
+        slug = self._theme_combo.itemData(index) or ""
+        if slug:
+            self._change_theme(str(slug))
+
+    def _change_theme(self, new_theme: str):
+        new_theme = str(new_theme or "").strip()
+        if not new_theme:
+            return
+        settings = self._load_app_settings()
+        old_theme = str(settings.get("app_theme", C.DEFAULT_APP_THEME) or "")
+        if new_theme.lower() == old_theme.lower():
+            return
+
         self._set_setting("app_theme", new_theme)
-        QMessageBox.information(self, "Restart Required", "The application will now restart to apply the new theme.")
-        if self._ctrl() and hasattr(self._ctrl(), "_restart_app"):
-            self._ctrl()._restart_app()
-        else:
-            QApplication.quit()
+        C.apply_theme_value(new_theme)
+        self._sync_theme_controls(new_theme)
+
+        # A live re-tint reaches every widget that stored a stylesheet (see
+        # ui.py); surfaces that paint from C directly repaint on their own
+        # apply_theme listener. Nothing needs a restart, so there is no modal.
+        label = C.current_name if C.current_slug else new_theme
+        if self._ctrl() and hasattr(self._ctrl(), "write_log"):
+            self._ctrl().write_log(f"SYS: Theme set to {label}.")
+
+    def _on_animation_speed_changed(self, speed: str):
+        speed = speed if speed in BOOT_SPEED_SECONDS else DEFAULT_BOOT_SPEED
+        self._set_setting("startup_anim_speed", speed)
+        if self._ctrl() and hasattr(self._ctrl(), "write_log"):
+            self._ctrl().write_log(f"SYS: Startup animation speed set to {speed}.")
 
     def _build_summary_card(self):
         card = self._card("")
@@ -4952,8 +5001,15 @@ class SystemConnectivityPage(QWidget):
         self._preview_timer.timeout.connect(self._tick_preview)
         self._preview_timer.start(24)
 
+    def _preview_step(self) -> int:
+        """Percent per 24 ms tick, so Fast/Normal/Slow look different."""
+        speed = self._anim_speed.currentText() if hasattr(self, "_anim_speed") else DEFAULT_BOOT_SPEED
+        duration = BOOT_SPEED_SECONDS.get(speed, BOOT_SPEED_SECONDS[DEFAULT_BOOT_SPEED])
+        total_ms = max(1.0, duration * 1000.0 / 3.0)  # a third of the real run
+        return max(1, int(round(100.0 * 24.0 / total_ms)))
+
     def _tick_preview(self):
-        value = min(100, self._preview_progress.value() + 4)
+        value = min(100, self._preview_progress.value() + self._preview_step())
         self._preview_progress.setValue(value)
         if value >= 100 and hasattr(self, "_preview_timer"):
             self._preview_timer.stop()

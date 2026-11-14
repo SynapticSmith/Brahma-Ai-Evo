@@ -18,6 +18,9 @@ from typing import Any, Dict, Optional
 #: card is a receipt; the briefing is something to read.
 DEFAULT_TASK_CARD_SECONDS = 4.0
 DEFAULT_BRIEFING_SECONDS = 30.0
+#: The telemetry/result wings sat on a hardcoded 10 s for years. Same value,
+#: but now a *default* the Settings popup timers can override.
+DEFAULT_TELEMETRY_WING_SECONDS = 10.0
 MAX_DISMISS_SECONDS = 600.0
 
 #: Approval is security-relevant, so it has its own floor and ceiling. It is

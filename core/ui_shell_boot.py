@@ -7,6 +7,8 @@ import platform
 
 from PyQt6.QtCore import (QTimer, Qt)
 
+from core.ui_transients import DEFAULT_BOOT_SPEED
+
 
 def bind(*, BootSequenceOverlay, _current_boot_stamp):
     globals().update(BootSequenceOverlay=BootSequenceOverlay, _current_boot_stamp=_current_boot_stamp)
@@ -65,7 +67,8 @@ class _ShellBootMixin:
     def play_boot_sequence(self, finished_callback=None):
         self._mark_boot_sequence_played()
         if self._boot_overlay is None:
-            self._boot_overlay = BootSequenceOverlay()
+            speed = self._load_app_settings().get("startup_anim_speed", DEFAULT_BOOT_SPEED)
+            self._boot_overlay = BootSequenceOverlay(speed=speed)
             def _on_boot_finished():
                 try:
                     self._win.setWindowState(

@@ -19,6 +19,7 @@ def test_defaults_are_per_surface(monkeypatch):
     assert popup.auto_dismiss_enabled() is True
     assert popup.dismiss_seconds(popup.DEFAULT_TASK_CARD_SECONDS) == 4.0
     assert popup.dismiss_seconds(popup.DEFAULT_BRIEFING_SECONDS) == 30.0
+    assert popup.dismiss_seconds(popup.DEFAULT_TELEMETRY_WING_SECONDS) == 10.0
 
 
 def test_zero_means_the_surface_default(monkeypatch):
