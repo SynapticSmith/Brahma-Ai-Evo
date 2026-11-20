@@ -158,8 +158,8 @@ In commit `9dd02cf`, upstream created `core/claude_tools.py` (638 lines) offerin
 - It leaves `stdin` open, does not terminate child processes or grandchildren on Windows (leaking background processes), does not scrub sensitive environment variables, and bypasses user approval gates.
 
 #### Our Fork's Architecture
-- [`agent/tools_exec.py`](file:///C:/Users/Admin/Brahma-Ai-Evo/agent/tools_exec.py) provides `run_command` using `agent.process.run_captured`: closes `stdin` so commands cannot hang on interactive prompts, terminates the entire process tree via Windows Job Objects, enforces clamped timeouts (1 to 1800s), scrubs environment variables, and requires user approval (`tool_class="exec"`).
-- [`agent/tools_file.py`](file:///C:/Users/Admin/Brahma-Ai-Evo/agent/tools_file.py) and [`agent/tools_search.py`](file:///C:/Users/Admin/Brahma-Ai-Evo/agent/tools_search.py) implement paginated reading, atomic writing, surgical editing with uniqueness checks, and regex grepping.
+- [`agent/process.py`](file:///C:/Users/Admin/Brahma-Ai-Evo/agent/process.py) and [`agent/code_tools.py`](file:///C:/Users/Admin/Brahma-Ai-Evo/agent/code_tools.py) provide `run_command` using `agent.process.run_captured`: closes `stdin` so commands cannot hang on interactive prompts, terminates the entire process tree via Windows Job Objects, enforces clamped timeouts (1 to 1800s), scrubs environment variables, and requires user approval (`tool_class="exec"`).
+- [`agent/code_tools.py`](file:///C:/Users/Admin/Brahma-Ai-Evo/agent/code_tools.py) implements paginated reading, atomic writing, surgical editing with uniqueness checks, and regex grepping.
 - [`core/agent_bridge/adapters/cli_agent.py`](file:///C:/Users/Admin/Brahma-Ai-Evo/core/agent_bridge/adapters/cli_agent.py) wraps real CLI coding agents (Claude Code, OpenAI Codex, Aider) under strict containment.
 
 #### The Wisest Porting Strategy

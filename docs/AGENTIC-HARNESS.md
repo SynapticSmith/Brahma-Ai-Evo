@@ -118,7 +118,7 @@ import PyQt, the tool index, or a provider client. Import submodules directly.
 
 | File | Change |
 | --- | --- |
-| `main.py` | `TOOL_DECLARATIONS.extend(_agent_gemini_declarations(...))` (all specs except `run_subagent` on the voice socket); `AGENT_MAX_TURNS = 24`; `_finish_tool_turn` now runs the loop; `_agent_event` mirrors telemetry (including relayed subagent events); `_ensure_agent_session` and `/sessions`, `/resume`, `/new` bind the GUI text path to durable sessions; `main()` configures the runtime (workspace + HUD approver). |
+| `main.py` | `TOOL_DECLARATIONS.extend(_agent_gemini_declarations(...))` skips duplicate harness declarations for desktop-tagged tools, which remain advertised natively; `AGENT_MAX_TURNS = 24`; `_finish_tool_turn` now runs the loop via `core/text_turn_controller.py`; `_agent_event` mirrors telemetry (including relayed subagent events); `_ensure_agent_session` and `/sessions`, `/resume`, `/new` bind the GUI text path to durable sessions through the same controller; `main()` configures the runtime (workspace + HUD approver). Voice declarations also drop `NO_BANNER_TOOLS` (`run_subagent`, `run_subagent_batch`, `dispatch_peer_task`) in `core/session_lifecycle.voice_tool_declarations`. |
 | `core/tool_exec.py` | Harness branch at the top of `ToolExecutor.execute`: registered tools go to the runtime in a worker thread, then fall through to the legacy path. |
 | `core/confirm.py` | `is_bound()`, `ask_blocking()`, `_on_qt_main_thread()`, and waiter/verdict plumbing on `_Pending`. |
 | `core/tool_index.py` | `read_file`, `edit_file`, `run_command` added to `DEFAULT_PINNED_TOOLS`. |

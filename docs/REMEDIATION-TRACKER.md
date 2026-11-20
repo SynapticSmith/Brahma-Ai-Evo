@@ -4,7 +4,7 @@
 **Source Authority:** [`docs/SYSTEM-ANALYSIS-MASTER-REPORT.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/SYSTEM-ANALYSIS-MASTER-REPORT.md) and [`docs/scan-reports/WP-01-agent-harness.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/scan-reports/WP-01-agent-harness.md) – [`WP-12-documentation-and-drift.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/scan-reports/WP-12-documentation-and-drift.md)  
 **Started:** 2026-11-08  
 **Completed:** 2026-11-08  
-**Overall Status:** `COMPLETE`
+**Overall Status:** `COMPLETE` for Batch R-1..R-4; the `docs/scan-reports/WP-*` backlog is tracked separately and is partially open.
 
 ---
 
@@ -18,6 +18,8 @@
 | **Wave 4** | **Batch R-2A:** Session Lifecycle Resumption, Egress Kill-Switches (`I-21`), Audio/Proactive Gating & Atomic Writes (`I-17`) | `FIND-024`, `FIND-025`, `FIND-026`, `FIND-027`, `FIND-033`, `FIND-034`, `FIND-035`, `FIND-055`, `FIND-056` | `[x] Complete` |
 | **Wave 5** | **Batch R-2B & R-3:** UI Threading (`I-25`), Approval Queue, WebEngine Lazy Imports (`I-26`), Seam Wiring & Dead Code Pruning | `FIND-012`, `FIND-013`, `FIND-016`, `FIND-017`, `FIND-029`, `FIND-030`, `FIND-031`, `FIND-037`, `FIND-045`–`FIND-054`, `FIND-057`, `FIND-058`, `FIND-060`, `FIND-062`, `FIND-063` | `[x] Complete` |
 | **Wave 6** | **Batch R-4:** PyInstaller Packaging, Frozen Asset/Subagent Paths, Test Coverage & Documentation Reconciliation | `FIND-014`, `FIND-015`, `FIND-038`, `FIND-039`, `FIND-040` | `[x] Complete` |
+
+Unchecked boxes in `docs/scan-reports/WP-*` are not automatically closed by this ledger; several are stale, but code-confirmed items remain open. Treat each finding against current code before changing its status.
 
 ---
 

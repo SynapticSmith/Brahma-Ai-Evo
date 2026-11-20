@@ -224,6 +224,13 @@ python -m agent sessions
 python -m agent permissions init
 ```
 
+## Documentation map
+
+- **Current status:** [Release readiness](docs/PRODUCTION-RELEASE-REPORT.md), [remediation ledger](docs/REMEDIATION-TRACKER.md), [version 1.0.1 log](docs/VERSION-1.0.1-LOG.md).
+- **Setup guides:** [User & operations](docs/USER-GUIDE.md), [second brain](docs/SECOND-BRAIN-GUIDE.md), [local LLM laptop](docs/LOCAL-LLM-LAPTOP-SETUP.md), [vault and Calyx](docs/VAULT-AND-CALYX-SETUP-GUIDE.md).
+- **Architecture and federation:** [architecture spec](docs/ARCHITECTURE-SPEC.md), [agent harness](docs/AGENTIC-HARNESS.md), [knowledge/skills tracker](docs/KNOWLEDGE-AND-SKILLS-ENGINE-TRACKER.md), [federation deep dive](docs/SWARM-FEDERATION-DEEP-DIVE.md), [federation tracker](docs/SWARM-FEDERATION-IMPLEMENTATION-TRACKER.md).
+- **Historical or superseded:** [federation investigation](docs/SWARM-FEDERATION-INVESTIGATION.md), [capability analysis](docs/CAPABILITY-MAXIMIZATION-ANALYSIS.md), [system scan plan](docs/FULL-SYSTEM-SCAN-AND-ANALYSIS-PLAN.md), [Actions remediation notes](docs/GITHUB-ACTIONS-REMEDIATION.md), [theme contract](docs/THEME-SCHEMA-AND-AGENT-REDESIGN-CONTRACT.md).
+
 ---
 
 ## 🔒 Security & Privacy

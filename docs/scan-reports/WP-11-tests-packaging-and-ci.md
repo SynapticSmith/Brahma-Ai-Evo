@@ -101,7 +101,7 @@ flowchart TD
 | [tools/sign_release.py](file:///C:/Users/Admin/Brahma-Ai-Evo/tools/sign_release.py) | 73 | Ed25519 cryptographic signing CLI for release manifests | Active | Low | Generates keypairs and signs `release.json`. |
 | [.github/workflows/ci.yml](file:///C:/Users/Admin/Brahma-Ai-Evo/.github/workflows/ci.yml) | 90 | Main CI workflow (static-gate, lint, unit tests, py311-313 matrix) | Active | Medium | Runs unit suite and harness matrix; lacks acceptance hardware gates. |
 | [.github/workflows/build.yml](file:///C:/Users/Admin/Brahma-Ai-Evo/.github/workflows/build.yml) | 90 | Release packaging workflow for Windows PyInstaller build | Active | Low | Builds `BrahmaEvo.spec`, setup wizard, manifest, and SHA256SUMS. |
-| [.github/workflows/build-all-platforms.yml](file:///C:/Users/Admin/Brahma-Ai-Evo/.github/workflows/build-all-platforms.yml) | 133 | Multi-platform build workflow (Windows, macOS DMG, Linux tar) | Stale | High | **Fictional macOS and Linux jobs;** PyInstaller commands miss critical datas. |
+| `.github/workflows/build-all-platforms.yml` | 133 | Multi-platform build workflow (Windows, macOS DMG, Linux tar) | Removed | High | **Deleted in `149a331`**; fictional macOS and Linux jobs were removed. |
 | [pyproject.toml](file:///C:/Users/Admin/Brahma-Ai-Evo/pyproject.toml) | 39 | Ruff linter configuration | Active | High | Target py311, line-length 120; **suppresses `F821` (`undefined-name`) across 16 `core/` files (`lines 25-38`), masking runtime `NameError` bugs**. |
 | [pytest.ini](file:///C:/Users/Admin/Brahma-Ai-Evo/pytest.ini) | 7 | Pytest configuration | Active | Low | Restricts collection to `tests/` directory to ignore root demo scripts. |
 | [setup.py](file:///C:/Users/Admin/Brahma-Ai-Evo/setup.py) | 20 | Ad-hoc setup script | Adapter | Medium | Not a `setuptools` build file; simply calls `pip install` and `playwright install`. |
@@ -271,12 +271,12 @@ flowchart TD
 ### [WP-11-F04] Fictional macOS and Linux Build Workflows and Installers in a Windows-Only Repository
 - **Severity:** `High`
 - **Category:** `Architecture/Invariant` & `Doc Drift`
-- **Location:** [.github/workflows/build-all-platforms.yml:42-133](file:///C:/Users/Admin/Brahma-Ai-Evo/.github/workflows/build-all-platforms.yml#L42-L133), [installer/install.sh:1-182](file:///C:/Users/Admin/Brahma-Ai-Evo/installer/install.sh#L1-L182)
+- **Location:** `.github/workflows/build-all-platforms.yml:42-133` (deleted in `149a331`), [installer/install.sh:1-182](file:///C:/Users/Admin/Brahma-Ai-Evo/installer/install.sh#L1-L182)
 - **Evidence & Mechanism:**
-  `.github/workflows/build-all-platforms.yml` defines `build-macos` (producing `BrahmaEvo-macOS.zip` and DMG) and `build-linux` (producing `BrahmaEvo-Linux.tar.gz`). In both jobs, PyInstaller commands omit `subagents`, `skills`, `skills_library`, `memory`, and `brahma_connect`.
+  The deleted `.github/workflows/build-all-platforms.yml` defined `build-macos` (producing `BrahmaEvo-macOS.zip` and DMG) and `build-linux` (producing `BrahmaEvo-Linux.tar.gz`). In both jobs, PyInstaller commands omitted `subagents`, `skills`, `skills_library`, `memory`, and `brahma_connect`.
   More critically, Brahma AI Evo is fundamentally Windows-first and Windows-only: `main.py` and core modules eagerly or unconditionally reference `win32com`, `comtypes`, `pycaw`, `SAPI`, and Windows AppContainers. Neither macOS nor Linux can run `main.py` without catastrophic import failures. `installer/install.sh` similarly claims to be a "macOS & Linux Universal Installer".
 - **Impact:** Misleads users and contributors into expecting non-Windows support; wastes CI minutes; produces non-functional binaries.
-- **Recommended Fix:** Remove `build-all-platforms.yml` or restrict it to `build-windows`. Deprecate `installer/install.sh` and document in README that Windows 10/11 is the sole supported platform.
+- **Resolution:** `build-all-platforms.yml` was removed in `149a331`. `installer/install.sh` should still be deprecated, with Windows 10/11 documented as the sole supported platform.
 
 ---
 

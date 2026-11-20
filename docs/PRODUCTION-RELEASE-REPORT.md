@@ -2,23 +2,23 @@
 
 ## 1. Executive Summary
 
-This report documents the official production packaging, verification, and capability milestone for **Brahma AI Evo**. It covers the complete evolution from the initial fork through the **Multi-Tier Agent & Orchestrator Bridge (ADR-018)** and **Conversational Voice Multi-Step Agent Delegation**.
+This report records the current production-readiness status for **Brahma AI Evo** as of `2026-11-20`. It covers the evolution from the initial fork through the **Multi-Tier Agent & Orchestrator Bridge (ADR-018)** and **Conversational Voice Multi-Step Agent Delegation**.
 
-The clean production build pipeline executed to completion, generating the standalone Windows application bundle, installer wizard, native uninstaller, CycloneDX v1.5 SBOM, and Ed25519-signed release manifest.
+No production build has been executed for this fork: the standalone Windows bundle, installer wizard, native uninstaller, checksum file, and signed release manifest are planned deliverables, not shipped artifacts. A CycloneDX SBOM exists at `dist/sbom.json` for version `1.0.1` and commit `149a331c97347810087411f390f248aac61bdcce`.
 
 ---
 
-## 2. Production Artifact Matrix
+## 2. Release Artifact Status
 
-| Artifact | Type / Scope | Size | SHA-256 Checksum |
-|---|---|---:|---|
-| **`Uninstall.exe`** | Standalone native uninstaller | 43.19 MB | `f6c5872423fb0fe47e3fcbd68c6a311e7f1f10423b4084fbde959e7300921ef1` |
-| **`BrahmaEvo.exe`** | Core application payload (onedir) | 34.37 MB | `0ac1050c35d5065f6915726f5578c9e726a546fcde760be39f1cc677df82ee3e` |
-| **`BrahmaEvo_Setup.exe`** | Setup wizard installer (onefile) | 1.06 GB | `4329a5eb3357dbe3297ca2e9cd9fe2776fef8f6fdb47cfb1c93f0c71d8296f20` |
-| **`SHA256SUMS.txt`** | Cryptographic checksums | 249 B | Verified across all binaries |
-| **`sbom.json`** | CycloneDX v1.5 SBOM | 9.72 KB | 50 runtime dependencies + 8 vendored components |
-| **`release.json`** | Canonical release manifest | 887 B | Commit `b54f3a6` (stable release build) |
-| **`release.json.sig`** | Ed25519 signature | 128 B | Validated (`verify_signature` returned `True`) |
+| Artifact | Status | Evidence |
+|---|---|---|
+| `Uninstall.exe` | Not produced | No standalone native uninstaller is packaged (`.github/workflows/build.yml:11-12`). |
+| `BrahmaEvo.exe` | Not produced | No bundled application artifact exists in the tree. |
+| `BrahmaEvo_Setup.exe` | Not produced | The build workflow exists but has 0 recorded runs. |
+| `SHA256SUMS.txt` | Not produced | Checksums are emitted only after a release build (`.github/workflows/build.yml:59-68`). |
+| `dist/sbom.json` | Generated | Version `1.0.1`, commit `149a331c97347810087411f390f248aac61bdcce`, 52 dependencies + 8 vendored components. |
+| `release.json` | Not produced | The release manifest is prospective only. |
+| `release.json.sig` | Not produced | No release signing key or signed manifest was produced locally. |
 
 ---
 
@@ -58,6 +58,6 @@ flowchart TD
 
 ### 3. Hardened Architecture & Quality Gates
 - **0 `elif` branches** in `core/tool_exec.py`.
-- **Ratchet line limits strictly maintained** (`main.py` $\le 3,230$, `ui.py` $\le 827$).
-- **1,134+ tests passing** with 0 regressions.
-- **Release Verification:** All 8 static reproducibility guards in `tests/test_build_reproducibility.py` and 17 release packaging E2E tests in `tests/test_release_packaging_e2e.py` and `tests/test_release_manager.py` passed.
+- **Ratchet line limits strictly maintained** (`main.py` $3,242 \le 3,265$, `ui.py` $\le 827$).
+- **1,834 tests passing** with 6 skipped and 0 regressions.
+- **Release Verification:** All 8 static reproducibility guards in `tests/test_build_reproducibility.py` and 9 release tests in `tests/test_release_packaging_e2e.py` and `tests/test_release_manager.py` passed; the release tests use synthetic fixtures and do not prove shipped artifacts.
