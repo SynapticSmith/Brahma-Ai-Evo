@@ -18,7 +18,7 @@ Three front doors:
 Schema note: ``templates/themes`` ships two token layouts for the same data.
 ``canvas`` / ``border`` / ``palette`` is the Brahma contract
 (``docs/BRAHMA-THEME-SCHEMA-AND-AGENT-CONTRACT.md``) and is canonical;
-``bhitti`` / ``citra`` / ``ranga`` is the Abhasa/Citra fork's naming for those
+``bhitti`` / ``citra`` / ``ranga`` is the Citra fork's naming for those
 same groups. :func:`normalize_theme_tokens` maps the fork layout onto the
 canonical one, so both load and neither file has to be rewritten.
 """

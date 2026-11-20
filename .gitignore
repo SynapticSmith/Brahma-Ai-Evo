@@ -68,6 +68,7 @@ config/organizer_history.json
 config/patch_history.json
 config/brahma_connect.json
 config/brahma_connect/devices.json
+config/.desktop_shortcut_created
 memory/calendar_events.json
 memory/long_term.json
 memory/nutrition_log.json

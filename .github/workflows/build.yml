@@ -6,13 +6,20 @@ name: Build
 # release artifact can be produced from a clean clone on demand, with the exact
 # pinned toolchain from requirements-build.txt, and with hashes attached.
 #
-# Run it from the Actions tab ("Run workflow") or push a v* tag.
+# Run it from the Actions tab ("Run workflow") or push a v* tag. This is the
+# only workflow allowed to own v* tags; build-all-platforms.yml was retired.
+# The installed app ships installer/uninstall.cmd via BrahmaEvo.spec, so no
+# standalone Uninstall.exe is packaged.
 
 on:
   workflow_dispatch:
   push:
     tags:
       - "v*"
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -66,11 +73,18 @@ jobs:
           python tools\build_release.py --version $ver --channel stable --artifact dist\BrahmaEvo_Setup.exe --output dist\release.json
 
       - name: Sign release manifest (WS-6)
-        if: env.RELEASE_SIGN_KEY != ''
+        id: sign
         env:
           RELEASE_SIGN_KEY: ${{ secrets.RELEASE_SIGN_KEY }}
         run: |
-          python tools\sign_release.py --manifest dist\release.json --key "$env:RELEASE_SIGN_KEY"
+          if ($env:RELEASE_SIGN_KEY) {
+            python tools\sign_release.py --manifest dist\release.json --key "$env:RELEASE_SIGN_KEY"
+            Add-Content -Path $env:GITHUB_OUTPUT -Value "signed=true" -Encoding utf8
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "### Signing`n`nRelease manifest signed." -Encoding utf8
+          } else {
+            Add-Content -Path $env:GITHUB_OUTPUT -Value "signed=false" -Encoding utf8
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "### Signing`n`nRELEASE_SIGN_KEY is not configured; this build is unsigned." -Encoding utf8
+          }
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -85,6 +99,8 @@ jobs:
 
 # Honest limits, so nobody mistakes this for a signed release:
 #   - the setup exe is unsigned (codesign_identity=None, no signtool step)
+#   - a missing RELEASE_SIGN_KEY is reported in the step summary; release.json
+#     is signed only when that secret is configured
 #   - the build is not bit-for-bit reproducible (top-level pins only, no lock)
 #   - the runner's wheel resolution is whatever PyPI serves that day
 # WS-6 (signed, staged, reversible updates) covers closing those.

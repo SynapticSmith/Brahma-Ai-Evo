@@ -1,12 +1,10 @@
 # Brahma Evo - Capability Maximization: Analysis, Ideation, and Roadmap
 
-**Status:** Analysis and proposal. No implementation.
+**Status:** Historical analysis and proposal; not a current implementation claim. Verify any item against `docs/ARCHITECTURE-SPEC.md` before acting.
 **Date:** 2026-11-09
-**Baseline:** `main` @ `951e4b7`; working tree clean except this document and
-`docs/REBRAND-EXECUTION-PLAN.md`.
-**Scope:** whole-system capability, not security remediation and not rebrand
-execution. Those are tracked in `docs/SYSTEM-ANALYSIS-MASTER-REPORT.md`,
-`docs/REMEDIATION-TRACKER.md`, and `docs/REBRAND-EXECUTION-PLAN.md`.
+**Historical baseline:** `main` @ `951e4b7`. Current committed HEAD is `f8906ee`; the tree also contains upstream-readiness cleanup.
+**Scope:** whole-system capability, not security remediation. Those are tracked in
+`docs/SYSTEM-ANALYSIS-MASTER-REPORT.md` and `docs/REMEDIATION-TRACKER.md`.
 **Companions:** `docs/ARCHITECTURE-SPEC.md` (the map),
 `docs/AGENTIC-HARNESS.md` (harness contract),
 `docs/SWARM-FEDERATION-INVESTIGATION.md` (federation),
@@ -175,7 +173,6 @@ durable scheduling, federation) rather than merely thin.
 - `docs/AGENTIC-HARNESS.md`, `docs/AGENTIC-HARNESS-NEXT.md`,
   `docs/AGENTIC-HARNESS-STATUS.md` (loop, decisions, limits).
 - `docs/SWARM-FEDERATION-INVESTIGATION.md` (federation gap).
-- `docs/REBRAND-EXECUTION-PLAN.md` (branding seam and migration surface).
 - The code: `agent/`, `core/`, `memory/`, `actions/`, `features/`,
   `brahma_api/`, `brahma_connect/`, `core/agent_bridge/`, `main.py`,
   `tests/`.
@@ -957,7 +954,6 @@ enforcement; a failed peer is isolated; the swarm cannot exceed its budget.
 
 | Track | Constraint |
 |---|---|
-| **Rebrand** | Phase 0 (legal) and Phase 1 (`core/branding.py`) land before any user-visible capability string. New capability names go through the branding seam. Data roots use `core/user_paths.get_user_data_dir()`. |
 | **Security** | Verification, scheduling, and federation must not add a second execution path. Memory and RAG are prompt-injection surfaces. Computer-use is the highest-risk reach feature. |
 | **Upstream** | No wholesale merge. Port features behind the same seams. |
 
@@ -1064,21 +1060,7 @@ Rules:
 
 ## 12. Interaction with other workstreams
 
-### 12.1 Rebrand
-
-The rebrand plan (`docs/REBRAND-EXECUTION-PLAN.md`) and this plan are
-independent but must share two seams:
-
-- **`core/branding.py`** - all new user-visible names (eval reports, scorecard
-  titles, new tool descriptions) resolve through it once Phase 1 lands.
-- **`core/user_paths.get_user_data_dir()`** - trace, memory, RAG index, and job
-  queue data all live under the one data root. Do not hard-code
-  `%LOCALAPPDATA%\BrahmaAI` in a new module.
-
-Do not block Wave 0 on the rebrand. Do not ship a user-visible capability name
-before Phase 0 (legal) lands.
-
-### 12.2 Security
+### 12.1 Security
 
 Capability work creates four new attack surfaces. Each needs a design note
 before implementation:
@@ -1094,7 +1076,7 @@ The existing invariants (`AgentRuntime` only, `run_captured` only, one policy)
 are not negotiable. A capability that requires breaking one is not worth
 building.
 
-### 12.3 Swarm / federation
+### 12.2 Swarm / federation
 
 `docs/SWARM-FEDERATION-INVESTIGATION.md` is the authority for the federation
 design; this document only sets the capability dependency. The full
@@ -1112,10 +1094,8 @@ reconciliation is in Appendix E. The load-bearing points:
 - **Sequencing:** S1 (read-only demo) can start after B1. S2-S5 wait for C5 and
   the verification gate. A federation of unverified nodes multiplies false
   success.
-- **ADR numbering:** the swarm document reserves ADR-023-028 and the OpenAI
-  port claims ADR-022. The rebrand ADR therefore moves to **ADR-029**.
 
-### 12.4 Upstream
+### 12.3 Upstream
 
 The upstream port strategy stands: selective, behind existing seams, never a
 wholesale merge. New capability code should not depend on upstream-only
@@ -1137,7 +1117,6 @@ modules; if it does, the port order changes.
 | R6 | Tool consolidation breaks a workflow | Medium | Medium | Aliases for one release; deprecation warnings; eval coverage |
 | R7 | Scheduler runs unattended and causes harm | Low | Critical | Default read-only/approval; budgets; kill switch; audit |
 | R8 | RAG leaks sensitive documents into prompts | Medium | High | Workspace scoping, redaction, trust tiers, no cross-workspace index |
-| R9 | Capability work stalls on rebrand decisions | Medium | Medium | Keep the seams; do not couple the schedules |
 | R10 | The scorecard becomes vanity metrics | Medium | Medium | Held-out set, failure review, retire non-discriminating scenarios |
 
 ### 13.2 Anti-goals
@@ -1376,11 +1355,6 @@ is why B1 precedes S1 rather than following it.
 | ADR-026 | same | Recursion denied by default (`max_hops=1`) | Proposed |
 | ADR-027 | same | Remote callers never approve | Proposed |
 | ADR-028 | same | Sessions stay per node; exchange is task-scoped | Proposed |
-| **ADR-029** | `docs/REBRAND-EXECUTION-PLAN.md` | Rebrand to Abhasa | To be written |
-
-`REBRAND-PROPOSITION.md` D4 still names `ADR-022` for the rebrand. That is a
-stale reference in an input document; the execution plan supersedes it with 029
-and says so at the top. Do not renumber an input document silently.
 
 ---
 

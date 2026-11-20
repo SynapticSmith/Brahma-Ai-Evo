@@ -243,20 +243,16 @@ class Mem0MemoryConnector(BaseMemoryConnector):
         return entries
 
     def status(self) -> Dict[str, Any]:
-        has_pkg = False
-        try:
-            import mem0  # noqa: F401
-            has_pkg = True
-        except ImportError:
-            pass
-
-        if not has_pkg:
-            return {
-                "ok": False,
-                "backend": "mem0",
-                "available": False,
-                "detail": "mem0ai package not installed (run `pip install mem0ai`)",
-            }
+        if self._client is None:
+            try:
+                import mem0  # noqa: F401
+            except ImportError:
+                return {
+                    "ok": False,
+                    "backend": "mem0",
+                    "available": False,
+                    "detail": "mem0ai package not installed (run `pip install mem0ai`)",
+                }
 
         client = self._ensure_client()
         if client is None:

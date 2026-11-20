@@ -11,7 +11,7 @@ patch got wrong:
   3. a deliberate disconnect does not kill run(), and run() comes back
   4. the Qt-thread -> asyncio-loop handoff is thread-safe
 
-Usage: py -3.11 accept_live_toggle.py
+Usage: py -3.11 scripts/acceptance/accept_live_toggle.py
 """
 import asyncio
 import re
@@ -20,7 +20,7 @@ import threading
 import time
 from pathlib import Path
 
-BASE = Path(__file__).resolve().parent
+BASE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BASE))
 
 from main import BrahmaLive

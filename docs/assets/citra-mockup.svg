@@ -61,7 +61,7 @@
       <!-- Prismatic Diamond Mark -->
       <polygon points="12,2 22,12 12,22 2,12" fill="none" stroke="#00E5FF" stroke-width="2" />
       <polygon points="12,6 18,12 12,18 6,12" fill="#8B5CF6" fill-opacity="0.4" />
-      <text x="32" y="16" fill="#F8FAFD" class="font-sans" font-size="14" font-weight="700" letter-spacing="0.5">ABHASA</text>
+      <text x="32" y="16" fill="#F8FAFD" class="font-sans" font-size="14" font-weight="700" letter-spacing="0.5">BRAHMA</text>
       <text x="96" y="16" fill="#00E5FF" class="font-sans" font-size="11" font-weight="600" letter-spacing="1">EVO</text>
     </g>
 
@@ -149,7 +149,7 @@
       </g>
 
       <text x="488" y="108" text-anchor="middle" fill="#C5D0E0" class="font-sans" font-size="12" font-weight="500" letter-spacing="0.5">
-        Abhasa Core Active · Standing by for voice or instruction
+        Brahma Core Active · Standing by for voice or instruction
       </text>
     </g>
 
@@ -167,7 +167,7 @@
         <text x="56" y="46" fill="#8C9BB4" class="font-mono" font-size="10">12:04:18 PM</text>
       </g>
 
-      <!-- Abhasa Assistant Response Card -->
+      <!-- Brahma Assistant Response Card -->
       <g transform="translate(0, 78)">
         <rect width="976" height="420" rx="16" fill="url(#cardGrad)" stroke="#FFFFFF" stroke-opacity="0.08" stroke-width="1" />
         <!-- Top Hairline Cyan Accent -->
@@ -176,7 +176,7 @@
         <!-- Header -->
         <g transform="translate(24, 20)">
           <polygon points="10,2 18,10 10,18 2,10" fill="none" stroke="#00E5FF" stroke-width="1.8" />
-          <text x="28" y="14" fill="#F8FAFD" class="font-sans" font-size="14" font-weight="600">Abhasa</text>
+          <text x="28" y="14" fill="#F8FAFD" class="font-sans" font-size="14" font-weight="600">Brahma</text>
           <rect x="86" y="2" width="68" height="18" rx="9" fill="#00E5FF" fill-opacity="0.1" />
           <text x="120" y="14" text-anchor="middle" fill="#00E5FF" class="font-sans" font-size="10" font-weight="600">ASSISTANT</text>
           <text x="910" y="14" text-anchor="end" fill="#8C9BB4" class="font-mono" font-size="11">12:04:22 PM</text>
@@ -236,7 +236,7 @@
 
       <!-- Command Prompt Text Input -->
       <text x="60" y="32" fill="#8C9BB4" class="font-sans" font-size="13">
-        Ask Abhasa anything or type a tool command... <tspan fill="#5A667E">(Enter to run)</tspan>
+        Ask Brahma anything or type a tool command... <tspan fill="#5A667E">(Enter to run)</tspan>
       </text>
 
       <!-- Live Voice Waveform Visualizer -->

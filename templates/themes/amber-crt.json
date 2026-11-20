@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "name": "Amber Phosphor CRT",
   "slug": "amber-crt",
-  "author": "Abhasa Design Panel",
+  "author": "Brahma Design Panel",
   "description": "High-contrast vintage monochrome amber terminal aesthetic",
   "variant": "monochrome",
   "tokens": {

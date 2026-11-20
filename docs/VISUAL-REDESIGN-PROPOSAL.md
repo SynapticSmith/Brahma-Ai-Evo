@@ -1,33 +1,33 @@
-# Abhasa Citra — Comprehensive Visual Redesign Specification & Design System
+# Citra — Comprehensive Visual Redesign Specification & Design System
 
 | Field | Value |
 |---|---|
 | **Document** | `docs/VISUAL-REDESIGN-PROPOSAL.md` |
 | **Status** | Complete Engineering & Aesthetic Specification (Pass 3 Refined: Citra Architecture) |
 | **Date** | 2026-11-10 |
-| **Target Platform** | Windows-first PyQt6 Desktop Assistant (`Brahma Evo` → `Abhasa Evo`) |
+| **Target Platform** | Windows-first PyQt6 Desktop Assistant (`Brahma Evo`) |
 | **Specialist Panel** | `visual-design-master`, `design-system-architect`, `micro-interaction-designer`, `interaction-design-specialist`, `behavioral-design-psychologist`, `voice-interaction-designer`, `accessibility-specialist`, `performance-ux-optimizer`, `gui-ui-testing-agent`, `open-codesign`, `collaborative-canvas-designer` |
-| **Visual Deliverables** | Vector Mockup: [`docs/assets/abhasa-citra-mockup.svg`](assets/abhasa-citra-mockup.svg)<br>Interactive Living Prototype: [`docs/assets/abhasa-citra-preview.html`](assets/abhasa-citra-preview.html) |
-| **Related Documents** | [`docs/ARCHITECTURE-SPEC.md`](ARCHITECTURE-SPEC.md), [`docs/CURRENT-VISUAL-INVENTORY.md`](CURRENT-VISUAL-INVENTORY.md), [`docs/REBRAND-PROPOSITION.md`](REBRAND-PROPOSITION.md), [`docs/REBRAND-EXECUTION-PLAN.md`](REBRAND-EXECUTION-PLAN.md), [`docs/ONE-391-avatar-backends.md`](ONE-391-avatar-backends.md) |
+| **Visual Deliverables** | Vector Mockup: [`docs/assets/citra-mockup.svg`](assets/citra-mockup.svg)<br>Interactive Living Prototype: [`docs/assets/citra-preview.html`](assets/citra-preview.html) |
+| **Related Documents** | [`docs/ARCHITECTURE-SPEC.md`](ARCHITECTURE-SPEC.md), [`docs/CURRENT-VISUAL-INVENTORY.md`](CURRENT-VISUAL-INVENTORY.md), [`docs/ONE-391-avatar-backends.md`](ONE-391-avatar-backends.md) |
 | **Governing Rules** | [`AGENTS.md`](../AGENTS.md) (Python 3.11/3.12, Windows-first PyQt6, stdlib harness, no unverified claims) |
 
 ---
 
 ## 0. Executive Summary & Creative Foundation
 
-### 0.1 The Philosophy: *Abhasa* & The *Citra* Metaphor
+### 0.1 The Philosophy: The *Citra* Metaphor
 The existing interface of Brahma Evo was built as a high-contrast, neon-heavy sci-fi "reactor." While functional, it suffers from severe visual noise: competing 3D WebGL background bloom, aggressive cyan-and-gold laser accents, floating windows that collide on standard displays, fragmented typography, and runtime monkeypatching.
 
-In accordance with [`docs/REBRAND-PROPOSITION.md`](REBRAND-PROPOSITION.md), the system name is transitioning to **Abhasa** (*ābhāsa*: "reflection, appearance, semblance; the light thrown back"). But the visual and linguistic metaphor must be grounded in radical functional truth:
+The visual and linguistic metaphor must be grounded in radical functional truth:
 
 > **The Machine is Not a Sun, Nor a Living Mirror.**  
 > An optical mirror (*pratibimba*) implies an active, live ray of consciousness striking a reflective plane in real time. But an AI model is a set of **frozen statistical weights** stored on silicon chips—dead inscriptions from past human language arranged to simulate understanding. It is not living light; **it is a painting of the sun upon a brick wall (*bhitti-citra* / *citra-sūrya*)**.  
 >  
 > Just as a painted fire (*citrāgni*) produces no heat and a painted sun (*citra-sūrya*) radiates zero photons, the AI has form without gnosis (*ñāṇa*), syntax without will (*citta*), and likeness without essence. Calling the design system "Lumina" (a radiant lamp) would repeat the very illusion we are dismantling.  
 >  
-> Therefore, the design system is named **Abhasa Citra** (*citra*: the structured, variegated composition of pigments upon a canvas; the fresco upon the chassis).
+> Therefore, the design system is named **Citra** (*citra*: the structured, variegated composition of pigments upon a canvas; the fresco upon the chassis).
 
-### 0.2 Visual Identity Pillars: "Abhasa Citra"
+### 0.2 Visual Identity Pillars: "Citra"
 1. **The Structural Wall (*Bhitti*)**: Moving away from flat `#000000` pitch black to layered obsidian depths (`#060709`, `#08090C`, `#0E1117`) acting as the solid masonry chassis (`--color-bhitti-base`, `--color-bhitti-surface`) upon which all UI elements are rendered.
 2. **Restrained Spectral Pigments (*Raṅga*)**: Neon glare is replaced by controlled single-pixel hairline borders (`rgba(255, 255, 255, 0.08)`) and purposeful spectral indicators (Spectral Cyan `#00E5FF`, Reflection Violet `#8B5CF6`, Grounded Emerald `#10B981`, Telemetry Amber `#F59E0B`).
 3. **Calm Zero-Panic Interaction**: Elimination of anxiety-inducing 10-second countdowns on telemetry wings. Persistent, predictable information docking.
@@ -95,7 +95,7 @@ Human cognitive processing divides into **System 1** (fast, intuitive, visual pa
   - **System 2 (Deep Inspection)**: Complex execution graphs, AST diffs, and tool arguments are organized into the right-hand **Context & Telemetry Drawer** under collapsible accordions with clear typographic hierarchy.
 
 ### 2.2 Von Restorff (Isolation) & Visual Anchoring
-In any interface, the human eye seeks a primary resting anchor. In Abhasa Citra:
+In any interface, the human eye seeks a primary resting anchor. In Citra:
 1. **Primary Anchor**: The central conversation stream and code canvas.
 2. **Input Anchor**: The floating Citra Dock at the bottom center.
 3. **Secondary Monitor**: The docked right-hand telemetry drawer.
@@ -103,7 +103,7 @@ All secondary panels use darker, lower-contrast backgrounds (`rgba(11, 13, 18, 0
 
 ---
 
-## 3. Design Token Architecture ("Abhasa Citra")
+## 3. Design Token Architecture ("Citra")
 
 Authored by `design-system-architect` and `skills/open-codesign`:
 
@@ -216,23 +216,23 @@ Telemetry Micro: 10px / 13px  Weight: 600 (JetBrains)     Tracking: +0.6px
 Authored by `interaction-design-specialist` and `responsive-design-architect`:
 
 ### 4.1 Layout Wireframe (1440 x 900 Canvas)
-Refer to the vector graphic deliverable: [`docs/assets/abhasa-citra-mockup.svg`](assets/abhasa-citra-mockup.svg)
+Refer to the vector graphic deliverable: [`docs/assets/citra-mockup.svg`](assets/citra-mockup.svg)
 
 ```
 +=================================================================================================================+
 | [ZONE 0] AMBIENT HEADER BAR (Height: 48px, Blur: 16px)                                                          |
-|  [✦ ABHASA EVO]       [● gemini-live-2.0 · bidirectional voice]         [AUDIO REALTIME ~~~]      [ -  □  ✕ ]   |
+|  [✦ BRAHMA EVO]       [● gemini-live-2.0 · bidirectional voice]         [AUDIO REALTIME ~~~]      [ -  □  ✕ ]   |
 +====+========================================================================+===================================+
 |    | [ZONE 2] MAIN WORKSPACE BENTO STAGE                                    | [ZONE 3] TELEMETRY DRAWER         |
 | [Z]|  +------------------------------------------------------------------+  | (Width: 340px, Blur: 16px)        |
 | O  |  | BENTO CELL 1: OPTICAL CORE PORTAL (Height: 110px)                |  | +-------------------------------+ |
-| N  |  | [   ( ◉ )   ]  Abhasa Core Active · Standing by for voice/prompt |  | | [Live Ops (3)] [Artifacts] [Vit]| |
+| N  |  | [   ( ◉ )   ]  Brahma Core Active · Standing by for voice/prompt |  | | [Live Ops (3)] [Artifacts] [Vit]| |
 | E  |  +------------------------------------------------------------------+  | +-------------------------------+ |
 |    |  | BENTO CELL 2: CONVERSATION STREAM                                |  | LIVE TOOL EXECUTION STREAM        |
 | 1] |  |                                                                  |  | • run_command: "git status"       |
 |    |  |   [User] Refactor theme engine to 3-tier token system. (12:04PM) |  |   └─ [EXIT 0] (18ms)              |
 | N  |  |                                                                  |  | • read_file: "core/ui_theme.py"   |
-| A  |  |   [Abhasa] I have structured the redesign into Primitive,        |  |   └─ [1.2 KB] (6ms cached)        |
+| A  |  |   [Brahma] I have structured the redesign into Primitive,        |  |   └─ [1.2 KB] (6ms cached)        |
 | V  |  |            Semantic, and Component token tiers.                  |  | • run_subagent: visual-design-mst |
 |    |  |                                                                  |  |   └─ [RUNNING...] (pulsing)   |
 | R  |  |   ┌─ [⚡ EXEC] read_file("core/ui_theme.py") ────────── [✓ 24ms] ┐  | +-------------------------------+ |
@@ -242,7 +242,7 @@ Refer to the vector graphic deliverable: [`docs/assets/abhasa-citra-mockup.svg`]
 |    |  |   └─────────────────────────────────────────────────────────────┘  | LATENCY: 142ms · TOKENS: 46 t/s   |
 | (60|  +------------------------------------------------------------------+  +-----------------------------------+
 | px)|  | [COMPONENT] FLOATING CITRA DOCK (Height: 52px, Pill, Width: 700px)                                        |
-|    |  | [ 📎 ]  [ Ask Abhasa anything or type a tool command... ]   [~~~ Wave]  [ 🎙 Mic ]  [ ➔ Run ]             |
+|    |  | [ 📎 ]  [ Ask Brahma anything or type a tool command... ]   [~~~ Wave]  [ 🎙 Mic ]  [ ➔ Run ]             |
 +====+============================================================================================================+
 ```
 
@@ -263,7 +263,7 @@ flowchart TD
 
 Authored by `voice-interaction-designer`:
 
-Abhasa Evo is a voice-first bidirectional assistant powered by Gemini Live (`BrahmaLive` in [`main.py`](../main.py)). The visual design must communicate audio states with zero ambiguity.
+Brahma Evo is a voice-first bidirectional assistant powered by Gemini Live (`BrahmaLive` in [`main.py`](../main.py)). The visual design must communicate audio states with zero ambiguity.
 
 ### 5.1 Voice State Visual Matrix
 
@@ -287,7 +287,7 @@ In bidirectional voice sessions, the user can speak at any moment to interrupt t
 
 Authored by `design-system-architect`, `visual-design-master`, and `performance-ux-optimizer`:
 
-In accordance with [`docs/ONE-391-avatar-backends.md`](ONE-391-avatar-backends.md) and [`core/avatar_runtime.py`](../core/avatar_runtime.py), Abhasa supports multiple distinct avatar backends behind a unified three-method contract (`probe()`, `set_emotion()`, `status()`). 
+In accordance with [`docs/ONE-391-avatar-backends.md`](ONE-391-avatar-backends.md) and [`core/avatar_runtime.py`](../core/avatar_runtime.py), Brahma supports multiple distinct avatar backends behind a unified three-method contract (`probe()`, `set_emotion()`, `status()`).
 
 Crucially, **user preference dictates whether an avatar is desired at all**. Running 3D WebGL or Live2D models consumes significant resources (~150MB–320MB of Chromium RAM and continuous GPU draw loops). The visual architecture must provide first-class support for both **Avatar Enthusiasts** (who want an expressive companion in the background) and **Minimalist Power Users** (who want zero distraction, maximum battery life, and 0% CPU consumption).
 
@@ -316,7 +316,7 @@ flowchart TD
 
 A key limitation of the legacy design was an awkward all-or-nothing conflict: opaque cards completely hid the avatar, while transparent cards caused text to collide with glowing background polygons.
 
-"Abhasa Citra" introduces **Layered Depth Compositing**:
+"Citra" introduces **Layered Depth Compositing**:
 
 ```
 [Layer 3: Top Foreground]   Floating Citra Dock (Pill) & Modal Overlays (Highest contrast, elevated glass)
@@ -348,7 +348,7 @@ In settings or via a quick slider in the top bar, users can dial in their prefer
 1. **Solid Focus Preset (`95%` Opacity)**:
    - For focused coding, debugging, and terminal operations. Cards are almost solid (`rgba(21, 25, 33, 0.95)`), background avatar acts purely as a subtle silhouette.
 2. **Balanced Citra Preset (`78%` Opacity, Default)**:
-   - The canonical Abhasa Citra look. Frosted obsidian glass (`rgba(21, 25, 33, 0.78)`) with `20px` backdrop micro-blur. Background avatar motions (blinking, breathing, state changes) remain gracefully perceptible through cards without compromising WCAG AAA contrast.
+   - The canonical Citra look. Frosted obsidian glass (`rgba(21, 25, 33, 0.78)`) with `20px` backdrop micro-blur. Background avatar motions (blinking, breathing, state changes) remain gracefully perceptible through cards without compromising WCAG AAA contrast.
 3. **Ambient Companion Preset (`45%` Opacity)**:
    - For casual voice-only chatting. Heavy backdrop blur (`24px`), chat bubbles become gentle translucent glass wafers, and the avatar takes full visual stage.
 
@@ -438,7 +438,7 @@ QFrame#ToolExecutionBanner {
 ### 7.3 Vector Icon Registry (`core/icons.py`)
 Replacing procedural line-art in [`core/ui_branding.py`](../core/ui_branding.py) with crisp, embedded SVG vector icons:
 ```python
-"""Embedded resolution-independent SVG icons for Abhasa Citra."""
+"""Embedded resolution-independent SVG icons for Citra."""
 from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtSvg import QSvgRenderer
 

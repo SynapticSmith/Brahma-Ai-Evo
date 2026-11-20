@@ -1,9 +1,10 @@
 # GitHub Actions Remediation Backlog
 
 **Document Role:** Post-remediation CI/CD defect ledger for the "broken Actions" reports  
-**Status:** `PHASE A APPLIED — NOT YET PUSHED`  
-**Execution gate:** Cleared; `docs/REMEDIATION-TRACKER.md` is `COMPLETE`. Phase A is applied in
-the working tree and passes locally. Phases B and C are still unapplied and need a decision.  
+**Status:** `PHASES A + B APPLIED — NOT YET PUSHED`
+**Execution gate:** Cleared; `docs/REMEDIATION-TRACKER.md` is `COMPLETE`. Phases A and B are
+applied in the working tree; Phase A passes locally. Phase B's validation build still needs a
+`workflow_dispatch` run on `main`. Phase C needs a repository-topology decision.
 **Investigated:** 2026-11-08  
 **Evidence sources:** live GitHub Actions API, `.github/workflows/*.yml`, `tests/test_api_chat.py`,
 `brahma_api/*`, `agent/providers.py`, and [`docs/scan-reports/WP-11-tests-packaging-and-ci.md`](scan-reports/WP-11-tests-packaging-and-ci.md)  
@@ -20,11 +21,11 @@ There are **two different things** being called "broken Actions", and they are n
 |---|---|---|---|---|
 | 1 | `SynapticSmith/Brahma-Ai-Evo` (fork / local `origin`) | `CI` is red on every push to `main` since **2026-11-04** | **Yes.** Exactly one test fails: `test_auth_can_be_disabled_on_purpose` (`503 == 200`). 1,521 pass. | Repo owner (you) |
 | 2 | `titechprabhasolutions/Brahma-Ai-Evo` (upstream) | Nine red **"Windows Python checks"** runs at `0s` | **No.** They never executed a single step. `conclusion=action_required` is GitHub's fork-PR approval gate. | An upstream maintainer with write access |
-| 3 | Both remotes | No failing runs today, but latent defects | **Latent.** `build-all-platforms.yml` cannot work on macOS/Linux; tag pushes trigger two builds. | Repo owner / maintainer |
+| 3 | Both remotes | Latent defects found during the 2026-11-08 investigation | **Resolved locally, not pushed.** `build-all-platforms.yml` was removed; `build.yml` is the only `v*` workflow. | Repo owner / maintainer |
 
-**Bottom line:** the visible red CI is a **one-line test hermeticity bug**, not a product regression.
-The remediation tracker does **not** cover it, so it will still be red after Batch R-4 unless fixed.
-The packaging workflow defects will only surface the first time a `v*` tag is pushed.
+**Bottom line:** the visible red CI was a **one-line test hermeticity bug**, not a product regression.
+The hermeticity fix and packaging workflow cleanup are applied in the working tree but not pushed.
+The validation `workflow_dispatch` build still has to run on `main` before the next real tag.
 
 ---
 
@@ -81,7 +82,7 @@ PR #5 (`feature/ultron-gesture-browser-hud`) has no workflow file, so it produce
 
 ### 1.3 Workflow inventory drift (important)
 
-The two remotes do **not** contain the same workflows:
+At the 2026-11-08 investigation, the two remotes did **not** contain the same workflows:
 
 | Workflow | Upstream `main` | Fork `main` (local `origin/main`) |
 |---|---|---|
@@ -90,9 +91,9 @@ The two remotes do **not** contain the same workflows:
 | `build-all-platforms.yml` | ✅ present | ✅ present |
 | `windows-checks.yml` | ❌ only in a PR branch | ❌ absent |
 
-So upstream currently has **no push/PR test gate at all** — only a fictional multi-platform
-build workflow. If the upstream repo is meant to be the canonical one, the CI definition has
-to be contributed there; fixing the fork alone will not protect upstream.
+Local working tree afterward: `build-all-platforms.yml` was deleted and `build.yml` is the only
+`v*` workflow. If the upstream repo is meant to be canonical, the CI and Build definitions still
+have to be contributed there; fixing the fork alone will not protect upstream.
 
 ---
 
@@ -307,11 +308,14 @@ Expected result: `Unit suite` goes green; no other CI job changes.
 
 ### Phase B — packaging workflow cleanup
 
-4. Remove `build-all-platforms.yml` (or reduce it to Windows-only).
-5. Make exactly one workflow own `v*` tags; add a `concurrency:` group.
-6. Align `Uninstall.exe` packaging between the remaining workflow and `BrahmaEvo_Setup.spec`.
-7. Decide the signing policy and make an unsigned stable release visible.
-8. Run one `workflow_dispatch` build on `main` to validate the packaging path before the
+4. [x] Removed `build-all-platforms.yml`; the stack is Windows-only and `build.yml` is canonical.
+5. [x] `build.yml` is now the only workflow owning `v*` tags; added a `build-${{ github.ref }}`
+   concurrency group with `cancel-in-progress: true`.
+6. [x] Aligned uninstaller packaging on `BrahmaEvo.spec`, which bundles `installer/uninstall.cmd`;
+   no standalone `Uninstall.exe` is shipped.
+7. [x] Made unsigned builds visible: the signing step writes the result to the GitHub step
+   summary, so a missing `RELEASE_SIGN_KEY` cannot silently look like a signed stable release.
+8. [ ] Run one `workflow_dispatch` build on `main` to validate the packaging path before the
    next real tag. Do not assume `build.yml` is healthy just because it has not run.
 
 ### Phase C — repo topology
@@ -327,18 +331,18 @@ Expected result: `Unit suite` goes green; no other CI job changes.
 
 ## 5. Verification
 
-Run these after Phase A, from the repo root. The project standard is Python 3.11; this
-investigation used the available 3.12 interpreter because `py -3.11` is not on this shell's
-PATH, which does not affect the test logic.
+Run these after Phase A, from the repo root. The project standard is Python 3.11; use
+`py -3.11 -m ...`. The original 2026-11-08 investigation used `python` (3.12) because `py -3.11`
+was unavailable in that shell at the time; that interpreter difference does not affect the test logic.
 
 ```powershell
 # 1. The exact failing test
-python -m pytest tests/test_api_chat.py::test_auth_can_be_disabled_on_purpose -q
+py -3.11 -m pytest tests/test_api_chat.py::test_auth_can_be_disabled_on_purpose -q
 
 # 2. The full suite the CI job runs
 $env:QT_QPA_PLATFORM = "offscreen"
 $env:NO_COLOR = "1"
-python -m pytest tests -q
+py -3.11 -m pytest tests -q
 ```
 
 To reproduce the *clean-runner* condition on a machine that has a live local model server,

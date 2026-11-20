@@ -5,7 +5,7 @@ the pytest suite because it needs the network and pulls ~250 MB (one small
 Piper voice, the Chinese Kokoro voice pack, and the kokoro-v1.1-zh int8 build),
 so run it deliberately:
 
-    py -3.11 accept_voice_downloads.py
+    py -3.11 scripts/acceptance/accept_voice_downloads.py
 
 Everything lands in a throwaway %LOCALAPPDATA%, so it cannot disturb the
 voices or settings a real user already has. It answers the question the unit
@@ -18,7 +18,7 @@ import tempfile
 ROOT = tempfile.mkdtemp(prefix="voice_accept_")
 os.environ["LOCALAPPDATA"] = ROOT
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from core import speech_tts
 from core import voice_catalog as vc

@@ -2,7 +2,7 @@
 
 **Status:** Living document — the orientation layer above the per-area design docs.
 **Created:** 2026-11-01
-**Baseline:** `main` @ `531b961` (2026-10-31), working tree clean, `main == origin/main`.
+**Baseline:** `main` @ `f8906ee` (2026-11-18), with upstream-readiness cleanup in the working tree. Re-run the gates before treating this document as current.
 **Scope:** the whole repository: app shell, providers, tool surface, agent harness, skills, voice, avatars, gateway, security posture, and the two large unbuilt proposals (agent bridge, upstream port).
 **Audience:** the next engineer or model that has to change this system without re-deriving it from eighteen overlapping documents.
 
@@ -415,7 +415,7 @@ The pre-fork autonomous stack — `agent/planner.py`, `agent/executor.py`, `agen
 
 ## 7. Security workstream
 
-### 7.1 Finding status (re-verified 2026-11-01)
+### 7.1 Finding status (last fully re-verified 2026-11-01; Findings 7–8 remain open)
 
 | # | Finding | Status | Evidence in the current tree |
 |---|---|---|---|
@@ -425,7 +425,7 @@ The pre-fork autonomous stack — `agent/planner.py`, `agent/executor.py`, `agen
 | 4 | Forge prompt instructs TLS bypass | **Closed (Q0-A)** | The prompt now requires verified TLS; `tests/test_security_phase0.py` fails on `verify=False`, `_create_unverified_context`, `CERT_NONE`, or a disabled hostname check anywhere in `core/skill_forge.py`. |
 | 5 | Unpinned runtime `pip install` | **Closed (Q0-A)** | `SkillCrucible.resolve_dependencies()` only calls `importlib.util.find_spec` and returns a manual `pip install` plan; it spawns no subprocess. |
 | 6 | Secrets recoverable (Fernet key beside DB; plaintext API keys) | **Closed (Q0-B)** | `core/secret_store.py` provides Windows DPAPI user-scope encryption for `api_keys.json` with 1-release read-only fallback; `smart_home/storage.py::CredentialVault` protects `smart_home.key` with DPAPI and auto-migrates existing keys. |
-| 7 | Crucible validation is a denylist, not a sandbox | **Open** | 12 string checks + same-user subprocess + timeout. |
+| 7 | Crucible validation is a denylist, not a sandbox | **Open** | Draft validator uses AST/string checks, a scrubbed environment, `-I`, a Job Object, timeout, and same-user execution. Promoted dynamic skills use `SkillHost`; the Crucible validator itself is not a security sandbox. |
 | 8 | High-risk automation without privilege separation | **Open** | One process, one token, all tools in-process. |
 | + | Gateway `0.0.0.0`, unauthenticated HTTP control routes | **Closed (Q0-B)** | `server.py` defaults to `host="127.0.0.1"`, `enabled=False`, `advertise=False`; all HTTP management and control routes enforce paired-device authentication (`Authorization: Bearer <device_id>:<secret>` or secret-only, returning 401/403). Only `/health` remains public. |
 | + | Dead model-facing `confirmed` parameter (not a live bypass) | **Closed (Q0-A)** | Declaration removed from `main.py`; a schema test asserts no declaration advertises `confirmed`. The handler already ignored it and the `_IRREVERSIBLE` HUD gate already held. |
@@ -460,8 +460,8 @@ WS-1 skill lifecycle · WS-2 SkillHost sandbox · WS-3 dependency supply chain �
 
 ### 7.4 How security intersects the harness
 
-- **N4 is the same decision as WS-2/WS-5.** The harness already has the right shape (`exec.sandbox` is a policy hook, not a pretend sandbox; D36). The choice is whether `require_confined` + a `sandbox doctor` probe + a container recipe is enough, or whether SkillHost/AppContainer is required first. Recommendation: **delegated and verified confinement** — make the container the supported path, verify it with a probe, and refuse `--yolo` without it.
-- **Approvals should converge.** `core/confirm.py` is the only human surface today. The roadmap wants every mutating capability (including forged skills and orchestrator verbs) to route through it. The harness already does this for its tools; native tools and the forge do not.
+- **N4/N5 are landed, not pending decisions.** D43 shipped container-first verified confinement (`require_confined` + `sandbox doctor`); D44 shipped read-only `run_subagent_batch` fan-out. The Crucible validator itself remains same-user (Finding 7), and general high-risk automation remains single-process (Finding 8).
+- **Approvals converge on `AgentRuntime.execute` and `core/confirm.py` for harness tools.** Native tools and staged drafts stay behind that boundary. The external `X-Brahma-Approval: queue`/`hybrid` contract and teacher escalation wiring remain open design decisions, not shipped behavior.
 - **One policy, not two.** Do not build a second allowlist for plugins/forge/MCP. Extend the existing policy vocabulary; a second gate is the failure mode N7 rejected.
 
 ---
@@ -621,7 +621,7 @@ Accepted 2026-10-17, but **acceptance is not authorization to build**: they were
 
 **Proposed, not ratified (2026-11-03):** **ADR-022 — the OpenAI-compatible port is a transport, not a door.** `brahma_api/` translates `POST /v1/chat/completions` into an `AgentLoop` run; it never executes a tool, never owns a policy, and never becomes a second path to a handler. Full text in `docs/OPENAI-COMPATIBLE-API-DESIGN.md` §13.
 
-**Ratified (2026-11-11):** **ADR-023..028, ADR-030..038 — Swarm Federation Stack & Artifact Lane.** Ratified by owner. Full implementation and test gates across S0–S5 and Artifact Lane are complete, verified in code, and verified live over wire: BTE-1 task envelope, per-node DPAPI/Ed25519 identity, mutual SAS pairing handshake with static key pinning, dual-listener architecture with SPKI-pinned TLS 1.3 on port 8443 and OpenAI-compatible loopback HTTP on port 8010, recursion prevention, worker leaf tool filtering, at-most-once mutation with lease reconciliation to `unknown`, origin-bound token authorization, 32 MiB content-addressed artifact store, LAN UDP discovery on port 8444 with self-filtering, ReservationLedger concurrency admission, dynamic capability routing, and Settings Hub UI widget. ADR-029 is the rebrand ADR (`docs/REBRAND-EXECUTION-PLAN.md`). The ADR texts carry the same status: `docs/SWARM-FEDERATION-DEEP-DIVE.md` §10 for ADR-030..038, and the table in `docs/SWARM-FEDERATION-INVESTIGATION.md` §15 for ADR-023..028.
+**Ratified (2026-11-11):** **ADR-023..028, ADR-030..038 — Swarm Federation Stack & Artifact Lane.** Ratified by owner. Full implementation and test gates across S0–S5 and Artifact Lane are complete, verified in code, and verified live over wire: BTE-1 task envelope, per-node DPAPI/Ed25519 identity, mutual SAS pairing handshake with static key pinning, dual-listener architecture with SPKI-pinned TLS 1.3 on port 8443 and OpenAI-compatible loopback HTTP on port 8010, recursion prevention, worker leaf tool filtering, at-most-once mutation with lease reconciliation to `unknown`, origin-bound token authorization, 32 MiB content-addressed artifact store, LAN UDP discovery on port 8444 with self-filtering, ReservationLedger concurrency admission, dynamic capability routing, and Settings Hub UI widget. The ADR texts carry the same status: `docs/SWARM-FEDERATION-DEEP-DIVE.md` §10 for ADR-030..038, and the table in `docs/SWARM-FEDERATION-INVESTIGATION.md` §15 for ADR-023..028.
 
 
 ### 11.3 Owner decisions (ratified & amended 2026-11-01; see `ARCHITECTURE-RECOMMENDATIONS.md`)
@@ -702,17 +702,17 @@ Accepted 2026-10-17, but **acceptance is not authorization to build**: they were
 
 ---
 
-## 13. Architectural dispositions (ratified and implemented)
+## 13. Architectural dispositions (ratified; implemented with explicit open findings)
 
-These cross-cutting questions raised by the architectural synthesis are now fully ratified, implemented, and verified in CI:
+These cross-cutting questions raised by the architectural synthesis are ratified. The shipped controls are implemented and CI-guarded where noted; Findings 7 and 8 remain explicitly open, and release signing is conditional on a configured key:
 
 1. ✅ **One unified `ToolSpec` registry (ADR-019 Waves 1–4):** 105 canonical `ToolSpec`s registered under standard `TOOL_CLASSES` (`read`, `write`, `exec`, `network`, `device`) behind `AgentRuntime.execute`. The dual-dispatch legacy path in `core/tool_exec.py` is retired (0 `elif` branches). Guarded by `tests/test_unified_tool_registry.py`.
 2. ✅ **Secure Gateway Companion (WS-8, SEC-14):** Loopback (`127.0.0.1`) and disabled by default; SAS 6-digit PIN pairing, brute-force lockout rate limiting (3 failed attempts $
 ightarrow$ 10 min lockout), and replay-protected nonces enforced across all HTTP/WebSocket endpoints (`core/gateway_auth.py`). Guarded by `tests/test_gateway_security.py` and `tests/test_redteam.py`.
 3. ✅ **Strict 1-Hop Supervisor Hierarchy (ADR-013, ADR-018, Tier 2 Orchestrator):** Supervisor $\rightarrow$ leaf worker hierarchy with loopback self-target refusal in Bridge v2 adapters (`core/agent_bridge/adapters/orchestrator.py`). Connects external orchestrators (Paperclip REST, Orca ADE) behind `AgentRuntime.execute` with gateway loopback port guards (`ForbiddenTarget`), per-verb mutation approval gating (`requires_approval=True`), and Settings Hub non-blocking UI cards (`core/ui_agent_panel.py`). Guarded by `tests/test_agent_orchestrator_adapter.py` and `tests/test_ui_agent_panel.py`.
 4. ✅ **Workspace Trust Fingerprinting (ADR-020, Q4):** Workspace trust tracking (`trusted_workspaces`) gating repo-local `.mcp.json` auto-spawning, wrapping untrusted instructions in `<untrusted-instructions>`, and policy gating state-changing write/exec tools in untrusted workspaces (`agent/permissions.py`, `agent/prompts.py`, `agent/skills.py`). Guarded by `tests/test_workspace_trust.py`.
-5. ✅ **Quarantined Draft Studio Only (SEC-01–07, WS-1, WS-2):** Model synthesis writes to staging only (`core/skill_store.py`), isolated SkillHost execution for dynamic skills (`core/skill_host.py`, used by `core/dynamic_registry.py`), and human-in-the-loop review dialog (`core/ui_skill_review.py`) generating cryptographic capability grants (`core/grants.py`). AppContainer is rejected for now (D36), and the Crucible validator still runs same-user with AST checks, `-I`, a scrubbed env and a Job Object — finding 7 remains open.
-6. ✅ **Signed Release Artifacts & Rollback (WS-6, SEC-11):** Ed25519 signed release manifests, SHA-256 artifact verification, CycloneDX SBOM generation, A/B staging, and automated rollback upon health failure (`core/release_manager.py`, `tools/build_release.py`, `tools/sign_release.py`). Guarded by `tests/test_release_manager.py` and `tests/test_release_packaging_e2e.py`.
+5. ✅ **Quarantined Draft Studio; No Unrestricted Crucible Sandbox (SEC-01–07, WS-1, WS-2):** Model synthesis writes to staging only (`core/skill_store.py`), promoted dynamic skills run through SkillHost (`core/skill_host.py`, used by `core/dynamic_registry.py`), and a human-in-the-loop review dialog (`core/ui_skill_review.py`) generates cryptographic capability grants (`core/grants.py`). AppContainer is rejected for now (D36); the Crucible validator still runs same-user with AST checks, `-I`, a scrubbed env and a Job Object, so finding 7 remains open. General high-risk automation still shares one process and user token (finding 8).
+6. ✅ **Signed Release Artifacts & Rollback (WS-6, SEC-11):** Ed25519 signed release manifests, SHA-256 artifact verification, CycloneDX SBOM generation, A/B staging, and automated rollback upon health failure (`core/release_manager.py`, `tools/build_release.py`, `tools/sign_release.py`). Guarded by `tests/test_release_manager.py` and `tests/test_release_packaging_e2e.py`. The GitHub release workflow signs release metadata only when `RELEASE_SIGN_KEY` is configured; Windows setup binaries are currently unsigned.
 7. ✅ **Voice Multi-Step Agent Delegation (§2.2.7, §13.7):** Conversational voice sessions (Gemini Live) delegate multi-step autonomous tasks to a background `AgentLoop` via `delegate_agent_task`, `get_agent_task_status`, and `cancel_agent_task` without blocking the audio stream or timing out the WebSocket. Execution operates within `AgentRuntime`, recursion is prevented, and proactively speaks completion status via `host.speak(..., proactive=True)` (`core/agent_delegation.py`). Guarded by `tests/test_agent_delegation.py`.
 
 ---

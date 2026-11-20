@@ -13,14 +13,14 @@ capture in sections B/C.
   C. no false positives -- "hi", "hello" and unrelated chatter do NOT connect
   D. shutdown -- the listener stops promptly and releases the microphone
 
-Usage: py -3.11 accept_wakeword.py
+Usage: py -3.11 scripts/acceptance/accept_wakeword.py
 """
 import sys
 import threading
 import time
 from pathlib import Path
 
-BASE = Path(__file__).resolve().parent
+BASE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BASE))
 
 from main import BrahmaLive, _standby_wakeword_detected, _wakeword_detected

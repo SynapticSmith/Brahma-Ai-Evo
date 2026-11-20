@@ -13,14 +13,14 @@ Proves four claims that were asserted but never measured:
 No network, no microphone, no audio played. Optional packages (faster-whisper,
 piper, kokoro) are absent on purpose: every assertion below must hold on a
 machine where they are NOT installed, because that is the common case.
-Usage: py -3.11 accept_local_speech.py
+Usage: py -3.11 scripts/acceptance/accept_local_speech.py
 """
 import asyncio
 import re
 import sys
 from pathlib import Path
 
-BASE = Path(__file__).resolve().parent
+BASE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BASE))
 
 from accept_util import check, section, report
@@ -508,7 +508,7 @@ def test_two_tier_prompt() -> None:
     section("F. Two-tier prompt and the on-demand manual")
     from core import prompt_parts, tool_bridge
 
-    prompt = Path(__file__).resolve().parent / "core" / "prompt.txt"
+    prompt = BASE / "core" / "prompt.txt"
     raw = prompt.read_text(encoding="utf-8")
     core, manual = prompt_parts.load_prompt_tiers(prompt)
 

@@ -32,9 +32,9 @@ py -3.11 -m pytest tests -q -k agent
 
 All §1 rows in `AGENTIC-HARNESS-STATUS.md` are `Done`. The harness is **not**
 mid-batch: the last batch (project skills) landed complete, and the work below
-is new scope rather than cleanup of an unfinished change. N1, N3, N2 and N8
-have since landed (D40, D41, D42); the remaining items are blocked on a decision,
-deliberately deferred, or rejected, so the next batch starts with N4 or N5.
+is new scope rather than cleanup of an unfinished change. N1, N3, N2, N4, N5,
+N6 and N8 have since landed (D40–D44, D47); N7 was rejected. This page is a
+completed batch ledger, not a queue that starts with N4 or N5.
 
 ---
 
@@ -52,8 +52,8 @@ deliberately deferred, or rejected, so the next batch starts with N4 or N5.
 | N8 | Unify harness skills with the core Skills Library | Medium (design) | M | Done (D42) |
 
 Ordered by value per unit of risk, not by size. N1, N3, N2 and N8 landed in
-three batches. The remaining items are blocked on a decision, deliberately
-deferred, or rejected: the next batch starts with N4 or N5.
+three batches; N4, N5 and N6 landed later (D43, D44, D47). N7 was rejected.
+None of these rows is a pending next batch.
 
 ---
 

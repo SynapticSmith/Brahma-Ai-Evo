@@ -9,13 +9,13 @@ on the launcher control panel persist and apply.
 
 No network calls are made: the OpenRouter client is exercised with its pool
 intact and asserted to bail before touching it.
-Usage: py -3.11 accept_providers.py
+Usage: py -3.11 scripts/acceptance/accept_providers.py
 """
 import sys
 import time
 from pathlib import Path
 
-BASE = Path(__file__).resolve().parent
+BASE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BASE))
 
 from accept_util import check, section, report

@@ -75,10 +75,9 @@ These are the ones most likely to mislead a reader:
 
 | Document | What it actually is | How to read it |
 |---|---|---|
-| `docs/SWARM-FEDERATION-INVESTIGATION.md` | Current-state investigation of a three-machine Brahma swarm. Its own verdict: **there is no swarm today and no code path that lets one Brahma call another as a peer.** | Inventory of `brahma_connect`, `brahma_api`, and the remote-agent client. Not a feature list. |
+| `docs/SWARM-FEDERATION-INVESTIGATION.md` | Historical pre-federation investigation of a three-machine Brahma swarm. Its "no swarm today" verdict predates ADR-023…038 and the shipped S0–S5 stack. | Read for the original inventory and rationale only; use `docs/SWARM-FEDERATION-DEEP-DIVE.md` and `ARCHITECTURE-SPEC.md` for current federation behavior. |
 | `docs/SWARM-FEDERATION-DEEP-DIVE.md` | Peer-task-federation architecture (task envelope, leases, SAS pairing, token binding, ADR-030…038). | **Federation implemented & verified (S0–S5 & Artifact Lane).** BTE-1 routes, store, SAS pairing, identity, SPKI-pinned TLS on port 8443, content-addressed artifacts, LAN discovery, dynamic capability routing, and remote bridge are built and verified. |
 | `docs/CAPABILITY-MAXIMIZATION-ANALYSIS.md` | Ideation and ranked roadmap for whole-system capability. Explicitly says "analysis and proposal, no implementation" and "believe the code." | Planning input, not a capability claim. |
-| `docs/REBRAND-EXECUTION-PLAN.md` (+ ADR-029, `REBRAND-PROPOSITION.md`) | Plan to rename the assistant to "Abhasa". | **Planned.** Nothing has been renamed. |
 | `docs/agent-orchestrator-bridge.md`, `docs/AGENT-BRIDGE-BUILD-TODO.md`, `docs/AGENT-BRIDGE-ADR.md` | Pre-harness "god orchestrator" design. | **Aspirational / superseded.** The bridge that actually shipped is `core/agent_bridge/` (ADR-018). |
 | `docs/OPENAI-COMPATIBLE-API-DESIGN.md` | Design for the loopback API. Phases 0–2 are implemented; Phase 3 is gated. | Read for rationale; use §11 below for the shipped behavior. |
 | `docs/SECURITY-ARCHITECTURE-ROADMAP.md` | Security workstream plan. Much of WS-1…WS-10 has since landed. | Planning record; verify against `ARCHITECTURE-SPEC.md` §5 and the tracker. |
@@ -1608,12 +1607,11 @@ These are deliberate, not surprises. Read them before promising a capability.
 | Device gateway / Mobile Connect | **Implemented** (loopback, paired-device auth). |
 | Peer/LAN Brahma swarm | **Implemented & Verified (S0–S5 & Artifact Lane).** BTE-1 server (`brahma_api/peer.py`), DPAPI/Ed25519 identity, SAS pairing, leases with UNKNOWN reconciliation, token binding, dual-listener SPKI-pinned TLS on 8443, content-addressed artifacts, LAN discovery, and dynamic capability routing (`core/peer/capabilities.py`, `RemoteAgentAdapter`). |
 | Capability-maximization roadmap | **Analysis/proposal only.** |
-| Rebrand to "Abhasa" (ADR-029) | **Planned.** Not executed. |
 | AppContainer sandbox | **Rejected for now** (fails silently on a normal Python install). |
 | Upstream port | **Planned**, selective. |
 
-If a document or a demo claims a "capability score" or the Abhasa
-name, check the code first. The honest current answer is: **three
+If a document or a demo claims a "capability score" or an unshipped
+capability, check the code first. The honest current answer is: **three
 doors, one policy boundary, a bridge to external agents, and a verified
 core peer-federation layer (BTE-1 tasks, SAS pairing, lease reconciliation, and origin isolation)
 connecting Brahma nodes as peers.**

@@ -13,7 +13,7 @@ live2d, against a real model on disk where one is installed.
 Every test runs against a sandboxed settings file and restores the module-level
 settings path afterwards, so the user's own configuration is never touched.
 
-Usage: py -3.11 accept_avatar.py
+Usage: py -3.11 scripts/acceptance/accept_avatar.py
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-BASE = Path(__file__).resolve().parent
+BASE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BASE))
 
 from accept_util import check, section, report

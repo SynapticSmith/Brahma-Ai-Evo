@@ -14,7 +14,7 @@ This directory is shared by two trees, and the file names are the boundary.
 | Files | Owner | Notes |
 | --- | --- | --- |
 | `brahma-quantum-dark.json`, `brahma-cyber-amber.json`, `brahma-paper-light.json`, `brahma-slate-frost.json` | upstream Brahma (`titechprabhasolutions/Brahma-Ai-Evo`) | Keep in step with `docs/BRAHMA-THEME-SCHEMA-AND-AGENT-CONTRACT.md`. |
-| `canonical-citra.json`, `amber-crt.json`, `nordic-frost.json`, `paper-solar-light.json` | the Abhasa / Citra fork | Fork design assets. Upstream ships them unchanged and must not "fix" them into the Brahma layout. |
+| `canonical-citra.json`, `amber-crt.json`, `nordic-frost.json`, `paper-solar-light.json` | the Citra fork | Fork design assets. Upstream ships them unchanged and must not "fix" them into the Brahma layout. |
 
 The four fork files currently mirror the four Brahma ones token for token (same
 colours, same values, only the group names differ). That is expected, not a
@@ -59,7 +59,7 @@ file that fails to parse is skipped; it never takes the picker down with it.
 
 ### The fork layout is an alias, not a second schema
 
-The Abhasa templates spell the same three groups `bhitti` / `citra` / `ranga`.
+The Citra templates spell the same three groups `bhitti` / `citra` / `ranga`.
 `normalize_theme_tokens()` maps them onto the canonical names, so both layouts
 load:
 

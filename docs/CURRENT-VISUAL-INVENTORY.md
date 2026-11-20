@@ -1,4 +1,4 @@
-# Abhasa / Brahma Evo — Complete Visual & UI Surface Inventory
+# Brahma Evo — Complete Visual & UI Surface Inventory
 
 | Field | Value |
 |---|---|
@@ -8,19 +8,19 @@
 | **Scope** | 100% of visual, graphical, windowing, overlay, HUD, and audio surfaces in the codebase |
 | **Verified Totals** | **60 Qt Widget/Dialog Classes**, **8 Interactive HTML/WebGL Assets**, **3 Web Companion Pages**, **5 Sound Design Assets**, **4 Visual Skills**, **9 Action-Triggered HUDs** |
 | **Companion Specification** | [`docs/VISUAL-REDESIGN-PROPOSAL.md`](VISUAL-REDESIGN-PROPOSAL.md) |
-| **Governing Authority** | [`docs/ARCHITECTURE-SPEC.md`](ARCHITECTURE-SPEC.md), [`docs/REBRAND-PROPOSITION.md`](REBRAND-PROPOSITION.md) |
+| **Governing Authority** | [`docs/ARCHITECTURE-SPEC.md`](ARCHITECTURE-SPEC.md) |
 
 ---
 
 ## 0. Executive Summary & Inventory Purpose
 
-This document serves as the **exhaustive visual register** of the entire codebase. Before refactoring or implementing the "Abhasa Citra" design system, every single screen, dialog, floating HUD, transient overlay, telemetry bar, sound cue, and web companion is cataloged and mapped.
+This document serves as the **exhaustive visual register** of the entire codebase. Before refactoring or implementing the "Citra" design system, every single screen, dialog, floating HUD, transient overlay, telemetry bar, sound cue, and web companion is cataloged and mapped.
 
-**The Golden Invariant**: *No existing capability, telemetry channel, device tile, or security dialog may be dropped or forgotten.* Every element identified here has an explicit redesign treatment within the "Abhasa Citra" architectural specification.
+**The Golden Invariant**: *No existing capability, telemetry channel, device tile, or security dialog may be dropped or forgotten.* Every element identified here has an explicit redesign treatment within the "Citra" architectural specification.
 
 ```mermaid
 flowchart TD
-    subgraph Surfaces["Brahma / Abhasa Visual Surfaces (Total: 89 Elements)"]
+    subgraph Surfaces["Brahma Visual Surfaces (Total: 89 Elements)"]
         W["Windows & Shells (6)"]
         C["Chat & Conversation Cards (11)"]
         O["Overlays & Security Dialogs (12)"]
@@ -39,20 +39,20 @@ flowchart TD
 
 ## 1. Primary Windows, Shells & Stage Architecture
 
-| Class Name | Source File | Base Type | Current Role & Visual Description | Redesigned "Abhasa Citra" Treatment |
+| Class Name | Source File | Base Type | Current Role & Visual Description | Citra Treatment |
 |---|---|---|---|---|
 | `MainWindow` | [`ui.py`](../ui.py#L380) | `QMainWindow` | Root application container combining 17 mixins. Houses left navigation rail, central stage stack, and right inline workspace. | Retained as root QMainWindow. Stripped of monkeypatched QSS; styled with pure semantic design tokens and single-pixel frosted obsidian border. |
-| `BrahmaUI` | [`ui.py`](../ui.py#L750) | Controller | Facade class managing window visibility, tray lifecycle, audio levels, and shell delegates. | Retained as `AbhasaUI` / `BrahmaUI` bridge. Connects cleanly to the new token and icon registry. |
+| `BrahmaUI` | [`ui.py`](../ui.py#L750) | Controller | Facade class managing window visibility, tray lifecycle, audio levels, and shell delegates. | Retained as the `BrahmaUI` facade. Connects cleanly to the new token and icon registry. |
 | `BackgroundWidget` | [`core/ui_bg.py`](../core/ui_bg.py#L49) | `QWidget` | Background container hosting `QWebEngineView` (Three.js WebGL resonator, Live2D, or VRM) with fallback pixmap. | Refactored into **Layer 0 (Background Canvas)**. Mark as `WA_OpaquePaintEvent`, add framerate throttling (60fps -> 15fps -> 0fps idle), and add support for Mode 0 (Pure Citra 0% CPU). |
 | `GlobeWindow` | [`core/globe_window.py`](../core/globe_window.py#L70) | `QWidget` | Dedicated window rendering 3D Earth, Leaflet maps, flight paths, satellite telemetry, and day/night shaders. | Frameless dark obsidian glass chrome with single-pixel cyan border and compact status badge. |
 | `SpaceCleanerWindow` | [`core/space_cleaner_hud.py`](../core/space_cleaner_hud.py#L180) | `QWidget` | Standalone window for cosmic junk analysis and disk space reclamation. | Styled with dark glass cards and refined storage progress bars. |
-| `InstallWizard` / `UninstallWizard` | [`installer/install_wizard.py`](../installer/install_wizard.py), [`uninstall_wizard.py`](../installer/uninstall_wizard.py) | `QWidget` | Multi-step Windows installer/uninstaller wizard with setup steps and progress bars. | Rebranded to "Abhasa Evo", styled with Citra Frosted Obsidian setup cards, Inter typography, and clean SVG brand glyphs. |
+| `InstallWizard` / `UninstallWizard` | [`installer/install_wizard.py`](../installer/install_wizard.py), [`uninstall_wizard.py`](../installer/uninstall_wizard.py) | `QWidget` | Multi-step Windows installer/uninstaller wizard with setup steps and progress bars. | Styled as "Brahma Evo" with Citra Frosted Obsidian setup cards, Inter typography, and clean SVG brand glyphs. |
 
 ---
 
 ## 2. Conversation, Chat & Workspace Components
 
-| Class Name | Source File | Base Type | Current Role & Visual Description | Redesigned "Abhasa Citra" Treatment |
+| Class Name | Source File | Base Type | Current Role & Visual Description | Citra Treatment |
 |---|---|---|---|---|
 | `MessageCard` | [`core/ui_chat.py`](../core/ui_chat.py#L61) | `QFrame` | Renders user and assistant messages with colored left-borders (blue, white, red, green). | Replaced by `CitraMessageCard` with subtle optical elevation, top cyan hairline accent, Inter typography, and action chips. |
 | `TaskCard` | [`core/ui_chat.py`](../core/ui_chat.py#L220) | `QFrame` | Displays agent task breakdowns, status pills, and subtask execution trees. | Translucent obsidian card with collapsible task tree and pulsing status indicators. |
@@ -70,7 +70,7 @@ flowchart TD
 
 ## 3. Command Inputs, Wings & Telemetry
 
-| Class Name | Source File | Base Type | Current Role & Visual Description | Redesigned "Abhasa Citra" Treatment |
+| Class Name | Source File | Base Type | Current Role & Visual Description | Citra Treatment |
 |---|---|---|---|---|
 | `CommandBar` | [`core/ui_commandbar.py`](../core/ui_commandbar.py#L15) | `QWidget` | Bottom floating input bar (580x48px) with Hindi `ब्र` logo, mic, attach, and dev mode buttons. | Replaced by **`CitraDock` (52px floating island)** with integrated audio visualizer, multiline expander, and SVG icons. |
 | `BrahmaTelemetryWing` | [`core/ui_telemetry.py`](../core/ui_telemetry.py#L279) | `QFrame` | Fixed 310px floating card showing live tool telemetry with a 10-second auto-dismiss countdown. | **10s auto-dismiss removed**. Replaced by persistent "Live Ops" tab inside the **Context & Telemetry Drawer**. |
@@ -85,7 +85,7 @@ flowchart TD
 
 ## 4. Specialized Holographic HUDs & Computer Vision
 
-| Class Name / Surface | Source File | Base Type | Current Role & Visual Description | Redesigned "Abhasa Citra" Treatment |
+| Class Name / Surface | Source File | Base Type | Current Role & Visual Description | Citra Treatment |
 |---|---|---|---|---|
 | `CircuitPopupOverlay` | [`core/circuit_hud.py`](../core/circuit_hud.py#L120) | `QWidget` | Holographic hardware circuit diagram popup showing microcontroller wiring to sensors with SVG schematic. | Frosted dark glass overlay with clean pin-out callouts, SVG wiring paths, and breadboard diagrams. |
 | `RadarPopupOverlay` | [`core/radar_hud.py`](../core/radar_hud.py#L90) | `QWidget` | Local network device radar scanner overlay with sweeping beam, ping ripples, and detected IP nodes. | Modernized radar sweep with Spectral Cyan phosphor glow, high-DPI device markers, and signal strength bars. |
@@ -100,10 +100,10 @@ flowchart TD
 
 ## 5. Transient Overlays, Boot Sequences & Alerts
 
-| Class Name | Source File | Base Type | Current Role & Visual Description | Redesigned "Abhasa Citra" Treatment |
+| Class Name | Source File | Base Type | Current Role & Visual Description | Citra Treatment |
 |---|---|---|---|---|
 | `SetupOverlay` | [`core/ui_setup.py`](../core/ui_setup.py#L18) | `QWidget` | 8-stage first-run setup overlay (System check, Identity, Owner, Behavior, Shared, Audio, Keys, Done). | Multi-step frosted obsidian glass carousel with progress step markers, vector illustrations, and Inter typography. |
-| `BootSequenceOverlay` | [`core/ui_transients.py`](../core/ui_transients.py#L210)| `QWidget` | Animated startup sequence with shockwaves, particle convergence flash, sparks, and "BRAHMA" logo. | Updated to "ABHASA EVO", featuring sleek optical refraction rays, prismatic diamond convergence, and boot diagnostics. |
+| `BootSequenceOverlay` | [`core/ui_transients.py`](../core/ui_transients.py#L210)| `QWidget` | Animated startup sequence with shockwaves, particle convergence flash, sparks, and "BRAHMA" logo. | Refined "BRAHMA EVO" branding with sleek optical refraction rays, prismatic diamond convergence, and boot diagnostics. |
 | `ScanningOverlay` | [`core/ui_transients.py`](../core/ui_transients.py#L21) | `QWidget` | Full-screen cyber scanning overlay with animated sweep lines, OCR bounding boxes, and particles. | High-tech optical scan grid with subtle Spectral Cyan laser line and detected element chips. |
 | `MeetingOverlay` | [`core/ui_transients.py`](../core/ui_transients.py#L909)| `QWidget` | Floating meeting bar (collapsible 58px to 142px) with live speaker transcription and "Stop" button. | Floating pill-shaped meeting island with live voice waveform, speaker avatar, and attention choice prompt. |
 | `IncomingAlertDialog` | [`core/ui_transients.py`](../core/ui_transients.py#L790)| `QDialog` | Urgent popup for incoming phone calls ("Pick up", "Ignore", "Cut call") and messages ("Hear it", "Reply"). | Frosted glass dialog with caller ID badge, animated phone icon, and high-contrast action buttons. |
@@ -116,7 +116,7 @@ flowchart TD
 
 ## 6. Smart Home & Device Management
 
-| Class Name | Source File | Base Type | Current Role & Visual Description | Redesigned "Abhasa Citra" Treatment |
+| Class Name | Source File | Base Type | Current Role & Visual Description | Citra Treatment |
 |---|---|---|---|---|
 | `SmartDevicesSection` | [`core/ui_devices.py`](../core/ui_devices.py#L20) | `QFrame` | Inline stage section displaying connected home smart devices (lights, plugs, AC, TV) with count chip. | Bento-box smart home grid with device status dots, energy usage metrics, and quick toggle buttons. |
 | `BrahmaConnectDevicesPage`| [`core/ui_devices.py`](../core/ui_devices.py#L360)| `QFrame` | Device pairing and remote control management page for Android and external tablets. | Clean device grid displaying connected phones, battery %, link quality, and remote clipboard sync status. |
@@ -129,7 +129,7 @@ flowchart TD
 
 ## 7. Floating Desktop Widgets & System Tray
 
-| Class Name | Source File | Base Type | Current Role & Visual Description | Redesigned "Abhasa Citra" Treatment |
+| Class Name | Source File | Base Type | Current Role & Visual Description | Citra Treatment |
 |---|---|---|---|---|
 | `FloatingLauncher` | [`core/ui_floating.py`](../core/ui_floating.py#L11) | `QWidget` | Draggable 88x88 floating desktop orb with spring physics, particle angles, breathing aura, and context menu. | Re-rendered as the **Citra-Bindu (Floating Prism) (64x64)** with smooth particle physics, state glow, and drag repositioning. |
 | `FloatingGestureCard` | [`core/ui_floating.py`](../core/ui_floating.py#L340)| `QWidget` | Compact floating card showing active gesture tracking state. | Minimal pill widget anchored near floating launcher. |
@@ -139,7 +139,7 @@ flowchart TD
 
 ## 8. Settings, Security & Configuration Dialogs
 
-| Class Name | Source File | Base Type | Current Role & Visual Description | Redesigned "Abhasa Citra" Treatment |
+| Class Name | Source File | Base Type | Current Role & Visual Description | Citra Treatment |
 |---|---|---|---|---|
 | `SettingsHubPage` | [`core/ui_connectivity.py`](../core/ui_connectivity.py#L120)| `QWidget` | Main settings hub with navigation categories (General, API Keys, Voice, Network, Appearance). | Restructured into an organized settings canvas with category sidebar and clear toggle switches. |
 | `SystemConnectivityPage`| [`core/ui_connectivity.py`](../core/ui_connectivity.py#L320)| `QWidget` | Network port bindings, mDNS service status, Android gateway, and cloud endpoints. | Network diagnostics dashboard with live latency pings and port status chips. |
@@ -157,7 +157,7 @@ flowchart TD
 
 ## 9. Interactive HTML / WebGL Assets
 
-| Asset Path | Technology Stack | Function & Interactive Elements | Redesigned "Abhasa Citra" Role |
+| Asset Path | Technology Stack | Function & Interactive Elements | Redesigned "Citra" Role |
 |---|---|---|---|
 | `assets/web_background/index.html` | Three.js + UnrealBloomPass | Quantum Core Resonator: 3D rotating rings, glowing singularity, wave particles reacting to audio. | Serves as **Mode 1 (`three_reactive`)** avatar background. Throttled on idle, masked by optical scrim. |
 | `assets/avatar_live2d/index.html` | Live2D Cubism SDK | Interactive 2D illustrated character with eye tracking, blinking, breathing, and emotion tags. | Serves as **Mode 2 (`live2d`)** avatar background. Translucent stage allows character to live in background. |
@@ -171,7 +171,7 @@ flowchart TD
 
 ## 10. Web Companion Dashboards (`dashboard/`)
 
-| File Path | Stack | Purpose & Features | Redesigned "Abhasa Citra" Treatment |
+| File Path | Stack | Purpose & Features | Citra Treatment |
 |---|---|---|---|
 | `dashboard/static/app.html` | Vanilla HTML5 / CSS / JS | Web companion app allowing mobile and browser control of Brahma assistant over local WiFi. | Restructured with the exact same CSS variables and design tokens (`tokens.css`) as the desktop app. |
 | `dashboard/static/voice.html`| WebRTC / Audio Stream | Web-based bidirectional voice streaming interface for remote audio conversations. | Styled with the Citra Dock waveform and circular optical core. |

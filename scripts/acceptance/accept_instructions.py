@@ -6,14 +6,14 @@ The requirement: instruction blocks are opt-in per layer, so a layer that does
 not use them is never charged for them and nothing is required for layers with
 no blocks. This asserts that contract, plus the emotion-tag stripping that keeps
 "[SMILE]" out of the synthesised audio.
-Usage: py -3.11 accept_instructions.py
+Usage: py -3.11 scripts/acceptance/accept_instructions.py
 """
 import json
 import re
 import sys
 from pathlib import Path
 
-BASE = Path(__file__).resolve().parent
+BASE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BASE))
 
 from accept_util import check, section, report

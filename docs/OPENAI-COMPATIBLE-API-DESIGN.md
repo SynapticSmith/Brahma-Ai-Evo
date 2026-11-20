@@ -3,7 +3,7 @@
 **Status:** Phase 0, Phase 1, and Phase 2 built. Tier 2 in the document map.
 **Capability:** per key — `chat` (no tools, no workspace), `reader` (read-only), `worker` (workspace write/MCP), `operator` (full policy). Chosen at mint time; never implicit. §6.3.
 **Created:** 2026-11-03
-**Baseline:** `main` @ `b188305` (2026-11-03), working tree clean.
+**Baseline:** Designed against `main` @ `b188305` (2026-11-03); current committed HEAD is `f8906ee`. Verify shipped behavior against `brahma_api/` and `ARCHITECTURE-SPEC.md`.
 **Audience:** whoever implements this, and whoever has to decide whether to.
 **Companion reading:** `ARCHITECTURE-SPEC.md` §4 (invariants), §6.4 (harness), §6.9 (gateway); `AGENTIC-HARNESS.md`; `ADR-020-TRUSTED-USER-ROOTS.md`.
 
@@ -345,8 +345,9 @@ an orphaned `tool` message is a 400 `param: "messages"`, never a silent repair.
 | **Honoured** | `messages`, `model`, `stream`, `stream_options.include_usage`, `temperature`, `top_p`, `max_tokens` / `max_completion_tokens` (best-effort output cap), `seed` (where the provider supports it), `user` (session hint), `metadata` | Forwarded or applied |
 | **Advisory** | `presence_penalty`, `frequency_penalty`, `logit_bias`, `service_tier` | Accepted; echoed in `brahma.ignored_params` |
 
-**Phase 0 status.** Streaming is not implemented, so `stream: true` is a 400 rather than an
-empty SSE body. `max_tokens`, `max_completion_tokens`, `top_p`, `seed`, `user`, `metadata`
+**Current status (Phase 2 shipped).** `stream: true` returns an SSE body through
+`StreamingResponse`; `stream_options.include_usage` controls the final usage chunk.
+`max_tokens`, `max_completion_tokens`, `top_p`, `seed`, `user`, `metadata`
 and the penalty fields are accepted but advisory; each one used is echoed in
 `brahma.ignored_params`. `temperature` is honoured.
 

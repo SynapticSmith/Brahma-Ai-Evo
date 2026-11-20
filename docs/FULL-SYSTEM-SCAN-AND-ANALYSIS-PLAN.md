@@ -1,8 +1,9 @@
 # Brahma AI Evo — Full System Scan & Analysis Master Plan
 
-**Document Role:** Master Orchestration & Commission Blueprint for Multi-Agent Codebase Analysis  
-**Created:** 2026-11-07  
-**Baseline Commit:** `main` @ `6439b2e` (`Make the subagent library visible on voice and first-call surfaces`)  
+**Document Role:** Historical Master Orchestration & Commission Blueprint for Multi-Agent Codebase Analysis
+**Created:** 2026-11-07
+**Baseline Commit:** `main` @ `6439b2e` (`Make the subagent library visible on voice and first-call surfaces`)
+**Status:** Historical snapshot. Baselines, line counts, and test counts describe the November 2026 scan, not current HEAD; verify findings against `docs/ARCHITECTURE-SPEC.md` before acting.
 **Orchestrator Scope:** Whole-repository high-level architectural scan, complete file inventory, subsystem decomposition, invariant audit matrix, and executable work-package specifications for downstream analysis agents.
 
 ---
@@ -653,7 +654,7 @@ You are assigned **WP-10 (Native Capability Actions Part B: Browser, Web/Social,
 | `tests/test_agent_*.py` (41 files) | ~9,850 | Stdlib-only portable harness & bridge test suite (`I-15`). |
 | `tests/test_api_*.py` (13 files) | ~1,450 | Loopback OpenAI API (`brahma_api`) test suite. |
 | `tests/test_*.py` (remaining 88 files) | ~15,100 | Security (`test_redteam.py`, `test_security_phase0.py`, `test_security_q0b.py`), routing (`test_routing_authority.py`), tool index/bridge, UI, memory, audio, release packaging. |
-| `accept_391.py`, `accept_avatar.py`, `accept_instructions.py`, `accept_live_toggle.py`, `accept_local_speech.py`, `accept_providers.py`, `accept_util.py`, `accept_voice_downloads.py`, `accept_wakeword.py` | 3,667 | Root-level interactive/automated acceptance harnesses. |
+| `scripts/acceptance/accept_391.py`, `accept_avatar.py`, `accept_instructions.py`, `accept_live_toggle.py`, `accept_local_speech.py`, `accept_providers.py`, `accept_util.py`, `accept_voice_downloads.py`, `accept_wakeword.py` | 3,667 | Interactive/automated acceptance harnesses under `scripts/acceptance/`. |
 | `test_local_brain.py`, `test_self_heal.py`, `test_sensorium_live.py`, `live_handshake_probe.py` | 370 | Root-level ad-hoc test/probe scripts. |
 | `installer/BrahmaEvo.spec`, `BrahmaEvo_Setup.spec`, `BrahmaEcho.spec`, `BrahmaEcho_Setup.spec`, `Uninstall.spec`, `install_wizard.py`, `uninstall_wizard.py`, `install.sh`, `uninstall.cmd`, `uninstall.sh` | 1,237 | PyInstaller specs (`git status` shows modified `installer/BrahmaEvo.spec`—inspect diff!) and installer/uninstaller wizards. |
 | `scripts/generate_sbom.py`, `precommit_check.py`, `setup_dev.ps1`, `install_optional_deps.ps1`, `setup_live2d_cubism.ps1` | 970 | SBOM generator, pre-commit secret/lint checks, dev environment setup. |
@@ -695,12 +696,12 @@ You are assigned **WP-11 (Test Suite, Acceptance Harnesses, Packaging, Build Pip
 | `docs/ROUTING-AUDIT.md`, `ROUTING-IMPLEMENTATION.md`, `TOOL-RETRIEVAL-DESIGN.md` | 867 | Plane-A routing authority and Plane-B R0–R3 retrieval specifications. |
 | `docs/SECURITY-ANALYSIS-ISSUE-4.md`, `SECURITY-ARCHITECTURE-ROADMAP.md` | 1,001 | Upstream issue #4 findings and WS-1…WS-10 target security architecture. |
 | `docs/ONE-391-tool-index.md`, `ONE-391-avatar-backends.md`, `ONE-391-changes.md`, `ONE-391-next-steps.md`, `skills-library-jit-on-demand-skills.md`, `DEFERRED-TOOL-PROXY-MISSION.md` | 1,131 | Feature-level design records. |
-| `docs/UPSTREAM-INTEGRATION-PLAN.md`, `PRODUCTION-RELEASE-REPORT.md`, `REBRAND-PROPOSITION.md`, `USER-GUIDE.md`, `user-notes.md`, `user-notes-2.md` | 1,230 | Release reports, user guides, rebrand proposal (Brahma $\rightarrow$ Abhasa), and user punchlists. |
+| `docs/UPSTREAM-INTEGRATION-PLAN.md`, `PRODUCTION-RELEASE-REPORT.md`, `USER-GUIDE.md`, `user-notes.md`, `user-notes-2.md` | 1,230 | Release reports, user guides, and user punchlists. |
 | `docs/CODE-REVIEW-TODO.md`, `VERSION-1.0.1-LOG.md`, `VERSION-1.0.1-CHANGES.md`, `agent-orchestrator-bridge.md`, `AGENT-BRIDGE-BUILD-TODO.md` | 4,771 | Historical changelogs and superseded pre-harness bridge specs. |
 
 #### Specific Audit Questions for WP-12
 1. **Internal Contradictions Inside `docs/ARCHITECTURE-SPEC.md`:** Note that sections §5.2 ("Built-partial") and Appendix B ("Glossary") of `ARCHITECTURE-SPEC.md` still contain stale statements (e.g., claiming native tool dispatch has no policy engine or only 9 tools are migrated, or that gateway binds `0.0.0.0`) that contradict §1, §2, §7.1, and §12 in the *same* document! Catalogue every internal contradiction in `ARCHITECTURE-SPEC.md`.
-2. **Post-`58a773d` Drift:** Document every capability landed between `58a773d` and `6439b2e` (e.g., Routing Authority `core/routing.py`, Retrieval R0–R3, D47–D49, `agent/web.py`, `agent/subagent_library.py` & `subagents/`, `REBRAND-PROPOSITION.md`) that is missing from `ARCHITECTURE-SPEC.md` and `USER-GUIDE.md`.
+2. **Post-`58a773d` Drift:** Document every capability landed between `58a773d` and `6439b2e` (e.g., Routing Authority `core/routing.py`, Retrieval R0–R3, D47–D49, `agent/web.py`, `agent/subagent_library.py` & `subagents/`) that is missing from `ARCHITECTURE-SPEC.md` and `USER-GUIDE.md`.
 3. **Open vs Closed Items in `user-notes.md` & `user-notes-2.md`:** Verify whether all 3 items in `docs/user-notes-2.md` and all items in `docs/user-notes.md` have actually been resolved in code (`26daa83` / `6439b2e`) and whether the markdown checkboxes/notes reflect reality.
 4. **`README.md` & `USER-GUIDE.md` Accuracy:** Does `README.md` accurately describe how to install, configure, test, and run Brahma AI Evo today (Python 3.11 requirement, CLI commands, `brahma_api`, security posture)?
 

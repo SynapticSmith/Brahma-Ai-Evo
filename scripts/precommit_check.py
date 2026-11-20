@@ -229,12 +229,12 @@ def check_tests(quick: bool) -> list:
     for h in ("accept_391.py", "accept_avatar.py", "accept_instructions.py",
               "accept_providers.py", "accept_local_speech.py",
               "accept_live_toggle.py", "accept_wakeword.py"):
-        path = ROOT / h
+        path = ROOT / "scripts" / "acceptance" / h
         if not path.is_file():
             continue
         try:
-            r = subprocess.run([sys.executable, h], cwd=ROOT, capture_output=True,
-                               text=True, timeout=900)
+            r = subprocess.run([sys.executable, str(path)], cwd=ROOT,
+                               capture_output=True, text=True, timeout=900)
             ok = "ALL CRITERIA PASS" in r.stdout
             note = next((l for l in r.stdout.splitlines()
                          if l.startswith("RESULT")), f"rc={r.returncode}")

@@ -244,7 +244,7 @@ def test_session_commands_need_the_slash():
     assert controller.handle_agent_session_command("") is False
 
 
-def test_slash_commands_skills_and_cookbooks():
+def test_slash_commands_skills_and_cookbooks(monkeypatch):
     logs = []
     host = types.SimpleNamespace(ui=types.SimpleNamespace(write_log=logs.append))
     controller = TextTurnController(host)
@@ -265,6 +265,20 @@ def test_slash_commands_skills_and_cookbooks():
     assert any("Taxonomy Domain" in line for line in logs)
 
     logs.clear()
+    import agent.second_brain as second_brain
+
+    monkeypatch.setattr(
+        second_brain,
+        "search",
+        lambda query, k=5: [
+            {
+                "path": "buddhism/ontology.md",
+                "heading": "Ontology",
+                "score": 0.91,
+                "snippet": "Buddhist ontology examines dependent origination.",
+            }
+        ],
+    )
     assert controller.handle_agent_session_command("/brain buddhism") is True
     assert any("Second Brain" in line for line in logs)
 

@@ -2,6 +2,7 @@
 
 - **Work Package:** WP-11
 - **Baseline Commit:** `6439b2efde3c36b1d34b21e4cc5e93baff31b2b5`
+- **Status:** Historical audit snapshot. Checkboxes describe findings at that baseline; verify against `docs/GITHUB-ACTIONS-REMEDIATION.md` and `docs/ARCHITECTURE-SPEC.md` before acting.
 - **Files Scanned:** 196 files (39,095 lines across test suite, acceptance scripts, packaging specs, build tools, CI workflows, and configs)
 - **Overall Subsystem Health:** Needs Hardening (The stdlib-only agent harness test suite and architecture ratchet invariants are exceptionally disciplined and pass stdlib isolation tests with zero third-party leaks; however, the broader system suffers from a critical module-level SQLite crash cascade in `workspace_store.py`, hardcoded developer drive paths in installer specs, packaging omissions for `brahma_api` and subagent discovery in frozen builds, massive test coverage blind spots across 81 production modules and the entire `dashboard/` subsystem, and fictional multi-platform CI build definitions).
 
@@ -65,15 +66,15 @@ flowchart TD
 | `tests/test_agent_*.py` (38 files) | 10,124 | 38 agent harness test modules (`test_agent_loop.py`, `test_agent_runtime.py`, etc.) | Active | Low | 547 passing tests. Strictly stdlib-only. 2 timeout/memory failures on WindowsApps Python. |
 | `tests/test_api_*.py` (13 files) | 1,452 | 13 loopback OpenAI API tests (`test_api_chat.py`, `test_api_sessions.py`, etc.) | Active | Medium | 104 passed; 5 failed when host SQLite `workspace_store.sqlite3` is malformed. |
 | `tests/test_*.py` (remaining 91 files) | 15,532 | Integration tests for security, routing, RRF retrieval, audio, UI, memory | Active | Medium | 6 files fail collection when host SQLite database disk image is malformed. |
-| [accept_391.py](file:///C:/Users/Admin/Brahma-Ai-Evo/accept_391.py) | 114 | Acceptance suite for ONE-391 (tools, avatars, voice) | Active | Low | Validates ONE-391 acceptance criteria against live components. |
-| [accept_avatar.py](file:///C:/Users/Admin/Brahma-Ai-Evo/accept_avatar.py) | 1,243 | Acceptance test for 5 avatar backends and emotion pipelines | Active | Low | Sandboxes settings to tempdir; asserts backend availability and error resilience. |
-| [accept_instructions.py](file:///C:/Users/Admin/Brahma-Ai-Evo/accept_instructions.py) | 470 | Instruction injector layer composition and emotion stripping | Active | High | **Mutates live user settings!** Directly modifies `%LOCALAPPDATA%\BrahmaAI\config\app_settings.json`. |
-| [accept_live_toggle.py](file:///C:/Users/Admin/Brahma-Ai-Evo/accept_live_toggle.py) | 625 | Always On / On Call live session lifecycle state machine | Active | Low | Uses `StubUI`; imports `main.BrahmaLive`; asserts session cancellation. |
-| [accept_local_speech.py](file:///C:/Users/Admin/Brahma-Ai-Evo/accept_local_speech.py) | 559 | Offline STT (faster-whisper) and TTS (Piper/Kokoro) harness | Active | Low | Verifies local speech synthesis and transcription when engines installed. |
-| [accept_providers.py](file:///C:/Users/Admin/Brahma-Ai-Evo/accept_providers.py) | 664 | Multi-provider failover and routing verification | Active | Low | Exercises provider adapters with simulated errors. |
-| [accept_util.py](file:///C:/Users/Admin/Brahma-Ai-Evo/accept_util.py) | 49 | `check`, `section`, `report`, `FAILURES` list | Active | Low | Canonical helper for acceptance harnesses; outputs `RESULT: ALL CRITERIA PASS`. |
-| [accept_voice_downloads.py](file:///C:/Users/Admin/Brahma-Ai-Evo/accept_voice_downloads.py) | 176 | Live downloads of Piper and Kokoro voice models from HuggingFace | Active | Low | Sandboxed `%LOCALAPPDATA%`; downloads ~250 MB; not part of CI. |
-| [accept_wakeword.py](file:///C:/Users/Admin/Brahma-Ai-Evo/accept_wakeword.py) | 297 | Real-hardware microphone wake-word detection harness | Active | Medium | Opens physical PortAudio microphone stream; calls Google Speech API. |
+| [accept_391.py](file:///C:/Users/Admin/Brahma-Ai-Evo/scripts/acceptance/accept_391.py) | 114 | Acceptance suite for ONE-391 (tools, avatars, voice) | Active | Low | Validates ONE-391 acceptance criteria against live components. |
+| [accept_avatar.py](file:///C:/Users/Admin/Brahma-Ai-Evo/scripts/acceptance/accept_avatar.py) | 1,243 | Acceptance test for 5 avatar backends and emotion pipelines | Active | Low | Sandboxes settings to tempdir; asserts backend availability and error resilience. |
+| [accept_instructions.py](file:///C:/Users/Admin/Brahma-Ai-Evo/scripts/acceptance/accept_instructions.py) | 470 | Instruction injector layer composition and emotion stripping | Active | High | **Mutates live user settings!** Directly modifies `%LOCALAPPDATA%\BrahmaAI\config\app_settings.json`. |
+| [accept_live_toggle.py](file:///C:/Users/Admin/Brahma-Ai-Evo/scripts/acceptance/accept_live_toggle.py) | 625 | Always On / On Call live session lifecycle state machine | Active | Low | Uses `StubUI`; imports `main.BrahmaLive`; asserts session cancellation. |
+| [accept_local_speech.py](file:///C:/Users/Admin/Brahma-Ai-Evo/scripts/acceptance/accept_local_speech.py) | 559 | Offline STT (faster-whisper) and TTS (Piper/Kokoro) harness | Active | Low | Verifies local speech synthesis and transcription when engines installed. |
+| [accept_providers.py](file:///C:/Users/Admin/Brahma-Ai-Evo/scripts/acceptance/accept_providers.py) | 664 | Multi-provider failover and routing verification | Active | Low | Exercises provider adapters with simulated errors. |
+| [accept_util.py](file:///C:/Users/Admin/Brahma-Ai-Evo/scripts/acceptance/accept_util.py) | 49 | `check`, `section`, `report`, `FAILURES` list | Active | Low | Canonical helper for acceptance harnesses; outputs `RESULT: ALL CRITERIA PASS`. |
+| [accept_voice_downloads.py](file:///C:/Users/Admin/Brahma-Ai-Evo/scripts/acceptance/accept_voice_downloads.py) | 176 | Live downloads of Piper and Kokoro voice models from HuggingFace | Active | Low | Sandboxed `%LOCALAPPDATA%`; downloads ~250 MB; not part of CI. |
+| [accept_wakeword.py](file:///C:/Users/Admin/Brahma-Ai-Evo/scripts/acceptance/accept_wakeword.py) | 297 | Real-hardware microphone wake-word detection harness | Active | Medium | Opens physical PortAudio microphone stream; calls Google Speech API. |
 | [test_local_brain.py](file:///C:/Users/Admin/Brahma-Ai-Evo/test_local_brain.py) | 38 | Ad-hoc probe for Ollama local LLM endpoint and model inference | Ad-hoc | Low | Exploratory script; requires live Ollama daemon. |
 | [test_self_heal.py](file:///C:/Users/Admin/Brahma-Ai-Evo/test_self_heal.py) | 106 | Interactive demo runner for `actions/auto_heal_engine.py` | Ad-hoc | High | **Mutates production code!** In-place patches and rolls back `actions/test_action.py`. |
 | [test_sensorium_live.py](file:///C:/Users/Admin/Brahma-Ai-Evo/test_sensorium_live.py) | 117 | Real-time passive observation terminal ticker with SAPI/Edge TTS | Ad-hoc | Low | Infinite loop monitoring active window focus and user idle seconds. |
@@ -156,7 +157,7 @@ flowchart TD
 - **Findings:**
   1. `.github/workflows/ci.yml` runs the full unit suite (`python -m pytest tests -q`) on Python 3.11 with `QT_QPA_PLATFORM: offscreen`.
   2. The `harness-pythons` matrix (3.11, 3.12, 3.13) installs only `pytest` and `cryptography`. AST import scanning verifies that all 38 `tests/test_agent_*.py` files and 11 security tests import cleanly without non-stdlib dependencies.
-  3. **Local Gate Divergence:** The 7 acceptance harnesses (`accept_391.py`, `accept_avatar.py`, `accept_instructions.py`, `accept_providers.py`, `accept_local_speech.py`, `accept_live_toggle.py`, `accept_wakeword.py`) run only locally via `scripts/precommit_check.py` and are excluded from CI due to display/audio hardware requirements.
+   3. **Local Gate Divergence:** The 9 acceptance harnesses under `scripts/acceptance/` (`accept_391.py`, `accept_avatar.py`, `accept_instructions.py`, `accept_live_toggle.py`, `accept_local_speech.py`, `accept_providers.py`, `accept_util.py`, `accept_voice_downloads.py`, `accept_wakeword.py`) run only locally via `scripts/precommit_check.py` and are excluded from CI due to display/audio hardware requirements.
   4. **Cascading State Leak:** On any local machine where `%LOCALAPPDATA%\BrahmaAI\config\workspace_store.sqlite3` is malformed, 6 test modules fail during pytest collection. CI does not catch this because runners start from an empty virtual disk.
 
 #### Q3: Packaging & Modified `installer/BrahmaEvo.spec`
@@ -171,11 +172,11 @@ flowchart TD
 
 #### Q4: Root Clutter & Ad-Hoc Scripts
 - **Verdict: HYGIENE & SAFETY VIOLATIONS IDENTIFIED.**
-- **Evidence:** `ig_debug.log`, [test_self_heal.py:40-98](file:///C:/Users/Admin/Brahma-Ai-Evo/test_self_heal.py#L40-L98), [accept_instructions.py:43-52](file:///C:/Users/Admin/Brahma-Ai-Evo/accept_instructions.py#L43-L52), [live_handshake_probe.py:47](file:///C:/Users/Admin/Brahma-Ai-Evo/live_handshake_probe.py#L47)
+- **Evidence:** `ig_debug.log`, [test_self_heal.py:40-98](file:///C:/Users/Admin/Brahma-Ai-Evo/test_self_heal.py#L40-L98), [accept_instructions.py:43-52](file:///C:/Users/Admin/Brahma-Ai-Evo/scripts/acceptance/accept_instructions.py#L43-L52), [live_handshake_probe.py:47](file:///C:/Users/Admin/Brahma-Ai-Evo/live_handshake_probe.py#L47)
 - **Findings:**
   1. **Working Tree Log Pollution:** `actions/instagram_chat.py:32` and `actions/instagram_mcp.py:44` write logs to `./ig_debug.log` in the repository root instead of the user data directory.
   2. **In-Place Code Modification:** `test_self_heal.py` modifies production code (`actions/test_action.py`) and global learned rules in-place.
-  3. **Live User Configuration Mutation:** `accept_instructions.py:43-52` directly modifies and wipes keys from `%LOCALAPPDATA%\BrahmaAI\config\app_settings.json` during execution.
+  3. **Live User Configuration Mutation:** `scripts/acceptance/accept_instructions.py:43-52` directly modifies and wipes keys from `%LOCALAPPDATA%\BrahmaAI\config\app_settings.json` during execution.
   4. **Probe Cache Clutter:** `live_handshake_probe.py:47` creates an untracked `_probe_cache/` directory in the repository root.
   5. **Outdated Version Resources:** `version.txt` and `version_setup.txt` are hardcoded to `1.0.0` with `'CompanyName': 'User'`.
 
@@ -299,16 +300,16 @@ flowchart TD
 ### [WP-11-F06] Root Directory Clutter, Hardcoded Root File Logging (`ig_debug.log`), and In-Place Code/Setting Mutation
 - **Severity:** `Medium`
 - **Category:** `Security` & `Architecture/Invariant`
-- **Location:** [actions/instagram_chat.py:32](file:///C:/Users/Admin/Brahma-Ai-Evo/actions/instagram_chat.py#L32), [actions/instagram_mcp.py:44](file:///C:/Users/Admin/Brahma-Ai-Evo/actions/instagram_mcp.py#L44), [test_self_heal.py:40-98](file:///C:/Users/Admin/Brahma-Ai-Evo/test_self_heal.py#L40-L98), [accept_instructions.py:43-52](file:///C:/Users/Admin/Brahma-Ai-Evo/accept_instructions.py#L43-L52), [live_handshake_probe.py:47](file:///C:/Users/Admin/Brahma-Ai-Evo/live_handshake_probe.py#L47)
+- **Location:** [actions/instagram_chat.py:32](file:///C:/Users/Admin/Brahma-Ai-Evo/actions/instagram_chat.py#L32), [actions/instagram_mcp.py:44](file:///C:/Users/Admin/Brahma-Ai-Evo/actions/instagram_mcp.py#L44), [test_self_heal.py:40-98](file:///C:/Users/Admin/Brahma-Ai-Evo/test_self_heal.py#L40-L98), [accept_instructions.py:43-52](file:///C:/Users/Admin/Brahma-Ai-Evo/scripts/acceptance/accept_instructions.py#L43-L52), [live_handshake_probe.py:47](file:///C:/Users/Admin/Brahma-Ai-Evo/live_handshake_probe.py#L47)
 - **Evidence & Mechanism:**
   1. In [actions/instagram_mcp.py:44](file:///C:/Users/Admin/Brahma-Ai-Evo/actions/instagram_mcp.py#L44), `LOG_PATH = BASE_DIR / "ig_debug.log"`, and `instagram_chat.py:32` calls `open("ig_debug.log", "a")`. This dumps background daemon logs directly into the git repository root.
   2. In [test_self_heal.py](file:///C:/Users/Admin/Brahma-Ai-Evo/test_self_heal.py#L40-L98), running the script mutates `actions/test_action.py` in-place and persists learned rules into the active environment.
-  3. In [accept_instructions.py:43-52](file:///C:/Users/Admin/Brahma-Ai-Evo/accept_instructions.py#L43-L52), the harness reads `config_manager.SETTINGS_FILE` (pointing to `%LOCALAPPDATA%\BrahmaAI\config\app_settings.json`), purges all `instruction_*` keys, and overwrites the real user's configuration on disk.
+  3. In [accept_instructions.py:43-52](file:///C:/Users/Admin/Brahma-Ai-Evo/scripts/acceptance/accept_instructions.py#L43-L52), the harness reads `config_manager.SETTINGS_FILE` (pointing to `%LOCALAPPDATA%\BrahmaAI\config\app_settings.json`), purges all `instruction_*` keys, and overwrites the real user's configuration on disk.
   4. In [live_handshake_probe.py:47](file:///C:/Users/Admin/Brahma-Ai-Evo/live_handshake_probe.py#L47), `ToolIndex(cache_dir=BASE / "_probe_cache")` creates untracked cache folders in the root.
 - **Impact:** Risk of accidental git commits of sensitive log data, corruption of live user preferences during test execution, and repository root clutter.
 - **Recommended Fix:**
   1. Route all logging to `core.user_paths.get_user_data_dir() / "logs"`.
-  2. Sandbox `accept_instructions.py` using `tempfile.mkdtemp()` (following the pattern established in `accept_avatar.py:41-45`).
+   2. Sandbox `scripts/acceptance/accept_instructions.py` using `tempfile.mkdtemp()` (following the pattern established in `scripts/acceptance/accept_avatar.py:41-45`).
   3. Move ad-hoc test scripts (`test_self_heal.py`, `test_local_brain.py`, `test_sensorium_live.py`, `live_handshake_probe.py`, `download_offline_voices.py`) to `tests/manual/` or `scripts/`.
 
 ---
@@ -383,10 +384,10 @@ flowchart TD
   - Add `brahma_api` to `datas` and `hiddenimports`.
   - Add `uvicorn.protocols.http.auto`, `uvicorn.protocols.websockets.auto`, `uvicorn.lifespan.on`, `uvicorn.logging`, `yaml`, `fastembed` to `hiddenimports`.
   - Patch `agent/subagent_library.py:156` to resolve `sys._MEIPASS` / `sys.executable` when running in a frozen environment.
-- [ ] **P1: Isolate `accept_instructions.py` Settings (`[WP-11-F06]`):** Point `config_manager.SETTINGS_FILE` to a temporary directory in `accept_instructions.py` to prevent wiping user preferences.
+- [ ] **P1: Isolate `accept_instructions.py` Settings (`[WP-11-F06]`):** Point `config_manager.SETTINGS_FILE` to a temporary directory in `scripts/acceptance/accept_instructions.py` to prevent wiping user preferences.
 
 ### 2. Near-Term (P2)
-- [ ] **P2: Disable or Retire Fictional Multi-Platform CI (`[WP-11-F04]`):** Remove macOS and Linux build jobs from `.github/workflows/build-all-platforms.yml`; deprecate `installer/install.sh`.
+- [x] **P2: Disable or Retire Fictional Multi-Platform CI (`[WP-11-F04]`):** Resolved locally by deleting `.github/workflows/build-all-platforms.yml` and making `build.yml` the only `v*` workflow. `installer/install.sh` is still present and should not be advertised as supported; the fix is not pushed yet.
 - [ ] **P2: Create Automated Test Suite for `dashboard/` (`[WP-11-F05]`):** Author `tests/test_dashboard.py` exercising login auth, session management, and settings reflection.
 - [ ] **P2: Redirect Logging Away from Repository Root (`[WP-11-F06]`):** Update `actions/instagram_chat.py` and `actions/instagram_mcp.py` to write `ig_debug.log` to `core.user_paths.get_user_data_dir() / "logs"`.
 - [ ] **P2: Harden Job Object Containment against WindowsApps Aliases (`[WP-11-F07]`):** Resolve `sys.executable` via `os.path.realpath` in `agent/process.py`; add `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` (0x2000).

@@ -7,8 +7,7 @@
 disagree, the code wins.
 **Date:** 2026-11-09
 **Baseline:** `main` @ `951e4b7` (`Create SWARM-FEDERATION-INVESTIGATION.md`); the only
-untracked files at the time of writing are `docs/CAPABILITY-MAXIMIZATION-ANALYSIS.md`
-and `docs/REBRAND-EXECUTION-PLAN.md`.
+untracked file at the time of writing is `docs/CAPABILITY-MAXIMIZATION-ANALYSIS.md`.
 **Companion:** `docs/SWARM-FEDERATION-INVESTIGATION.md` (the v1 investigation). This
 document **refines** that baseline; it does not replace its inventory or its verdict.
 Read the investigation first for the current-state map. Read this for the contracts,
@@ -1765,8 +1764,7 @@ relevant.
 ## 10. Decisions (ADR-030..038)
 
 The investigation's ADR-023..028 remain proposed and unchanged. These nine ADRs extend
-them. They are numbered 030+ because ADR-029 is claimed by the rebrand plan
-(`docs/REBRAND-EXECUTION-PLAN.md`).
+them and are numbered 030+.
 
 ### ADR-030 - Separate the Brahma Task Envelope from the A2A binding
 
@@ -1953,7 +1951,7 @@ signal, not an identity signal.
 | 030 | 024 (A2A-over-HTTPS) | 022 (OpenAI port is a transport) |
 | 031 | 026 (recursion denied) | 023 (federation of runtimes) |
 | 032 | 023 (no shared DB) | 028 (sessions per node) |
-| 033 | 024, 025 (identity/pairing) | 022, 029 (rebrand) |
+| 033 | 024, 025 (identity/pairing) | 022 |
 | 034 | 027 (remote callers never approve) | 028 |
 | 035 | 023, 026 | 022 |
 | 036 | 028 | 023 |

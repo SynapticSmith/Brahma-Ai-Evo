@@ -2,7 +2,8 @@
 
 > **Repository Tracker Document:** [`docs/KNOWLEDGE-AND-SKILLS-ENGINE-TRACKER.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/KNOWLEDGE-AND-SKILLS-ENGINE-TRACKER.md)  
 > **Master Architecture Specification:** [`docs/ACADEMIC-TAXONOMY-AND-SKILLS-ENGINE-SPEC.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/ACADEMIC-TAXONOMY-AND-SKILLS-ENGINE-SPEC.md) (Rev 3.1)  
-> **Current Date:** 2026-11-11  
+> **Last verified date:** 2026-11-11
+> **Note:** Test counts in this tracker are historical for that date. Re-run the current Python 3.11 gates before treating them as current; Phase 7 remains unwired.
 
 ---
 

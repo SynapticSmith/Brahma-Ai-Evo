@@ -1,13 +1,13 @@
-# Abhasa Citra — Theme Template Schema & Agent Redesign Contract
+# Citra — Theme Template Schema & Agent Redesign Contract
 
 | Field | Value |
 |---|---|
 | **Document** | `docs/THEME-SCHEMA-AND-AGENT-REDESIGN-CONTRACT.md` |
 | **Status** | Authoritative Design System Specification & Agent Execution Contract |
 | **Date** | 2026-11-10 |
-| **Target Platform** | Windows-first PyQt6 Desktop Assistant (`Abhasa Evo`) |
+| **Target Platform** | Windows-first PyQt6 Desktop Assistant (`Brahma Evo`) |
 | **Governing Authority** | [`AGENTS.md`](../AGENTS.md), [`docs/VISUAL-REDESIGN-PROPOSAL.md`](VISUAL-REDESIGN-PROPOSAL.md), [`docs/CURRENT-VISUAL-INVENTORY.md`](CURRENT-VISUAL-INVENTORY.md) |
-| **Template Storage Path** | Bundled: `templates/themes/*.json` · User: `config/themes/*.json` (or `%LOCALAPPDATA%\Abhasa\themes\`) |
+| **Template Storage Path** | Bundled: `templates/themes/*.json` · User: `config/themes/*.json` (or `%LOCALAPPDATA%\BrahmaAI\themes\`) |
 
 ---
 
@@ -75,7 +75,7 @@ Theme files are validated against the following schema before being loaded by `c
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "AbhasaCitraTheme",
+  "title": "CitraTheme",
   "type": "object",
   "required": [
     "schema_version",
@@ -200,7 +200,7 @@ The default dark obsidian theme featuring spectral cyan action highlights and re
   "schema_version": "1.0",
   "name": "Canonical Citra",
   "slug": "canonical-citra",
-  "author": "Abhasa Design Panel",
+  "author": "Brahma Design Panel",
   "description": "Layered frosted obsidian with restrained spectral cyan and violet accents",
   "variant": "dark",
   "tokens": {
@@ -253,7 +253,7 @@ Warm monochrome amber aesthetic inspired by vintage 1980s DEC and VT220 monitors
   "schema_version": "1.0",
   "name": "Amber Phosphor CRT",
   "slug": "amber-crt",
-  "author": "Abhasa Design Panel",
+  "author": "Brahma Design Panel",
   "description": "High-contrast vintage monochrome amber terminal aesthetic",
   "variant": "monochrome",
   "tokens": {
@@ -306,7 +306,7 @@ Cool glacial slate with polar ice accents and clear Scandinavian typography bala
   "schema_version": "1.0",
   "name": "Nordic Frost",
   "slug": "nordic-frost",
-  "author": "Abhasa Design Panel",
+  "author": "Brahma Design Panel",
   "description": "Cool subarctic deep slate with glacial cyan accents",
   "variant": "dark",
   "tokens": {
@@ -359,7 +359,7 @@ Ultra-high-contrast light mode designed for maximum clarity in bright outdoor en
   "schema_version": "1.0",
   "name": "Paper Solar Light",
   "slug": "paper-solar-light",
-  "author": "Abhasa Design Panel",
+  "author": "Brahma Design Panel",
   "description": "High-contrast clean paper aesthetic optimized for outdoor daylight legibility",
   "variant": "light",
   "tokens": {
@@ -409,7 +409,7 @@ Ultra-high-contrast light mode designed for maximum clarity in bright outdoor en
 ## 5. Agent Execution SOP (Step-by-Step Redesign Runbook)
 
 When an agent receives an instruction like:
-> *"Hey Abhasa, redesign your visual interface to feel like an 80s synthwave neon city at dusk"*
+> *"Hey Brahma, redesign your visual interface to feel like an 80s synthwave neon city at dusk"*
 
 The agent must execute the following 5-step Standard Operating Procedure:
 

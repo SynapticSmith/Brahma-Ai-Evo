@@ -32,9 +32,9 @@
   - Numbered pin bubbles (`①`, `②`, `③`, `④`, `⑤`).
   - Operating voltage safety callouts and ready-to-flash Arduino C++ firmware.
 
-### 2. 🧬 Project Ultron — Self-Evolving Autonomous Skill Crucible
-- **On-the-Fly Code Synthesis**: When asked to execute a task outside its built-in toolkit, Brahma identifies the capability gap, writes a brand-new Python tool directly into `features/`, tests it inside an isolated sandbox ("The Crucible"), and auto-registers it dynamically without restarting the application.
-- **Persistent Vault**: All forged skills are saved in your `features/` directory and hot-reloaded automatically.
+### 2. 🧬 Project Ultron — Draft Skill Studio
+- **On-the-Fly Code Synthesis**: When asked to execute a task outside its built-in toolkit, Brahma can stage a Python tool draft for review. Drafts are validated with AST checks, a scrubbed environment, and a bounded same-user process; this is not a security sandbox.
+- **Review Before Use**: A staged draft is not imported or registered until you review and promote it. High-risk automation still runs in the same process with the same user token.
 
 ### 3. 🛡️ Proactive Auto-Heal Engine
 - **Self-Repairing Codebase**: Background sentry catches runtime exceptions, analyzes tracebacks using LLM root-cause reasoning, applies dynamic patches to the faulty code, and presents an interactive HUD repair telemetry card without crashing the assistant.

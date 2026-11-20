@@ -2,12 +2,12 @@
 
 **Target:** Integrate upstream changes from [titechprabhasolutions/Brahma-Ai-Evo:main](https://github.com/titechprabhasolutions/Brahma-Ai-Evo) (**7 commits**, **+34,763 / -3,390 lines**, **114 files**) into our refactored, hardened architecture while strictly preserving our security, line-count, and single-runtime invariants.
 
-**Status:** Authoritative Planning & Architecture Harmonization Document  
-**Created:** 2025-10-24 · **Amended:** 2026-11-02 (Post-Bridge v2 / Post-Security Phase 0 reconciliation)  
-**Merge-Base:** `e0bd3c5a3a258cc1cf35014ae0a35c7b6b9db87f`  
-**Our HEAD:** `0c11a04 docs: reconcile upstream plan metadata in architecture spec`  
-**Upstream HEAD:** `bfb2868 Add public Privacy Policy for Google Play Store compliance`  
-**Verified Test Baseline:** 888 passed / 1 skipped (offscreen); 460 passed / 1 skipped (`-k agent`); 102 passed (`-k skill`)
+**Status:** Historical planning record; repository topology is still undecided. Do not treat its HEAD or test counts as current.
+**Created:** 2025-10-24 · **Amended:** 2026-11-02 (Post-Bridge v2 / Post-Security Phase 0 reconciliation)
+**Merge-Base:** `e0bd3c5a3a258cc1cf35014ae0a35c7b6b9db87f`
+**HEAD at amendment:** `0c11a04 docs: reconcile upstream plan metadata in architecture spec`
+**Upstream HEAD at amendment:** `bfb2868 Add public Privacy Policy for Google Play Store compliance`
+**Test baseline at amendment:** 888 passed / 1 skipped (offscreen); 460 passed / 1 skipped (`-k agent`); 102 passed (`-k skill`)
 
 ---
 
@@ -74,7 +74,7 @@ Our Fork: Hardened Progressive-Disclosure & Single Policy Boundary
 ```text
 Base Commit:   e0bd3c5a3a258cc1cf35014ae0a35c7b6b9db87f (merge-base)
 Upstream HEAD: bfb2868074c3fac1cbebf00e4d2318c926fa86d2 (2026-10-27)
-Our HEAD:      0c11a04 (2026-11-02, Queue 1 and Queue 2 complete)
+Our HEAD at amendment: 0c11a04 (2026-11-02, Queue 1 and Queue 2 complete)
 ```
 
 ### Cumulative Diff Statistics (`e0bd3c5..upstream/main`)

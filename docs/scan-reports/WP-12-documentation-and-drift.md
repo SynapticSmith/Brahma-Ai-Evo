@@ -2,6 +2,7 @@
 
 - **Work Package:** WP-12 (Documentation Authority, ADRs & Specification Drift Audit)
 - **Baseline Commit:** `6439b2efde3c36b1d34b21e4cc5e93baff31b2b5` (`6439b2e`)
+- **Status:** Historical audit snapshot. Checkbox state is being reconciled in place; verify against `docs/ARCHITECTURE-SPEC.md` before acting.
 - **Files Scanned:** 40 files (7 root governance + 33 documentation files in `docs/`) (17,214 lines total)
 - **Overall Subsystem Health:** **Needs Hardening** (Substantial specification drift between master architecture spec and `HEAD` @ `6439b2e`; severe internal self-contradictions in `ARCHITECTURE-SPEC.md`; misleading sandbox claims in `README.md`; untracked resolutions in `user-notes-2.md`).
 
@@ -30,7 +31,6 @@ flowchart TD
         API_SPEC["OPENAI-COMPATIBLE-API-DESIGN.md (ADR-022)"]
         SEC_ROADMAP["SECURITY-ANALYSIS-ISSUE-4.md\nSECURITY-ARCHITECTURE-ROADMAP.md"]
         UPSTREAM_PLAN["UPSTREAM-INTEGRATION-PLAN.md"]
-        REBRAND_PROP["REBRAND-PROPOSITION.md"]
     end
 
     subgraph Tier3["Tier 3: Historical Records & Changelogs"]
@@ -53,7 +53,7 @@ flowchart TD
 The repository enforces a strict five-tier document authority rule:
 1. **Tier 0 (Current Truth):** The executable source code, [`AGENTS.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/AGENTS.md), and [`docs/ARCHITECTURE-SPEC.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/ARCHITECTURE-SPEC.md). When code and documentation conflict, **code wins over prose**; prose that contradicts code is a defect in documentation.
 2. **Tier 1 (Authoritative Current Design):** Detailed subsystem specifications kept in continuous alignment with code. Includes the harness trio ([`AGENTIC-HARNESS.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/AGENTIC-HARNESS.md), [`AGENTIC-HARNESS-STATUS.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/AGENTIC-HARNESS-STATUS.md), [`AGENTIC-HARNESS-NEXT.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/AGENTIC-HARNESS-NEXT.md)), ratified Architectural Decision Records ([`ADR-018`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/ADR-018-AGENT-BRIDGE-RUNTIME-BOUNDARY.md) through [`ADR-021`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/ADR-021-PINNED-EXTRA-SEMANTICS.md)), routing & retrieval designs ([`ROUTING-AUDIT.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/ROUTING-AUDIT.md), [`ROUTING-IMPLEMENTATION.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/ROUTING-IMPLEMENTATION.md), [`TOOL-RETRIEVAL-DESIGN.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/TOOL-RETRIEVAL-DESIGN.md)), and stable feature records ([`ONE-391-tool-index.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/ONE-391-tool-index.md), [`ONE-391-avatar-backends.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/ONE-391-avatar-backends.md)).
-3. **Tier 2 (Proposed / Phased Implementation Plans):** High-quality designs undergoing active or phased delivery. Includes [`OPENAI-COMPATIBLE-API-DESIGN.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/OPENAI-COMPATIBLE-API-DESIGN.md) (Phases 0–2 landed; Phase 3 gated), [`SECURITY-ARCHITECTURE-ROADMAP.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/SECURITY-ARCHITECTURE-ROADMAP.md) (Phase 0 landed; Phases 1–3 designed), [`UPSTREAM-INTEGRATION-PLAN.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/UPSTREAM-INTEGRATION-PLAN.md) (selective porting roadmap), and [`REBRAND-PROPOSITION.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/REBRAND-PROPOSITION.md) (Abhasa proposal).
+3. **Tier 2 (Proposed / Phased Implementation Plans):** High-quality designs undergoing active or phased delivery. Includes [`OPENAI-COMPATIBLE-API-DESIGN.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/OPENAI-COMPATIBLE-API-DESIGN.md) (Phases 0–2 landed; Phase 3 gated), [`SECURITY-ARCHITECTURE-ROADMAP.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/SECURITY-ARCHITECTURE-ROADMAP.md) (Phase 0 landed; Phases 1–3 designed), [`UPSTREAM-INTEGRATION-PLAN.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/UPSTREAM-INTEGRATION-PLAN.md) (selective porting roadmap).
 4. **Tier 3 (Historical Records):** Immutable changelogs, build notes, and superseded milestone trackers ([`VERSION-1.0.1-LOG.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/VERSION-1.0.1-LOG.md), [`VERSION-1.0.1-CHANGES.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/VERSION-1.0.1-CHANGES.md), [`CODE-REVIEW-TODO.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/CODE-REVIEW-TODO.md), [`ONE-391-changes.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/ONE-391-changes.md), [`DEFERRED-TOOL-PROXY-MISSION.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/DEFERRED-TOOL-PROXY-MISSION.md)).
 5. **Tier 4 (Aspirational / Superseded Specs):** Designs authored against older codebase states that were superseded during implementation. Pre-harness bridge specifications ([`agent-orchestrator-bridge.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/agent-orchestrator-bridge.md), [`AGENT-BRIDGE-BUILD-TODO.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/AGENT-BRIDGE-BUILD-TODO.md), [`AGENT-BRIDGE-ADR.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/AGENT-BRIDGE-ADR.md)) are explicitly stamped as superseded by [`ADR-018`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/ADR-018-AGENT-BRIDGE-RUNTIME-BOUNDARY.md) and Batches B16–B21.
 
@@ -100,7 +100,6 @@ The documentation connects directly to machine-enforced gates:
 | [`docs/DEFERRED-TOOL-PROXY-MISSION.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/DEFERRED-TOOL-PROXY-MISSION.md) | 110 | Gemini Live `1008` investigation notes | Historical | Low | Investigation record that culminated in ADR-021. |
 | [`docs/UPSTREAM-INTEGRATION-PLAN.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/UPSTREAM-INTEGRATION-PLAN.md) | 629 | Selective surgical port plan for 7 upstream commits | Active | Low | Authoritative integration strategy. |
 | [`docs/PRODUCTION-RELEASE-REPORT.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/PRODUCTION-RELEASE-REPORT.md) | 63 | Build artifacts, SHA-256 sums, Ed25519 signature report | Active | Low | Production release report for v1.1.0/1.1.1. |
-| [`docs/REBRAND-PROPOSITION.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/REBRAND-PROPOSITION.md) | 337 | Rebrand proposal (Brahma $\rightarrow$ Abhasa) | Active (Proposal) | Low | Comprehensive philosophical and brand analysis. |
 | [`docs/USER-GUIDE.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/USER-GUIDE.md) | 263 | End-user operations guide (v1.1.1) | Active | Medium | Omits Subagent Library (607 templates), Web tools, Popup auto-dismiss. |
 | [`docs/user-notes.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/user-notes.md) | 343 | User feedback punchlist & resolution tracker | Active | Low | All 19 user notes and 5 handoff workstreams ticked `[x]`. |
 | [`docs/user-notes-2.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/user-notes-2.md) | 3 | Punchlist #2 (proactive speech, subagents, duplicates) | Active | Medium | All 3 items implemented in code (`26daa83`), but markdown untracked. |
@@ -117,7 +116,7 @@ The documentation connects directly to machine-enforced gates:
 | Invariant / Question ID | Verdict | Evidence (`file:line` & symbol) | Explanation |
 |---|---|---|---|
 | **Question 1: Contradictions in `ARCHITECTURE-SPEC.md`** | **FAIL** | `docs/ARCHITECTURE-SPEC.md:§4.1:L214`, `§5.2:L285-L294`, `Appendix B:L746-L748` vs `§1:L43-L58`, `§7.1:L419-L430`, `§12:L640-L697`, `§13:L704-L711` | §5.2 ("Built-partial") and Appendix B ("Glossary") contain 10 direct self-contradictions against §1, §2, §7, §12, §13, and Appendix D in the same document. |
-| **Question 2: Post-`58a773d` Drift** | **FAIL** | `core/routing.py`, `core/tool_index.py` (R0–R3), `subagents/`, `agent/subagent_library.py`, `agent/web.py`, `docs/REBRAND-PROPOSITION.md` | Major capabilities landed between `58a773d` and `6439b2e` (15 commits) are completely omitted from `ARCHITECTURE-SPEC.md` and `USER-GUIDE.md`. |
+| **Question 2: Post-`58a773d` Drift** | **FAIL** | `core/routing.py`, `core/tool_index.py` (R0–R3), `subagents/`, `agent/subagent_library.py`, `agent/web.py` | Major capabilities landed between `58a773d` and `6439b2e` (15 commits) are completely omitted from `ARCHITECTURE-SPEC.md` and `USER-GUIDE.md`. |
 | **Question 3: Open vs Closed in `user-notes*.md`** | **PARTIAL** | `docs/user-notes.md:L5-23`, `docs/user-notes-2.md:L1-3`, commits `26daa83`, `6439b2e` | All 19 items in `user-notes.md` are marked `[x]` and resolved in code. All 3 items in `user-notes-2.md` are resolved in code (`26daa83`), but `user-notes-2.md` lacks checkboxes and was never updated. |
 | **Question 4: `README.md` & `USER-GUIDE.md` Accuracy** | **PARTIAL** | `README.md:L9`, `L126`, `L142`, `L187-214`, `L231-233`; `docs/USER-GUIDE.md:L1-263` | `README.md` falsely describes Crucible as an "isolated sandbox", gives non-portable `py -3.11 setup.py`, and omits `brahma_api`, `subagents/`. `USER-GUIDE.md` omits Subagents and Web Tools. |
 | **I-01: Single Permission Boundary** | **PASS** | `AGENTS.md:L2`, `docs/ARCHITECTURE-SPEC.md:L213`, `agent/runtime.py:execute` | Documented universally across Tier 0 and Tier 1 specifications as the non-bypassable boundary. |
@@ -173,15 +172,14 @@ The documentation connects directly to machine-enforced gates:
   2. *Tool Retrieval Overhaul R0–R3 (`core/tool_index.py`, `core/tool_bridge.py`):* Landed in commits `8395ac5`, `8206795`, and `cfef7cd` (governed by [`TOOL-RETRIEVAL-DESIGN.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/TOOL-RETRIEVAL-DESIGN.md)). Delivers multi-server search (`server=`, `domain=`, `context=`), deterministic ambiguity contrast sets with refine hints, implicit 2-turn context completion for compressed queries ($\le 6$ tokens), resident server manifests (`ToolIndex.server_manifest()`), and cross-indexing of harness MCP tools into `core.tool_index`. Not mentioned in `ARCHITECTURE-SPEC.md`!
   3. *Vendored Subagent Library (607 Specialist Templates):* Landed in commits `26daa83` and `6439b2e`. Adds [`agent/subagent_library.py`](file:///C:/Users/Admin/Brahma-Ai-Evo/agent/subagent_library.py) and the 607 vendored specialist subagent templates in `subagents/` with `subagents/catalog.json`, tiered disclosure (resident category index in prompts), `list_subagents` tool, and `run_subagent(subagent_type=...)` loading exactly one clamped body (24 KB cap). While documented in `AGENTIC-HARNESS.md`, it is completely missing from `ARCHITECTURE-SPEC.md` and `USER-GUIDE.md`!
   4. *Harness-Native Web Search and Fetch (`agent/web.py`, D48):* Landed in commit `ded75c6`. Implements stdlib `web_search` and `web_fetch` with SSRF guards and DuckDuckGo fallback, making web search available to `worker`/`operator` profiles and subagents. Missing from `ARCHITECTURE-SPEC.md` and `USER-GUIDE.md`!
-  5. *Abhasa Rebrand Proposition ([`docs/REBRAND-PROPOSITION.md`](file:///C:/Users/Admin/Brahma-Ai-Evo/docs/REBRAND-PROPOSITION.md)):* Added in commit `832c1ae`. Missing from `ARCHITECTURE-SPEC.md` Appendix A inventory!
-  6. *Decisions D47–D49:* Recorded in `AGENTIC-HARNESS-STATUS.md` (outbound stdio MCP server, provider failover/web tools, and token registry concurrency), but `ARCHITECTURE-SPEC.md` §11.1 table stops at "D1–D42".
-  7. *Popup Auto-Dismiss Settings Controls:* Added in `core/popup_settings.py` and `core/ui_connectivity.py` (resolving user feedback). Not mentioned in `USER-GUIDE.md`.
-  8. *Missing Appendix A Entries:* `ARCHITECTURE-SPEC.md` Appendix A document inventory omits `docs/ROUTING-AUDIT.md`, `docs/ROUTING-IMPLEMENTATION.md`, `docs/TOOL-RETRIEVAL-DESIGN.md`, `docs/REBRAND-PROPOSITION.md`, and `docs/user-notes-2.md`.
+  5. *Decisions D47–D49:* Recorded in `AGENTIC-HARNESS-STATUS.md` (outbound stdio MCP server, provider failover/web tools, and token registry concurrency), but `ARCHITECTURE-SPEC.md` §11.1 table stops at "D1–D42".
+  6. *Popup Auto-Dismiss Settings Controls:* Added in `core/popup_settings.py` and `core/ui_connectivity.py` (resolving user feedback). Not mentioned in `USER-GUIDE.md`.
+  7. *Missing Appendix A Entries:* `ARCHITECTURE-SPEC.md` Appendix A document inventory omits `docs/ROUTING-AUDIT.md`, `docs/ROUTING-IMPLEMENTATION.md`, `docs/TOOL-RETRIEVAL-DESIGN.md`, and `docs/user-notes-2.md`.
 - **Impact:** System-level documentation has fallen 15 commits behind repository reality. Critical routing and retrieval architectural patterns (Plane-A authorities, R0–R3 retrieval, 607-subagent library) are invisible to engineers relying on the master specification.
 - **Recommended Fix:** 
   1. Add a dedicated section to `ARCHITECTURE-SPEC.md` for Plane-A Routing Authority (`core/routing.py`) and R0–R3 Retrieval Engine (`core/tool_index.py`).
   2. Document the Subagent Library (`agent/subagent_library.py` + `subagents/`) in `ARCHITECTURE-SPEC.md` §6.4 and `USER-GUIDE.md`.
-  3. Update `ARCHITECTURE-SPEC.md` Appendix A to include all five missing documents.
+   3. Update `ARCHITECTURE-SPEC.md` Appendix A to include the missing documents.
   4. Update `USER-GUIDE.md` with operational guides for subagent templates, web search, and popup auto-dismiss settings.
 
 ---
@@ -318,14 +316,14 @@ This audit identifies critical cross-cutting touchpoints that the Lead Orchestra
    - Synchronize §1, §4.1 (I-02), and §8.1 to reflect that Bridge v2 and 84 desktop `ToolSpec`s are 100% landed.
 2. **Document Post-`58a773d` Subsystems in Master Spec & User Guide ([WP-12-F02]):**
    - Add architecture sections to `ARCHITECTURE-SPEC.md` covering Plane-A Routing Authority (`core/routing.py`), R0–R3 Tool Retrieval, Subagent Library (607 specialists), and `agent/web.py`.
-   - Add Appendix A entries for `ROUTING-AUDIT.md`, `ROUTING-IMPLEMENTATION.md`, `TOOL-RETRIEVAL-DESIGN.md`, `REBRAND-PROPOSITION.md`, and `user-notes-2.md`.
+    - Add Appendix A entries for `ROUTING-AUDIT.md`, `ROUTING-IMPLEMENTATION.md`, `TOOL-RETRIEVAL-DESIGN.md`, and `user-notes-2.md`.
    - Expand `USER-GUIDE.md` with user-facing documentation for subagent templates and web search.
 
 ### Near-Term (P2)
 3. **Correct `README.md` Sandbox Claims and Architecture Map ([WP-12-F03], [WP-12-F04]):**
-   - Replace "isolated Crucible sandbox" with accurate description of AST validation and policy gating.
-   - Update architecture directory tree to include `brahma_api/`, `subagents/`, `skills/`, and `skills_library/`.
-   - Add feature highlight and setup instructions for `brahma_api` (port 8010).
+   - [x] Replaced the "isolated Crucible sandbox" claim with an accurate staged-draft description; `ARCHITECTURE-SPEC.md` §7 and §13 now keep Findings 7–8 explicitly open.
+   - [ ] Update architecture directory tree to include `brahma_api/`, `subagents/`, `skills/`, and `skills_library/`.
+   - [ ] Add feature highlight and setup instructions for `brahma_api` (port 8010).
 4. **Close Open Notes in `docs/user-notes-2.md` ([WP-12-F05]):**
    - Format all 3 items with `[x]` checkboxes and link to commits `26daa83` and `6439b2e`.
 5. **Update Security Finding Ledgers in `docs/SECURITY-ARCHITECTURE-ROADMAP.md` ([WP-12-F07]):**
