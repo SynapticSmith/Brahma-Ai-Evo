@@ -229,7 +229,7 @@ class SystemConnectivitySidebar(QFrame):
 
     def refresh(self):
         if self._bridge() and hasattr(self._bridge(), "_win"):
-            version = "v1.0.0"
+            version = "v1.0.1"
             platform_name = platform.system()
             provider = self._bridge()._win._load_app_settings().get("default_ai_provider", "Gemini")
             last_updated = time.strftime("%d %b %Y %H:%M")
@@ -238,7 +238,7 @@ class SystemConnectivitySidebar(QFrame):
             self._info_rows["Current AI Provider"].setText(provider)
             self._info_rows["Last Updated"].setText(last_updated)
         else:
-            self._info_rows["Version"].setText("v1.0.0")
+            self._info_rows["Version"].setText("v1.0.1")
             self._info_rows["Platform"].setText(platform.system())
             self._info_rows["Current AI Provider"].setText("Gemini")
             self._info_rows["Last Updated"].setText(time.strftime("%d %b %Y %H:%M"))
@@ -3638,9 +3638,9 @@ class SystemConnectivityPage(QWidget):
         about_grid.setHorizontalSpacing(22)
         about_grid.setVerticalSpacing(8)
         entries = [
-            ("Version", "v1.0.0"),
-            ("Build Number", "2026.06.29"),
-            ("Release Date", "29 Jun 2026"),
+            ("Version", "v1.0.1"),
+            ("Build Number", "2026.11.20"),
+            ("Release Date", "20 Nov 2026"),
         ]
         self._about_values: dict[str, QLabel] = {}
         for idx, (label, value) in enumerate(entries):
@@ -4671,7 +4671,7 @@ class SystemConnectivityPage(QWidget):
         self._sys_note.setStyleSheet(f"color: {C.TEXT_MED};")
         lay.addWidget(self._sys_online)
         lay.addWidget(self._sys_note)
-        self._sys_version = QLabel("v1.0.0")
+        self._sys_version = QLabel("v1.0.1")
         self._sys_platform = QLabel(platform.system())
         self._sys_provider = QLabel("Gemini")
         self._sys_updated = QLabel(time.strftime("%d %b %Y %H:%M"))

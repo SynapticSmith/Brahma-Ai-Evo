@@ -69,7 +69,7 @@ jobs:
 
       - name: Generate release manifest (WS-6)
         run: |
-          $ver = if ("${{ github.ref_name }}" -match "^v?([0-9]+\.[0-9]+\.[0-9]+.*)") { $matches[1] } else { "1.1.0" }
+          $ver = if ("${{ github.ref_name }}" -match "^v?([0-9]+\.[0-9]+\.[0-9]+.*)") { $matches[1] } else { "1.0.1" }
           python tools\build_release.py --version $ver --channel stable --artifact dist\BrahmaEvo_Setup.exe --output dist\release.json
 
       - name: Sign release manifest (WS-6)
