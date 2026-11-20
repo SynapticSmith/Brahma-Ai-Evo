@@ -169,5 +169,5 @@ These vulnerabilities represent real RCE risks, especially given the application
 - [Skill Forge Implementation](../core/skill_forge.py)
 - [Plugin Manager](../plugin_manager.py)
 - [Skill Crucible](../core/skill_crucible.py)
-- Updaters (`updater.py`, `core/updater.py`, `core/updater_ota.py`) — historical paths removed after this analysis; see [`ARCHITECTURE-SPEC.md`](../ARCHITECTURE-SPEC.md#L424)
+- Updaters (`updater.py`, `core/updater.py`, `core/updater_ota.py`) — historical paths removed after this analysis; see [`ARCHITECTURE-SPEC.md`](./ARCHITECTURE-SPEC.md#L424)
 - [Smart Home Storage](../smart_home/storage.py)
