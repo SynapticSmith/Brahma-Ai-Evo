@@ -54,7 +54,6 @@ def ig_gemini_reply(username: str, text: str) -> str:
     try:
         response = llm_gateway.generate_content(
             f"{system_prompt}\n\nUser: {prompt}",
-            model="gemini-2.5-flash",
             config={"temperature": 0.6},
             purpose="Instagram reply",
         )
@@ -209,7 +208,6 @@ class ReplyFlow:
         try:
             response = llm_gateway.generate_content(
                 f"{system_prompt}\n\nUser Response: {text}",
-                model="gemini-2.5-flash",
                 config={"temperature": 0.1, "response_mime_type": "application/json"},
                 purpose="Instagram reply intent",
             )

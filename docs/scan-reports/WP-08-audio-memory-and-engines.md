@@ -448,7 +448,7 @@ While the low-level Windows hardware integrations (such as direct Win32/NT memor
 - [ ] **P2 — Atomic File Writes (`FINDING WP08-05`):** Replace raw `open(..., "w")` writes across `core/identity.py`, `core/learned_rules.py`, `sound_manager.py`, and `core/flowstate.py` with atomic write utilities.
 - [ ] **P2 — TTS Cancellation & Re-entrancy (`FINDING WP08-06`):** Refactor local TTS in `core/speech_tts.py` to play via `AudioIO` or use asynchronous playback responsive to cancel events.
 - [ ] **P2 — Remove Dead Code (`FINDING WP08-07`):** Delete or archive orphaned `core/live_voice_engine.py` and `core/memory_cortex.py`.
-- [ ] **P2 — Provider Routing Consistency (`FINDING WP08-08`):** Remove hardcoded `"gemini-2.5-flash"` in `core/reply_flow.py` and `core/shopping_agent.py`; route through active provider router.
+- [x] **P2 — Provider Routing Consistency (`FINDING WP08-08`):** Remove hardcoded `"gemini-2.5-flash"` in `core/reply_flow.py` and `core/shopping_agent.py`; route through active provider router.
 
 ### Priority 3 (Low / Polish & Hygiene)
 - [ ] **P3 — HTTPS Geolocation (`FINDING WP08-09`):** Upgrade `http://ip-api.com` endpoints in `core/device_location.py` and `core/net_sentinel.py` to HTTPS.
