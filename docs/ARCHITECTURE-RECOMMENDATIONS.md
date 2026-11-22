@@ -56,7 +56,7 @@ Rev 2 was verified against `531b961`. The tree has moved; this table is the delt
 | **Bridge Facade (B21)** | `99247f9` | `AgentBridge` facade in `core/agent_bridge/bridge.py` unifying discovery, multi-stage diagnostic probing, ToolSpec publishing, and `atexit` clean shutdown. **Queue 2 complete.** | §12 Q2.6 done. |
 | **Dual MCP Parity (B22)** | `949640a` | `core/mcp_manager.py` gains `needs_refresh()`, `refresh_server()`, and `refresh_all()`; doc drift reconciled; inventory baseline updated. **Queue 1 complete.** | §12 Q1.6, Q1.8 done. |
 
-**Numbers that moved:** `main.py` is **3,230** lines (ratchet ceiling: 3,230); `ui.py` is **820** (ratchet ceiling: 827); `core/tool_exec.py` is **147** with **0** `elif` branches (ratchet ceiling: 147, 0 `elif`s). Full offscreen test suite is **888 passed / 1 skipped**; agent suite is **460 passed / 1 skipped**.
+**Current numbers:** `main.py` is **3,242** lines (ratchet ceiling: 3,265); `ui.py` is **808** (ratchet ceiling: 827); `core/tool_exec.py` is **146** with **0** `elif` branches (ratchet ceiling: 147, 0 `elif`s). Full offscreen test suite is **1,834 passed / 6 skipped**.
 
 **Milestones landed:** **Security Phase 0 (100%)**, **Queue 1 (100%)**, **Queue 2 (Bridge v2, 100%)**. Remaining roadmap: Queue 3 (upstream porting, deferred for independent agent), Queue 4 (assurance), and Security Roadmap Phases 1–3.
 
@@ -119,8 +119,8 @@ Five verified structural realities govern the next engineering batches:
 
 ### 3.1 Native Action Migration & Retiring the `core/tool_exec.py` `elif` Chain (`O-6`)
 
-- **Current State:** `main.py:808–2188` holds 60 `TOOL_DECLARATIONS` dicts (~1,380 lines), and `core/tool_exec.py:203–791` (~590 lines of an 868-line file) dispatches them via an `if/elif` cascade outside `AgentRuntime`.
-- **Target State:**
+- **Current State:** Native tools are `ToolSpec` adapters behind `AgentRuntime`; `core/tool_exec.py` is 146 lines with 0 `elif` branches. The former inline `TOOL_DECLARATIONS` / `if/elif` cascade described below is historical.
+- **Historical target state (landed):**
   1. Register each native action as a `ToolSpec` using the existing `TOOL_CLASSES` (`"read"`, `"write"`, `"exec"`, `"network"`, `"device"`, `"mcp"`, `"native"`).
   2. Migrate in four incremental batches ordered by risk class:
      - **Wave 1 (`exec` & `write`):** process launchers, file mutators, clipboard/system writers.

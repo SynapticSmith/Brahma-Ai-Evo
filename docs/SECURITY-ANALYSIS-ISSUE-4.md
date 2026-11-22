@@ -8,11 +8,13 @@
 **Baseline Reference:** `docs/VERSION-1.0.1-LOG.md`  
 **Remediation Plan:** [SECURITY-ARCHITECTURE-ROADMAP.md](SECURITY-ARCHITECTURE-ROADMAP.md)
 
+> **Historical status:** This is the 2026-10-24 Q0 baseline. Q0-A/Q0-B closed findings 1–6; findings 7 (Crucible sandbox) and 8 (privilege separation) remain open. Current state is in [`ARCHITECTURE-SPEC.md`](./ARCHITECTURE-SPEC.md#L416-L434).
+
 ## Executive Summary
 
 Upstream issue #4 reports critical security vulnerabilities in the original Brahma-AI-Evo related to untrusted code execution, unverified plugin loading, and unsigned self-updates. This analysis examines our fork against each reported finding to determine if the same issues exist and what mitigations/remediation are needed.
 
-**Overall Status:** Our fork contains most of the same vulnerable patterns as reported in the upstream issue. While we have added some safety mechanisms (AST validation, sandboxed testing via SkillCrucible), the fundamental trust boundaries described in the issue remain absent or insufficiently enforced.
+**Baseline status (2026-10-24):** At analysis time, our fork contained most of the same vulnerable patterns as reported in the upstream issue. Those finding statuses below are preserved as the historical Q0 baseline; see the current-state note above for what has since closed.
 
 ## Detailed Finding Analysis
 
@@ -159,7 +161,7 @@ Looking at `docs/VERSION-1.0.1-LOG.md`, our fork has made significant improvemen
 
 ## Conclusion
 
-Our fork **does contain all the critical vulnerabilities** reported in upstream issue #4. The security posture is essentially the same as the original repository. While our fork has many functional improvements (provider abstraction, better LLM routing, testing infrastructure), no security hardening for these specific issues has been implemented.
+At the 2026-10-24 baseline, our fork **did contain all the critical vulnerabilities** reported in upstream issue #4. Q0-A/Q0-B later closed findings 1–6; findings 7 (Crucible sandbox) and 8 (privilege separation) remain open.
 
 These vulnerabilities represent real RCE risks, especially given the application's broad desktop automation capabilities. They should be treated as **critical security issues** requiring immediate attention before deployment in any sensitive environment.
 

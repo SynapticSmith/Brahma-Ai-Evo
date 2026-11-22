@@ -543,7 +543,7 @@ flowchart TB
 ### [WP-06-F15] `ui.py` Ratchet Line Count Proximity to Limit (820 vs 827 limit)
 - **Severity:** `Informational`
 - **Category:** `Architecture/Ratchet`
-- **Location:** [`ui.py:1-820`](file:///C:/Users/Admin/Brahma-Ai-Evo/ui.py#L1-L820), [`tests/architecture_ratchet.json:5`](file:///C:/Users/Admin/Brahma-Ai-Evo/tests/architecture_ratchet.json#L5)
+- **Location:** [`ui.py:1-808`](file:///C:/Users/Admin/Brahma-Ai-Evo/ui.py#L1-L808), [`tests/architecture_ratchet.json:5`](file:///C:/Users/Admin/Brahma-Ai-Evo/tests/architecture_ratchet.json#L5)
 - **Evidence & Mechanism:**
   `tests/architecture_ratchet.json` enforces:
   ```json

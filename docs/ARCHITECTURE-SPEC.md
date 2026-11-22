@@ -91,7 +91,7 @@ The two large proposals are in different states and must not be conflated:
 │                                                                          │
 │  CLI:   python -m agent ── agent/__main__.py → agent/loop.py             │
 │                                                                          │
-│  Dispatch: core/tool_exec.py (147 lines, 0 elif branches)                │
+│  Dispatch: core/tool_exec.py (146 lines, 0 elif branches)                │
 │    ├── core meta-tool?          → core/tool_bridge.py                    │
 │    ├── registered ToolSpec?     → AgentRuntime.execute  (policy)         │
 │    └── forged/dynamic skill?    → DynamicToolRegistry.execute_sync       │
@@ -118,36 +118,36 @@ The two large proposals are in different states and must not be conflated:
 
 | Path | Contents | Notes |
 |---|---|---|
-| `main.py` | App entry, `BrahmaLive`, `TOOL_DECLARATIONS` (59 native tools), provider routing, controller delegation | 3,264 lines. Ratchet ceiling 3,265. |
-| `ui.py` | Thin `MainWindow` composition root over `core/ui_*` modules | 820 lines. Bridge-era guard was ≤692; already violated. Ratchet ceiling 827. |
+| `main.py` | App entry, `BrahmaLive`, `TOOL_DECLARATIONS` (59 native tools), provider routing, controller delegation | 3,242 lines. Ratchet ceiling 3,265. |
+| `ui.py` | Thin `MainWindow` composition root over `core/ui_*` modules | 808 lines. Bridge-era guard was ≤692; already violated. Ratchet ceiling 827. |
 | `core/` | Cross-cutting seams: tool dispatch/index, turn controllers, provider chain, confirmation, sessions, skills, avatars, UI modules | ~97 modules. The de-facto architecture layer. |
 | `actions/` | One module per native capability (~51) | Native tool implementations reached through `core/desktop_tools.py` `ToolSpec` adapters behind `AgentRuntime`. |
 | `agent/` | The stdlib-only agent harness (22 modules) | No pre-fork autonomous executor remains; `agent/__init__.py` is inert. |
-| `features/` | Forge output, hot-loaded at startup | Untrusted model-generated code; see §7. |
-| `brahma_connect/` | Phone/device gateway (HTTP + WebSocket + mDNS) | Defaults to `127.0.0.1`, disabled, no mDNS advertise; HTTP control routes still unauthenticated when enabled. |
+| `features/` | Forge drafts staged for review | Model-generated drafts are not hot-loaded or registered; see §7. |
+| `brahma_connect/` | Phone/device gateway (HTTP + WebSocket + mDNS) | Defaults to `127.0.0.1`, disabled, no mDNS advertise; HTTP control routes require paired-device auth when enabled; `/health` remains public. |
 | `brahma_api/` | OpenAI-compatible loopback port (Phase 2) | `GET /v1/models`, `POST /v1/chat/completions` (+SSE, passthrough), pinned sessions, diagnostics; disabled by default; hash-only tokens; the port never executes a tool itself. |
-| `tests/` | Pytest suite; 996 passed / 5 skipped after the Q4 Assurance & Red-Team batch | `test_agent_*` are display- and SDK-free. |
+| `tests/` | Pytest suite; 1,834 passed / 6 skipped in the current full offscreen run | `test_agent_*` are display- and SDK-free. |
 | `docs/` | Design records, build logs, proposals, ADRs | Twenty-three documents; see §3. |
 
 ### 2.3 Subsystem inventory
 
 | Subsystem | Primary modules | Status |
 |---|---|---|
-| App shell / HUD | `main.py`, `ui.py`, `core/ui_*`, `core/text_turn_controller.py` | Built (`main.py` decomposed to 3,233 lines) |
+| App shell / HUD | `main.py`, `ui.py`, `core/ui_*`, `core/text_turn_controller.py` | Built (`main.py` decomposed to 3,242 lines) |
 | Provider chain | `core/provider_router.py`, `core/provider_failover.py`, `core/llm_gateway.py` | Built |
 | Tool surface | `core/tool_index.py`, `core/tool_bridge.py`, `core/dynamic_registry.py`, `core/tool_exec.py`, `core/desktop_tools.py`, `core/desktop_host.py` | Built (all 84 desktop specs gated by `AgentRuntime`; 0 `elif` branches in `core/tool_exec.py`) |
 | Agent harness | `agent/*` (harness subset) | Built |
 | Sessions | `agent/session.py`, `agent/session_bridge.py` | Built |
 | Project skills | `agent/skills.py`, `agent/prompts.py` | Built |
 | Skills Library | `core/skills_library.py`, `core/skill_discovery.py` | Built |
-| Skills Forge / Crucible | `core/skill_forge.py`, `core/skill_crucible.py`, `features/` | Built-Partial, **unsafe by design today** |
-| Plugins | `plugin_manager.py`, `plugins/` | Built, **untrusted auto-import** |
+| Skills Forge / Crucible | `core/skill_forge.py`, `core/skill_crucible.py`, `features/` | Built-Partial; drafts staged, Crucible sandbox open (finding 7) |
+| Plugins | `plugin_manager.py`, `plugins/` | Built; opt-in plugin allowlist enforced |
 | Voice | `core/session_lifecycle.py`, `core/mcp_manager.py` | Built (deferred tools via `search_tools`/`call_tool`; `1008` reconnect pins) |
 | Avatars | `core/avatar_runtime.py`, `core/avatar_catalog.py`, `assets/avatar_*` | Built (4/4 renderers; Live2D runtime user-supplied) |
-| Gateway | `brahma_connect/gateway/*` | Built-Partial, **off by default; loopback bind; HTTP control routes unauthenticated when enabled** |
+| Gateway | `brahma_connect/gateway/*` | Built-Partial; off by default; loopback bind; HTTP control routes require paired-device auth when enabled |
 | OpenAI-compatible port | `brahma_api/*` | Phase 2 built; off by default; loopback; per-key presets; SSE streaming; passthrough lane; pinned sessions; gui approvals; diagnostics |
 | Updaters | *(none)* | Removed in Q0-B; no self-update until signed releases exist |
-| Secrets | `smart_home/storage.py`, `config/api_keys.json` | Built, **recoverable local keys** |
+| Secrets | `smart_home/storage.py`, `config/api_keys.json` | Built; Windows DPAPI protection at rest |
 
 ---
 
@@ -159,8 +159,8 @@ The `docs/` tree mixes five kinds of document. Treating them as one authority le
 |---|---|---|
 | **0. Current truth** | The tree and `AGENTS.md` | code, `AGENTS.md`, this document |
 | **1. Authoritative current design** | Kept in sync with code; safe to implement against | `AGENTIC-HARNESS.md`, `AGENTIC-HARNESS-STATUS.md`, `AGENTIC-HARNESS-NEXT.md`, `ONE-391-tool-index.md`, `skills-library-jit-on-demand-skills.md`, `ONE-391-avatar-backends.md` |
-| **2. Proposed, not implemented** | Good analysis; no code; decisions open | `SECURITY-ANALYSIS-ISSUE-4.md`, `SECURITY-ARCHITECTURE-ROADMAP.md`, `UPSTREAM-INTEGRATION-PLAN.md`, `DEFERRED-TOOL-PROXY-MISSION.md`, `OPENAI-COMPATIBLE-API-DESIGN.md`, `ACADEMIC-TAXONOMY-AND-SKILLS-ENGINE-SPEC.md` |
-| **3. Historical record** | True at the time; counts and line numbers are stale | `VERSION-1.0.1-LOG.md`, `VERSION-1.0.1-CHANGES.md`, `CODE-REVIEW-TODO.md`, `ONE-391-changes.md`, `ONE-391-next-steps.md` |
+| **2. Proposed, not implemented** | Good analysis; no code; decisions open | `SECURITY-ARCHITECTURE-ROADMAP.md`, `UPSTREAM-INTEGRATION-PLAN.md`, `DEFERRED-TOOL-PROXY-MISSION.md`, `OPENAI-COMPATIBLE-API-DESIGN.md`, `ACADEMIC-TAXONOMY-AND-SKILLS-ENGINE-SPEC.md` |
+| **3. Historical record** | True at the time; counts and line numbers are stale | `SECURITY-ANALYSIS-ISSUE-4.md`, `SYSTEM-ANALYSIS-MASTER-REPORT.md`, `scan-reports/WP-*.md`, `VERSION-1.0.1-LOG.md`, `VERSION-1.0.1-CHANGES.md`, `CODE-REVIEW-TODO.md`, `ONE-391-changes.md`, `ONE-391-next-steps.md` |
 | **4. Aspirational** | Agent-authored, owner-unreviewed, built against a pre-harness tree | `agent-orchestrator-bridge.md`, `AGENT-BRIDGE-BUILD-TODO.md`, `AGENT-BRIDGE-ADR.md` |
 
 ### 3.1 Per-document disposition
@@ -178,7 +178,7 @@ The `docs/` tree mixes five kinds of document. Treating them as one authority le
 | `AGENTIC-HARNESS.md` | 2026-10-31 | Architecture of the harness: loop, tools, permissions, sessions, prompts, tests | **Authoritative.** The single best document in the repo. |
 | `AGENTIC-HARNESS-STATUS.md` | 2026-10-31 | D1–D42 decision log, verification, known gaps | **Authoritative** for decisions. |
 | `AGENTIC-HARNESS-NEXT.md` | 2026-10-31 | N1–N8 tracker; N1/N2/N3/N8 landed | **Authoritative** for what is left. |
-| `SECURITY-ANALYSIS-ISSUE-4.md` | 2026-10-24 | Eight findings against this fork, with evidence | **Current and accurate** (re-verified 2026-11-01). |
+| `SECURITY-ANALYSIS-ISSUE-4.md` | 2026-10-24 | Eight findings against this fork, with evidence | Historical Q0 baseline; superseded by §7.1. Findings 1–6 closed; 7–8 remain open. |
 | `SECURITY-ARCHITECTURE-ROADMAP.md` | 2026-10-28 | WS-1…WS-10, SEC-01…SEC-18, Phase 0–3, target process model | **Partly implemented.** Phase 0 and Batch R-1..R-4 landed; findings 7 (Crucible sandbox) and 8 (privilege separation) remain open. |
 | `UPSTREAM-INTEGRATION-PLAN.md` | 2026-11-02 | Hybrid selective port of all 7 upstream commits (114 files) | **Authoritative plan.** Commit list refreshed & mapped; awaiting execution by downstream agent. |
 | `OPENAI-COMPATIBLE-API-DESIGN.md` | 2026-11-03 | Research + design for a `brahma_api/` OpenAI-compatible port: `GET /v1/models`, `POST /v1/chat/completions` (+SSE, passthrough), port 8010, loopback, per-key capability presets (`chat`/`reader`/`worker`/`operator`), three lanes | **Proposed design; Phase 0+1+2 implemented.** Proposes ADR-022 ("the port is a transport, not a door"). Phase 3 remains gated. |
@@ -730,7 +730,7 @@ ightarrow$ 10 min lockout), and replay-protected nonces enforced across all HTTP
 | `ONE-391-avatar-backends.md` | 448 | 1 | Authoritative design |
 | `skills-library-jit-on-demand-skills.md` | 263 | 1 | Authoritative, root count stale |
 | `PRODUCTION-RELEASE-REPORT.md` | 65 | 1 | Authoritative production packaging & multi-agent architecture |
-| `SECURITY-ANALYSIS-ISSUE-4.md` | 173 | 2 | Current findings |
+| `SECURITY-ANALYSIS-ISSUE-4.md` | 175 | 3 | Historical Q0 baseline; findings 7–8 open |
 | `SECURITY-ARCHITECTURE-ROADMAP.md` | 1,190 | 2 | Proposed |
 | `UPSTREAM-INTEGRATION-PLAN.md` | 629 | 2 | Authoritative plan & architectural divergence analysis |
 | `DEFERRED-TOOL-PROXY-MISSION.md` | 110 | 2 | Open investigation |

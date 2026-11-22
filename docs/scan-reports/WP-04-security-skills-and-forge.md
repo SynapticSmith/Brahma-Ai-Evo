@@ -192,7 +192,7 @@ flowchart LR
     8. [`actions/brahma_dev_agent.py:319, 373`](file:///C:/Users/Admin/Brahma-Ai-Evo/actions/brahma_dev_agent.py#L319) (`_get_client`)
     9. [`core/intent_dispatcher.py:844`](file:///C:/Users/Admin/Brahma-Ai-Evo/core/intent_dispatcher.py#L844) (`_extract_intent_llm`)
     10. [`core/shopping_agent.py:83`](file:///C:/Users/Admin/Brahma-Ai-Evo/core/shopping_agent.py#L83) (`_init_client`)
-    11. [`actions/instagram_chat.py:351, 368`](file:///C:/Users/Admin/Brahma-Ai-Evo/actions/instagram_chat.py#L351) (`_load_credentials`)
+    11. [`actions/instagram_chat.py:62`](file:///C:/Users/Admin/Brahma-Ai-Evo/actions/instagram_chat.py#L62) (`_load_credentials`)
   - **Critical Secret Overwrite:** [`actions/instagram_mcp.py:960`](file:///C:/Users/Admin/Brahma-Ai-Evo/actions/instagram_mcp.py#L960) executes `with open(CONFIG_PATH, "w") as f: json.dump(cfg, f, indent=4)`, which destroys the DPAPI encryption envelope and writes plaintext credentials back to disk.
   - `smart_home.key` is correctly protected via `smart_home/storage.py:CredentialVault` using `core.secret_store.dpapi_protect`.
 
@@ -277,7 +277,7 @@ flowchart LR
   - [`actions/brahma_dev_agent.py:319, 373`](file:///C:/Users/Admin/Brahma-Ai-Evo/actions/brahma_dev_agent.py#L319) (`_get_client`)
   - [`core/intent_dispatcher.py:844`](file:///C:/Users/Admin/Brahma-Ai-Evo/core/intent_dispatcher.py#L844) (`_extract_intent_llm`)
   - [`core/shopping_agent.py:83`](file:///C:/Users/Admin/Brahma-Ai-Evo/core/shopping_agent.py#L83) (`_init_client`)
-  - [`actions/instagram_chat.py:351, 368`](file:///C:/Users/Admin/Brahma-Ai-Evo/actions/instagram_chat.py#L351) (`_load_credentials`)
+  - [`actions/instagram_chat.py:62`](file:///C:/Users/Admin/Brahma-Ai-Evo/actions/instagram_chat.py#L62) (`_load_credentials`)
 - **Evidence & Mechanism:** Across 11 modules in the codebase, `api_keys.json` is read directly via `open(...)` and `json.load(...)`. When DPAPI encryption is enabled at rest, the file content is `{"_dpapi_encrypted": true, "ciphertext": "..."}`. Any direct JSON read fails to find keys like `"gemini_api_key"` or throws `KeyError: 'gemini_api_key'` (e.g. `workspace_store.py:252` and `actions/web_search.py:20`).
 - **Impact:** System-wide failure of auxiliary actions, web search, background summarization, and local dashboard authentication whenever secrets are protected with DPAPI.
 - **Recommended Fix:** Replace all direct reads across these 11 files with `from core.secret_store import load_api_keys; keys = load_api_keys()`.

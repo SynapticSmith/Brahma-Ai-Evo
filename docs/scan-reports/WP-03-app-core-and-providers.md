@@ -49,7 +49,7 @@ The **WP-03** subsystem forms the operational backbone and execution core of Bra
 
 1. **Boot Sequence:**
    - [core/qt_bootstrap.py](file:///C:/Users/Admin/Brahma-Ai-Evo/core/qt_bootstrap.py#L179-L185): Configures WebEngine Chromium flags, high-DPI awareness, OpenGL context sharing, and auto-detects/re-executes under a valid Python 3.11/3.12 environment if started on an incompatible interpreter.
-   - [core/boot_sentry.py](file:///C:/Users/Admin/Brahma-Ai-Evo/core/boot_sentry.py#L21-L76): Detects `FATAL_CRASH.log` from failed auto-patches and performs automatic rollback before initializing GUI.
+   - [core/boot_sentry.py](file:///C:/Users/Admin/Brahma-Ai-Evo/core/boot_sentry.py#L21-L75): Detects `FATAL_CRASH.log` from failed auto-patches and performs automatic rollback before initializing GUI.
    - [main.py](file:///C:/Users/Admin/Brahma-Ai-Evo/main.py#L2791-L3048): Initializes the tool index, registers desktop `ToolSpec`s into `AgentRuntime`, starts background services (custom MCP servers, mobile dashboard, Brahma Connect gateway, loopback `brahma_api`, and sensorium), and launches the Qt event loop (`ui.root.mainloop()`).
 
 2. **Voice Door Execution (`gemini_live` vs `local_loop`):**
