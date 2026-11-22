@@ -470,4 +470,4 @@ WP-07 encompasses the secondary visual layer, dynamic holographic HUDs, multimod
 | **P2** | FINDING-WP07-09 | `core/globe_window.py:756` | Fix thread affinity bug in `inspect_current_view` using `QMetaObject.invokeMethod`. |
 | **P2** | FINDING-WP07-10 | `core/ui_agent_panel.py:68`, `core/ui_avatar_library.py:695` | Add `closeEvent` cleanup and thread cancellation to prevent deleted C++ object errors. |
 | **P3** | FINDING-WP07-11 | `assets/radar/index.html:1212` | Replace external QR code API with local Python QR generation. |
-| **P3** | FINDING-WP07-12 | `core/ui_setup_flow.py:38` | Route crash log to `%LOCALAPPDATA%\BrahmaAI\logs`. |
+| ~~**P3**~~ | ~~FINDING-WP07-12~~ | `core/ui_setup_flow.py:38` | Route crash log to `%LOCALAPPDATA%\BrahmaAI\logs`. |
