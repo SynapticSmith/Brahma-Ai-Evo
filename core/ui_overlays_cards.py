@@ -142,11 +142,13 @@ class _OverlayCardsMixin:
 
             allow_always = False
             remember_label = ""
+            timeout_seconds = 90.0
             try:
                 from core import confirm as confirm_gate
 
                 allow_always = confirm_gate.pending_allows_always()
                 remember_label = confirm_gate.pending_remember_label()
+                timeout_seconds = confirm_gate.pending_timeout()
             except Exception:
                 pass
             overlay = ConfirmationOverlay(
@@ -155,6 +157,7 @@ class _OverlayCardsMixin:
                 parent=self,
                 allow_always=allow_always,
                 remember_label=remember_label,
+                timeout_seconds=timeout_seconds,
             )
             overlay.answered.connect(self._on_confirm_answered)
             overlay.always.connect(self._on_confirm_always)

@@ -3,6 +3,7 @@ overlays, moved verbatim out of ui.py (P4-19). Qt and stdlib imports are
 direct; the C palette is imported from core.ui_theme."""
 from __future__ import annotations
 
+import math
 import time
 
 from PyQt6.QtCore import (QTimer, Qt, pyqtSignal)
@@ -703,6 +704,7 @@ class ConfirmationOverlay(QWidget):
         *,
         allow_always: bool = False,
         remember_label: str = "",
+        timeout_seconds: float = 90.0,
     ):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -776,7 +778,10 @@ class ConfirmationOverlay(QWidget):
             hint.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
             lay.addWidget(hint)
 
-        self._remaining_secs = 90
+        try:
+            self._remaining_secs = max(1, math.ceil(float(timeout_seconds)))
+        except (TypeError, ValueError, OverflowError):
+            self._remaining_secs = 90
         self._countdown_lbl = QLabel(f"Confirmation auto-cancels in {self._remaining_secs}s")
         self._countdown_lbl.setFont(QFont("Segoe UI", 8))
         self._countdown_lbl.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
