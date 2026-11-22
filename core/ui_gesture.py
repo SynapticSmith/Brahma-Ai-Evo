@@ -10,12 +10,12 @@ from PyQt6.QtCore import (QPointF, QRectF, QTimer, Qt)
 from PyQt6.QtGui import (QBrush, QColor, QFont, QPainter, QPen, QRadialGradient)
 from PyQt6.QtWidgets import (QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget)
 from core.ui_theme import (C)
-from gesture_utils import (GestureTracker, estimate_gesture_state)
+from gesture_utils import (GestureTracker, estimate_gesture_state, estimate_two_hand_zoom, orient_cursor_for_display)
 from pathlib import (Path)
 
 
-def bind(*, CONFIG_DIR, MODEL_DOWNLOAD_URL):
-    globals().update(CONFIG_DIR=CONFIG_DIR, MODEL_DOWNLOAD_URL=MODEL_DOWNLOAD_URL)
+def bind(*, CONFIG_DIR, MODEL_DOWNLOAD_URL, BASE_DIR, sys):
+    globals().update(CONFIG_DIR=CONFIG_DIR, MODEL_DOWNLOAD_URL=MODEL_DOWNLOAD_URL, BASE_DIR=BASE_DIR, sys=sys)
 
 def _camera_available() -> bool:
     return True
@@ -38,7 +38,7 @@ class _GestureRenderCanvas(QWidget):
         self._search_phase = 0
         self._target_opacity = 0.0
         self._skeleton_opacity = 0.0
-        self._invert_x = True
+        self._invert_x = False
 
     def set_invert_x(self, invert: bool):
         self._invert_x = invert
@@ -79,7 +79,7 @@ class _GestureRenderCanvas(QWidget):
         mid_y = (min_y + max_y) / 2.0
         points: list[QPointF] = []
         for x, y, _ in self._landmarks:
-            if getattr(self, "_invert_x", True):
+            if getattr(self, "_invert_x", False):
                 px = center_x - (x - mid_x) * scale
             else:
                 px = center_x + (x - mid_x) * scale
@@ -164,7 +164,7 @@ class GestureCameraPreview(QFrame):
         self._gesture_canvas_alpha = 0.0
         self._sensitivity = 2.2
         self._sensitivity_levels = {"Low": 1.6, "Medium": 2.2, "High": 3.0, "Ultra": 4.0}
-        self._invert_cursor_x = True
+        self._invert_cursor_x = False
         self._invert_cursor_y = False
         self._cursor_calibration_x_min: float | None = None
         self._cursor_calibration_x_max: float | None = None
@@ -197,9 +197,9 @@ class GestureCameraPreview(QFrame):
         self._status_text.setStyleSheet("color: #ffb347;")
         header_row.addWidget(self._status_text)
 
-        self._invert_btn = QPushButton("⇄ Invert: ON")
+        self._invert_btn = QPushButton("⇄ Invert: OFF")
         self._invert_btn.setCheckable(True)
-        self._invert_btn.setChecked(True)
+        self._invert_btn.setChecked(False)
         self._invert_btn.setFixedHeight(26)
         self._invert_btn.setStyleSheet(
             "QPushButton { background: rgba(0, 229, 255, 0.15); color: #ffb347; border: 1px solid rgba(0, 229, 255, 0.4); border-radius: 6px; padding: 2px 8px; font-size: 11px; font-weight: bold; }"
@@ -234,6 +234,15 @@ class GestureCameraPreview(QFrame):
         self._status_hint_label.setWordWrap(True)
         lay.addWidget(self._status_hint_label)
 
+        self._gesture_guide = QLabel(
+            "GESTURES  •  Pinch: click  •  Open palm: play/pause  •  Swipe: next/previous"
+            "  •  Peace: screenshot  •  Thumbs: volume  •  Three fingers: scroll  •  Two hands: browser zoom"
+        )
+        self._gesture_guide.setWordWrap(True)
+        self._gesture_guide.setFont(QFont("Segoe UI", 7))
+        self._gesture_guide.setStyleSheet("color: rgba(190, 205, 220, 180); padding: 2px 0;")
+        lay.addWidget(self._gesture_guide)
+
         footer = QGridLayout()
         footer.setContentsMargins(0, 0, 0, 0)
         footer.setHorizontalSpacing(16)
@@ -260,7 +269,7 @@ class GestureCameraPreview(QFrame):
 
         lay.addLayout(footer)
 
-        self._expanded_height = 320
+        self._expanded_height = 344
         self._collapsed_height = 64
 
         try:
@@ -349,6 +358,14 @@ class GestureCameraPreview(QFrame):
                 pass
             self._hands = None
 
+        self._gesture_tracker.reset()
+        self._prev_pinch = False
+        self._smoothed_cursor = None
+        self._smoothed_screen = None
+        self._smoothed_landmarks = None
+        self._last_screen_pos = None
+        self._cursor_anchor = None
+
         try:
             self.setFixedHeight(self._collapsed_height)
         except Exception:
@@ -362,7 +379,11 @@ class GestureCameraPreview(QFrame):
 
             self._set_status("Downloading gesture model...", "searching")
             model_path.parent.mkdir(parents=True, exist_ok=True)
-            with urllib.request.urlopen(MODEL_DOWNLOAD_URL, timeout=60) as response:
+            request = urllib.request.Request(
+                MODEL_DOWNLOAD_URL,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) BrahmaAI/1.0"},
+            )
+            with urllib.request.urlopen(request, timeout=60) as response:
                 with open(temp_path, "wb") as out_file:
                     while True:
                         chunk = response.read(8192)
@@ -392,6 +413,11 @@ class GestureCameraPreview(QFrame):
             if not ret or frame is None:
                 self._set_status("Camera feed dropped. Trying again…", "lost")
                 return
+            try:
+                import cv2
+                frame = cv2.flip(frame, 1)
+            except Exception:
+                pass
             self._process_frame(frame)
         except Exception as exc:
             self._set_status(f"Gesture camera error: {exc}", "lost")
@@ -432,7 +458,7 @@ class GestureCameraPreview(QFrame):
                 try:
                     self._hands = HandsClass(
                         static_image_mode=False,
-                        max_num_hands=1,
+                        max_num_hands=2,
                         min_detection_confidence=0.5,
                         min_tracking_confidence=0.5,
                     )
@@ -455,16 +481,27 @@ class GestureCameraPreview(QFrame):
                     )
                     return
 
-                model_dir = CONFIG_DIR / "models"
-                model_dir.mkdir(parents=True, exist_ok=True)
-                model_path = model_dir / "hand_landmarker.task"
+                model_path = CONFIG_DIR / "models" / "hand_landmarker.task"
+                for candidate in (
+                    BASE_DIR / "models" / "hand_landmarker.task",
+                    Path(getattr(sys, "_MEIPASS", BASE_DIR)) / "models" / "hand_landmarker.task",
+                ):
+                    if candidate.exists():
+                        model_path = candidate
+                        break
                 if not model_path.exists():
+                    model_path.parent.mkdir(parents=True, exist_ok=True)
                     self._set_status("Downloading model", "searching")
                     if not self._download_hand_landmarker_model(model_path):
                         return
 
                 try:
-                    self._hands = vision.HandLandmarker.create_from_model_path(str(model_path))
+                    tasks_python = importlib.import_module("mediapipe.tasks.python")
+                    options = vision.HandLandmarkerOptions(
+                        base_options=tasks_python.BaseOptions(model_asset_path=str(model_path)),
+                        num_hands=2,
+                    )
+                    self._hands = vision.HandLandmarker.create_from_options(options)
                     self._use_tasks_api = True
                     self._vision_module = vision
                 except Exception as exc:
@@ -474,6 +511,7 @@ class GestureCameraPreview(QFrame):
         height, width = frame.shape[:2]
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         landmarks: list[tuple[float, float, float]] = []
+        hands_landmarks: list[list[tuple[float, float, float]]] = []
         confidence = 0.0
 
         if self._use_tasks_api:
@@ -485,17 +523,21 @@ class GestureCameraPreview(QFrame):
             except Exception as exc:
                 self._set_status(f"Gesture task detect error: {exc}", "lost")
                 return
-            if getattr(results, "hand_landmarks", None):
-                hand_landmarks = results.hand_landmarks[0]
-                for landmark in hand_landmarks:
-                    landmarks.append((landmark.x, landmark.y, landmark.z))
-                confidence = 1.0 if landmarks else 0.0
+            for detected_hand in (getattr(results, "hand_landmarks", None) or [])[:2]:
+                hand_points = [(point.x, point.y, point.z) for point in detected_hand]
+                if hand_points:
+                    hands_landmarks.append(hand_points)
+            if hands_landmarks:
+                landmarks = hands_landmarks[0]
+                confidence = 1.0
         else:
             results = self._hands.process(rgb)
-            if getattr(results, "multi_hand_landmarks", None):
-                hand_landmarks = results.multi_hand_landmarks[0]
-                for landmark in hand_landmarks.landmark:
-                    landmarks.append((landmark.x, landmark.y, landmark.z))
+            for detected_hand in (getattr(results, "multi_hand_landmarks", None) or [])[:2]:
+                hand_points = [(point.x, point.y, point.z) for point in detected_hand.landmark]
+                if hand_points:
+                    hands_landmarks.append(hand_points)
+            if hands_landmarks:
+                landmarks = hands_landmarks[0]
             if getattr(results, "multi_handedness", None) and results.multi_handedness:
                 try:
                     confidence = float(results.multi_handedness[0].classification[0].score)
@@ -503,7 +545,15 @@ class GestureCameraPreview(QFrame):
                     confidence = 1.0 if landmarks else 0.0
 
         gesture = estimate_gesture_state(landmarks, tracker=self._gesture_tracker)
-        if gesture.get("action"):
+        two_hand_action = estimate_two_hand_zoom(hands_landmarks, tracker=self._gesture_tracker)
+        if not gesture.get("hand_detected"):
+            self._smoothed_cursor = None
+            self._last_screen_pos = None
+        if two_hand_action:
+            self._handle_air_action(two_hand_action)
+        if gesture.get("action") and not (
+            len(hands_landmarks) > 1 and gesture.get("action") == "play_pause"
+        ):
             self._handle_air_action(gesture["action"])
         if gesture.get("cursor"):
             norm = self._calibrate_and_smooth_cursor(gesture["cursor"])
@@ -547,6 +597,25 @@ class GestureCameraPreview(QFrame):
             elif action == "volume_down":
                 _press_media_key("volumedown")
                 self._show_gesture_toast("👎 Air Gesture: Volume Down")
+
+            elif action == "scroll_up":
+                pyautogui.scroll(3)
+                self._show_gesture_toast("☝️ Air Gesture: Scroll Up")
+
+            elif action == "scroll_down":
+                pyautogui.scroll(-3)
+                self._show_gesture_toast("☝️ Air Gesture: Scroll Down")
+
+            elif action in ("zoom_in", "zoom_out"):
+                host_window = self.window()
+                browser_window = getattr(host_window, "_embedded_browser_window", None)
+                if browser_window is not None:
+                    current_zoom = browser_window.view.zoomFactor()
+                    delta = 0.10 if action == "zoom_in" else -0.10
+                    browser_window.view.setZoomFactor(max(0.5, min(2.0, current_zoom + delta)))
+                    self._show_gesture_toast("👐 Air Gesture: Browser Zoom In" if action == "zoom_in" else "👐 Air Gesture: Browser Zoom Out")
+                else:
+                    self._show_gesture_toast("Open the embedded browser to use two-hand zoom")
 
             elif action == "screenshot":
                 from datetime import datetime
@@ -602,10 +671,11 @@ class GestureCameraPreview(QFrame):
         raw_x = float(cursor[0])
         raw_y = float(cursor[1])
 
-        if self._invert_cursor_x:
-            raw_x = 1.0 - raw_x
-        if self._invert_cursor_y:
-            raw_y = 1.0 - raw_y
+        raw_x, raw_y = orient_cursor_for_display(
+            (raw_x, raw_y),
+            invert_x=self._invert_cursor_x,
+            invert_y=self._invert_cursor_y,
+        )
 
         try:
             s = float(self._sensitivity)

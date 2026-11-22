@@ -1,13 +1,29 @@
-# Brahma-Ai-Evo: Upstream Integration Plan & Architectural Divergence Analysis (Rev 3)
+# Brahma-Ai-Evo: Upstream Integration Plan & Architectural Divergence Analysis (Rev 4)
 
-**Target:** Integrate upstream changes from [titechprabhasolutions/Brahma-Ai-Evo:main](https://github.com/titechprabhasolutions/Brahma-Ai-Evo) (**7 commits**, **+34,763 / -3,390 lines**, **114 files**) into our refactored, hardened architecture while strictly preserving our security, line-count, and single-runtime invariants.
+**Target:** Integrate upstream changes from [titechprabhasolutions/Brahma-Ai-Evo:main](https://github.com/titechprabhasolutions/Brahma-Ai-Evo) into our refactored, hardened architecture while strictly preserving our security, line-count, and single-runtime invariants. The original plan covered the 7-commit / 114-file delta; the current reconciliation also covers the post-`bfb2868` gesture and embedded-browser commits through `3d04d90`.
 
-**Status:** Historical planning record; repository topology is still undecided. Do not treat its HEAD or test counts as current.
-**Created:** 2025-10-24 · **Amended:** 2026-11-02 (Post-Bridge v2 / Post-Security Phase 0 reconciliation)
+**Status:** Historical planning record with current selective-integration reconciliation; repository topology is still undecided. Do not treat its old HEAD or test counts as current.
+**Created:** 2025-10-24 · **Amended:** 2026-11-22 (Post-`bfb2868` gesture/embedded-browser reconciliation)
 **Merge-Base:** `e0bd3c5a3a258cc1cf35014ae0a35c7b6b9db87f`
-**HEAD at amendment:** `0c11a04 docs: reconcile upstream plan metadata in architecture spec`
-**Upstream HEAD at amendment:** `bfb2868 Add public Privacy Policy for Google Play Store compliance`
-**Test baseline at amendment:** 888 passed / 1 skipped (offscreen); 460 passed / 1 skipped (`-k agent`); 102 passed (`-k skill`)
+**HEAD at amendment:** `d4d31f6 docs: reconcile architecture and security notes`
+**Upstream HEAD at amendment:** `3d04d90`
+**Current divergence:** `git rev-list --left-right --count main...upstream/main` = `358	28`.
+**Direct merge verdict:** Rejected; `git merge-tree --write-tree main upstream/main` reports 67 conflicts (`add_add=46`, `content=20`, `modify_delete=1`).
+
+### 2026-11-22 reconciliation decisions
+
+| Area | Verdict | Fork-side placement |
+|---|---|---|
+| Gesture utility helpers (pinch hysteresis, tracker reset, cursor orientation, three-finger scroll, two-hand zoom) | **PORT (Adapt)** | `gesture_utils.py` |
+| Gesture HUD camera preview, two-hand detection, bundled model lookup, mirrored frame, zoom/scroll actions | **PORT (Adapt)** | `core/ui_gesture.py`, with `ui.py` only binding `BASE_DIR`/`sys` |
+| Embedded QtWebEngine website viewer | **PORT (Adapt)** | `core/embedded_browser.py` plus `core/ui_browser.py` mixin |
+| `BrahmaUI.open_embedded_browser` | **PORT (Delegate)** | `core/ui_shell_actions.py` |
+| Model tool declaration and desktop routing | **PORT (ToolSpec)** | `main.py`, `core/desktop_tools.py`, `core/tool_index.py` |
+| Upstream tests and Windows AV smoke test | **PORT (Adapt)** | `tests/test_embedded_browser.py`, `tests/test_gesture_utils.py`, `tools/windows_av_smoke_test.py` |
+| Upstream monolithic `BrahmaLive` browser dispatch and inline `ui.py` gesture code | **REJECT** | Preserve decomposed composition root and zero `elif` branches in `core/tool_exec.py` |
+| GitHub Actions workflow changes | **DEFER** | Explicitly excluded by the operator on 2026-11-22 |
+
+**Validation evidence (2026-11-22):** `ruff check .` passed; offscreen `pytest tests -q -p no:cacheprovider` → 1854 passed / 6 skipped; link audit → `missing=0`, `strict_orphans=0`; ratchets → `main.py` 3259/3265, `ui.py` 812/827, `core/tool_exec.py` 146/147, `elif=0`.
 
 ---
 

@@ -158,6 +158,8 @@ from core import ui_gesture as _ui_gesture
 _ui_gesture.bind(
     CONFIG_DIR=CONFIG_DIR,
     MODEL_DOWNLOAD_URL=MODEL_DOWNLOAD_URL,
+    BASE_DIR=BASE_DIR,
+    sys=sys,
 )
 
 _camera_available = _ui_gesture._camera_available
@@ -372,7 +374,9 @@ _ui_runtime.bind(
 _RuntimeMixin = _ui_runtime._RuntimeMixin
 from core import ui_apply_state as _ui_apply_state
 _ApplyStateMixin = _ui_apply_state._ApplyStateMixin
-class MainWindow(_ApplyStateMixin, _RuntimeMixin, _WiringMixin, _PanelsMixin, _SetupFlowMixin, _StateAppliersMixin, _SecondaryOverlaysMixin, _RemoteMixin, _NavMixin, _MeetingMixin, _MuteSendMixin, _OverlayCardsMixin, _AvatarAudioMixin, _StartupOSMixin, _AppSettingsMixin, _DiscordMixin, QMainWindow):
+from core import ui_browser as _ui_browser
+_BrowserMixin = _ui_browser._BrowserMixin
+class MainWindow(_ApplyStateMixin, _BrowserMixin, _RuntimeMixin, _WiringMixin, _PanelsMixin, _SetupFlowMixin, _StateAppliersMixin, _SecondaryOverlaysMixin, _RemoteMixin, _NavMixin, _MeetingMixin, _MuteSendMixin, _OverlayCardsMixin, _AvatarAudioMixin, _StartupOSMixin, _AppSettingsMixin, _DiscordMixin, QMainWindow):
     _log_sig   = pyqtSignal(str)
     _state_sig = pyqtSignal(str)
     _scan_sig  = pyqtSignal(bool, str)

@@ -85,3 +85,6 @@ class _ShellActionsMixin:
         self._command_bar.hide()
         self._workspace_sidebar.hide_workspace(animate=False)
         self.show_main()
+
+    def open_embedded_browser(self, address: str):
+        self._win.open_embedded_browser(address)

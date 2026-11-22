@@ -209,6 +209,9 @@ DEFAULT_OVERRIDES: Dict[str, Dict[str, str]] = {
     "browser_control": {
         "keywords": "web page tab navigate url click form submit scroll",
     },
+    "open_embedded_browser": {
+        "keywords": "open website visit browse embedded browser youtube url http https site",
+    },
     "desktop_control": {
         "keywords": "desktop window launch minimise maximise snap taskbar",
     },
