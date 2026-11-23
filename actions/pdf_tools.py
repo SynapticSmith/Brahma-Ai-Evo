@@ -17,6 +17,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from core.undo import capture_file_for_undo, push_undo_file
+
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
@@ -819,10 +821,13 @@ def create_pdf(parameters: dict, player=None) -> str:
     else:
         story.extend(_pdf_story_from_blocks(blocks, pdf, styles))
 
+    undoable, previous_bytes = capture_file_for_undo(output_path)
     try:
         doc.build(story, canvasmaker=pdf["NumberedCanvas"])
     except Exception as e:
         return f"PDF creation failed: {e}"
+    if undoable:
+        push_undo_file(output_path, previous_bytes, f"edited {output_path.name}")
 
     if auto_open:
         _open_file(output_path)
