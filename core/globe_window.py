@@ -428,6 +428,8 @@ class GlobeWindow(QWidget):
             self._do_nearby(payload.get("data"))
         elif action == "weather_radar":
             self._do_weather_radar(payload.get("data"))
+        elif action == "inspect":
+            self._run_inspect_query(payload.get("callback"))
         elif action == "close":
             self.hide()
 
@@ -720,40 +722,43 @@ class GlobeWindow(QWidget):
                 callback({"area_name": "Unknown", "flight_count": 0})
             return
 
-        def _js_cb(res):
-            if isinstance(res, dict):
-                lat = float(res.get("centerLat", 0.0))
-                lon = float(res.get("centerLon", 0.0))
-                bounds = res.get("bounds") or {}
-                area_name = reverse_geocode_area(lat, lon)
-
-                flights = []
-                if bounds:
-                    flights = fetch_live_flights_in_bounds(
-                        bounds.get("minLat", lat - 5),
-                        bounds.get("maxLat", lat + 5),
-                        bounds.get("minLon", lon - 5),
-                        bounds.get("maxLon", lon + 5),
-                    )
-
-                result = {
-                    "center_lat": round(lat, 2),
-                    "center_lon": round(lon, 2),
-                    "area_name": area_name,
-                    "flight_count": len(flights),
-                    "flights_sample": flights[:5],
-                }
-                if callback:
-                    callback(result)
-
-        def _do_query():
-            if self._web_view:
-                self._web_view.page().runJavaScript("if (window.BrahmaGlobe) window.BrahmaGlobe.getCurrentView();", _js_cb)
-
         if threading.current_thread() is threading.main_thread():
-            _do_query()
+            self._run_inspect_query(callback)
         else:
-            QTimer.singleShot(0, _do_query)
+            self._cmd_sig.emit({"action": "inspect", "callback": callback})
+
+    def _handle_inspect_js_result(self, res, callback=None):
+        if isinstance(res, dict):
+            lat = float(res.get("centerLat", 0.0))
+            lon = float(res.get("centerLon", 0.0))
+            bounds = res.get("bounds") or {}
+            area_name = reverse_geocode_area(lat, lon)
+
+            flights = []
+            if bounds:
+                flights = fetch_live_flights_in_bounds(
+                    bounds.get("minLat", lat - 5),
+                    bounds.get("maxLat", lat + 5),
+                    bounds.get("minLon", lon - 5),
+                    bounds.get("maxLon", lon + 5),
+                )
+
+            result = {
+                "center_lat": round(lat, 2),
+                "center_lon": round(lon, 2),
+                "area_name": area_name,
+                "flight_count": len(flights),
+                "flights_sample": flights[:5],
+            }
+            if callback:
+                callback(result)
+
+    def _run_inspect_query(self, callback=None):
+        if self._web_view:
+            self._web_view.page().runJavaScript(
+                "if (window.BrahmaGlobe) window.BrahmaGlobe.getCurrentView();",
+                lambda res: self._handle_inspect_js_result(res, callback),
+            )
 
     def _on_view_updated(self, data: dict):
         self._last_view_data = data

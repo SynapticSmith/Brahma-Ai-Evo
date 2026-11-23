@@ -391,7 +391,7 @@ WP-07 encompasses the secondary visual layer, dynamic holographic HUDs, multimod
 - **Impact:**
   Background queries for the globe's viewport state hang indefinitely.
 - **Recommended Fix:**
-  Use `QMetaObject.invokeMethod` with `Qt.ConnectionType.QueuedConnection` to ensure `_do_query` executes on the GUI thread.
+  Use the existing `_cmd_sig` cross-thread command handoff so the globe query executes on the GUI thread.
 
 ---
 
@@ -467,7 +467,7 @@ WP-07 encompasses the secondary visual layer, dynamic holographic HUDs, multimod
 | **P1** | FINDING-WP07-06 | `core/radar_hud.py:279`, `core/space_cleaner_hud.py:228` | Wrap all dynamic string parameters in `json.dumps()` before passing to `runJavaScript`. |
 | **P2** | FINDING-WP07-07 | `core/radar_hud.py:40`, `core/avatar_runtime.py:486` | Unify asset path resolution using `getattr(sys, "_MEIPASS", ...)` for PyInstaller compatibility. |
 | **P2** | FINDING-WP07-08 | `core/ui_gesture.py:165` | Move camera capture and MediaPipe inference off the main thread into a worker `QThread`. |
-| **P2** | FINDING-WP07-09 | `core/globe_window.py:756` | Fix thread affinity bug in `inspect_current_view` using `QMetaObject.invokeMethod`. |
+| ~~**P2**~~ | ~~FINDING-WP07-09~~ | `core/globe_window.py:756` | Fix thread affinity bug in `inspect_current_view` using the existing `_cmd_sig` handoff. |
 | **P2** | FINDING-WP07-10 | `core/ui_agent_panel.py:68`, `core/ui_avatar_library.py:695` | Add `closeEvent` cleanup and thread cancellation to prevent deleted C++ object errors. |
 | **P3** | FINDING-WP07-11 | `assets/radar/index.html:1212` | Replace external QR code API with local Python QR generation. |
 | ~~**P3**~~ | ~~FINDING-WP07-12~~ | `core/ui_setup_flow.py:38` | Route crash log to `%LOCALAPPDATA%\BrahmaAI\logs`. |
