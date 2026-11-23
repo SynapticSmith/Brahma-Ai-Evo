@@ -463,5 +463,5 @@ flowchart TD
 | **P1** | `WP-10-F05` | Migrate Action Credentials to Windows DPAPI Secret Store | `actions/instagram_mcp.py`, `actions/google_workspace_mcp.py`, `actions/spotify_controller.py` | High |
 | **P2** | `WP-10-F06` | Remove Blocking Tkinter Dialog from YouTube Action | [`actions/youtube_video.py`](file:///C:/Users/Admin/Brahma-Ai-Evo/actions/youtube_video.py) | Low |
 | **P2** | `WP-10-F07` | Gate Background Speech Notifications through Proactive Engine | `actions/google_workspace_mcp.py`, `actions/instagram_mcp.py` | Medium |
-| **P2** | `WP-10-F08` | Track and Terminate Spotify Auth Server Process | [`actions/spotify_controller.py`](file:///C:/Users/Admin/Brahma-Ai-Evo/actions/spotify_controller.py) | Low |
+| ~~**P2**~~ | ~~`WP-10-F08`~~ | ~~Track and Terminate Spotify Auth Server Process~~ | [`actions/spotify_controller.py`](file:///C:/Users/Admin/Brahma-Ai-Evo/actions/spotify_controller.py) | Low |
 | **P3** | `WP-10-F09` | Deprecate and Clean Up Redundant Action Shims | `actions/instagram_chat.py`, `actions/game_sentinel.py`, `actions/net_sentinel.py`, `actions/study_guard.py` | Low |

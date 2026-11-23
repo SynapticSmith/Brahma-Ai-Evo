@@ -24,6 +24,8 @@ SPOTIFY_CONFIG_PATH = get_user_data_dir() / "config" / "spotify-config.json"
 MCP_SERVER_DIR = Path(__file__).resolve().parent / "spotify_mcp_server"
 MCP_BUILD_INDEX = MCP_SERVER_DIR / "build" / "index.js"
 MCP_BUILD_AUTH = MCP_SERVER_DIR / "build" / "auth.js"
+_AUTH_PROCESS: subprocess.Popen | None = None
+_AUTH_TIMEOUT_SECONDS = 120
 
 PLUGIN = {
     "name": "spotify_controller",
@@ -406,7 +408,34 @@ def _spotify_mcp_call(tool_name: str, arguments: dict | None = None) -> dict:
                     pass
 
 
+def _terminate_spotify_auth_process(process):
+    if process is None:
+        return
+    try:
+        if process.poll() is not None:
+            return
+        process.terminate()
+        try:
+            process.wait(timeout=2)
+        except Exception:
+            process.kill()
+    except Exception:
+        pass
+
+
+def _watch_spotify_auth_process(process, timeout_seconds):
+    global _AUTH_PROCESS
+    try:
+        process.wait(timeout=timeout_seconds)
+    except Exception:
+        _terminate_spotify_auth_process(process)
+    finally:
+        if _AUTH_PROCESS is process:
+            _AUTH_PROCESS = None
+
+
 def _spotify_mcp_action(parameters: dict) -> str:
+    global _AUTH_PROCESS
     action = str(parameters.get("action", "search_play")).lower().strip()
     query = str(parameters.get("query", "")).strip()
     device_id = parameters.get("device_id")
@@ -417,7 +446,17 @@ def _spotify_mcp_action(parameters: dict) -> str:
             return "Spotify MCP auth helper is not built."
         env = os.environ.copy()
         env["SPOTIFY_CONFIG_PATH"] = str(SPOTIFY_CONFIG_PATH.resolve())
-        subprocess.Popen(["node", str(MCP_BUILD_AUTH.resolve())], cwd=str(MCP_SERVER_DIR.resolve()), env=env)
+        _terminate_spotify_auth_process(_AUTH_PROCESS)
+        _AUTH_PROCESS = None
+        process = subprocess.Popen(
+            ["node", str(MCP_BUILD_AUTH.resolve())], cwd=str(MCP_SERVER_DIR.resolve()), env=env,
+        )
+        _AUTH_PROCESS = process
+        threading.Thread(
+            target=_watch_spotify_auth_process,
+            args=(process, _AUTH_TIMEOUT_SECONDS),
+            daemon=True,
+        ).start()
         return "Started Spotify authorization in your browser."
     if not is_spotify_configured():
         return "Spotify MCP is not configured. Add clientId and clientSecret to the local spotify-config.json, then authenticate."
