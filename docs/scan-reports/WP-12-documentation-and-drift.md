@@ -327,7 +327,7 @@ This audit identifies critical cross-cutting touchpoints that the Lead Orchestra
 4. **Close Open Notes in `docs/user-notes-2.md` ([WP-12-F05]):**
    - [x] Formatted all 3 items with `[x]` checkboxes and linked to commits `26daa83` and `6439b2e`.
 5. **Update Security Finding Ledgers in `docs/SECURITY-ARCHITECTURE-ROADMAP.md` ([WP-12-F07]):**
-   - Mark Q0-A findings 1, 4, and 5 as "Closed (Q0-A, 2026-11-01)".
+   - [x] Findings 4 and 5 are "Closed (Q0-A, 2026-11-01)"; finding 1 is "Mitigated (Q0-A, 2026-11-01)" because staged forging no longer executes drafts but promotion UX remains open.
 
 ### Cleanup / Governance (P3)
 6. **Harmonize Root Governance Documents ([WP-12-F06]):**
