@@ -322,8 +322,8 @@ This audit identifies critical cross-cutting touchpoints that the Lead Orchestra
 ### Near-Term (P2)
 3. **Correct `README.md` Sandbox Claims and Architecture Map ([WP-12-F03], [WP-12-F04]):**
    - [x] Replaced the "isolated Crucible sandbox" claim with an accurate staged-draft description; `ARCHITECTURE-SPEC.md` §7 and §13 now keep Findings 7–8 explicitly open.
-   - [ ] Update architecture directory tree to include `brahma_api/`, `subagents/`, `skills/`, and `skills_library/`.
-   - [ ] Add feature highlight and setup instructions for `brahma_api` (port 8010).
+   - [x] Updated architecture directory tree to include `brahma_api/`, `subagents/`, `skills/`, `skills_library/`, and `sandbox/`.
+   - [x] Added feature highlight and setup instructions for `brahma_api` (port 8010).
 4. **Close Open Notes in `docs/user-notes-2.md` ([WP-12-F05]):**
    - [x] Formatted all 3 items with `[x]` checkboxes and linked to commits `26daa83` and `6439b2e`.
 5. **Update Security Finding Ledgers in `docs/SECURITY-ARCHITECTURE-ROADMAP.md` ([WP-12-F07]):**
