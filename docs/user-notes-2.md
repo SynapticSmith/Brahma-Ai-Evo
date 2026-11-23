@@ -1,3 +1,7 @@
-- In Identity and Profile, settings: unclicking the proactive commentary dididn't turn them off, last time i tested.
-- we have now the ability to delegate tasks to subagents, we need to identify which ones the system has and then expand that library. there is an already built library of subagents, from which we could source the templates, but since there is a lot of them , we would need and index/ library system for them, so the AI can know about them all and what categories they fulfill, without having to load them into context before hand, or having to waste turns scanning them all. (C:\\Users\\Admin\\Documents\\Obsidian\\My Vault\\subagent-orchestration)
-- sometimes (often) it happens that the response is piped back twice. for example right after being tasked to do a websearch on a topic, the ai reports back, and then reports back again. sometimes that second response interrupts the first original response. we need to investigate what is happening there.
+# User Punchlist &amp; Feedback Ledger — Notes 2
+
+The items below were investigated and resolved; links point to the commits that landed each fix.
+
+- [x] **Proactive Commentary Toggle**: Fixed by gating idle check-ins and startup briefings on the `Identity & Profile` proactive toggle and sharing the identity singleton across speech engines ([`26daa83`](https://github.com/SynapticSmith/Brahma-Ai-Evo/commit/26daa83)).
+- [x] **Subagent Library and Index**: Vendored the 607-template corpus into `subagents/` with `catalog.json` and `agent/subagent_library.py`, then exposed the library on first-call and voice surfaces ([`26daa83`](https://github.com/SynapticSmith/Brahma-Ai-Evo/commit/26daa83), [`6439b2e`](https://github.com/SynapticSmith/Brahma-Ai-Evo/commit/6439b2e)).
+- [x] **Duplicate Replies**: Fixed by stopping tool-start status speech and task-card chat mirroring ([`26daa83`](https://github.com/SynapticSmith/Brahma-Ai-Evo/commit/26daa83)).

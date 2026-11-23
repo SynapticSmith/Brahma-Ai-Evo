@@ -325,7 +325,7 @@ This audit identifies critical cross-cutting touchpoints that the Lead Orchestra
    - [ ] Update architecture directory tree to include `brahma_api/`, `subagents/`, `skills/`, and `skills_library/`.
    - [ ] Add feature highlight and setup instructions for `brahma_api` (port 8010).
 4. **Close Open Notes in `docs/user-notes-2.md` ([WP-12-F05]):**
-   - Format all 3 items with `[x]` checkboxes and link to commits `26daa83` and `6439b2e`.
+   - [x] Formatted all 3 items with `[x]` checkboxes and linked to commits `26daa83` and `6439b2e`.
 5. **Update Security Finding Ledgers in `docs/SECURITY-ARCHITECTURE-ROADMAP.md` ([WP-12-F07]):**
    - Mark Q0-A findings 1, 4, and 5 as "Closed (Q0-A, 2026-11-01)".
 
