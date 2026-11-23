@@ -312,12 +312,12 @@ This audit identifies critical cross-cutting touchpoints that the Lead Orchestra
 
 ### Immediate (P0 / P1)
 1. **Reconcile `docs/ARCHITECTURE-SPEC.md` Internal Contradictions ([WP-12-F01]):**
-   - Clean up §5.2 ("Built-partial") and Appendix B to remove stale statements claiming native tools lack a policy engine, `agent_task` is active, or the gateway binds `0.0.0.0`.
-   - Synchronize §1, §4.1 (I-02), and §8.1 to reflect that Bridge v2 and 84 desktop `ToolSpec`s are 100% landed.
+   - [x] Cleaned up §5.2 ("Built-partial") and Appendix B to remove stale statements claiming native tools lack a policy engine, `agent_task` is active, or the gateway binds `0.0.0.0`.
+   - [x] Synchronized §1, §4.1 (I-02), and §8.1 to reflect that Bridge v2 and 98 desktop / 116 total `ToolSpec`s are 100% landed.
 2. **Document Post-`58a773d` Subsystems in Master Spec & User Guide ([WP-12-F02]):**
-   - Add architecture sections to `ARCHITECTURE-SPEC.md` covering Plane-A Routing Authority (`core/routing.py`), R0–R3 Tool Retrieval, Subagent Library (607 specialists), and `agent/web.py`.
-    - Add Appendix A entries for `ROUTING-AUDIT.md`, `ROUTING-IMPLEMENTATION.md`, `TOOL-RETRIEVAL-DESIGN.md`, and `user-notes-2.md`.
-   - Expand `USER-GUIDE.md` with user-facing documentation for subagent templates and web search.
+   - [x] Added architecture sections to `ARCHITECTURE-SPEC.md` covering Plane-A Routing Authority (`core/routing.py`), R0–R3 Tool Retrieval, Subagent Library (607 specialists), and `agent/web.py`.
+   - [x] Added Appendix A entries for `ROUTING-AUDIT.md`, `ROUTING-IMPLEMENTATION.md`, `TOOL-RETRIEVAL-DESIGN.md`, `user-notes.md`, and `user-notes-2.md`.
+   - [x] Expanded `USER-GUIDE.md` §26 and new §26A with user-facing documentation for subagent templates and web search.
 
 ### Near-Term (P2)
 3. **Correct `README.md` Sandbox Claims and Architecture Map ([WP-12-F03], [WP-12-F04]):**
@@ -334,4 +334,4 @@ This audit identifies critical cross-cutting touchpoints that the Lead Orchestra
    - Replace "Brahma AI - Lite" in `CONTRIBUTING.md` with "Brahma AI Evo".
    - Replace `"User"` placeholder in `TRADEMARK.md` with the official project entity.
 7. **Consolidate Baseline Versioning Matrix ([WP-12-F08]):**
-   - Add a historical test count and milestone ledger to `ARCHITECTURE-SPEC.md` §0.
+   - [x] Added a historical test count and milestone ledger to `ARCHITECTURE-SPEC.md` §0 and refreshed Appendix C from the current gate run.
