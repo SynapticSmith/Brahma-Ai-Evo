@@ -459,7 +459,7 @@ flowchart TD
 | **P0** | `WP-10-F01` | Fix Task Scheduler & Python Script Injection | [`actions/reminder.py`](file:///C:/Users/Admin/Brahma-Ai-Evo/actions/reminder.py) | Low |
 | **P0** | `WP-10-F02` | Bring Screen Processor under LLM Gateway & Audio Controls | [`actions/screen_processor.py`](file:///C:/Users/Admin/Brahma-Ai-Evo/actions/screen_processor.py) | Medium |
 | **P1** | `WP-10-F03` | Eliminate `shell=True` and Add Job Objects to MCP Clients | [`actions/playwright_mcp_client.py`](file:///C:/Users/Admin/Brahma-Ai-Evo/actions/playwright_mcp_client.py), [`actions/rea_mcp_client.py`](file:///C:/Users/Admin/Brahma-Ai-Evo/actions/rea_mcp_client.py) | Medium |
-| **P1** | `WP-10-F04` | Restrict or Remove `run_code_unsafe` in Browser Action | [`actions/browser_control.py`](file:///C:/Users/Admin/Brahma-Ai-Evo/actions/browser_control.py) | Low |
+| ~~**P1**~~ | ~~`WP-10-F04`~~ | ~~Restrict or Remove `run_code_unsafe` in Browser Action~~ | [`actions/browser_control.py`](file:///C:/Users/Admin/Brahma-Ai-Evo/actions/browser_control.py) | Low |
 | **P1** | `WP-10-F05` | Migrate Action Credentials to Windows DPAPI Secret Store | `actions/instagram_mcp.py`, `actions/google_workspace_mcp.py`, `actions/spotify_controller.py` | High |
 | **P2** | `WP-10-F06` | Remove Blocking Tkinter Dialog from YouTube Action | [`actions/youtube_video.py`](file:///C:/Users/Admin/Brahma-Ai-Evo/actions/youtube_video.py) | Low |
 | **P2** | `WP-10-F07` | Gate Background Speech Notifications through Proactive Engine | `actions/google_workspace_mcp.py`, `actions/instagram_mcp.py` | Medium |
