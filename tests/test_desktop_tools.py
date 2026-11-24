@@ -92,6 +92,24 @@ def test_wave1_carries_the_policy_class_and_the_declared_schema():
     assert specs["reminder"].requires_approval is False
 
 
+def test_destructive_desktop_tools_require_interactive_approval(registered, tmp_path):
+    specs = {spec.name: spec for spec in desktop_tools.build_specs(_declarations())}
+    assert specs["computer_control"].tool_class == "exec"
+    assert specs["space_cleaner"].requires_approval is True
+
+    runtime = AgentRuntime(
+        workspace=tmp_path,
+        policy=PermissionPolicy.from_dict({}),
+        headless=False,
+    )
+    _, computer = runtime.decide(
+        "computer_control", {"action": "click", "x": 10, "y": 20}
+    )
+    assert computer.needs_approval
+    _, cleaner = runtime.decide("space_cleaner", {"action": "purge"})
+    assert cleaner.needs_approval
+
+
 def test_wave2_carries_the_policy_class_classifier_and_silent_flag():
     declared = {item["name"]: item for item in _declarations()}
     specs = {spec.name: spec for spec in desktop_tools.build_specs(_declarations())}

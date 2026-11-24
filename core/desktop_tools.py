@@ -100,7 +100,7 @@ WAVE3: Dict[str, Tuple[str, bool]] = {
     "browser_control": ("network", False),
     "open_embedded_browser": ("network", False),
     "desktop_control": ("device", False),
-    "computer_control": ("device", False),
+    "computer_control": ("exec", False),
     "game_updater": ("exec", False),
     "flight_finder": ("network", False),
     "file_processor": ("read", False),
@@ -149,7 +149,7 @@ WAVE3: Dict[str, Tuple[str, bool]] = {
     "game_sentinel": ("exec", False),
     "study_guard": ("device", False),
     "net_sentinel": ("network", False),
-    "space_cleaner": ("write", False),
+    "space_cleaner": ("write", True),
     "flowstate": ("device", False),
     "shopping_agent": ("network", False),
 }

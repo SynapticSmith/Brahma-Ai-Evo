@@ -367,6 +367,8 @@ Following architectural decisions ADR-019 (Action Host Injection), ADR-021 (Pinn
   Destructive disk purge or arbitrary UI interaction proceeds without interactive user confirmation by default.
 - **Recommended Fix:**
   Map `computer_control` to `tool_class="exec"` or enforce `requires_approval=True`. For `space_cleaner`, ensure `action="purge"` requires interactive confirmation (`requires_approval=True`).
+- **Resolution (2026-11-23):**
+  `computer_control` is now `("exec", False)`, so the default `exec: ASK` policy requires confirmation for every UI-automation call. `space_cleaner` is now `("write", True)`, so scanning and purging both pass through `AgentRuntime.execute`'s approval gate. `tests/test_desktop_tools.py::test_destructive_desktop_tools_require_interactive_approval` locks both decisions.
 
 ---
 
@@ -424,7 +426,7 @@ The findings in WP-02 directly intersect with several other Work Packages. The O
 
 ### 2. Near-Term (P2) — Hardening & Concurrency Protection
 - [x] **[P2] Enforce Bridge Recursion Depth & Thread Safety ([WP-02-F05]):** `ToolExecutor.execute_via_bridge` enforces a recursion ceiling and protects bridge depth plus recent-call bookkeeping with a lock.
-- [ ] **[P2] Reclassify Permissive Destructive Actions ([WP-02-F07]):** Ensure `space_cleaner` with `action="purge"` requires interactive approval, and review `computer_control` policy classification.
+- [x] **[P2] Reclassify Permissive Destructive Actions ([WP-02-F07]):** `computer_control` is `exec` (ASK by default) and `space_cleaner` requires interactive approval for every call, including `purge`.
 - [x] **[P2] Reconcile `core/tool_policy.py` ([WP-02-F06]):** `BLOCKED_SHELL_SUBSTRINGS` are enforced as `agent/permissions.py:DEFAULT_EXEC_DENY_PATTERNS` hard denials in production.
 
 ### 3. Cleanup / Refactor (P3) — Technical Debt Retirement
