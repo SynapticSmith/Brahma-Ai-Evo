@@ -100,6 +100,29 @@ def test_tool_executor_guarantees_non_none_id():
     asyncio.run(_run())
 
 
+def test_tool_executor_bridge_limits_recursion_and_repeated_calls():
+    host = MagicMock()
+    host._desktop = MagicMock()
+    host._desktop.host = host
+    executor = ToolExecutor(
+        host._desktop,
+        ig_gemini_reply=MagicMock(),
+        tool_declarations=[],
+    )
+    executor.execute_sync = MagicMock(return_value="ok")
+
+    executor._bridge_depth = 3
+    assert executor.execute_via_bridge("echo", {"text": "hi"}) == "Max recursion exceeded"
+    executor.execute_sync.assert_not_called()
+
+    executor._bridge_depth = 0
+    results = [executor.execute_via_bridge("echo", {"text": "hi"}) for _ in range(6)]
+    assert results[:5] == ["ok"] * 5
+    assert "repeated calls detected" in results[5]
+    assert executor.execute_sync.call_count == 5
+    assert executor._bridge_depth == 0
+
+
 def test_tool_executor_unknown_tool_fallback():
     """Verify unknown tool returns a safe FunctionResponse with call_id."""
     async def _run():
