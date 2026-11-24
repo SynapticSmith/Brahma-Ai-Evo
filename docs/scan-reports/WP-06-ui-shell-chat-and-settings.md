@@ -575,7 +575,7 @@ flowchart TB
 1. **Immediate (P0 / P1):**
    - [x] Fix `ClipboardSentry` thread violation: `_on_clipboard_actionable` marshals UI mutation through the main-window runner (`core/ui_shell_actions.py:23-39`).
    - [x] Resolve confirmation overlay race: `core/confirm.py` serializes blocking approvals with a per-call waiter and shared timeout.
-   - [ ] Un-minimize window on confirmation request: Ensure `MainWindow` is restored and raised when an approval arrives while minimized to tray (`core/ui_overlays_cards.py:152-166`).
+   - [x] Un-minimize window on confirmation request: `_apply_confirm_overlay` restores the main window before showing the confirmation when it is minimized or hidden; `tests/test_confirm_overlay_restore.py` guards both cases.
    - [x] Move `local_api_key` and `custom_api_key` from cleartext `app_settings.json` to DPAPI-encrypted `api_keys.json`; legacy cleartext keys are removed (`core/ui_connectivity.py:4799-4811`).
    - [ ] Fix pseudo-marshalled `run_on_ui` in `SystemConnectivityPage` so `_speech_status.setText` is dispatched to the GUI thread (`core/ui_connectivity.py:2478`).
 2. **Near-Term (P2):**

@@ -133,6 +133,11 @@ class _OverlayCardsMixin:
             return
 
         if action == "show":
+            try:
+                if self._win.isMinimized() or not self._win.isVisible():
+                    self.show_main()
+            except Exception:
+                pass
             if getattr(self, "_confirm_overlay", None):
                 try:
                     self._confirm_overlay.deleteLater()
