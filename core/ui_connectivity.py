@@ -24,6 +24,7 @@ from core.ui_transients import BOOT_SPEED_SECONDS, DEFAULT_BOOT_SPEED
 
 from PyQt6.QtCore import (
     QObject,
+    QThread,
     Qt,
     QTimer,
     pyqtSignal,
@@ -344,6 +345,12 @@ class SettingsHubPage(QWidget):
         lay.addStretch(2)
 
 class SystemConnectivityPage(QWidget):
+    def _run_on_ui(self, fn):
+        if QThread.currentThread() == self.thread():
+            fn()
+        else:
+            QTimer.singleShot(0, fn)
+
     def __init__(self, controller=None, parent=None):
         super().__init__(parent)
         self._controller = controller

@@ -577,7 +577,7 @@ flowchart TB
    - [x] Resolve confirmation overlay race: `core/confirm.py` serializes blocking approvals with a per-call waiter and shared timeout.
    - [x] Un-minimize window on confirmation request: `_apply_confirm_overlay` restores the main window before showing the confirmation when it is minimized or hidden; `tests/test_confirm_overlay_restore.py` guards both cases.
    - [x] Move `local_api_key` and `custom_api_key` from cleartext `app_settings.json` to DPAPI-encrypted `api_keys.json`; legacy cleartext keys are removed (`core/ui_connectivity.py:4799-4811`).
-   - [ ] Fix pseudo-marshalled `run_on_ui` in `SystemConnectivityPage` so `_speech_status.setText` is dispatched to the GUI thread (`core/ui_connectivity.py:2478`).
+   - [x] Fix pseudo-marshalled `run_on_ui` in `SystemConnectivityPage`: the page now owns `_run_on_ui`, queuing worker-thread callbacks with `QTimer.singleShot(0, fn)`; `tests/test_connectivity_ui_thread.py` guards both thread cases.
 2. **Near-Term (P2):**
    - [ ] Replace non-atomic file writes with `atomic_write_json` in `core/ui_connectivity.py:4458, 4623` and `core/ui_shell_discord.py:32`.
    - [x] Fix approval timeout desynchronization: `pending.timeout` is clamped and passed into `ConfirmationOverlay` instead of hardcoding 90 seconds.
