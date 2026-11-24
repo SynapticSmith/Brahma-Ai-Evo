@@ -222,6 +222,7 @@ In `or_client.py`:
 - Reduced request timeout from 60s to 20s.
 - Reduced retry delay from 2s to 1s.
 - Added a model fallback list (`openrouter/auto`, `llama-3.3-70b`, `mistral-small`, `deepseek-chat`). When a model returns 400, 404, or 429, it automatically tries the next model in the pool.
+- Authentication failures (401/403) fail fast and propagate instead of being retried or treated as pool exhaustion.
 - *Flaw:* Upstream implemented key loading by reading `config/api_keys.json` directly as plaintext JSON.
 
 #### Our Fork's Architecture
