@@ -236,6 +236,8 @@ flowchart TD
   cwd = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
   ```
   Or remove obsolete `BrahmaEcho` specs if `BrahmaEvo` is the sole supported product.
+- **Resolution (2026-11-23):**
+  `installer/BrahmaEcho.spec` already used `os.getcwd()`; `installer/BrahmaEcho_Setup.spec` now resolves `cwd` the same way and builds `source_dir`, `install_wizard.py`, assets, icon and version paths with `os.path.join`. `tests/test_installer_specs.py` parses both specs and rejects developer drive paths.
 
 ---
 
@@ -382,7 +384,7 @@ flowchart TD
 
 ### 1. Immediate (P0 / P1)
 - [x] **P0: Fix Eager SQLite Connection in `workspace_store.py` (`[WP-11-F01]`):** `_STORE` starts as `None`; `get_workspace_store()` builds the singleton lazily under a lock, and `WorkspaceStore._connection()` already quarantines corrupt databases and retries.
-- [ ] **P0: Fix Hardcoded Paths in PyInstaller Specs (`[WP-11-F02]`):** Replace `D:\TiTech Prabha Solution\...` in `installer/BrahmaEcho.spec` and `installer/BrahmaEcho_Setup.spec` with relative path resolution.
+- [x] **P0: Fix Hardcoded Paths in PyInstaller Specs (`[WP-11-F02]`):** Both `BrahmaEcho` specs now resolve paths from the working directory; `tests/test_installer_specs.py` guards against regressions.
 - [x] **P1: Fix Frozen Executable Omissions in `installer/BrahmaEvo.spec` (`[WP-11-F03]`):** `brahma_api` and the required uvicorn/yaml/fastembed hidden imports are included; `agent/subagent_library.py` resolves frozen library paths.
 - [x] **P1: Isolate `accept_instructions.py` Settings (`[WP-11-F06]`):** `config_manager.SETTINGS_FILE` is redirected to a temporary directory and restored after the acceptance run.
 
