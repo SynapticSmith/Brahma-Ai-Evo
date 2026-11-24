@@ -404,7 +404,13 @@ def _rewrite_generated_step(step: dict, goal: str) -> None:
 
 
 def create_plan(goal: str, context: str = "") -> dict:
-    import google.generativeai as genai
+    try:
+        import google.generativeai as genai
+    except ImportError:
+        genai = None
+
+    if genai is None:
+        return _fallback_plan(goal)
 
     genai.configure(api_key=_get_api_key())
     system_prompt = _planner_system_prompt()
@@ -486,7 +492,13 @@ def _fallback_plan(goal: str) -> dict:
 
 
 def replan(goal: str, completed_steps: list, failed_step: dict, error: str) -> dict:
-    import google.generativeai as genai
+    try:
+        import google.generativeai as genai
+    except ImportError:
+        genai = None
+
+    if genai is None:
+        return _fallback_plan(goal)
 
     genai.configure(api_key=_get_api_key())
     system_prompt = _planner_system_prompt()

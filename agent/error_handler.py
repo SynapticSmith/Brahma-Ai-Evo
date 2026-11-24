@@ -82,7 +82,10 @@ def analyze_error(
     import warnings
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=FutureWarning)
-        import google.generativeai as genai
+        try:
+            import google.generativeai as genai
+        except ImportError:
+            genai = None
 
     if attempt >= max_attempts:
         print(f"[ErrorHandler] ⚠️ Max attempts reached for step {step.get('step')} — forcing replan")
@@ -92,6 +95,15 @@ def analyze_error(
             "fix_suggestion": "Try a completely different approach or tool",
             "max_retries":   0,
             "user_message":  "Trying a different approach, sir."
+        }
+
+    if genai is None:
+        return {
+            "decision":       ErrorDecision.REPLAN,
+            "reason":         str(error)[:100],
+            "fix_suggestion": "Try alternative approach",
+            "max_retries":    1,
+            "user_message":   "Encountered an issue, adjusting approach, sir."
         }
 
     genai.configure(api_key=_get_api_key())
@@ -155,7 +167,13 @@ def generate_fix(step: dict, error: str, fix_suggestion: str) -> dict:
     import warnings
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=FutureWarning)
-        import google.generativeai as genai
+        try:
+            import google.generativeai as genai
+        except ImportError:
+            genai = None
+
+    if genai is None:
+        return step
 
     genai.configure(api_key=_get_api_key())
     model = genai.GenerativeModel(model_name="gemini-2.5-flash")
