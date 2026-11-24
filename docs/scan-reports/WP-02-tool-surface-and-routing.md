@@ -53,7 +53,7 @@ Following architectural decisions ADR-019 (Action Host Injection), ADR-021 (Pinn
 2. **Unified Dispatch Seam (`core/tool_exec.py`):** Replaces the legacy 1,200-line `elif` chain from pre-ADR-019. Locked at $\le 147$ lines with exactly 0 `elif` branches, it delegates tool execution to `AgentRuntime.execute` for all registered specs.
 3. **Retrieval Index (`core/tool_index.py`):** Implements in-memory SQLite FTS5 BM25, numpy-based hashed n-gram TF-IDF cosine similarity, and optional `fastembed` ONNX micro-embeddings (`sentence-transformers/all-MiniLM-L6-v2`) fused via Reciprocal Rank Fusion (RRF, $k=60$). Resolves up to 128 declarations within a user-configurable budget (default 24).
 4. **Meta-Tool Bridge (`core/tool_bridge.py`):** Hosts the meta-tools that let Gemini Live query and invoke deferred tools (`search_tools`, `call_tool`, `list_tools`, `get_skill_manual`, `get_tool_surface`, `search_skills`, `list_skills`, `load_skill`). Manages the 2-turn memory-only turn context ring buffer for query fusion.
-5. **Desktop Tool Adapters (`core/desktop_tools.py`):** Exposes all 59 native capability declarations from `main.py:TOOL_DECLARATIONS` and 38 aliases (total 97 specs across `WAVE1`, `WAVE2`, and `WAVE3`) as canonical `ToolSpec` objects tagged `"desktop"`, providing per-call classification for read/write verbs.
+5. **Desktop Tool Adapters (`core/desktop_tools.py`):** Exposes all 60 native capability declarations from `main.py:TOOL_DECLARATIONS` plus 29 aliases, the retired `agent_task` pointer, and 8 fallback-only plugins (total 98 specs across `WAVE1`, `WAVE2`, and `WAVE3`) as canonical `ToolSpec` objects tagged `"desktop"`, providing per-call classification for read/write verbs.
 6. **Host Services Injection (`core/desktop_host.py`):** Bundles host UI and TTS operations into `HostServices` (`ui`, `speak`, `submit`), decoupling desktop actions from PyQt6 globals and preventing spoken TTS banners from corrupting the Gemini Live audio pipeline.
 7. **Dynamic Tool Registry (`core/dynamic_registry.py`):** Hot-loads model-forged skills and codebase features from `features/` and AppData skills vault.
 8. **Undo Stack & Diff Preview (`core/undo.py`, `core/diff_preview.py`):** Provides a thread-safe 10-deep reverse callable stack for reversible file and desktop operations, and unified diff hunk folding for interactive approval banners.
@@ -69,7 +69,7 @@ Following architectural decisions ADR-019 (Action Host Injection), ADR-021 (Pinn
 | `core/tool_index.py` | 2,168 | `ToolIndex`, `ToolEntry`, `SearchHit`, `SkillManual`, `_Fts5Backend`, `_NgramBackend`, `_EmbedBackend`, `_EmbedCache`, `META_DECLARATIONS` | Active | **High** | Hybrid RRF index. **Critical Threading Bug:** SQLite `:memory:` connection in `_Fts5Backend` is created without `check_same_thread=False`, causing cross-thread queries from worker threads to fail silently. |
 | `core/tool_bridge.py` | 1,605 | `configure`, `build_session_payload`, `execute_meta`, `_handle_search`, `_handle_call`, `set_turn_context`, `turn_context` | Active | Medium | Manages meta-tools, session payload, and turn context ring buffer. `call_tool` enforces collision guards and bare-name disambiguation, but `_executor` path lacks synchronization on loop prevention structures. |
 | `core/tool_policy.py` | 213 | `is_shell_command_safe`, `get_required_capabilities`, `evaluate_tool_call`, `execute_hardened_bash`, `execute_hardened_python_repl` | Dormant / Test-Only | Medium | Capability-based security policy and hardened runner engine. Fully implemented but completely un-wired from production dispatch; only called by test suites. |
-| `core/desktop_tools.py` | 1,688 | `WAVE1`, `WAVE2`, `WAVE3`, `ALIASES`, `CLASSIFIERS`, `HANDLERS`, `build_specs`, `register`, `attach_host` | Active | **High** | 97 `ToolSpec` definitions covering all 59 native declarations. **Security Risk:** `desktop_control` is classified as `device` (default allow), yet executes dynamic LLM-generated code via `exec()` with `ctypes`. |
+| `core/desktop_tools.py` | 1,740 | `WAVE1`, `WAVE2`, `WAVE3`, `ALIASES`, `CLASSIFIERS`, `HANDLERS`, `build_specs`, `register`, `attach_host` | Active | **High** | 98 `ToolSpec` definitions covering all 60 native declarations. **Security Risk:** `desktop_control` is classified as `device` (default allow), yet executes dynamic LLM-generated code via `exec()` with `ctypes`. |
 | `core/desktop_host.py` | 469 | `HostServices`, `HostUI`, `HostEventSink`, `LiveHost`, `RecordingHost`, `present_start`, `present_end` | Active | Low | Clean ADR-019 implementation. Encapsulates HUD deliverable presentation and speech feedback without module globals. |
 | `core/dynamic_registry.py` | 634 | `DynamicToolRegistry`, `DynamicSkill`, `_ExternalSkillModule`, `find_matching_skill`, `execute_sync` | Active | **High** | Hot-loads features from `features/`. Executes codebase features directly in-process without `SkillHost` AppContainer isolation or `AgentRuntime` policy checks. |
 | `core/routing.py` | 369 | `Authority`, `RoutingClaim`, `RouterRecord`, `ROUTERS`, `tokens`, `normalize`, `has_phrase`, `any_phrase`, `exact_alias` | Active | Low | Authoritative Plane-A inventory (23 records). All phrase matching is word-bounded. Enforced by 105 tests in `test_routing_authority.py`. |
@@ -98,12 +98,12 @@ Following architectural decisions ADR-019 (Action Host Injection), ADR-021 (Pinn
 ### 3.2 Specific Audit Question Verdicts
 
 #### Question 1: Completeness of `core/desktop_tools.py` Mapping
-**Verdict:** **COMPLETE MAPPING (59/59 declarations, 0 parameter mismatches), BUT 2 CRITICAL CLASSIFICATION VULNERABILITIES IDENTIFIED.**
+**Verdict:** **COMPLETE MAPPING (60/60 current static declarations present in the wave tables; audit snapshot found 0 parameter mismatches), BUT 2 CRITICAL CLASSIFICATION VULNERABILITIES IDENTIFIED.**
 
 - **Inventory Reconciliation:**
-  - `main.py:TOOL_DECLARATIONS` contains 66 total declarations at runtime. Of these, 7 are harness code primitives dynamically appended at line 2151 (`read_file`, `write_file`, `edit_file`, `glob_files`, `grep_files`, `run_command`, `list_subagents`).
-  - The remaining **59 declarations** are the static native capability declarations.
-  - Automated cross-check of all 59 declarations against `WAVE1` (9 entries), `WAVE2` (18 entries), and `WAVE3` (70 entries) in `core/desktop_tools.py` confirmed **100% presence** (0 missing native tools).
+  - `main.py:TOOL_DECLARATIONS` contains 78 total declarations at runtime. Of these, 18 are harness declarations dynamically appended at line 2181: brain (`brain_browse`, `brain_locate`, `brain_read`, `brain_search`, `brain_status`, `brain_sync`), code (`read_file`, `write_file`, `edit_file`, `glob_files`, `grep_files`, `run_command`), peer (`list_peers`, `peer_status`, `dispatch_peer_task`), and subagent (`list_subagents`, `run_subagent`, `run_subagent_batch`) tools.
+  - The remaining **60 declarations** are the static native capability declarations.
+  - Current cross-check of all 60 static declarations against `WAVE1` (9 entries), `WAVE2` (18 entries), and `WAVE3` (71 entries) in `core/desktop_tools.py` confirmed **100% presence** (0 missing native tools).
   - Cross-check of all parameter names between `main.py:TOOL_DECLARATIONS` and `desktop_tools.build_specs()` revealed **0 parameter mismatches**.
   - All 29 aliases in `ALIASES` correctly map legacy names (e.g. `self_patch` $\rightarrow$ `auto_heal`, `rollback` $\rightarrow$ `auto_heal`, `diagnostics` $\rightarrow$ `system_diagnostics`, `create_image` $\rightarrow$ `generate_image`).
   - Fallback declarations in `_get_fallback_declaration` properly cover the 8 plugins not in `TOOL_DECLARATIONS` (`image_generator`, `reverse_engineer`, `game_sentinel`, `study_guard`, `net_sentinel`, `flowstate`, `shopping_agent`, `space_cleaner`).
@@ -282,6 +282,8 @@ Following architectural decisions ADR-019 (Action Host Injection), ADR-021 (Pinn
       return "device"
   ```
   Furthermore, enforce `requires_approval=True` whenever dynamic code execution is requested, or route the code execution through `agent.process.run_captured` inside an isolated sandbox rather than executing `exec()` directly in the host process.
+- **Resolution (2026-11-23):**
+  `_classify_desktop_control` already maps `action="task"` to `exec`. The spec now also sets `requires_approval=True` for every `desktop_control` call, so even before classification the tool asks interactively; `tests/test_desktop_tools.py` verifies the class and approval behavior.
 
 ---
 
@@ -367,6 +369,8 @@ Following architectural decisions ADR-019 (Action Host Injection), ADR-021 (Pinn
   Destructive disk purge or arbitrary UI interaction proceeds without interactive user confirmation by default.
 - **Recommended Fix:**
   Map `computer_control` to `tool_class="exec"` or enforce `requires_approval=True`. For `space_cleaner`, ensure `action="purge"` requires interactive confirmation (`requires_approval=True`).
+- **Resolution (2026-11-23):**
+  `computer_control` is now `("exec", False)`, so the default `exec: ASK` policy requires confirmation for every UI-automation call. `space_cleaner` is now `("write", True)`, so scanning and purging both pass through `AgentRuntime.execute`'s approval gate. `tests/test_desktop_tools.py::test_destructive_desktop_tools_require_interactive_approval` locks both decisions.
 
 ---
 
@@ -386,13 +390,13 @@ Following architectural decisions ADR-019 (Action Host Injection), ADR-021 (Pinn
 ### [WP-02-F09] Documentation Drift in Declared Tool Counts
 - **Severity:** `Informational`
 - **Category:** `Doc Drift`
-- **Location:** [main.py:L751, L2151](file:///C:/Users/Admin/Brahma-Ai-Evo/main.py#L751) and `docs/FULL-SYSTEM-SCAN-AND-ANALYSIS-PLAN.md:WP-02`
+- **Location:** [main.py:L757, L2181](file:///C:/Users/Admin/Brahma-Ai-Evo/main.py#L757) and `docs/FULL-SYSTEM-SCAN-AND-ANALYSIS-PLAN.md:WP-02`
 - **Evidence & Mechanism:**
-  Documentation states `main.py:TOOL_DECLARATIONS` contains 59 declarations. In code, the static list defines 59 declarations, but at line 2151 it appends 7 harness primitives (`TOOL_DECLARATIONS.extend(...)`), bringing the total length of `TOOL_DECLARATIONS` at runtime to 66.
+  The audit snapshot stated `main.py:TOOL_DECLARATIONS` contains 59 declarations. In the current code the static list defines 60 declarations, and at line 2181 it appends 18 harness declarations (`TOOL_DECLARATIONS.extend(...)`), bringing the total length of `TOOL_DECLARATIONS` at runtime to 78. The 59/66 figures are historical; the current distinction is 60 static native tools versus 78 runtime declarations.
 - **Impact:**
   Minor confusion during audits and tool surface verification.
 - **Recommended Fix:**
-  Clarify in comments and architecture documentation that 59 is the count of native desktop declarations, while 66 is the post-import total including harness primitives.
+  Clarify in architecture documentation that 60 is the current count of static native declarations, while 78 is the post-import total including harness declarations; preserve 59/66 as the historical audit snapshot.
 
 ---
 
@@ -417,16 +421,16 @@ The findings in WP-02 directly intersect with several other Work Packages. The O
 ## 6. Prioritized Action Queue for This Subsystem
 
 ### 1. Immediate (P0 / P1) — Critical Vulnerabilities & Bug Fixes
-- [ ] **[P0] Fix SQLite Thread-Sharing in `_Fts5Backend` ([WP-02-F02]):** In `core/tool_index.py:504`, change `sqlite3.connect(":memory:")` to `sqlite3.connect(":memory:", check_same_thread=False)`. Add a unit test in `tests/test_tool_index.py` asserting non-empty FTS5 search results from a separate spawned thread.
-- [ ] **[P1] Close `DynamicToolRegistry` Policy Bypass ([WP-01-F01]):** Remove the fallback execution in `core/tool_exec.py:120-144` and `core/text_turn_controller.py:359`. Register dynamic skills into `agent.spec` as `ToolSpec` objects so that all dynamic invocations route through `AgentRuntime.execute`.
-- [ ] **[P1] Secure `desktop_control` Execution Class ([WP-02-F03]):** Add `_classify_desktop_control` in `core/desktop_tools.py` that maps `action="task"` to policy class `"exec"` and enforces `requires_approval=True`.
-- [ ] **[P1] Eliminate Import-Time Side Effect in `workspace_store.py` ([WP-02-F04]):** Refactor `_STORE = WorkspaceStore()` in `workspace_store.py:542` to a lazy `get_store()` getter to satisfy Invariant I-26.
+- [x] **[P0] Fix SQLite Thread-Sharing in `_Fts5Backend` ([WP-02-F02]):** `core/tool_index.py` uses `sqlite3.connect(":memory:", check_same_thread=False)`; `tests/test_tool_index.py` exercises FTS5 from a worker thread.
+- [ ] **[P1] Close `DynamicToolRegistry` Policy Bypass ([WP-01-F01]):** Voice routing is fixed, but the text path at `core/text_turn_controller.py:435-444` still calls raw `execute_sync`; finish routing dynamic skills through `AgentRuntime.execute`.
+- [x] **[P1] Secure `desktop_control` Execution Class ([WP-02-F03]):** `_classify_desktop_control` maps `action="task"` to `"exec"` and the spec now sets `requires_approval=True` for every call.
+- [x] **[P1] Eliminate Import-Time Side Effect in `workspace_store.py` ([WP-02-F04]):** `WorkspaceStore.__init__` no longer opens the database for the module-level store; connection setup and corruption recovery are lazy.
 
 ### 2. Near-Term (P2) — Hardening & Concurrency Protection
-- [ ] **[P2] Enforce Bridge Recursion Depth & Thread Safety ([WP-02-F05]):** Add a hard recursion ceiling check (`if self._bridge_depth > 3: return "Max recursion exceeded"`) and wrap `self._recent_calls` mutations behind a `threading.Lock()` in `core/tool_exec.py`.
-- [ ] **[P2] Reclassify Permissive Destructive Actions ([WP-02-F07]):** Ensure `space_cleaner` with `action="purge"` requires interactive approval, and review `computer_control` policy classification.
-- [ ] **[P2] Reconcile `core/tool_policy.py` ([WP-02-F06]):** Port `BLOCKED_SHELL_SUBSTRINGS` into `agent/permissions.py:DEFAULT_EXEC_DENY_PATTERNS` to make sensitive path protections active in production.
+- [x] **[P2] Enforce Bridge Recursion Depth & Thread Safety ([WP-02-F05]):** `ToolExecutor.execute_via_bridge` enforces a recursion ceiling and protects bridge depth plus recent-call bookkeeping with a lock.
+- [x] **[P2] Reclassify Permissive Destructive Actions ([WP-02-F07]):** `computer_control` is `exec` (ASK by default) and `space_cleaner` requires interactive approval for every call, including `purge`.
+- [x] **[P2] Reconcile `core/tool_policy.py` ([WP-02-F06]):** `BLOCKED_SHELL_SUBSTRINGS` are enforced as `agent/permissions.py:DEFAULT_EXEC_DENY_PATTERNS` hard denials in production.
 
 ### 3. Cleanup / Refactor (P3) — Technical Debt Retirement
 - [ ] **[P3] Delete Dormant Legacy Modules ([WP-02-F08]):** Remove `core/intent_dispatcher.py` (1,051 lines) and `core/execution_reflection.py` (154 lines) after updating tests in `tests/test_routing_authority.py`.
-- [ ] **[P3] Update Documentation on Tool Counts ([WP-02-F09]):** Document the distinction between the 59 static native tool declarations and the 66 runtime declarations in `main.py`.
+- [x] **Documented Tool Counts ([WP-02-F09]):** `ARCHITECTURE-SPEC.md` and the scan plan now distinguish 60 static native declarations from 78 runtime declarations in `main.py`; the audited 59/66 figures are recorded as a historical snapshot.

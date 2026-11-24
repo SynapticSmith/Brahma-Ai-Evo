@@ -207,9 +207,12 @@ flowchart TD
          return _STORE
      ```
   2. Wrap `_connect()` and `_init_db()` in `WorkspaceStore` with `try...except sqlite3.DatabaseError`. On corruption, log an error, rename the corrupted file to `workspace_store.sqlite3.corrupted.<timestamp>`, and transparently reinitialize a fresh SQLite database.
-  3. Ensure `agent/session.py` defines its default DB path without importing `workspace_store.py` at module scope.
+   3. Ensure `agent/session.py` defines its default DB path without importing `workspace_store.py` at module scope.
+- **Resolution (2026-11-23):**
+  `_STORE` is now `None` at import time. `get_workspace_store()` constructs the singleton under a double-checked `threading.Lock`, and `store()` delegates to it. `tests/test_workspace_store.py` verifies no store or database exists before first use and that concurrent callers share one instance.
 
 ---
+
 
 ### [WP-11-F02] Hardcoded Absolute Developer Drive Paths in `installer/BrahmaEcho.spec` and `installer/BrahmaEcho_Setup.spec`
 - **Severity:** `Critical`
@@ -233,6 +236,8 @@ flowchart TD
   cwd = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
   ```
   Or remove obsolete `BrahmaEcho` specs if `BrahmaEvo` is the sole supported product.
+- **Resolution (2026-11-23):**
+  `installer/BrahmaEcho.spec` already used `os.getcwd()`; `installer/BrahmaEcho_Setup.spec` now resolves `cwd` the same way and builds `source_dir`, `install_wizard.py`, assets, icon and version paths with `os.path.join`. `tests/test_installer_specs.py` parses both specs and rejects developer drive paths.
 
 ---
 
@@ -378,19 +383,16 @@ flowchart TD
 ## 6. Prioritized Action Queue for This Subsystem
 
 ### 1. Immediate (P0 / P1)
-- [ ] **P0: Fix Eager SQLite Connection in `workspace_store.py` (`[WP-11-F01]`):** Change `_STORE = WorkspaceStore()` at line 542 to a lazy accessor `get_workspace_store()`. Add `try...except sqlite3.DatabaseError` error quarantine and automatic recovery.
-- [ ] **P0: Fix Hardcoded Paths in PyInstaller Specs (`[WP-11-F02]`):** Replace `D:\TiTech Prabha Solution\...` in `installer/BrahmaEcho.spec` and `installer/BrahmaEcho_Setup.spec` with relative path resolution.
-- [ ] **P1: Fix Frozen Executable Omissions in `installer/BrahmaEvo.spec` (`[WP-11-F03]`):**
-  - Add `brahma_api` to `datas` and `hiddenimports`.
-  - Add `uvicorn.protocols.http.auto`, `uvicorn.protocols.websockets.auto`, `uvicorn.lifespan.on`, `uvicorn.logging`, `yaml`, `fastembed` to `hiddenimports`.
-  - Patch `agent/subagent_library.py:156` to resolve `sys._MEIPASS` / `sys.executable` when running in a frozen environment.
-- [ ] **P1: Isolate `accept_instructions.py` Settings (`[WP-11-F06]`):** Point `config_manager.SETTINGS_FILE` to a temporary directory in `scripts/acceptance/accept_instructions.py` to prevent wiping user preferences.
+- [x] **P0: Fix Eager SQLite Connection in `workspace_store.py` (`[WP-11-F01]`):** `_STORE` starts as `None`; `get_workspace_store()` builds the singleton lazily under a lock, and `WorkspaceStore._connection()` already quarantines corrupt databases and retries.
+- [x] **P0: Fix Hardcoded Paths in PyInstaller Specs (`[WP-11-F02]`):** Both `BrahmaEcho` specs now resolve paths from the working directory; `tests/test_installer_specs.py` guards against regressions.
+- [x] **P1: Fix Frozen Executable Omissions in `installer/BrahmaEvo.spec` (`[WP-11-F03]`):** `brahma_api` and the required uvicorn/yaml/fastembed hidden imports are included; `agent/subagent_library.py` resolves frozen library paths.
+- [x] **P1: Isolate `accept_instructions.py` Settings (`[WP-11-F06]`):** `config_manager.SETTINGS_FILE` is redirected to a temporary directory and restored after the acceptance run.
 
 ### 2. Near-Term (P2)
 - [x] **P2: Disable or Retire Fictional Multi-Platform CI (`[WP-11-F04]`):** Resolved locally by deleting `.github/workflows/build-all-platforms.yml` and making `build.yml` the only `v*` workflow. `installer/install.sh` is still present and should not be advertised as supported; the fix is not pushed yet.
 - [ ] **P2: Create Automated Test Suite for `dashboard/` (`[WP-11-F05]`):** Author `tests/test_dashboard.py` exercising login auth, session management, and settings reflection.
-- [ ] **P2: Redirect Logging Away from Repository Root (`[WP-11-F06]`):** Update `actions/instagram_chat.py` and `actions/instagram_mcp.py` to write `ig_debug.log` to `core.user_paths.get_user_data_dir() / "logs"`.
-- [ ] **P2: Harden Job Object Containment against WindowsApps Aliases (`[WP-11-F07]`):** Resolve `sys.executable` via `os.path.realpath` in `agent/process.py`; add `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` (0x2000).
+- [x] **P2: Redirect Logging Away from Repository Root (`[WP-11-F06]`):** `actions/instagram_chat.py` and `actions/instagram_mcp.py` now write `ig_debug.log` under `core.user_paths.get_user_data_dir() / "logs"`.
+- [x] **P2: Harden Job Object Containment against WindowsApps Aliases (`[WP-11-F07]`):** `run_captured` resolves and rewrites WindowsApps interpreter aliases and every job object sets `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` (0x2000).
 
 ### 3. Cleanup / Refactor (P3)
 - [ ] **P3: Relocate Root Test and Probe Scripts (`[WP-11-F06]`):** Move `test_self_heal.py`, `test_local_brain.py`, `test_sensorium_live.py`, `live_handshake_probe.py`, and `download_offline_voices.py` into a new `tests/manual/` directory.

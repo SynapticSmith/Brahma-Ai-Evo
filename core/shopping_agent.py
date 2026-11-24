@@ -411,7 +411,6 @@ class ShoppingAgent:
 
             resp = llm_gateway.generate_content(
                 contents=f"User Search: {query}\n\nRetrieved Products:\n{json.dumps(items_payload, indent=2)}",
-                model="gemini-2.5-flash",
                 config={
                     "system_instruction": system_instruction,
                     "response_mime_type": "application/json",

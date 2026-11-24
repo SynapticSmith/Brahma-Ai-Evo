@@ -537,7 +537,7 @@ def browser_control(
         action      : go_to | navigate | search | click | type | scroll | fill_form |
                       smart_click | smart_type | get_text | press | back | forward |
                       refresh | open_tab | new_tab | switch_tab | list_tabs | close |
-                      snapshot | find | hover | evaluate | run_code | screenshot |
+                      snapshot | find | hover | evaluate | screenshot |
                       wait_for | select_option | dialog | upload | console | network
         url         : URL for go_to / navigate
         query       : search query
@@ -551,7 +551,6 @@ def browser_control(
         key         : key name for press (e.g. Enter, Escape, Tab, Backspace)
         fields      : {selector: value} dict or list of fields for fill_form
         expression  : JavaScript expression for evaluate
-        code        : Playwright code snippet for run_code
         path        : output path for screenshot
         tab         : 1-based tab index for switch_tab
         time_ms     : milliseconds to wait
@@ -634,8 +633,7 @@ def browser_control(
             result = mcp.evaluate(expr)
 
         elif action in {"run_code", "execute"}:
-            code = parameters.get("code") or parameters.get("snippet") or ""
-            result = mcp.run_code_unsafe(code)
+            result = "Unsafe code execution is disabled."
 
         elif action in {"screenshot", "take_screenshot"}:
             out_dir = Path.home() / "Desktop" / "BrahmaAI"

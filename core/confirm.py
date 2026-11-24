@@ -302,6 +302,12 @@ def pending_allows_always() -> bool:
         return bool(_pending is not None and _pending.allow_always)
 
 
+def pending_timeout() -> float:
+    """The budget of the approval currently on screen (default if none)."""
+    with _lock:
+        return float(_pending.timeout) if _pending is not None else TIMEOUT_SECONDS
+
+
 def pending_remember_label() -> str:
     """What the ALWAYS ALLOW button on screen would remember ('' if none)."""
     with _lock:

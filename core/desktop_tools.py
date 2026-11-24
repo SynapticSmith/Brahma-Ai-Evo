@@ -98,8 +98,9 @@ WAVE3: Dict[str, Tuple[str, bool]] = {
     "computer_settings": ("device", False),
     "smart_home_control": ("device", False),
     "browser_control": ("network", False),
-    "desktop_control": ("device", False),
-    "computer_control": ("device", False),
+    "open_embedded_browser": ("network", False),
+    "desktop_control": ("device", True),
+    "computer_control": ("exec", False),
     "game_updater": ("exec", False),
     "flight_finder": ("network", False),
     "file_processor": ("read", False),
@@ -148,7 +149,7 @@ WAVE3: Dict[str, Tuple[str, bool]] = {
     "game_sentinel": ("exec", False),
     "study_guard": ("device", False),
     "net_sentinel": ("network", False),
-    "space_cleaner": ("write", False),
+    "space_cleaner": ("write", True),
     "flowstate": ("device", False),
     "shopping_agent": ("network", False),
 }
@@ -956,6 +957,20 @@ def _browser_control(args: Dict[str, Any], context: Any) -> str:
     return browser_control(parameters=args, player=host.ui) or "Done."
 
 
+def _open_embedded_browser(args: Dict[str, Any], context: Any) -> str:
+    host = _host_for(context)
+    if host is None:
+        return desktop_host.MISSING_HOST
+    address = str(args.get("url") or "").strip()
+    if not address:
+        return "Please provide a website address to open."
+    try:
+        host.ui.open_embedded_browser(address)
+    except Exception as exc:
+        return f"Unable to open the embedded browser: {exc}"
+    return f"Opening {address} in Brahma's embedded browser. Some websites may restrict playback or sign-in."
+
+
 def _youtube_video(args: Dict[str, Any], context: Any) -> str:
     host = _host_for(context)
     if host is None:
@@ -1498,6 +1513,7 @@ HANDLERS = {
     "clipboard_processor": _clipboard_processor,
     "weather_report": _weather_report,
     "browser_control": _browser_control,
+    "open_embedded_browser": _open_embedded_browser,
     "youtube_video": _youtube_video,
     "file_processor": _file_processor,
     "screen_process": _screen_process,

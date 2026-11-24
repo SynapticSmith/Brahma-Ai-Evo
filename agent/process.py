@@ -35,11 +35,35 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
 from .sandbox import SandboxConfig, build_env, prepare_command
+
+
+def python_executable() -> str:
+    """Return the physical interpreter path, bypassing a WindowsApps alias."""
+    exe = sys.executable
+    if os.name != "nt" or "WindowsApps" not in exe.replace("/", "\\"):
+        return exe
+    physical = os.path.realpath(exe)
+    return physical if physical and os.path.isfile(physical) else exe
+
+
+def _rewrite_python_alias(value: Any) -> Any:
+    """Replace a WindowsApps alias in a shell command or prefix argv."""
+    if os.name != "nt":
+        return value
+    physical = python_executable()
+    if physical == sys.executable:
+        return value
+    if isinstance(value, str):
+        return value.replace(sys.executable, physical)
+    if isinstance(value, (list, tuple)):
+        return type(value)(_rewrite_python_alias(item) for item in value)
+    return value
 
 
 @dataclass(frozen=True)
@@ -89,7 +113,7 @@ class _JobHandle:
         Windows. That must not silently look enforced, so the caller turns the
         returned sentence into model-readable text.
         """
-        if self._handle is None or not config.has_limits:
+        if self._handle is None:
             return ""
         try:
             import ctypes
@@ -129,7 +153,9 @@ class _JobHandle:
 
             # JobObjectExtendedLimitInformation == 9
             info = _ExtendedLimits()
-            flags = 0
+            # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: children die with the handle
+            # even if the explicit terminate/cleanup path is skipped.
+            flags = 0x00002000
             if config.max_memory_mb:
                 memory = config.max_memory_mb * 1024 * 1024
                 info.ProcessMemoryLimit = memory
@@ -199,8 +225,7 @@ def _windows_job(
             return None
 
         job_handle = _JobHandle(job, kernel32)
-        if sandbox is not None and sandbox.has_limits:
-            job_handle.set_limits(sandbox)
+        job_handle.set_limits(sandbox if sandbox is not None else SandboxConfig())
 
         try:
             assigned = kernel32.AssignProcessToJobObject(job, process_handle)
@@ -371,6 +396,17 @@ def run_captured(
     else:
         argv, use_shell = prepare_command(command, sandbox.prefix, cwd)
         env, withheld = build_env(sandbox)
+
+    argv = _rewrite_python_alias(argv)
+    if os.name == "nt":
+        physical = python_executable()
+        if physical != sys.executable:
+            env = dict(os.environ if env is None else env)
+            path_key = "Path" if "Path" in env else "PATH"
+            parent = os.path.dirname(physical)
+            env[path_key] = os.pathsep.join(
+                [parent, env.get(path_key, "")]
+            ).rstrip(os.pathsep)
 
     process = subprocess.Popen(
         argv,

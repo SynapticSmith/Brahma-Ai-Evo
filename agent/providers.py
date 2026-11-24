@@ -632,20 +632,29 @@ def describe(provider: str = "auto") -> Dict[str, Any]:
     pid = resolve_provider(provider)
     detail: Dict[str, Any] = {"provider": pid}
     if pid == "local":
-        from core.local_brain import local_brain
-
-        detail["endpoint"] = getattr(local_brain, "endpoint", "")
-        detail["model"] = getattr(local_brain, "default_model", "")
+        try:
+            from core.local_brain import local_brain
+        except Exception:
+            pass
+        else:
+            detail["endpoint"] = getattr(local_brain, "endpoint", "")
+            detail["model"] = getattr(local_brain, "default_model", "")
     elif pid == "custom":
-        from llm_client import client as ai_client
-
-        detail["endpoint"] = getattr(ai_client, "_custom_url", "")
-        detail["model"] = getattr(ai_client, "_custom_model", "")
+        try:
+            from llm_client import client as ai_client
+        except Exception:
+            pass
+        else:
+            detail["endpoint"] = getattr(ai_client, "_custom_url", "")
+            detail["model"] = getattr(ai_client, "_custom_model", "")
     elif pid == "openrouter":
-        import or_client
-
-        detail["endpoint"] = or_client.API_URL
-        detail["model"] = or_client.TEXT_MODELS[0]
+        try:
+            import or_client
+        except Exception:
+            pass
+        else:
+            detail["endpoint"] = or_client.API_URL
+            detail["model"] = or_client.TEXT_MODELS[0]
     return detail
 
 

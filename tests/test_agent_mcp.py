@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from agent.mcp import (
+    _mark_workspace_trusted,
     MCPConfigError,
     MCPError,
     MCPServerConfig,
@@ -1434,6 +1435,11 @@ def test_mcp_client_resources_and_prompts_discovery(tmp_path: Path):
     assert "mcp_caps_get_prompt" not in specs_after
     assert "mcp_caps_list_prompts" not in specs_after
 
+
+def test_mark_workspace_trusted_is_fail_soft_without_core(monkeypatch):
+    monkeypatch.setitem(sys.modules, "core.user_paths", None)
+
+    _mark_workspace_trusted("/tmp/workspace")
 
 
 

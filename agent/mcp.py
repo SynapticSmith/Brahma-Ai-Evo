@@ -267,9 +267,14 @@ def _workspace_is_trusted(workspace: str | Path) -> bool:
 
 
 def _mark_workspace_trusted(workspace: str | Path) -> None:
-    from core.user_paths import trust_workspace
-
-    trust_workspace(workspace)
+    try:
+        from core.user_paths import trust_workspace
+    except Exception:
+        return
+    try:
+        trust_workspace(workspace)
+    except Exception:
+        return
 
 
 # --------------------------------------------------------------------------- #

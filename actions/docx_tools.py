@@ -15,6 +15,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from core.undo import capture_file_for_undo, push_undo_file
+
 PROJECT_NAME = "Brahma AI - Lite"
 DEFAULT_OUTPUT_DIR = Path.home() / "Downloads"
 
@@ -521,7 +523,10 @@ def word_document(parameters: dict, player=None, speak=None) -> str:
                 if numbered:
                     _append_numbered(doc, numbered)
 
+        undoable, previous_bytes = capture_file_for_undo(target_path)
         doc.save(target_path)
+        if undoable:
+            push_undo_file(target_path, previous_bytes, f"edited {target_path.name}")
         if params.get("open_after", True):
             _open_file(target_path)
         return f"Word document created: {target_path}"

@@ -1,10 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
-cwd = 'D:\\TiTech Prabha Solution\\Brahma AI\\Brahma AI\\Brahma-AI---Lite-main\\Brahma-AI---Lite-main'
-source_dir = 'D:\\TiTech Prabha Solution\\Brahma AI\\Brahma AI\\Brahma-AI---Lite-main\\Brahma-AI---Lite-main\\installer\\dist\\BrahmaEcho'
+cwd = os.path.abspath(os.getcwd())
+source_dir = os.path.join(cwd, 'installer', 'dist', 'BrahmaEcho')
 
 a = Analysis(
-    ['D:\\TiTech Prabha Solution\\Brahma AI\\Brahma AI\\Brahma-AI---Lite-main\\Brahma-AI---Lite-main\\install_wizard.py'],
+    [os.path.join(cwd, 'installer', 'install_wizard.py')],
     pathex=[],
     binaries=[],
     datas=[

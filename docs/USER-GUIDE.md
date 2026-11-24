@@ -1306,6 +1306,29 @@ The voice surface advertises `list_subagents` but omits the dispatch tools: the
 Gemini Live session has no text completer to build a child loop. Its prompt
 carries the same library index with `dispatch_available=False`.
 
+### 26A. Web search and page fetch
+
+`agent/web.py` registers two harness-native `network` tools: `web_search`
+(public results: titles, URLs, snippets) and `web_fetch` (one public `http(s)`
+page as readable text; JSON is pretty-printed, binary is refused). They are
+separate from the desktop-tagged `web_search`, so the CLI and API do not pull in
+PyQt or COM.
+
+- `web_search` accepts `query` and optional `max_results` (default 5, max 10).
+- `web_fetch` accepts `url` and optional `max_chars` (default 8,000) and
+  `timeout` (default 20 s, max 60 s).
+- The default backend is keyless DuckDuckGo HTML. Set `BRAHMA_SEARCH_BACKEND`
+  or the `web_search_backend` setting to `brave`, `tavily`, or `serpapi`; keys
+  come from the environment or the DPAPI-protected `api_keys.json` store. A
+  keyed backend with no key falls back to DuckDuckGo and says so.
+- The SSRF guard allows only public `http(s)` hosts, rejects credentials in the
+  URL, resolves and validates every redirect hop, and blocks loopback, private,
+  link-local, reserved, multicast, and cloud-metadata addresses. A trusted
+  local setup can opt in with `BRAHMA_WEB_ALLOW_PRIVATE=1` or
+  `web_allow_private_hosts=true`.
+- Responses are bounded: 2 MB read cap, 8,000-character return cap, and finite
+  timeouts, so one page cannot exhaust the model's context or worker thread.
+
 ---
 
 ## 27. MCP: client and server

@@ -573,19 +573,19 @@ flowchart TB
 ## 6. Prioritized Action Queue for This Subsystem
 
 1. **Immediate (P0 / P1):**
-   - [ ] Fix `ClipboardSentry` thread violation: Wrap `_on_clipboard_actionable` in `run_on_ui` before mutating `WorkspaceSidebar` (`core/ui_shell_actions.py:23-35`).
-   - [ ] Resolve confirmation overlay race: Support multiple pending approvals in `core/confirm.py` so back-to-back requests do not orphan worker threads into 90-second deadlocks.
-   - [ ] Un-minimize window on confirmation request: Ensure `MainWindow` is restored and raised when an approval arrives while minimized to tray (`core/ui_overlays_cards.py:152-166`).
-   - [ ] Move `local_api_key` and `custom_api_key` from cleartext `app_settings.json` to DPAPI-encrypted `api_keys.json` (`core/ui_connectivity.py:3178, 3290`).
-   - [ ] Fix pseudo-marshalled `run_on_ui` in `SystemConnectivityPage` so `_speech_status.setText` is dispatched to the GUI thread (`core/ui_connectivity.py:2478`).
+   - [x] Fix `ClipboardSentry` thread violation: `_on_clipboard_actionable` marshals UI mutation through the main-window runner (`core/ui_shell_actions.py:23-39`).
+   - [x] Resolve confirmation overlay race: `core/confirm.py` serializes blocking approvals with a per-call waiter and shared timeout.
+   - [x] Un-minimize window on confirmation request: `_apply_confirm_overlay` restores the main window before showing the confirmation when it is minimized or hidden; `tests/test_confirm_overlay_restore.py` guards both cases.
+   - [x] Move `local_api_key` and `custom_api_key` from cleartext `app_settings.json` to DPAPI-encrypted `api_keys.json`; legacy cleartext keys are removed (`core/ui_connectivity.py:4799-4811`).
+   - [x] Fix pseudo-marshalled `run_on_ui` in `SystemConnectivityPage`: the page now owns `_run_on_ui`, queuing worker-thread callbacks with `QTimer.singleShot(0, fn)`; `tests/test_connectivity_ui_thread.py` guards both thread cases.
 2. **Near-Term (P2):**
-   - [ ] Replace non-atomic file writes with `atomic_write_json` in `core/ui_connectivity.py:4458, 4623` and `core/ui_shell_discord.py:32`.
-   - [ ] Fix approval timeout desynchronization: Pass `pending.timeout` into `ConfirmationOverlay` instead of hardcoding 90 seconds (`core/ui_overlays.py:779`).
-   - [ ] Remove duplicate process spawn in `_change_theme`: Call `QApplication.instance().quit()` after `subprocess.Popen` (`core/ui_connectivity.py:4465`).
+   - [x] Replace non-atomic file writes with `atomic_write_json`: `core/ui_connectivity.py` theme/settings writes and `core/ui_shell_discord.py` now use the atomic writer; `tests/test_discord_settings_atomic.py` guards the Discord path.
+   - [x] Fix approval timeout desynchronization: `pending.timeout` is clamped and passed into `ConfirmationOverlay` instead of hardcoding 90 seconds.
+   - [x] Remove duplicate process spawn in `_change_theme`: theme changes now apply live (`core/ui_connectivity.py:4630-4648`); no restart `Popen` remains.
    - [ ] Eliminate global `QWidget.setStyleSheet` monkey-patch and deduplicate 3x `#00e5ff` replace calls (`ui.py:85-100`). Move `app_settings.json` import-time read into `BrahmaUI.__init__`.
-   - [ ] Fix file attachment timeline card typo: Change `_on_chat_event` to `on_chat_event` in `core/ui_runtime.py:156`.
+   - [x] Fix file attachment timeline card typo: `core/ui_runtime.py` accepts both `_on_chat_event` and `on_chat_event`.
 3. **Cleanup / Refactor (P3):**
-   - [ ] Deconstruct `core/ui_connectivity.py` (5,090 lines) into modular card components under `core/settings/`.
+   - [ ] Deconstruct `core/ui_connectivity.py` (5,297 lines) into modular card components under `core/settings/`.
    - [ ] Correct startup checkbox setting key: Disentangle `"show_workspace_on_startup"` from Windows Registry startup (`core/ui_connectivity.py:3364`).
    - [ ] Offload blocking network calls (`GmailEngine.test_connection`) and PowerShell shortcut scripts to background `QThread` workers.
-   - [ ] Slim `ui.py` down from 820 lines to create a safe buffer beneath the 827-line ratchet ceiling.
+   - [x] Slim `ui.py` below the 827-line ratchet ceiling: now 812 lines.

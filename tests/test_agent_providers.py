@@ -132,6 +132,14 @@ def test_describe_custom_reports_the_configured_endpoint(monkeypatch):
     }
 
 
+def test_describe_is_fail_soft_when_provider_module_is_unavailable(monkeypatch):
+    monkeypatch.setitem(sys.modules, "core.local_brain", None)
+
+    detail = providers.describe("local")
+
+    assert detail == {"provider": "local"}
+
+
 # --------------------------------------------------------------------------- #
 # Gemini: the harness adapter is the OpenAI-compatible endpoint
 # --------------------------------------------------------------------------- #

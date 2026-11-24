@@ -38,11 +38,11 @@ A forged skill can read only the folders the user approved, reach only the hosts
 
 | # | Finding | Current fork status | Target workstream |
 |---|---|---|---|
-| 1 | Forge writes and executes model-generated code with no trust boundary | Present. `SkillForge.forge_skill()` writes `features/<name>.py`, mutates `features/__init__.py`, and `main.py::_forge_skill` calls `DynamicToolRegistry.execute_sync` immediately. | WS-1, WS-2 |
+| 1 | Forge writes and executes model-generated code with no trust boundary | **Mitigated (Q0-A, 2026-11-01).** `SkillForge.forge_skill()` stages drafts under `%LOCALAPPDATA%\BrahmaAI\staged_skills\`; `main.py::_forge_skill` never imports or executes the draft. Promotion UX is still undefined. | WS-1, WS-2 |
 | 2 | Any `.py` in `plugins/` is imported at startup | **Closed (Q0-B, 2026-11-02).** `plugin_manager.py::load_plugins()` enforces an explicit opt-in allowlist from policy/settings; unapproved scripts are skipped. | WS-4 |
 | 3 | Unsigned self-update; default-Yes hard reset | **Closed (Q0-B, 2026-11-01).** `updater.py`, `core/updater.py`, and `core/updater_ota.py` are deleted along with the startup call and prompt UI; there is no self-update path until a signed one exists. | WS-6 |
-| 4 | Generation prompt tells skills to disable TLS verification | Present. `core/skill_forge.py` recommends `verify=False` and `ssl._create_unverified_context()`. | WS-1 |
-| 5 | Unpinned `pip install` of model-chosen names | Present. `SkillCrucible.resolve_dependencies()` runs `pip install <name> --quiet`. | WS-3 |
+| 4 | Generation prompt tells skills to disable TLS verification | **Closed (Q0-A, 2026-11-01).** The forge prompt requires verified TLS; `tests/test_security_phase0.py` rejects `verify=False`, `_create_unverified_context`, `CERT_NONE`, and disabled hostname checks in `core/skill_forge.py`. | WS-1 |
+| 5 | Unpinned `pip install` of model-chosen names | **Closed (Q0-A, 2026-11-01).** `SkillCrucible.resolve_dependencies()` reports availability and returns a manual install plan; it spawns no `pip` subprocess. | WS-3 |
 | 6 | Secrets recoverable: Fernet key beside DB; plaintext `api_keys.json` | **Closed (Q0-B, 2026-11-02).** `core/secret_store.py` user-scoped Windows DPAPI encryption for `api_keys.json`; `smart_home/storage.py::CredentialVault` protects `smart_home.key` with DPAPI and auto-migrates existing keys. | WS-7 |
 | 7 | Crucible validation is a denylist, not a sandbox | Present. 12 substrings, module-level splice, same-user `python -c`, 75s timeout. | WS-1, WS-2 |
 | 8 | High-risk automation with no privilege separation | Present. One process, one token, all tools in-process. | WS-10 |

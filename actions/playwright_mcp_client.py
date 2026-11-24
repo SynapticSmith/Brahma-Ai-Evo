@@ -340,11 +340,6 @@ class PlaywrightMCPClient:
         res = self.call_tool("browser_evaluate", {"function": fn})
         return res.get("text") or res.get("error") or "Evaluated."
 
-    def run_code_unsafe(self, code: str) -> str:
-        """Executes a Playwright code snippet."""
-        res = self.call_tool("browser_run_code_unsafe", {"code": code})
-        return res.get("text") or res.get("error") or "Executed snippet."
-
     def take_screenshot(self, output_path: Optional[str] = None, full_page: bool = False) -> str:
         """Takes a screenshot of the current page."""
         args: Dict[str, Any] = {"scale": "css"}

@@ -312,26 +312,26 @@ This audit identifies critical cross-cutting touchpoints that the Lead Orchestra
 
 ### Immediate (P0 / P1)
 1. **Reconcile `docs/ARCHITECTURE-SPEC.md` Internal Contradictions ([WP-12-F01]):**
-   - Clean up §5.2 ("Built-partial") and Appendix B to remove stale statements claiming native tools lack a policy engine, `agent_task` is active, or the gateway binds `0.0.0.0`.
-   - Synchronize §1, §4.1 (I-02), and §8.1 to reflect that Bridge v2 and 84 desktop `ToolSpec`s are 100% landed.
+   - [x] Cleaned up §5.2 ("Built-partial") and Appendix B to remove stale statements claiming native tools lack a policy engine, `agent_task` is active, or the gateway binds `0.0.0.0`.
+   - [x] Synchronized §1, §4.1 (I-02), and §8.1 to reflect that Bridge v2 and 98 desktop / 116 total `ToolSpec`s are 100% landed.
 2. **Document Post-`58a773d` Subsystems in Master Spec & User Guide ([WP-12-F02]):**
-   - Add architecture sections to `ARCHITECTURE-SPEC.md` covering Plane-A Routing Authority (`core/routing.py`), R0–R3 Tool Retrieval, Subagent Library (607 specialists), and `agent/web.py`.
-    - Add Appendix A entries for `ROUTING-AUDIT.md`, `ROUTING-IMPLEMENTATION.md`, `TOOL-RETRIEVAL-DESIGN.md`, and `user-notes-2.md`.
-   - Expand `USER-GUIDE.md` with user-facing documentation for subagent templates and web search.
+   - [x] Added architecture sections to `ARCHITECTURE-SPEC.md` covering Plane-A Routing Authority (`core/routing.py`), R0–R3 Tool Retrieval, Subagent Library (607 specialists), and `agent/web.py`.
+   - [x] Added Appendix A entries for `ROUTING-AUDIT.md`, `ROUTING-IMPLEMENTATION.md`, `TOOL-RETRIEVAL-DESIGN.md`, `user-notes.md`, and `user-notes-2.md`.
+   - [x] Expanded `USER-GUIDE.md` §26 and new §26A with user-facing documentation for subagent templates and web search.
 
 ### Near-Term (P2)
 3. **Correct `README.md` Sandbox Claims and Architecture Map ([WP-12-F03], [WP-12-F04]):**
    - [x] Replaced the "isolated Crucible sandbox" claim with an accurate staged-draft description; `ARCHITECTURE-SPEC.md` §7 and §13 now keep Findings 7–8 explicitly open.
-   - [ ] Update architecture directory tree to include `brahma_api/`, `subagents/`, `skills/`, and `skills_library/`.
-   - [ ] Add feature highlight and setup instructions for `brahma_api` (port 8010).
+   - [x] Updated architecture directory tree to include `brahma_api/`, `subagents/`, `skills/`, `skills_library/`, and `sandbox/`.
+   - [x] Added feature highlight and setup instructions for `brahma_api` (port 8010).
 4. **Close Open Notes in `docs/user-notes-2.md` ([WP-12-F05]):**
-   - Format all 3 items with `[x]` checkboxes and link to commits `26daa83` and `6439b2e`.
+   - [x] Formatted all 3 items with `[x]` checkboxes and linked to commits `26daa83` and `6439b2e`.
 5. **Update Security Finding Ledgers in `docs/SECURITY-ARCHITECTURE-ROADMAP.md` ([WP-12-F07]):**
-   - Mark Q0-A findings 1, 4, and 5 as "Closed (Q0-A, 2026-11-01)".
+   - [x] Findings 4 and 5 are "Closed (Q0-A, 2026-11-01)"; finding 1 is "Mitigated (Q0-A, 2026-11-01)" because staged forging no longer executes drafts but promotion UX remains open.
 
 ### Cleanup / Governance (P3)
 6. **Harmonize Root Governance Documents ([WP-12-F06]):**
    - Replace "Brahma AI - Lite" in `CONTRIBUTING.md` with "Brahma AI Evo".
    - Replace `"User"` placeholder in `TRADEMARK.md` with the official project entity.
 7. **Consolidate Baseline Versioning Matrix ([WP-12-F08]):**
-   - Add a historical test count and milestone ledger to `ARCHITECTURE-SPEC.md` §0.
+   - [x] Added a historical test count and milestone ledger to `ARCHITECTURE-SPEC.md` §0 and refreshed Appendix C from the current gate run.

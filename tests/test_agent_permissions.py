@@ -78,6 +78,23 @@ def test_catastrophic_command_is_hard_denied(workspace: Path):
     assert result.rule.startswith("exec.deny_patterns")
 
 
+@pytest.mark.parametrize(
+    "command",
+    [
+        "type api_keys.json",
+        "type .git\\config",
+        "echo $BRAHMA_DPAPI",
+        "dir C:\\Users\\Admin\\.ssh\\id_ed25519",
+    ],
+)
+def test_sensitive_path_references_are_hard_denied(workspace: Path, command: str):
+    policy = PermissionPolicy.from_dict({})
+    result = policy.evaluate("run_command", {"command": command}, tool_class="exec",
+                             context_workspace=workspace, headless=False)
+    assert result.decision == DENY
+    assert result.rule.startswith("exec.deny_patterns")
+
+
 def test_explicit_tool_rule_beats_class_default(workspace: Path):
     policy = PermissionPolicy.from_dict({"tools": {"run_command": "deny"}})
     result = policy.evaluate("run_command", {"command": "echo hi"}, tool_class="exec",

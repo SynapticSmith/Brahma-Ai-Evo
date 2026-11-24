@@ -1136,8 +1136,9 @@ TOOL_DECLARATIONS = [
     {
         "name": "youtube_video",
         "description": (
-            "Controls YouTube. Use for: playing videos, summarizing a video's content, "
-            "getting video info, or showing trending videos."
+            "Controls YouTube videos: search, play, summarize, and retrieve video information. "
+            "If the user only asks to open the YouTube website or visit YouTube, use "
+            "open_embedded_browser instead of starting an external browser."
         ),
         "parameters": {
             "type": "OBJECT",
@@ -1149,6 +1150,22 @@ TOOL_DECLARATIONS = [
                 "url":    {"type": "STRING", "description": "Video URL for get_info action"},
             },
             "required": []
+        }
+    },
+    {
+        "name": "open_embedded_browser",
+        "description": (
+            "Opens a website inside Brahma AI Evo's built-in QtWebEngine browser window. "
+            "Use this for simple requests such as 'open YouTube', 'visit example.com', "
+            "or 'show this website inside Brahma'. This is not browser automation. "
+            "Only HTTP and HTTPS website addresses are supported."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "url": {"type": "STRING", "description": "Website address, e.g. https://www.youtube.com"},
+            },
+            "required": ["url"]
         }
     },
     {

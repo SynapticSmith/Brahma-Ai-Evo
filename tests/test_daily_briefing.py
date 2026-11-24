@@ -7,10 +7,10 @@ from main import BrahmaLive, _looks_like_daily_briefing_request, _speak_daily_br
 
 def test_daily_briefing_returns_when_one_source_times_out(monkeypatch):
     def slow_weather(city=None):
-        time.sleep(0.05)
+        time.sleep(1.0)
         return {"status": "success", "city": city or "Test City"}
 
-    monkeypatch.setattr(daily_briefing, "BRIEFING_FETCH_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(daily_briefing, "BRIEFING_FETCH_TIMEOUT_SECONDS", 0.05)
     monkeypatch.setattr(daily_briefing, "_get_weather_intel", slow_weather)
     monkeypatch.setattr(daily_briefing, "_get_calendar_intel", lambda: {"count": 0, "events": []})
     monkeypatch.setattr(daily_briefing, "_get_gmail_intel", lambda: {"configured": False, "count": 0})

@@ -164,7 +164,8 @@ Evaluated against the authoritative system invariants in [`docs/ARCHITECTURE-SPE
 | **I-23** | Cancellation is a flag (`agent/runtime.cancel_event`), never a killed thread | **PASS** | [`agent/runtime.py:115-135`](file:///C:/Users/Admin/Brahma-Ai-Evo/agent/runtime.py#L115-L135), [`agent/loop.py:420-590`](file:///C:/Users/Admin/Brahma-Ai-Evo/agent/loop.py#L420-L590) | Cooperative `threading.Event` checked between turns and tool calls; worker threads are never killed. |
 | **I-24** | One subprocess path per concern (`run_captured`); do not add a second `subprocess.run(shell=True, timeout=...)` | **PASS** | [`agent/process.py:280-356`](file:///C:/Users/Admin/Brahma-Ai-Evo/agent/process.py#L280-L356) (`run_captured`) | All harness command execution uses `run_captured`. |
 | **I-25** | One marshaller per boundary: Qt-thread-only calls emitted through queued signals, never inline from worker/asyncio threads | **PASS** | [`agent/runtime.py:260-280`](file:///C:/Users/Admin/Brahma-Ai-Evo/agent/runtime.py#L260-L280) | Harness executes in worker threads and invokes GUI approvals only via the thread-safe `gui_approver` bridge. |
-| **I-26** | No import-time side effects: importing a UI/core module must not start a thread, open a socket, or read/write user data | **PARTIAL** | [`agent/session.py:36-45`](file:///C:/Users/Admin/Brahma-Ai-Evo/agent/session.py#L36-L45) (`_default_db_path`) | `agent/*` has zero import-time side effects, but `_default_db_path()` imports `workspace_store`, triggering `workspace_store.py:542`'s eager `_STORE = WorkspaceStore()` (`[WP-01-F07]`). |
+| **I-26** | No import-time side effects: importing a UI/core module must not start a thread, open a socket, or read/write user data | **PARTIAL** | [`agent/session.py:36-45`](file:///C:/Users/Admin/Brahma-Ai-Evo/agent/session.py#L36-L45) (`_default_db_path`) | `agent/*` has zero import-time side effects; `_default_db_path()` imports `workspace_store`, which now exposes a lazy `get_workspace_store()` accessor instead of an eager `_STORE = WorkspaceStore()` (`[WP-01-F07]`).
+ |
 | **I-27** | Prefer a targeted edit over a whole-file rewrite; run project's own gates | **PASS** | [`agent/code_tools.py:310-390`](file:///C:/Users/Admin/Brahma-Ai-Evo/agent/code_tools.py#L310-L390) (`edit_file`) | `edit_file` provides exact targeted replacements with unified diff output. |
 | **I-28** | A new harness tool is a `ToolSpec` plus tests—never a new `elif` in `core/tool_exec.py` (ratchet: 0 `elif`, $\le 147$ lines) | **PASS** | [`agent/spec.py:55-95`](file:///C:/Users/Admin/Brahma-Ai-Evo/agent/spec.py#L55-L95) (`register_tool`) | All harness tools register as `ToolSpec` instances with dedicated `tests/test_agent_*.py` coverage. |
 
@@ -420,15 +421,15 @@ Evaluated against the authoritative system invariants in [`docs/ARCHITECTURE-SPE
 ## 6. Prioritized Action Queue for This Subsystem
 
 ### 1. Immediate (P0/P1)
-- [ ] **[P0] Fix SSRF TOCTOU DNS Rebinding in `agent/web.py` ([WP-01-F01]):** Pin socket connection to the pre-validated IP address in `urllib.request` custom connection handler to prevent local host boundary escape.
-- [ ] **[P1] Fix Windows Grandchild Process Leak in `agent/process.py` ([WP-01-F04]):** Add unconditional `taskkill /F /T` fallback in `_kill_tree` to guarantee complete process tree termination on timeout.
-- [ ] **[P1] Fix Parallel Scheduler Path Key Blind Spot in `agent/loop.py` ([WP-01-F02]):** Inspect all 13 `PATH_ARG_KEYS` and handle parent directory traversals in glob patterns.
+- [x] **[P0] Fix SSRF TOCTOU DNS Rebinding in `agent/web.py` ([WP-01-F01]):** Guarded `HTTPConnection`/`HTTPSConnection` re-resolve and validate the target IP before connecting; `web_fetch` validates every URL and redirect.
+- [x] **[P1] Fix Windows Grandchild Process Leak in `agent/process.py` ([WP-01-F04]):** `_kill_tree` runs `taskkill /F /T /PID` before job termination on timeout.
+- [x] **[P1] Fix Parallel Scheduler Path Key Blind Spot in `agent/loop.py` ([WP-01-F02]):** `PATH_ARG_KEYS` is centralized in `agent/prompts.py` and glob/parent traversal patterns are fenced in the scheduler.
 
 ### 2. Near-Term (P2)
-- [ ] **[P2] Add Mutex Synchronization to `MCPSession` in `agent/mcp.py` ([WP-01-F03]):** Prevent race conditions between turn-boundary dynamic refresh and in-flight tool calls.
-- [ ] **[P2] Fix Output Cap Negative Slice Underflow in `agent/spec.py` ([WP-01-F05]):** Clamp `head` calculation when `cap < 1200`.
-- [ ] **[P2] Thread-Safe `ToolRegistry` in `agent/spec.py` ([WP-01-F06]):** Wrap `_REGISTRY` mutations and iterations in a `threading.Lock`.
+- [x] **[P2] Add Mutex Synchronization to `MCPSession` in `agent/mcp.py` ([WP-01-F03]):** `MCPSession` uses an `RLock` for start, call and refresh; pending calls are failed on close.
+- [x] **[P2] Fix Output Cap Negative Slice Underflow in `agent/spec.py` ([WP-01-F05]):** `cap <= 1400` uses a safe short-output branch; no negative `head` slice remains.
+- [x] **[P2] Thread-Safe `ToolRegistry` in `agent/spec.py` ([WP-01-F06]):** `_REGISTRY_LOCK` guards registration, lookup and iteration.
 
 ### 3. Cleanup / Refactor (P3)
-- [ ] **[P3] Isolate Session Fallback DB Path in `agent/session.py` ([WP-01-F07]):** Decouple `_default_db_path` from `workspace_store.py` module load to prevent test suite interference.
-- [ ] **[P3] Add Fail-Soft Guards to Informational `core` Imports ([WP-01-F08]):** Wrap `mark_workspace_trusted` in `agent/mcp.py` and `LLMGateway` in `agent/providers.py` in `try...except ImportError` blocks.
+- [x] **[P3] Isolate Session Fallback DB Path in `agent/session.py` ([WP-01-F07]):** The fallback path is a local import and `WorkspaceStore` no longer opens the database at module import.
+- [x] **[P3] Add Fail-Soft Guards to Informational `core` Imports ([WP-01-F08]):** `_mark_workspace_trusted` and `providers.describe` now degrade to safe defaults when optional modules cannot be imported.

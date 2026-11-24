@@ -118,6 +118,11 @@
 ### 🧠 Long-Term Memory & Identity
 - Adaptive memory engine stores personal user preferences, ongoing projects, and custom instructions across sessions.
 
+### 🔌 OpenAI-Compatible Local API
+- Optional loopback server on port 8010 for Cline, Continue, Open WebUI, and custom scripts.
+- Per-token capability presets (`chat`, `reader`, `worker`, `operator`) inherit the same agent policy boundary.
+- Disabled by default; bearer auth is required and remote binds need an explicit configuration change.
+
 ---
 
 ## 🚀 Quick Start
@@ -163,6 +168,17 @@ $env:QT_QPA_PLATFORM="offscreen"; .\.venv\Scripts\python.exe -m pytest tests -q
 
 The scripts refuse anything but Python 3.11 rather than failing later inside a dependency build.
 
+### Optional: OpenAI-compatible local API
+
+The GUI starts the API when `config\brahma_api.json` has `"enabled": true`; for headless use:
+
+```powershell
+if (-not (Test-Path config\brahma_api.json)) { Copy-Item config\brahma_api.example.json config\brahma_api.json }
+python -m brahma_api token mint --preset reader --workspace brahma --label "Cline"
+python -m brahma_api serve
+```
+
+Edit `config\brahma_api.json` first: set `"enabled": true` and keep `"host": "127.0.0.1"`. Point a client at `http://127.0.0.1:8010/v1` with the printed bearer token. Use `python -m brahma_api token list` to review keys and `python -m brahma_api token revoke <id>` to disable one.
 
 ---
 
@@ -206,6 +222,11 @@ Brahma AI Evo/
 │   ├── loop.py                 # Bounded observe -> act -> observe loop
 │   ├── code_tools.py           # read/write/edit/glob/grep/run_command
 │   └── permissions.py          # Capability policy & approval gates
+├── brahma_api/                 # Loopback OpenAI-compatible API server (port 8010)
+├── subagents/                  # Vendored specialist subagent templates + catalog
+├── skills/                     # On-demand project skill playbooks
+├── skills_library/             # Bundled skills library assets
+├── sandbox/                    # AppContainer launchers
 ├── features/                   # Self-evolved & custom Python tools
 │   ├── circuit_schematic.py    # Modular circuit schematic feature
 │   └── spotify_mcp.py          # Modular Spotify feature
@@ -236,7 +257,7 @@ python -m agent permissions init
 ## 🔒 Security & Privacy
 
 - All long-term memories, credentials, and configuration files are stored locally in `%LOCALAPPDATA%\BrahmaAI\`.
-- External tools run through permission sentries and the isolated Crucible sandbox.
+- External tools run through permission sentries; Project Ultron only stages reviewed drafts and does not provide a security sandbox.
 - Audio and video frames are only streamed during active conversation sessions.
 
 ---

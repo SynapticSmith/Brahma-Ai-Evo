@@ -35,8 +35,14 @@ class _SetupFlowMixin:
             self._overlay = ov
         except Exception:
             import traceback
-            with open('setup_crash.log', 'w') as err_f:
-                err_f.write(traceback.format_exc())
+            from core.user_paths import get_user_data_dir
+
+            crash_log = get_user_data_dir() / "logs" / "setup_crash.log"
+            crash_log.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                crash_log.write_text(traceback.format_exc(), encoding="utf-8")
+            except OSError:
+                pass
             raise
 
 

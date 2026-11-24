@@ -34,6 +34,67 @@ def _labels(overlay):
     return {button.text() for button in overlay.findChildren(QPushButton)}
 
 
+def _countdown_text(overlay):
+    return next(
+        label.text() for label in overlay.findChildren(QLabel)
+        if "auto-cancels" in label.text()
+    )
+
+
+def test_countdown_defaults_to_ninety_seconds():
+    _app()
+    overlay = ConfirmationOverlay("Approve?", "detail")
+    assert overlay._remaining_secs == 90
+    assert _countdown_text(overlay) == "Confirmation auto-cancels in 90s"
+    overlay.deleteLater()
+
+
+@pytest.mark.parametrize("timeout_seconds", [30, 300])
+def test_countdown_uses_active_approval_budget(timeout_seconds):
+    _app()
+    overlay = ConfirmationOverlay("Approve?", "detail", timeout_seconds=timeout_seconds)
+    assert overlay._remaining_secs == timeout_seconds
+    assert _countdown_text(overlay) == f"Confirmation auto-cancels in {timeout_seconds}s"
+    overlay.deleteLater()
+
+
+def test_manual_ticks_cancel_at_supplied_budget():
+    _app()
+    overlay = ConfirmationOverlay("Approve?", "detail", timeout_seconds=3)
+    overlay._timer.stop()
+    answered, closed = [], []
+    overlay.answered.connect(answered.append)
+    overlay.closed.connect(lambda: closed.append(True))
+
+    overlay._tick()
+    overlay._tick()
+    assert answered == []
+    assert _countdown_text(overlay) == "Confirmation auto-cancels in 1s"
+
+    overlay._tick()
+    assert answered == [False]
+    assert closed == [True]
+    overlay.deleteLater()
+
+
+def test_pending_timeout_exposes_the_active_budget(monkeypatch):
+    from core import confirm as confirm_gate
+
+    monkeypatch.setattr(confirm_gate, "_pending", None)
+    assert confirm_gate.pending_timeout() == confirm_gate.TIMEOUT_SECONDS
+
+    pending = confirm_gate._Pending(
+        key="run_command",
+        title="Approve run_command?",
+        detail="detail",
+        run=lambda: "ok",
+        at=0.0,
+        timeout=42.0,
+    )
+    monkeypatch.setattr(confirm_gate, "_pending", pending)
+    assert confirm_gate.pending_timeout() == 42.0
+
+
 def test_always_button_only_exists_for_session_approvals():
     _app()
     plain = ConfirmationOverlay("Approve run_command?", "detail")

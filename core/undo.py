@@ -38,12 +38,14 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 # How many reversible operations we keep. Ten is roughly "this conversation":
 # far enough back to catch a mistake you noticed a few commands later, short
 # enough that a closure holding a file's old contents cannot pile up in RAM.
 MAX_DEPTH = 10
+FILE_UNDO_LIMIT = 1_000_000
 
 
 @dataclass
@@ -74,6 +76,32 @@ def push_undo(label: str, undo_fn: Callable[[], str]) -> None:
                 _stack.pop(0)
     except Exception as e:                                  # pragma: no cover
         print(f"[Undo] push failed: {e}")
+
+
+def capture_file_for_undo(path: Path, limit: int = FILE_UNDO_LIMIT) -> tuple[bool, bytes | None]:
+    """Return (undoable, previous_bytes) for a file about to be overwritten."""
+    try:
+        if not path.exists():
+            return True, None
+        if path.stat().st_size > limit:
+            return False, None
+        return True, path.read_bytes()
+    except Exception:
+        return False, None
+
+
+def push_undo_file(path: Path, previous: bytes | None, label: str | None = None) -> None:
+    """Register a binary-safe restore for an overwritten or newly created file."""
+    def _fn() -> str:
+        if previous is None:
+            if path.exists():
+                path.unlink()
+                return f"Removed '{path.name}' — it did not exist before."
+            return f"'{path.name}' is already gone."
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(previous)
+        return f"Restored the previous contents of '{path.name}'."
+    push_undo(label or f"edited {path.name}", _fn)
 
 
 def can_undo() -> bool:
