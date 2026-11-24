@@ -603,8 +603,18 @@ class WorkspaceStore:
         ]
 
 
-_STORE = WorkspaceStore()
+_STORE: WorkspaceStore | None = None
+_STORE_LOCK = threading.Lock()
+
+
+def get_workspace_store() -> WorkspaceStore:
+    global _STORE
+    if _STORE is None:
+        with _STORE_LOCK:
+            if _STORE is None:
+                _STORE = WorkspaceStore()
+    return _STORE
 
 
 def store() -> WorkspaceStore:
-    return _STORE
+    return get_workspace_store()

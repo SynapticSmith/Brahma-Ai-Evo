@@ -207,9 +207,12 @@ flowchart TD
          return _STORE
      ```
   2. Wrap `_connect()` and `_init_db()` in `WorkspaceStore` with `try...except sqlite3.DatabaseError`. On corruption, log an error, rename the corrupted file to `workspace_store.sqlite3.corrupted.<timestamp>`, and transparently reinitialize a fresh SQLite database.
-  3. Ensure `agent/session.py` defines its default DB path without importing `workspace_store.py` at module scope.
+   3. Ensure `agent/session.py` defines its default DB path without importing `workspace_store.py` at module scope.
+- **Resolution (2026-11-23):**
+  `_STORE` is now `None` at import time. `get_workspace_store()` constructs the singleton under a double-checked `threading.Lock`, and `store()` delegates to it. `tests/test_workspace_store.py` verifies no store or database exists before first use and that concurrent callers share one instance.
 
 ---
+
 
 ### [WP-11-F02] Hardcoded Absolute Developer Drive Paths in `installer/BrahmaEcho.spec` and `installer/BrahmaEcho_Setup.spec`
 - **Severity:** `Critical`
@@ -378,7 +381,7 @@ flowchart TD
 ## 6. Prioritized Action Queue for This Subsystem
 
 ### 1. Immediate (P0 / P1)
-- [ ] **P0: Fix Eager SQLite Connection in `workspace_store.py` (`[WP-11-F01]`):** Change `_STORE = WorkspaceStore()` at line 542 to a lazy accessor `get_workspace_store()`. Add `try...except sqlite3.DatabaseError` error quarantine and automatic recovery.
+- [x] **P0: Fix Eager SQLite Connection in `workspace_store.py` (`[WP-11-F01]`):** `_STORE` starts as `None`; `get_workspace_store()` builds the singleton lazily under a lock, and `WorkspaceStore._connection()` already quarantines corrupt databases and retries.
 - [ ] **P0: Fix Hardcoded Paths in PyInstaller Specs (`[WP-11-F02]`):** Replace `D:\TiTech Prabha Solution\...` in `installer/BrahmaEcho.spec` and `installer/BrahmaEcho_Setup.spec` with relative path resolution.
 - [x] **P1: Fix Frozen Executable Omissions in `installer/BrahmaEvo.spec` (`[WP-11-F03]`):** `brahma_api` and the required uvicorn/yaml/fastembed hidden imports are included; `agent/subagent_library.py` resolves frozen library paths.
 - [x] **P1: Isolate `accept_instructions.py` Settings (`[WP-11-F06]`):** `config_manager.SETTINGS_FILE` is redirected to a temporary directory and restored after the acceptance run.
