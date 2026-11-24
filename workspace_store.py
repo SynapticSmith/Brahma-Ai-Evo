@@ -14,7 +14,6 @@ from typing import Any
 import warnings
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=FutureWarning)
-    import google.generativeai as genai
 
 
 def _base_dir() -> Path:
@@ -83,6 +82,7 @@ class WorkspaceStore:
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
+        os.makedirs(self._db_path.parent, exist_ok=True)
         conn = sqlite3.connect(self._db_path, timeout=10, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL;")
@@ -540,8 +540,18 @@ class WorkspaceStore:
         ]
 
 
-_STORE = WorkspaceStore()
+_STORE: WorkspaceStore | None = None
+_STORE_LOCK = threading.Lock()
+
+
+def get_workspace_store() -> WorkspaceStore:
+    global _STORE
+    if _STORE is None:
+        with _STORE_LOCK:
+            if _STORE is None:
+                _STORE = WorkspaceStore()
+    return _STORE
 
 
 def store() -> WorkspaceStore:
-    return _STORE
+    return get_workspace_store()
