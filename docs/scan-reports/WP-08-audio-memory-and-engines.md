@@ -378,8 +378,8 @@ While the low-level Windows hardware integrations (such as direct Win32/NT memor
   winsound.PlaySound(output_path, winsound.SND_FILENAME)
   ```
   This is a blocking C-runtime call. `actions/attention_monitor.py:stop_native_speech()` only stops `pyttsx3`.
-- **Impact:** Pressing `Ctrl+Shift+X` or issuing a cancel command cannot halt local audio playback; the assistant continues speaking until the WAV finishes.
-- **Recommended Fix:** Replace `winsound.PlaySound` with non-blocking streaming playback through `AudioIO.play_audio()`, or use `winsound.SND_ASYNC` and issue `winsound.PlaySound(None, winsound.SND_PURGE)` on cancel.
+- **Impact:** Local audio playback can run to the end of the WAV after a cancel unless the cancel path purges it.
+- **Resolution (2026-11-23):** `stop_native_speech()` now issues `winsound.PlaySound(None, winsound.SND_PURGE)` before audio cleanup and is wired into barge-in, session cancel and text turn cancel. `tests/test_tts_cancellation.py` guards the purge call.
 
 ---
 
@@ -446,7 +446,7 @@ While the low-level Windows hardware integrations (such as direct Win32/NT memor
 
 ### Priority 2 (Medium / Robustness & Architectural Debt)
 - [x] **P2 — Atomic File Writes (`FINDING WP08-05`):** `core/identity.py`, `core/learned_rules.py`, `sound_manager.py`, and `core/flowstate.py` now use atomic write utilities.
-- [ ] **P2 — TTS Cancellation & Re-entrancy (`FINDING WP08-06`):** Refactor local TTS in `core/speech_tts.py` to play via `AudioIO` or use asynchronous playback responsive to cancel events.
+- [x] **P2 — TTS Cancellation & Re-entrancy (`FINDING WP08-06`):** `stop_native_speech()` purges winsound playback and is wired into cancel paths; `tests/test_tts_cancellation.py` guards it.
 - [ ] **P2 — Remove Dead Code (`FINDING WP08-07`):** Delete or archive orphaned `core/live_voice_engine.py` and `core/memory_cortex.py`.
 - [x] **P2 — Provider Routing Consistency (`FINDING WP08-08`):** Remove hardcoded `"gemini-2.5-flash"` in `core/reply_flow.py` and `core/shopping_agent.py`; route through active provider router.
 
