@@ -387,7 +387,7 @@ flowchart TD
 - [x] **P2: Disable or Retire Fictional Multi-Platform CI (`[WP-11-F04]`):** Resolved locally by deleting `.github/workflows/build-all-platforms.yml` and making `build.yml` the only `v*` workflow. `installer/install.sh` is still present and should not be advertised as supported; the fix is not pushed yet.
 - [ ] **P2: Create Automated Test Suite for `dashboard/` (`[WP-11-F05]`):** Author `tests/test_dashboard.py` exercising login auth, session management, and settings reflection.
 - [x] **P2: Redirect Logging Away from Repository Root (`[WP-11-F06]`):** `actions/instagram_chat.py` and `actions/instagram_mcp.py` now write `ig_debug.log` under `core.user_paths.get_user_data_dir() / "logs"`.
-- [ ] **P2: Harden Job Object Containment against WindowsApps Aliases (`[WP-11-F07]`):** Resolve `sys.executable` via `os.path.realpath` in `agent/process.py`; add `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` (0x2000).
+- [x] **P2: Harden Job Object Containment against WindowsApps Aliases (`[WP-11-F07]`):** `run_captured` resolves and rewrites WindowsApps interpreter aliases and every job object sets `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` (0x2000).
 
 ### 3. Cleanup / Refactor (P3)
 - [ ] **P3: Relocate Root Test and Probe Scripts (`[WP-11-F06]`):** Move `test_self_heal.py`, `test_local_brain.py`, `test_sensorium_live.py`, `live_handshake_probe.py`, and `download_offline_voices.py` into a new `tests/manual/` directory.

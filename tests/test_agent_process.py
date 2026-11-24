@@ -11,16 +11,73 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from agent.process import ProcessResult, _windows_job, run_captured
+from agent.process import (
+    ProcessResult,
+    _JobHandle,
+    _rewrite_python_alias,
+    _windows_job,
+    python_executable,
+    run_captured,
+)
 from agent.sandbox import SandboxConfig
 
 
 def _cmd(code: str) -> str:
     """A shell command that runs ``code`` in a fresh interpreter."""
     return f'"{sys.executable}" -c "{code}"'
+
+
+def test_windowsapps_alias_is_resolved_and_rewritten(monkeypatch, tmp_path: Path):
+    alias = tmp_path / "WindowsApps" / "python.exe"
+    alias.parent.mkdir(parents=True)
+    alias.write_bytes(b"")
+    physical = tmp_path / "Python312" / "python.exe"
+    physical.parent.mkdir(parents=True)
+    physical.write_bytes(b"")
+
+    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(sys, "executable", str(alias))
+    monkeypatch.setattr(
+        os.path,
+        "realpath",
+        lambda value: str(physical) if value == str(alias) else value,
+    )
+
+    assert python_executable() == str(physical)
+    command = f'"{alias}" -c "pass"'
+    assert _rewrite_python_alias(command) == f'"{physical}" -c "pass"'
+
+
+class _FakeSetInformation:
+    def __init__(self, calls: list) -> None:
+        self.calls = calls
+        self.argtypes = None
+        self.restype = None
+
+    def __call__(self, handle: Any, info_class: int, info: Any, size: int) -> int:
+        self.calls.append((info_class, info._obj.BasicLimitInformation.LimitFlags))
+        return 1
+
+
+class _FakeKernel:
+    def __init__(self) -> None:
+        self.calls: list = []
+        self.SetInformationJobObject = _FakeSetInformation(self.calls)
+
+
+def test_job_limits_include_kill_on_close():
+    kernel = _FakeKernel()
+    handle = _JobHandle(123, kernel)
+
+    assert handle.set_limits(SandboxConfig(max_memory_mb=64)) == ""
+    assert len(kernel.calls) == 1
+    info_class, flags = kernel.calls[0]
+    assert info_class == 9
+    assert flags & 0x2000
 
 
 def test_run_captured_returns_output_and_exit_code(tmp_path: Path):
