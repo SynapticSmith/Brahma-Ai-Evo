@@ -431,4 +431,4 @@ Evaluated against the authoritative system invariants in [`docs/ARCHITECTURE-SPE
 
 ### 3. Cleanup / Refactor (P3)
 - [x] **[P3] Isolate Session Fallback DB Path in `agent/session.py` ([WP-01-F07]):** The fallback path is a local import and `WorkspaceStore` no longer opens the database at module import.
-- [ ] **[P3] Add Fail-Soft Guards to Informational `core` Imports ([WP-01-F08]):** Wrap `mark_workspace_trusted` in `agent/mcp.py` and `LLMGateway` in `agent/providers.py` in `try...except ImportError` blocks.
+- [x] **[P3] Add Fail-Soft Guards to Informational `core` Imports ([WP-01-F08]):** `_mark_workspace_trusted` and `providers.describe` now degrade to safe defaults when optional modules cannot be imported.
