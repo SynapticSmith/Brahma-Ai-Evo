@@ -3,6 +3,7 @@ import threading
 import time
 from types import SimpleNamespace
 
+import core
 from core.audio_io import AudioIO
 
 
@@ -35,11 +36,9 @@ def test_modular_tts_calls_are_serialized(monkeypatch):
             active -= 1
             completed.append(text)
 
-    monkeypatch.setitem(
-        sys.modules,
-        "core.speech_tts",
-        SimpleNamespace(speak=fake_speak),
-    )
+    fake_speech_tts = SimpleNamespace(speak=fake_speak)
+    monkeypatch.setitem(sys.modules, "core.speech_tts", fake_speech_tts)
+    monkeypatch.setattr(core, "speech_tts", fake_speech_tts, raising=False)
 
     host = _Host()
     audio = AudioIO.__new__(AudioIO)
