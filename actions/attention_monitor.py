@@ -505,6 +505,13 @@ def speak_native(text: str, force_edge: bool = False) -> None:
 
 
 def stop_native_speech() -> None:
+    if os.name == "nt":
+        try:
+            import winsound
+
+            winsound.PlaySound(None, winsound.SND_PURGE)
+        except Exception:
+            pass
     _cleanup_current_audio()
 
 
