@@ -417,10 +417,10 @@ The findings in WP-02 directly intersect with several other Work Packages. The O
 ## 6. Prioritized Action Queue for This Subsystem
 
 ### 1. Immediate (P0 / P1) — Critical Vulnerabilities & Bug Fixes
-- [ ] **[P0] Fix SQLite Thread-Sharing in `_Fts5Backend` ([WP-02-F02]):** In `core/tool_index.py:504`, change `sqlite3.connect(":memory:")` to `sqlite3.connect(":memory:", check_same_thread=False)`. Add a unit test in `tests/test_tool_index.py` asserting non-empty FTS5 search results from a separate spawned thread.
-- [ ] **[P1] Close `DynamicToolRegistry` Policy Bypass ([WP-01-F01]):** Remove the fallback execution in `core/tool_exec.py:120-144` and `core/text_turn_controller.py:359`. Register dynamic skills into `agent.spec` as `ToolSpec` objects so that all dynamic invocations route through `AgentRuntime.execute`.
-- [ ] **[P1] Secure `desktop_control` Execution Class ([WP-02-F03]):** Add `_classify_desktop_control` in `core/desktop_tools.py` that maps `action="task"` to policy class `"exec"` and enforces `requires_approval=True`.
-- [ ] **[P1] Eliminate Import-Time Side Effect in `workspace_store.py` ([WP-02-F04]):** Refactor `_STORE = WorkspaceStore()` in `workspace_store.py:542` to a lazy `get_store()` getter to satisfy Invariant I-26.
+- [x] **[P0] Fix SQLite Thread-Sharing in `_Fts5Backend` ([WP-02-F02]):** `core/tool_index.py` uses `sqlite3.connect(":memory:", check_same_thread=False)`; `tests/test_tool_index.py` exercises FTS5 from a worker thread.
+- [ ] **[P1] Close `DynamicToolRegistry` Policy Bypass ([WP-01-F01]):** Voice routing is fixed, but the text path at `core/text_turn_controller.py:435-444` still calls raw `execute_sync`; finish routing dynamic skills through `AgentRuntime.execute`.
+- [ ] **[P1] Secure `desktop_control` Execution Class ([WP-02-F03]):** `_classify_desktop_control` now maps `action="task"` to `"exec"`; still needs explicit `requires_approval=True` rather than class-only approval.
+- [x] **[P1] Eliminate Import-Time Side Effect in `workspace_store.py` ([WP-02-F04]):** `WorkspaceStore.__init__` no longer opens the database for the module-level store; connection setup and corruption recovery are lazy.
 
 ### 2. Near-Term (P2) — Hardening & Concurrency Protection
 - [ ] **[P2] Enforce Bridge Recursion Depth & Thread Safety ([WP-02-F05]):** Add a hard recursion ceiling check (`if self._bridge_depth > 3: return "Max recursion exceeded"`) and wrap `self._recent_calls` mutations behind a `threading.Lock()` in `core/tool_exec.py`.

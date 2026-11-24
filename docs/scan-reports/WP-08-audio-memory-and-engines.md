@@ -439,13 +439,13 @@ While the low-level Windows hardware integrations (such as direct Win32/NT memor
 ## 6. Prioritized Action Queue
 
 ### Priority 0 / Priority 1 (Blocker / High Security Risk)
-- [ ] **P0 — Fix Voice MCP Permission Bypass (`FINDING WP08-01`):** Route all voice MCP tool executions through `AgentRuntime.execute()` in `core/tool_exec.py`.
-- [ ] **P1 — Fix Proactive Voice Commentary Gating (`FINDING WP08-02`):** Pass `proactive=True` in `main.py:3162` and `core/attention_flow.py`; update `core/audio_io.py:361` to enforce proactive checks.
-- [ ] **P1 — Fix `core/identity.py` Import-Time Disk Write & Repo Path (`FINDING WP08-03`):** Move `identity.json` to `get_user_data_dir() / "config"`, remove `save()` from `load()`, and use `atomic_write_json`.
-- [ ] **P1 — Gate Clipboard Sentry Exfiltration (`FINDING WP08-04`):** Add user confirmation and token/secret redaction before sending clipboard text to external LLMs.
+- [x] **P0 — Fix Voice MCP Permission Bypass (`FINDING WP08-01`):** Voice MCP specs register as tools and execute through `AgentRuntime.execute()`; the same path handles bridge tools.
+- [x] **P1 — Fix Proactive Voice Commentary Gating (`FINDING WP08-02`):** `proactive=True` is passed and enforced in `core/attention_flow.py` and `core/audio_io.py`.
+- [x] **P1 — Fix `core/identity.py` Import-Time Disk Write & Repo Path (`FINDING WP08-03`):** Config lives in `get_user_data_dir() / "config"`, `load()` only reads, and `save()` uses `atomic_write_json`.
+- [x] **P1 — Gate Clipboard Sentry Exfiltration (`FINDING WP08-04`):** Clipboard text is redacted and the callback posts a confirmation card rather than forwarding raw clipboard content.
 
 ### Priority 2 (Medium / Robustness & Architectural Debt)
-- [ ] **P2 — Atomic File Writes (`FINDING WP08-05`):** Replace raw `open(..., "w")` writes across `core/identity.py`, `core/learned_rules.py`, `sound_manager.py`, and `core/flowstate.py` with atomic write utilities.
+- [x] **P2 — Atomic File Writes (`FINDING WP08-05`):** `core/identity.py`, `core/learned_rules.py`, `sound_manager.py`, and `core/flowstate.py` now use atomic write utilities.
 - [ ] **P2 — TTS Cancellation & Re-entrancy (`FINDING WP08-06`):** Refactor local TTS in `core/speech_tts.py` to play via `AudioIO` or use asynchronous playback responsive to cancel events.
 - [ ] **P2 — Remove Dead Code (`FINDING WP08-07`):** Delete or archive orphaned `core/live_voice_engine.py` and `core/memory_cortex.py`.
 - [x] **P2 — Provider Routing Consistency (`FINDING WP08-08`):** Remove hardcoded `"gemini-2.5-flash"` in `core/reply_flow.py` and `core/shopping_agent.py`; route through active provider router.

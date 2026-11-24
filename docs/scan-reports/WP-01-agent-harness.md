@@ -420,15 +420,15 @@ Evaluated against the authoritative system invariants in [`docs/ARCHITECTURE-SPE
 ## 6. Prioritized Action Queue for This Subsystem
 
 ### 1. Immediate (P0/P1)
-- [ ] **[P0] Fix SSRF TOCTOU DNS Rebinding in `agent/web.py` ([WP-01-F01]):** Pin socket connection to the pre-validated IP address in `urllib.request` custom connection handler to prevent local host boundary escape.
-- [ ] **[P1] Fix Windows Grandchild Process Leak in `agent/process.py` ([WP-01-F04]):** Add unconditional `taskkill /F /T` fallback in `_kill_tree` to guarantee complete process tree termination on timeout.
-- [ ] **[P1] Fix Parallel Scheduler Path Key Blind Spot in `agent/loop.py` ([WP-01-F02]):** Inspect all 13 `PATH_ARG_KEYS` and handle parent directory traversals in glob patterns.
+- [x] **[P0] Fix SSRF TOCTOU DNS Rebinding in `agent/web.py` ([WP-01-F01]):** Guarded `HTTPConnection`/`HTTPSConnection` re-resolve and validate the target IP before connecting; `web_fetch` validates every URL and redirect.
+- [x] **[P1] Fix Windows Grandchild Process Leak in `agent/process.py` ([WP-01-F04]):** `_kill_tree` runs `taskkill /F /T /PID` before job termination on timeout.
+- [x] **[P1] Fix Parallel Scheduler Path Key Blind Spot in `agent/loop.py` ([WP-01-F02]):** `PATH_ARG_KEYS` is centralized in `agent/prompts.py` and glob/parent traversal patterns are fenced in the scheduler.
 
 ### 2. Near-Term (P2)
-- [ ] **[P2] Add Mutex Synchronization to `MCPSession` in `agent/mcp.py` ([WP-01-F03]):** Prevent race conditions between turn-boundary dynamic refresh and in-flight tool calls.
-- [ ] **[P2] Fix Output Cap Negative Slice Underflow in `agent/spec.py` ([WP-01-F05]):** Clamp `head` calculation when `cap < 1200`.
-- [ ] **[P2] Thread-Safe `ToolRegistry` in `agent/spec.py` ([WP-01-F06]):** Wrap `_REGISTRY` mutations and iterations in a `threading.Lock`.
+- [x] **[P2] Add Mutex Synchronization to `MCPSession` in `agent/mcp.py` ([WP-01-F03]):** `MCPSession` uses an `RLock` for start, call and refresh; pending calls are failed on close.
+- [x] **[P2] Fix Output Cap Negative Slice Underflow in `agent/spec.py` ([WP-01-F05]):** `cap <= 1400` uses a safe short-output branch; no negative `head` slice remains.
+- [x] **[P2] Thread-Safe `ToolRegistry` in `agent/spec.py` ([WP-01-F06]):** `_REGISTRY_LOCK` guards registration, lookup and iteration.
 
 ### 3. Cleanup / Refactor (P3)
-- [ ] **[P3] Isolate Session Fallback DB Path in `agent/session.py` ([WP-01-F07]):** Decouple `_default_db_path` from `workspace_store.py` module load to prevent test suite interference.
+- [x] **[P3] Isolate Session Fallback DB Path in `agent/session.py` ([WP-01-F07]):** The fallback path is a local import and `WorkspaceStore` no longer opens the database at module import.
 - [ ] **[P3] Add Fail-Soft Guards to Informational `core` Imports ([WP-01-F08]):** Wrap `mark_workspace_trusted` in `agent/mcp.py` and `LLMGateway` in `agent/providers.py` in `try...except ImportError` blocks.
