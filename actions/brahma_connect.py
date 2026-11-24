@@ -295,7 +295,7 @@ def connect_execute(parameters: dict[str, Any] | None = None, player=None, speak
     try:
         service = _service()
         result = None
-        if not service.is_running():
+        if not getattr(service, "is_running", lambda: True)():
             try:
                 import urllib.request
                 req_data = json.dumps({"device": target, "action": action, "parameters": command_parameters}).encode("utf-8")
