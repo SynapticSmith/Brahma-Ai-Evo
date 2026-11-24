@@ -579,7 +579,7 @@ flowchart TB
    - [x] Move `local_api_key` and `custom_api_key` from cleartext `app_settings.json` to DPAPI-encrypted `api_keys.json`; legacy cleartext keys are removed (`core/ui_connectivity.py:4799-4811`).
    - [x] Fix pseudo-marshalled `run_on_ui` in `SystemConnectivityPage`: the page now owns `_run_on_ui`, queuing worker-thread callbacks with `QTimer.singleShot(0, fn)`; `tests/test_connectivity_ui_thread.py` guards both thread cases.
 2. **Near-Term (P2):**
-   - [ ] Replace non-atomic file writes with `atomic_write_json` in `core/ui_connectivity.py:4458, 4623` and `core/ui_shell_discord.py:32`.
+   - [x] Replace non-atomic file writes with `atomic_write_json`: `core/ui_connectivity.py` theme/settings writes and `core/ui_shell_discord.py` now use the atomic writer; `tests/test_discord_settings_atomic.py` guards the Discord path.
    - [x] Fix approval timeout desynchronization: `pending.timeout` is clamped and passed into `ConfirmationOverlay` instead of hardcoding 90 seconds.
    - [x] Remove duplicate process spawn in `_change_theme`: theme changes now apply live (`core/ui_connectivity.py:4630-4648`); no restart `Popen` remains.
    - [ ] Eliminate global `QWidget.setStyleSheet` monkey-patch and deduplicate 3x `#00e5ff` replace calls (`ui.py:85-100`). Move `app_settings.json` import-time read into `BrahmaUI.__init__`.

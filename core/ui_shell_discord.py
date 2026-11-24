@@ -4,9 +4,9 @@ config paths are injected via bind()."""
 from __future__ import annotations
 
 import json
-import os
 
 from core.ui_theme import (C)
+from core.user_paths import atomic_write_json
 
 
 def bind(*, CONFIG_DIR, DISCORD_SETTINGS_FILE, _default_discord_settings):
@@ -28,8 +28,7 @@ class _ShellDiscordMixin:
         return dict(settings)
 
     def _save_discord_settings(self, settings: dict):
-        os.makedirs(CONFIG_DIR, exist_ok=True)
-        DISCORD_SETTINGS_FILE.write_text(json.dumps(settings, indent=4), encoding="utf-8")
+        atomic_write_json(DISCORD_SETTINGS_FILE, settings)
 
     def _emit_discord_settings(self):
         if not hasattr(self, "_discord_token_input"):
