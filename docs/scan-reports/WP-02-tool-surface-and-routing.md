@@ -425,7 +425,7 @@ The findings in WP-02 directly intersect with several other Work Packages. The O
 ### 2. Near-Term (P2) — Hardening & Concurrency Protection
 - [ ] **[P2] Enforce Bridge Recursion Depth & Thread Safety ([WP-02-F05]):** Add a hard recursion ceiling check (`if self._bridge_depth > 3: return "Max recursion exceeded"`) and wrap `self._recent_calls` mutations behind a `threading.Lock()` in `core/tool_exec.py`.
 - [ ] **[P2] Reclassify Permissive Destructive Actions ([WP-02-F07]):** Ensure `space_cleaner` with `action="purge"` requires interactive approval, and review `computer_control` policy classification.
-- [ ] **[P2] Reconcile `core/tool_policy.py` ([WP-02-F06]):** Port `BLOCKED_SHELL_SUBSTRINGS` into `agent/permissions.py:DEFAULT_EXEC_DENY_PATTERNS` to make sensitive path protections active in production.
+- [x] **[P2] Reconcile `core/tool_policy.py` ([WP-02-F06]):** `BLOCKED_SHELL_SUBSTRINGS` are enforced as `agent/permissions.py:DEFAULT_EXEC_DENY_PATTERNS` hard denials in production.
 
 ### 3. Cleanup / Refactor (P3) — Technical Debt Retirement
 - [ ] **[P3] Delete Dormant Legacy Modules ([WP-02-F08]):** Remove `core/intent_dispatcher.py` (1,051 lines) and `core/execution_reflection.py` (154 lines) after updating tests in `tests/test_routing_authority.py`.

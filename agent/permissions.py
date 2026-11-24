@@ -62,6 +62,14 @@ DEFAULT_EXEC_DENY_PATTERNS: Tuple[str, ...] = (
     r"shutdown\s+(?:/s|/r|-h|-r)",
     r"cipher\s+/w\s*[a-z]:",
     r"reg\s+delete\s+hklm",
+    r"api_keys\.json",
+    r"smart_home\.key",
+    r"audit\.jsonl",
+    r"BRAHMA_DPAPI",
+    r"release_state\.json",
+    r"\.git[\\/]config",
+    r"id_rsa",
+    r"id_ed25519",
 )
 
 #: Relative to the workspace. ``fnmatch`` semantics on the POSIX-style
