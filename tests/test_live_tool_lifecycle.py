@@ -111,16 +111,16 @@ def test_tool_executor_bridge_limits_recursion_and_repeated_calls():
     )
     executor.execute_sync = MagicMock(return_value="ok")
 
-    executor._bridge_depth = 3
+    executor._bridge._depth = 3
     assert executor.execute_via_bridge("echo", {"text": "hi"}) == "Max recursion exceeded"
     executor.execute_sync.assert_not_called()
 
-    executor._bridge_depth = 0
+    executor._bridge._depth = 0
     results = [executor.execute_via_bridge("echo", {"text": "hi"}) for _ in range(6)]
     assert results[:5] == ["ok"] * 5
     assert "repeated calls detected" in results[5]
     assert executor.execute_sync.call_count == 5
-    assert executor._bridge_depth == 0
+    assert executor._bridge._depth == 0
 
 
 def test_tool_executor_unknown_tool_fallback():

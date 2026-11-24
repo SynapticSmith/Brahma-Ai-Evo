@@ -8,13 +8,13 @@ dynamic skills from :class:`core.dynamic_registry.DynamicToolRegistry`.
 from __future__ import annotations
 
 import asyncio
-import threading
 import traceback
 
 from google.genai import types
 
 from agent.skill_audit import note_skill_load
 from core import desktop_host
+from core.tool_bridge_guard import BridgeGuard
 
 # Bound on how long execute_sync waits for a tool running on the live loop.
 TOOL_EXEC_TIMEOUT_SECONDS = 300.0
@@ -35,31 +35,20 @@ class ToolExecutor:
         self._host = host
         self._ig_gemini_reply = ig_gemini_reply
         self._tool_declarations = tool_declarations
-        self._bridge_depth = 0
-        self._recent_calls = []
-        self._recent_calls_lock = threading.Lock()
+        self._bridge = BridgeGuard()
         from core import desktop_tools
 
         self._desktop = desktop_tools.attach_host(host)
 
     def execute_via_bridge(self, name: str, args: dict) -> str:
         """Run a tool on behalf of the tool bridge's call_tool meta-tool."""
-        with self._recent_calls_lock:
-            if self._bridge_depth >= 3:
-                return "Max recursion exceeded"
-            self._bridge_depth += 1
-            key = (name, str(args)[:200])
-            self._recent_calls.append(key)
-            if len(self._recent_calls) > 100:
-                self._recent_calls = self._recent_calls[-30:]
-            if self._recent_calls.count(key) > 5:
-                self._bridge_depth -= 1
-                return f"Tool '{name}' skipped to prevent loop (repeated calls detected)."
+        refusal = self._bridge.enter((name, str(args)[:200]))
+        if refusal:
+            return refusal
         try:
             return self.execute_sync(name, args, call_id="call_bridge_" + name)
         finally:
-            with self._recent_calls_lock:
-                self._bridge_depth -= 1
+            self._bridge.leave()
 
     def execute_sync(self, name: str, args: dict, call_id: str = "call_local") -> str:
         fc = _LocalFC(name, args, call_id)
