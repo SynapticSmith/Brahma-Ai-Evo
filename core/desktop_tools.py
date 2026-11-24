@@ -99,7 +99,7 @@ WAVE3: Dict[str, Tuple[str, bool]] = {
     "smart_home_control": ("device", False),
     "browser_control": ("network", False),
     "open_embedded_browser": ("network", False),
-    "desktop_control": ("device", False),
+    "desktop_control": ("device", True),
     "computer_control": ("exec", False),
     "game_updater": ("exec", False),
     "flight_finder": ("network", False),

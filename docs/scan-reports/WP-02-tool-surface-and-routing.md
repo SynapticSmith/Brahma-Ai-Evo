@@ -282,6 +282,8 @@ Following architectural decisions ADR-019 (Action Host Injection), ADR-021 (Pinn
       return "device"
   ```
   Furthermore, enforce `requires_approval=True` whenever dynamic code execution is requested, or route the code execution through `agent.process.run_captured` inside an isolated sandbox rather than executing `exec()` directly in the host process.
+- **Resolution (2026-11-23):**
+  `_classify_desktop_control` already maps `action="task"` to `exec`. The spec now also sets `requires_approval=True` for every `desktop_control` call, so even before classification the tool asks interactively; `tests/test_desktop_tools.py` verifies the class and approval behavior.
 
 ---
 
@@ -421,7 +423,7 @@ The findings in WP-02 directly intersect with several other Work Packages. The O
 ### 1. Immediate (P0 / P1) — Critical Vulnerabilities & Bug Fixes
 - [x] **[P0] Fix SQLite Thread-Sharing in `_Fts5Backend` ([WP-02-F02]):** `core/tool_index.py` uses `sqlite3.connect(":memory:", check_same_thread=False)`; `tests/test_tool_index.py` exercises FTS5 from a worker thread.
 - [ ] **[P1] Close `DynamicToolRegistry` Policy Bypass ([WP-01-F01]):** Voice routing is fixed, but the text path at `core/text_turn_controller.py:435-444` still calls raw `execute_sync`; finish routing dynamic skills through `AgentRuntime.execute`.
-- [ ] **[P1] Secure `desktop_control` Execution Class ([WP-02-F03]):** `_classify_desktop_control` now maps `action="task"` to `"exec"`; still needs explicit `requires_approval=True` rather than class-only approval.
+- [x] **[P1] Secure `desktop_control` Execution Class ([WP-02-F03]):** `_classify_desktop_control` maps `action="task"` to `"exec"` and the spec now sets `requires_approval=True` for every call.
 - [x] **[P1] Eliminate Import-Time Side Effect in `workspace_store.py` ([WP-02-F04]):** `WorkspaceStore.__init__` no longer opens the database for the module-level store; connection setup and corruption recovery are lazy.
 
 ### 2. Near-Term (P2) — Hardening & Concurrency Protection
