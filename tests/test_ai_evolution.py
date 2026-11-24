@@ -152,17 +152,21 @@ def test_anticipatory_watcher_cycle():
     delivered_nudges = []
     watcher.set_nudge_callback(lambda msg, cat: delivered_nudges.append((msg, cat)))
 
-    with patch("psutil.virtual_memory", return_value=mock_mem):
+    mock_disk = MagicMock()
+    mock_disk.percent = 40.0
+    mock_disk.free = 50 * 1024**3
+    with patch("psutil.virtual_memory", return_value=mock_mem), patch("psutil.disk_usage", return_value=mock_disk):
         with patch("core.mem_reduct.MemReductEngine.clean_ram", return_value={"freed_mb": 1200.0}):
-            res = watcher.run_inspection_cycle()
-            assert len(delivered_nudges) == 1
-            assert delivered_nudges[0][1] == "memory"
-            assert "1200.0 MB" in delivered_nudges[0][0]
+            watcher.run_inspection_cycle()
+            mem_nudges = [n for n in delivered_nudges if n[1] == "memory"]
+            assert len(mem_nudges) == 1
+            assert "1200.0 MB" in mem_nudges[0][0]
 
     # Cooldown suppresses immediate duplicate nudge
-    with patch("psutil.virtual_memory", return_value=mock_mem):
+    with patch("psutil.virtual_memory", return_value=mock_mem), patch("psutil.disk_usage", return_value=mock_disk):
         watcher.run_inspection_cycle()
-        assert len(delivered_nudges) == 1
+        mem_nudges2 = [n for n in delivered_nudges if n[1] == "memory"]
+        assert len(mem_nudges2) == 1
 
 
 # =========================================================================
