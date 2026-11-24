@@ -334,9 +334,9 @@ The **WP-03** subsystem forms the operational backbone and execution core of Bra
           self._host.set_speaking(False)
   threading.Thread(target=_speak_thread, daemon=True).start()
   ```
-  There is no serialization lock or FIFO playback queue. If two calls to `speak()` arrive in rapid succession (e.g. action progress followed by completion, or background monitor alerts), both threads concurrently invoke the audio device through `speech_tts.speak`. Both voices play at the same time, producing unintelligible audio, and the earlier thread's `finally` unsets `_is_speaking` prematurely while the second thread is still speaking.
+  Without serialization, two rapid calls can invoke `speech_tts.speak` concurrently, overlap voices, and let the earlier thread's `finally` unset `_is_speaking` prematurely.
 - **Impact:** Garbled, overlapping speech on local/offline TTS; premature unsetting of the speaking indicator.
-- **Recommended Fix:** Implement a dedicated speech queue (`queue.Queue`) and a single consumer worker thread in `core.audio_io`, serializing playback requests when using modular TTS.
+- **Resolution (2026-11-23):** The modular TTS thread already holds `self._tts_lock` around `speech_tts.speak(...)` and the speaking-flag window, which serializes playback without a queue. `tests/test_audio_io_serialization.py` verifies concurrent `speak()` calls never overlap.
 
 ---
 
@@ -478,7 +478,7 @@ The **WP-03** subsystem forms the operational backbone and execution core of Bra
   - Gate `voice_backend()` in `core/session_lifecycle.py` on `provider_router.is_enabled("gemini")`.
   - Add `provider_router.guard("local")` inside `core/local_brain.py`.
 - **Serialize Modular TTS Output ([WP-03-F07]):**
-  - Add an audio playback queue in `core.audio_io` so non-Gemini speech requests play sequentially without garbled overlap.
+  - Resolved: `AudioIO._tts_lock` serializes non-Gemini speech requests; `tests/test_audio_io_serialization.py` guards the behavior.
 - **Gate Clipboard Monitor Spoken Output ([WP-03-F06]):**
   - Pass `proactive=True` in `main.py:3162` to respect user proactive speech preferences.
 
