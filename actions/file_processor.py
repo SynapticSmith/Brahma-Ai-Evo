@@ -25,9 +25,6 @@ import tempfile
 from pathlib import Path
 from datetime import datetime
 
-import google.generativeai as genai
-
-
 def _get_api_key() -> str:
     config_path = Path(__file__).resolve().parent.parent / "config" / "api_keys.json"
     with open(config_path, "r", encoding="utf-8") as f:
@@ -35,6 +32,8 @@ def _get_api_key() -> str:
 
 
 def _gemini_client():
+    import google.generativeai as genai
+
     genai.configure(api_key=_get_api_key())
     return genai.GenerativeModel("gemini-2.5-flash")
 
